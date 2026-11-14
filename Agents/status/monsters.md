@@ -152,7 +152,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
-
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.

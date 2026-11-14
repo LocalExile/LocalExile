@@ -110,7 +110,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Warcry release and cooldowns. Docs: [11](../docs/protocol/11-skills.md) §10i.
-- Strike targeting: spirit strikes, target selection for whiff/hit emissions, and the previous location. Docs: [11](../docs/protocol/11-skills.md) §10d.
+- Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) §10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
@@ -134,7 +134,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Lightning Strike resolves its melee hit and secondary projectiles.
-- Molten Strike (base, AltX Zenith, Vaal, Wildfire): 270° sampled lobbed chunks with flight speed scaled by projectile count, defaultAttack contact timing, persistent 5th-attack counter buff 2353, and Vaal whiff emission with ground chaining. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
+  Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),

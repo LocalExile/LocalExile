@@ -32,8 +32,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   dedicated fragment and Delirium cells also stack items whose inventory limit is one (including Simulacrum,
   offerings, Maven's Writ, emblems, Divine Vessels, Sacred Blossoms and breachstones); withdrawals respect inventory
   limits. Their native inventory kinds also show the stack counters for these items. Fragment layout rows use both
-  FirstSlotIndex and Subtab, including all eight current Allflame embers. Verified live with two-item stacks and all
-  eight embers visible in their subpage.
+  FirstSlotIndex and Subtab, including all eight current Allflame embers.
   Ctrl + click on currency goes to its affinity tab's slot (C→S 0xe1, live 2026-10-20) and a plain click on a currency
   slot picks up the stack; the tab settings' affinities (0xd3) are saved;
   the stash reopens on the account's last tab after a relog (0x7b affinity on the first open per connection) and keeps

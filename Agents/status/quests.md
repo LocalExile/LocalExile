@@ -124,8 +124,8 @@ Part of [Status](../Status.md); what to build next in this area is in
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
-   In the 3.29.3c client the Belly side door and the four arena entrances worked at seed 1, the corresponding doors disappeared on use or kill,
-  Malachai's portal returned to Highgate, and the Ossuary lever opened the passage after taking the Sign.
+  The Belly side door and the four arena entrances open (the doors go when used or their guardian dies), Malachai's
+  portal returns to Highgate, and the Ossuary lever opens the passage after the Sign is taken.
   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
