@@ -37,7 +37,7 @@ sealed partial class BotDirector
                         && b.Phase is BotPhase.Arriving or BotPhase.Walking or BotPhase.Idling)));
             if (bot is null) return BotInvite.NotFound;
 
-            if (!PartyRoster.TryAddCompanion(conn, Companion(bot), out party)) return BotInvite.Refused;
+            if (!PartyRoster.TryAddCompanion(conn, Companion(bot, conn.Layout.Hash), out party)) return BotInvite.Refused;
             try
             {
                 // Select from the inviting town once. Later area changes preserve earned levels and experience.
@@ -80,10 +80,12 @@ sealed partial class BotDirector
         _log.Write(bot.Account, bot.Name, bot.Doing);
     }
 
-    static PartyCompanion Companion(Bot bot)
+    // A following bot is in its leader's area, and that is the area its row shows: 0xa7 +0xa8 is the WorldAreas HASH16 the
+    // party panel resolves for the member's area name (a level showed "Travelling...", #715).
+    static PartyCompanion Companion(Bot bot, ushort area)
     {
         var cls = Program.Skills.ClassFor(Program.Skills.RowOfClass((int)bot.Class));
-        return new(bot.Account, bot.Name, InstanceSocial.KnownPlayer(bot.Account, bot.Name, bot.Level,
+        return new(bot.Account, bot.Name, InstanceSocial.KnownPlayer(bot.Account, bot.Name, area,
             CharacterClassByte.Encode((byte)cls.IntegerId, 0)));
     }
 
@@ -91,7 +93,7 @@ sealed partial class BotDirector
     {
         lock (_bots)
             foreach (var bot in _bots.Where(b => b.Party == party && b.Phase == BotPhase.Following))
-                PartyRoster.UpdateCompanion(party, Companion(bot));
+                PartyRoster.UpdateCompanion(party, Companion(bot, leader.Layout.Hash));
         await PartyRoster.Publish(party);
     }
 

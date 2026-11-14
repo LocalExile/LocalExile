@@ -98,6 +98,9 @@ public sealed class SocialModule : IModule
             var remote = conn.Wire.Remote;
             return await PartyRoster.LeaveHuman(conn, InstanceSocial.ReadPartyAccept(bytes));
         });
+        // The panel's travel button: the member's row shows their area (0xa7 +0xa8), and this moves the player there.
+        GameEvents.Packet(InstanceSocial.PartyTravelId).Add(module.Manifest.Id, (conn, bytes) =>
+            PartyTravel.Travel(conn, InstanceSocial.ReadPartyTravel(bytes)));
         // A "%…" line: only this module knows the party, so it carries the line to the members.
         GameEvents.PartyChat.Add(module.Manifest.Id, PartyChat.Deliver);
     }
@@ -124,9 +127,10 @@ static class SocialFeature
         && !a.Closed && !b.Closed && !a.LeavingArea && !b.LeavingArea
         && a.PlayerLife > 0 && b.PlayerLife > 0 && !a.HardcoreDeathRecorded && !b.HardcoreDeathRecorded;
 
-    // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
+    // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table. The
+    // third field is the player's area as a WorldAreas HASH16 (+0xa8), not the character's level (#715).
     internal static async Task Introduce(ClientState to, ClientState about) =>
-        await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level,
+        await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Layout.Hash,
             PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their

@@ -106,7 +106,7 @@ sealed partial class BotDirector
             _townTargets[town] = _random.Next(2, 6);
         foreach (var bot in _bots.Where(b => b.Leader is not null))
         {
-            if (PartyRoster.TryAddCompanion(bot.Leader!, Companion(bot), out uint party, restore: bot.Party)) bot.Party = party;
+            if (PartyRoster.TryAddCompanion(bot.Leader!, Companion(bot, bot.Leader!.Layout.Hash), out uint party, restore: bot.Party)) bot.Party = party;
             else Depart(bot, "группа недоступна");
         }
         foreach (var party in _bots.Where(b => b.Leader is not null).GroupBy(b => b.Party))
