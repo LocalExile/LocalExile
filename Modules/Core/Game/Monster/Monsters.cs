@@ -127,6 +127,8 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null)
     {
         movement ??= MonsterMovement.Default;
+        // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
+        if (ownedLooks is null && !friendly && rarity == MonsterRarity.Unique && variety.Weapons.Count > 0) ownedLooks = variety.Weapons;
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
         lock (conn.Monsters)
@@ -253,10 +255,12 @@ public static partial class Game
         var kingSkills = Sirus.SkillsFor(conn, variety, level) ?? KitavaActFive.SkillsFor(conn, variety, level) ?? KitavaActTen.SkillsFor(conn, variety, level) ?? DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? IzaroSkills.SkillsFor(conn, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(conn, variety, level, attack, skill) ?? GoddessOfJustice.SkillsFor(conn, variety, level, attack, skill) ?? KingInMists.SkillsFor(conn, variety, level, attack)
             ?? AtlasBosses.SkillsFor(conn, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
-        // A monster the campaign places as a boss, or one with a bar of its own, and that has no encounter controller:
-        // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
-        // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
-        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        // A monster the campaign places as a boss, one with a bar of its own, or a hostile unique (a Rogue Exile), and that
+        // has no encounter controller: it plays the rest of its granted effects through the ordinary AI (BossKits). Every
+        // other campaign boss walked up and swung one default attack forever. A scripted encounter keeps its own list and
+        // its own actions.
+        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
+            : BossKits.Kit(conn, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills

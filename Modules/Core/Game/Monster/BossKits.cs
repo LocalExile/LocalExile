@@ -76,11 +76,12 @@ public static class BossKits
     /// before the kit), then the variety's other effects in its order. Empty for anything that is not a kit boss.</summary>
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
+    /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
     {
         var catalog = SkillsFor(conn);
-        if (!IsKitBoss(catalog, variety)) return [];
+        if (!IsKitBoss(catalog, variety) && !(unique && Effects(catalog, variety).Count > 1)) return [];
         List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
