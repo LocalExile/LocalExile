@@ -37,6 +37,7 @@ public static partial class Game
         {
             conn.FreezeGeneration++;
             conn.FreezeHeldUntil = frozenUntil;
+            CancelMeleeRepeats(conn, now);
             Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
             // A lockstep client's walk ends with the freeze's 0x1d1 instead (ShowFreeze), as with a hit's recovery.

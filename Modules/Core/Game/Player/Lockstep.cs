@@ -79,6 +79,7 @@ public static partial class Game
     // A Move can cancel at either end of a spell. A different spell can replace it only early; a held repeat waits.
     public static bool LockstepPlayerFree(ClientState conn, double at)
     {
+        if (!MeleeRepeatAllowsMove(conn, at)) return false;
         if (at >= conn.LockstepBusyUntil) return true;
         if (!conn.LockstepClient || conn.LockstepCastWindow is not { } cast) return false;
         if (conn.LockstepHold.Active)
@@ -159,6 +160,7 @@ public static partial class Game
                     && PlaceLockstepPlayerMove(conn, due, at) is { } placed)
                 {
                     (target, from) = (due, placed);
+                    CancelMeleeRepeats(conn, at);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     conn.ChannelSkill = 0;
                     conn.LockstepCastWindow = null;

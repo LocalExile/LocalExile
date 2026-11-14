@@ -172,6 +172,7 @@ public static partial class Game
                 if (!PayMana(conn, accepted, out uint mana, out uint life)) return false;
                 paid = (mana, life);
             }
+            if (!instant) CancelMeleeRepeats(conn, requestedAt ?? ProjectileWorldTime(conn));
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             // A bypassed use spends no cooldown use, so its ticket follows none.

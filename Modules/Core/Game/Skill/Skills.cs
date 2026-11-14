@@ -632,6 +632,9 @@ public static partial class Game
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
                 stats[repeatKey] = repeats;
+            // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
+            if (SkillsFor(conn).IsAttack(effect) && Stats.Key("attack_repeat_count") is uint attackRepeatKey)
+                stats[attackRepeatKey] = MeleeAttackRepeats(conn, id);
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect)))
             {

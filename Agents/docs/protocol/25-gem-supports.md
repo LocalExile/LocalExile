@@ -133,10 +133,22 @@ chill, Exposure and Arcane Surge, the client's strongest-instance buffs. Every C
 (BuffDefinitions 1815) shows that value, with `u82 = 0` and one value (the percent), re-sent on a value change or a
 deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the granting hit itself do not get it yet.
 
-Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
-repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
-speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
-exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
+Multistrike's native melee constructor (`0x141b71600`) reads **`attack_repeat_count`**, not the support's
+`base_melee_attack_repeat_count`; network stats run no calculator. Completion (`0x1419e6370`) decrements the
+action's `+0x2d0` and restarts a full swing. Its cancellation gate (`0x1419e6460`) lets Multistrike use each
+swing's clip gate, unlike ordinary Spell Echo's intermediate casts. The server retains one payment and one
+Ruthless count for the use, spaces its repeats by the supported attack time, and drops remaining repeats when
+the action is replaced or interrupted. Each repeat's hit and ailments take its independent
+`multistrike_damage_+%_final_on_{first,second,third}_repeat`; attack speed uses
+`support_multiple_attacks_melee_attack_speed_+%_final`.
+
+The native damage panel does **not** average those repeat bonuses: the main-hand average (`0x142793170`),
+combined average (`0x1427947b0`), per-use display (`0x142795ca0`) and DPS (`0x142795ea0`) use the individual
+hit and attack rate. Invoking those calculators with a fixed 100-damage hit at two attacks per second gave
+100 average damage and 200 DPS with zero, two or three repeats and their 22/44/66% bonuses. The server's
+panel preserves that per-hit convention for both hands.
+
+Melee Splash hits the enemies around each struck one for the
 support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
