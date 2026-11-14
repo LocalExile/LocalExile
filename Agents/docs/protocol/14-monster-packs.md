@@ -121,6 +121,10 @@ So:
    through `ShrineGuards.Resolve(..., mapArea)` so a map's rule can change without the campaign's. A shrine within
    `AreaPopulation.TransitionClearance` (25 cells) of the arrival or an area transition is not guarded (the 1.0.0d note,
    "Monster packs around shrines are now not spawned if they are too close to an area entrance or waypoint"). The guards
+   stand **around** the shrine and never on it: a guard is kept at least `ShrinePlacement.ObjectSize` (7) cells from the
+   shrine's cell, so the statue and its base stay clear, and out to `AreaPopulation.ShrineGuardRadius` (12) cells rather
+   than an ordinary pack's 9, where a pack of four still fits around a 2×2 shrine room. The log line says the spread
+   (`shrine Multi at (758, 713): guarded by Act1-RhoaBig (1–2): 1 at 7–7 cells`). The guards
    are planned with the area's monsters, so an instance keeps them: re-entry restores them rather than adding a pack, and
    activating a shrine neither respawns nor removes its guards. The shrine's monster buff (`Monster_ShrineBuffsKey`) is
    on the monsters around it while it is unclaimed (`MonsterAuraEffect`): every hostile monster within 20 cells

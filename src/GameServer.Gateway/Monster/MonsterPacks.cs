@@ -236,6 +236,10 @@ public static class AreaPopulation
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
     const int CentreDepth = 5, MemberRadius = 9, MemberSpacing = 3;
 
+    /// <summary>How far (cells) a shrine's guards may stand from it: outside the shrine's object size (the statue and its
+    /// base) and a little wider than an ordinary pack, so a pack of four still fits around the shrine.</summary>
+    public const int ShrineGuardRadius = 12;
+
     /// <summary>A map's pack size and extra packs (MapMods): Size multiplies both how many packs and how many members.</summary>
     public readonly record struct PackScale(double Size = 1, int ExtraNormal = 0, int ExtraMagic = 0, int ExtraRare = 0,
         int RareIncrease = 0, int MagicIncrease = 0);
@@ -344,10 +348,16 @@ public static class AreaPopulation
                 notes.Add($"shrine {shrine} at {at}: no pack of {area.AreaId} to guard it");
                 continue;
             }
-            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, spawnable, memberLimit: rule.Fixed ?? int.MaxValue);
+            // Around the shrine, never on it: the statue and its base stay clear by the shrine type's object size, and
+            // the pack rings it a little further out than an ordinary pack's members stand.
+            int first = spawns.Count;
+            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, spawnable, memberLimit: rule.Fixed ?? int.MaxValue,
+                keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius);
             centres.Add(at);
+            var ring = spawns.Skip(first).Select(s => Math.Max(Math.Abs(s.X - at.X), Math.Abs(s.Y - at.Y))).ToList();
             notes.Add($"shrine {shrine} at {at}: guarded by {guard.Id} " +
-                (rule.Fixed is int fixedCount ? $"({fixedCount})" : $"({guard.MinCount}\u2013{guard.MaxCount})"));
+                (rule.Fixed is int fixedCount ? $"({fixedCount})" : $"({guard.MinCount}\u2013{guard.MaxCount})") +
+                (ring.Count == 0 ? ": no cell free around it" : $": {ring.Count} at {ring.Min()}\u2013{ring.Max()} cells"));
         }
         if (packs.Count == 0) return spawns;
         foreach (var p in roomPacks ?? [])
@@ -415,7 +425,7 @@ public static class AreaPopulation
 
     static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
         MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1,
-        int memberLimit = int.MaxValue)
+        int memberLimit = int.MaxValue, int keepClear = 0, int maxRadius = MemberRadius)
     {
         int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
         int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
@@ -438,18 +448,21 @@ public static class AreaPopulation
         {
             // Magic packs are magic throughout; a rare pack has one rare (the first member) among normal ones.
             var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
-            if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng, i == 0 ? 0 : 2) && members[i].Unique) uniques.Add(members[i].Variety);
+            if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng,
+                    keepClear > 0 ? keepClear : i == 0 ? 0 : 2, keepClear, maxRadius) && members[i].Unique) uniques.Add(members[i].Variety);
         }
         return uniques;
     }
 
     static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
-        MonsterRarity rarity, string pack, Random rng, int minRadius)
+        MonsterRarity rarity, string pack, Random rng, int minRadius, int keepClear = 0, int maxRadius = MemberRadius)
     {
         for (int attempt = 0; attempt < 60; attempt++)
         {
-            int radius = Math.Min(MemberRadius, minRadius + attempt / 6);
+            int radius = Math.Min(maxRadius, minRadius + attempt / 6);
             int x = at.X + rng.Next(-radius, radius + 1), y = at.Y + rng.Next(-radius, radius + 1);
+            // A shrine's guards stand around it: no cell inside keepClear of the shrine's own cell.
+            if (keepClear > 0 && Math.Max(Math.Abs(x - at.X), Math.Abs(y - at.Y)) < keepClear) continue;
             if (!walkable(x, y) || taken.Any(t => Math.Abs(t.Item1 - x) < MemberSpacing && Math.Abs(t.Item2 - y) < MemberSpacing)) continue;
             taken.Add((x, y));
             spawns.Add(new Spawn(variety, x, y, rarity, pack));
