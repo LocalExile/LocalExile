@@ -409,7 +409,10 @@ public sealed partial class AccountStash
             var t = _tabs[tab];
             var slot = InstanceStash.TabSlot(t.Grid.W, t.Grid.H);
             // StashType.__col5: the native stack limit/display uses the inventory kind, not its shared row 26.
-            slot = slot with { Kind = t.Saved.Type switch { StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, _ => slot.Kind } };
+            slot = slot with { Kind = t.Saved.Type switch
+            {
+                StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, StashRules.Divination => 0x14, _ => slot.Kind,
+            } };
             return (slot, [.. t.Items]);
         }
     }
@@ -477,11 +480,9 @@ public sealed partial class AccountStash
             : [.. t.Items.Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
 
     // How many of an item one cell of the tab holds: a currency tab's slot more than the item's own stack (not its crafting
-    // slot, which holds any item at its own stack size). An item whose own stack is 1 stacks only in the fragment and
-    // Delirium tabs, whose client kinds show the count (Inventory); the divination tab's kind hides it for a one-card set.
+    // slot, which holds any item at its own stack size).
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
         !item.Components.Contains("Stack") ? 1 :
-        shape.MaxStack <= 1 && !OversizedStacks(t.Saved.Type) ? 1 :
         _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
@@ -639,7 +640,7 @@ public sealed partial class AccountStash
                 int at = t.Items.FindIndex(i => i.X == x && i.Y == y);
                 // Another type in the slot (two layout rows naming one slot): leave it.
                 if (at >= 0 && t.Items[at].Item.TypeHash != type) { skipped++; continue; }
-                // The divination tab shows a card only once its set is complete (live 2026-10-28): fill it to its set.
+                // A divination card is filled to its complete set.
                 int max = t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
                 int room = max - (at >= 0 ? t.Items[at].Item.StackSize : 0);
                 if (room <= 0) { full++; continue; }
@@ -708,9 +709,6 @@ public sealed partial class AccountStash
         var fill = FillCells(tab, flasks.Concat(uniqueEntries.OfType<Item>()).DistinctBy(Key), Key, shapeOf, out why);
         return fill is null ? null : fill with { Skipped = fill.Skipped + uniqueEntries.Count(i => i is null) };
     }
-
-    /// <summary>Whether a tab of this type stacks items whose own stack size is 1 (Simulacrum, breachstones, emblems).</summary>
-    public static bool OversizedStacks(byte? type) => type is StashRules.Fragment or StashRules.Delirium;
 
     /// <summary>The tab's StashType row, or null for no such tab.</summary>
     public byte? TabType(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Type : null; }

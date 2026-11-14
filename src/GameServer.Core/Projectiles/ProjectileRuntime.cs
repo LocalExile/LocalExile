@@ -398,25 +398,26 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 p.Position += c.Normal * .001; // Children start on the incident side of the blocking surface.
                 if (Split(p, actors, c.Normal)) return;
             }
-            if (p.TerrainBounces > 0)
-            {
-                p.TerrainBounces--;
-                p.Direction = (p.Direction - c.Normal * (2 * p.Direction.Dot(c.Normal))).Unit;
-                p.Position += c.Normal * .001;
-                Publish(ProjectileEventKind.Redirect, p);
-            }
             // "chance to be able to Chain when colliding with terrain": the Chain off the wall needs and spends one of the
-            // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's).
-            else if (p.TerrainChainChance > 0 && !p.TerrainChained && !p.Profile.CannotChain && p.Chain > 0
+            // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's). Every
+            // wall it meets with chains left may chain it again, and the client's terminal tries the Chain before a Bounce
+            // (Agents/docs/re/projectiles/continuation-and-memory.md: eligibility 0x141bb0250, "Chain before Bounce").
+            if (p.TerrainChainChance > 0 && !p.Profile.CannotChain && p.Chain > 0
                 && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
                     is { } chainTarget
                 && p.Random.Next(100) < p.TerrainChainChance)
             {
-                p.TerrainChained = true;
                 p.Chain--;
                 p.Position += c.Normal * .001;
                 p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
                 p.Remaining = p.Profile.Range;
+                Publish(ProjectileEventKind.Redirect, p);
+            }
+            else if (p.TerrainBounces > 0)
+            {
+                p.TerrainBounces--;
+                p.Direction = (p.Direction - c.Normal * (2 * p.Direction.Dot(c.Normal))).Unit;
+                p.Position += c.Normal * .001;
                 Publish(ProjectileEventKind.Redirect, p);
             }
             else End(p, c.End.Value, terrainNormal: c.Normal);
