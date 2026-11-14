@@ -162,6 +162,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
   in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
+  Arakaali's arena-laser activators stay out until an encounter supplies their required turret objects; calling them
+  without those objects crashes the client. Her stance/phase controller remains missing.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
