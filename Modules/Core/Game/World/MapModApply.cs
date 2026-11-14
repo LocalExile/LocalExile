@@ -2,8 +2,10 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static MapMods? MapModsOf(ClientState conn) =>
-        MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods;
+    /// <summary>The map this connection's instance plays with (InstanceState.Map), or null outside a map.</summary>
+    public static MapDevice.Run? MapRunOf(ClientState conn) => conn.Instance?.Map is { } run && run.Area.Hash16 == conn.Layout.Hash ? run : null;
+
+    static MapMods? MapModsOf(ClientState conn) => MapRunOf(conn)?.Mods;
 
     static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {

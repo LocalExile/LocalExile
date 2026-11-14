@@ -236,6 +236,29 @@ public sealed class MapDevice
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
 
+    /// <summary>What a map instance plays with for its whole life (<see cref="InstanceState.Map"/>): who opened it, its
+    /// area, level, tier and mods, the first slot's row and the way back. Unlike <see cref="OpenOf"/>, it stays when the
+    /// last portal is taken or the owner opens another map, and guests see the same one.</summary>
+    public sealed record Run(string Owner, MapArea Area, MapMods Mods, int ItemRow = 0, Origin? ReturnTo = null)
+    {
+        public static Run Of(string owner, OpenMap map) => new(owner, map.Area, map.Mods, map.ItemRow, map.ReturnTo);
+    }
+
+    /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
+    /// connection opens.</summary>
+    public static readonly ConcurrentDictionary<uint, Run> Arrivals = new();
+
+    /// <summary>A connection with <paramref name="ticket"/> opens in <paramref name="instance"/> (Auth's
+    /// <paramref name="instanceId"/>) of area <paramref name="areaHash"/>: the map it plays with. The portal's map (also
+    /// its last one), else the map whose instance this is (a guest, a login inside it); the first one fixes it.</summary>
+    public static Run? Admit(InstanceState instance, uint ticket, ushort areaHash, ulong instanceId)
+    {
+        var brought = Arrivals.TryRemove(ticket, out var arriving) ? arriving
+            : InInstance(areaHash, instanceId) is var (owner, open) ? Run.Of(owner, open) : null;
+        return instance.OpenedWith(brought?.Area.Hash16 == areaHash ? brought : null) is { } run && run.Area.Hash16 == areaHash
+            ? run : null;
+    }
+
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The character's open map, or null.</summary>

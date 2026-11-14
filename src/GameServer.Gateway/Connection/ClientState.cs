@@ -14,6 +14,9 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
+
+    /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
+    public MapDevice.Run? Map { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.

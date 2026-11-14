@@ -10,8 +10,7 @@ static class PortalsFeature
     // a device once the world is active (21-hideouts.md §5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var origin = (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)
-            ?? MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber)?.Map)?.ReturnTo;
+        var origin = global::Game.MapRunOf(conn)?.ReturnTo;
         var hideout = HomeHideout(conn);
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
@@ -51,6 +50,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} map portal at place {at.Index} taken: {left} left, into {(map.Instance == 0 ? "a new instance" : $"instance {map.Instance}")} of {map.Area.Name}");
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0)
         {
+            Map = MapDevice.Run.Of(character, map),
             Done = r =>
             {
                 if (r.Ok) MapDevice.Entered(character, map.Area, r.Instance);
@@ -136,8 +136,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if ((MapDevice.Current(CharacterName(conn), conn.Layout.Hash)
-            ?? MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber)?.Map)?.ReturnTo is { } origin)
+        if (global::Game.MapRunOf(conn)?.ReturnTo is { } origin)
             await ChangeArea(remote, stream, ciphers, conn,
                 new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the Reverie Device");
         else if (conn.ReturnPortalTo is ushort town and not 0)
