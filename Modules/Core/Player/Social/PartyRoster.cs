@@ -33,9 +33,9 @@ public static class PartyRoster
         || a.Account is not null && string.Equals(a.Account, b.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
     static bool Available(ClientState c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Ssf;
-    static bool Compatible(ClientState a, ClientState b) => Available(a) && Available(b)
-        && a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
-        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase)
+    static bool SameLeague(ClientState a, ClientState b) => a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
+        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase);
+    static bool Compatible(ClientState a, ClientState b) => Available(a) && Available(b) && SameLeague(a, b)
         && ReferenceEquals(a.Instance.Presence, b.Instance.Presence);
     static uint Find(ClientState c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
     static int Count(uint id) => (Humans.GetValueOrDefault(id)?.Count ?? 0) + (Companions.GetValueOrDefault(id)?.Count ?? 0);
@@ -73,7 +73,7 @@ public static class PartyRoster
             if (!Available(actor) || !actor.PlayerSent || actor.PlayerLife == 0 || actor.HardcoreDeathRecorded
                 || !InGame.ContainsKey(actor) || !Humans.TryGetValue(Find(actor), out var members)
                 || !members.Any(c => ReferenceEquals(c, actor))) return null;
-            return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Compatible(actor, c)
+            return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Available(c) && SameLeague(actor, c)
                 && c.PlayerSent && c.PlayerLife > 0 && !c.HardcoreDeathRecorded && InGame.ContainsKey(c)
                 && string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
         }

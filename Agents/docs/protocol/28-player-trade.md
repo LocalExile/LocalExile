@@ -122,7 +122,8 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
     Campaign travel uses that member's checkpoint or open portal in their exact instance and checks area access flags.
     Map travel goes to the source device, preserving portal consumption; missing source destinations are refused.
     These routes follow [GGG�s party travel rules](https://www.pathofexile.com/forum/view-thread/2163379).
-    Labyrinth and areas that disable portals cannot be entered this way. Native acceptance of the corrected routes is pending.
+    Labyrinth and areas that disable portals cannot be entered this way. Campaign travel and quest-gate refusal were
+    checked through the native client; map-device routing still needs native acceptance.
 - **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
   `0x142153495`): u32 party id, u8 reason.
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
