@@ -93,6 +93,7 @@ public static partial class Game
         MonsterIgnites.Settings settings, bool critical, double now)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
+        SettleBleeding(target, now);
         target.Bleeds.Stacks = settings.Stacks;
         if (target.Bleeds.Burning
             && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, conn.IgniteRandom))
@@ -103,8 +104,13 @@ public static partial class Game
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
                 conn.IgniteRandom)) return null;
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
-        if (critical && settings.RupturePercent > 0) target.Ruptures.Add(now, settings.RupturePercent);
-        return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
+        if (critical && settings.RupturePercent > 0)
+        {
+            target.Ruptures.SetExpiryRate(now, target.RecipientDebuffRate);
+            target.Ruptures.Add(now, settings.RupturePercent);
+            target.Bleeds.SetExpiryRate(now, BleedingExpiryRate(target, now));
+        }
+        return [.. PresentRupturesLocked(conn, id, target, now), .. ShowDotBuffLocked(conn, id, target.Bleeds, row, now)];
     }
 
     public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -127,8 +133,26 @@ public static partial class Game
     public static double AggravatedExtra(SpawnedMonster m, double now) =>
         m.Bleeds.Stacks == 1 && !m.Walk.Moving(now) ? BleedMovingMore - 1 : 0;
 
+    // Rupture changes the target's running bleed clocks, including the bleed from the hit that applied it.
+    // GGG's mechanics Q&A: https://www.pathofexile.com/forum/view-thread/3123794
+    public static double BleedingExpiryRate(SpawnedMonster target, double now) =>
+        target.RecipientDebuffRate * (1 + .25 * target.Ruptures.Stacks(now));
+
+    // Settle at each stack's expiry, even if a delayed tick crosses several. Damage is committed by the normal DoT
+    // tick; changing the rate or adding another bleed must not discard damage already earned by an expired instance.
+    public static void SettleBleeding(SpawnedMonster target, double now)
+    {
+        while (target.Ruptures.NextExpiry is var end && end <= now)
+        {
+            double before = Math.BitDecrement(end);
+            target.Bleeds.Accrue(end, BleedTaken(target, before), AggravatedExtra(target, before));
+            target.Bleeds.SetExpiryRate(end, BleedingExpiryRate(target, end));
+        }
+        target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
+    }
+
     // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
     public static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra);
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

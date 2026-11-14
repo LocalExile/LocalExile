@@ -44,7 +44,7 @@ public sealed class LightningStrikeTests
     [Fact]
     public void A_strike_hits_one_melee_victim_and_its_bolts_hit_farther_enemies_without_hitting_it_again()
     {
-        using var f = new Fixture();
+        using var f = new Fixture(multistrike: true);
         var c = f.Conn;
         var near = new SpawnedMonster("near", new(108, 100, 0), 0, 1, 1000000);
         var far = new SpawnedMonster("far", new(140, 100, 0), 0, 1, 1000000);
@@ -80,6 +80,70 @@ public sealed class LightningStrikeTests
         c.FreezeGeneration++;
         f.Session.AdvanceTo(f.Session.Runtime.Now + ProjectileRuntime.Time(2));
         Assert.Equal(c.Monsters[44].MaxLife, c.Monsters[44].Life);
+
+        // Linked Rupture and Multistrike share one critical roll: each full swing adds a Rupture and a stronger bleed.
+        Assert.Equal(2, Game.MeleeAttackRepeats(c, f.Gem.Id));
+        double duration = Game.SupportedAttackSeconds(c, f.Gem.Id);
+        double contact = Game.GemAttackContactDelay(c, f.Gem.Effect, duration, out _, out _);
+        f.Set("bleed_on_hit_with_attacks_%", 100);
+        c.Pools = c.Pools with { CriticalStrikeChancePct = 10000 };
+        Assert.Equal(10000, Game.SupportedCriticalChance(c, f.Gem.Id));
+        f.Set("attack_minimum_added_physical_damage", 500);
+        f.Set("attack_maximum_added_physical_damage", 500);
+        int rupturePercent = Game.SupportedSkill(c, f.Gem.Id).Stats[Program.Stats.Key("support_rupture_bleeding_damage_taken_+%_final")!.Value];
+        Assert.True(rupturePercent > 0);
+        for (int cancel = 0; cancel < 3; cancel++)
+        {
+            double start = f.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond + 1;
+            // Let the previous volley's bolts pass its excluded victim before replacing that actor for this case.
+            f.Session.AdvanceTo(ProjectileRuntime.Time(start));
+            var victim = new SpawnedMonster("repeats", new(108, 100, 0), 0, 1, 1000000);
+            c.Monsters[45] = victim;
+            uint mana = c.PlayerMana;
+            Game.ScheduleLightningStrike("lightning-test", f.Stream, f.Ciphers, c, f.Gem.Id, f.Gem,
+                (100, 100), (108, 100), 45, c.ActionInterruptionGeneration, null,
+                new SkillCriticalRoll(0), 4, start);
+            f.Session.AdvanceTo(ProjectileRuntime.Time(start + contact + .001));
+            uint afterFirst = victim.Life;
+            double firstBleed = victim.Bleeds.PerSecond(start + contact + .001);
+            Assert.True(firstBleed > 0);
+            Assert.True(afterFirst < victim.MaxLife);
+            Assert.Equal(1, victim.Ruptures.Stacks(start + contact + .001));
+            Assert.Equal(1.25, Game.BleedingExpiryRate(victim, start + contact + .001));
+            f.Session.AdvanceTo(ProjectileRuntime.Time(start + contact + duration * .9));
+            Assert.Equal(afterFirst, victim.Life); // the old compressed schedule lands extra strikes here.
+            if (cancel == 1) c.ActionCount++;
+            if (cancel == 2)
+            {
+                // Party travel uses the same transfer admission: neither pending strikes nor new Ruptures cross it.
+                Assert.True(c.TryBeginAreaChange(new(0x235c, 10, false), out _));
+                Assert.False(f.Session.Active);
+            }
+            f.Session.AdvanceTo(ProjectileRuntime.Time(start + contact + duration + .001));
+            uint afterSecond = victim.Life;
+            if (cancel != 0) Assert.Equal(afterFirst, afterSecond);
+            else
+            {
+                Assert.True(afterSecond < afterFirst);
+                Assert.Equal(2, victim.Ruptures.Stacks(start + contact + duration + .001));
+                Assert.Equal(1.5, Game.BleedingExpiryRate(victim, start + contact + duration + .001));
+            }
+            f.Session.AdvanceTo(ProjectileRuntime.Time(start + contact + duration * 2 + .001));
+            if (cancel != 0)
+            {
+                Assert.Equal(afterFirst, victim.Life);
+                Assert.Equal(1, victim.Ruptures.Stacks(start + contact + duration * 2 + .001));
+            }
+            else
+            {
+                Assert.True(victim.Life < afterSecond);
+                Assert.InRange(victim.Bleeds.PerSecond(start + contact + duration * 2 + .001) / firstBleed, 1.4, 1.48);
+                Assert.Equal(3, victim.Ruptures.Stacks(start + contact + duration * 2 + .001));
+                Assert.Equal(1.75, Game.BleedingExpiryRate(victim, start + contact + duration * 2 + .001));
+                Assert.Equal(1 + 3 * rupturePercent / 100d, victim.Ruptures.More(start + contact + duration * 2 + .001), 8);
+            }
+            Assert.Equal(mana, c.PlayerMana);
+        }
     }
 
     sealed class Fixture : IDisposable
@@ -96,7 +160,7 @@ public sealed class LightningStrikeTests
         public NetworkStream Stream => writer.GetStream();
         public readonly (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem;
 
-        public Fixture()
+        public Fixture(bool multistrike = false)
         {
             Saves.Open(path);
             Game.CombatLifetime = lifetime;
@@ -104,6 +168,7 @@ public sealed class LightningStrikeTests
             Conn = new(new(1, "lightning-test", 1000, 1000, 100, 100, null, []), 1, 1)
             {
                 Character = "Lightning" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000,
+                Experience = CharacterStats.ExperienceFor(100),
                 PlayerSent = true, Instance = new(),
                 Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
@@ -113,6 +178,12 @@ public sealed class LightningStrikeTests
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemLightningStrike")!);
             var sword = ItemCatalog.Create(Program.Items.Find("Rusted Sword")!) with
             { Sockets = [new ItemSocket(SocketColour.White, gem)], Links = [1] };
+            if (multistrike) sword = sword with
+            {
+                Sockets = [new(SocketColour.White, gem), new(SocketColour.White,
+                    ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemMultistrike")!)), new(SocketColour.White,
+                    ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemRupture")!))], Links = [3],
+            };
             Game.ItemsOf(Conn).Add(PlayerInventories.Weapon1, 0, 0, sword);
             foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" }) Set(name, 1000);
             Set("global_always_hit", 1);

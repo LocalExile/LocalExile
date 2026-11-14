@@ -1098,6 +1098,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
 
     /// <summary>The open map's portals created in this area, by object id: where each stands.</summary>
     public readonly Dictionary<uint, (int X, int Y, int Index)> MapPortals = [];
+    public MapDevice.OpenMap? MapPortalRun;
+    public string? InstanceOwner { get; init; }
 
     /// <summary>Counts the map portal sequences started (SpawnMapPortals); a newer one stops the older.</summary>
     public int MapPortalGeneration;

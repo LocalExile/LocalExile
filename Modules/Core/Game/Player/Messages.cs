@@ -177,6 +177,7 @@ public static partial class Game
                             () =>
                             {
                                 at = Math.Max(at, ProjectileWorldTime(conn));
+                                CancelMeleeRepeats(conn, at);
                                 walkAction = Interlocked.Increment(ref conn.ActionCount);
                                 if (conn.LockstepClient) conn.Walk.Order(use.X, use.Y, at);
                                 else arrive = conn.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(conn)), at).At;
@@ -225,6 +226,7 @@ public static partial class Game
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+                    CancelMeleeRepeats(conn, at);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     (px, py) = inPlace ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (inPlace) conn.Walk.Order(px, py, at);

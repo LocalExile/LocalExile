@@ -78,14 +78,15 @@ Nothing yet.
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
   Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
-  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up eligible travel skills
+  fork; Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
-  Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
+  Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
+  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).

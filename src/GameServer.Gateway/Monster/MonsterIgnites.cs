@@ -93,6 +93,12 @@ public sealed class MonsterIgnites
         live.Select(i => i.DamagePerSecond).OrderDescending().Take(Math.Max(1, Stacks)).Sum()
         + aggravatedExtra * live.Where(i => i.Aggravated).Select(i => i.DamagePerSecond).DefaultIfEmpty().Max();
     double last, carry;
+    int accrued;
+
+    /// <summary>Settle damage before an effect changes, retaining it for the normal damage-commit tick.</summary>
+    public void Accrue(double until, double factor, double aggravatedExtra = 0) =>
+        accrued = Advance(until, factor, aggravatedExtra);
+
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)
     {
@@ -109,7 +115,7 @@ public sealed class MonsterIgnites
     public bool Burning => active.Count > 0;
 
     /// <summary>Nothing burns and no buff is shown.</summary>
-    public bool Idle => active.Count == 0 && Buff is null;
+    public bool Idle => active.Count == 0 && Buff is null && accrued == 0;
 
     /// <summary>When the last of its ignites ends.</summary>
     public double Until => active.Count == 0 ? 0 : active.Max(i => i.Until);
@@ -145,7 +151,9 @@ public sealed class MonsterIgnites
     /// <paramref name="factor"/>; the fraction carries to the next advance. Ended ignites are dropped.</summary>
     public int Advance(double until, double factor, double aggravatedExtra = 0)
     {
-        if (active.Count == 0 || !(until > last)) return 0;
+        int pending = accrued;
+        accrued = 0;
+        if (active.Count == 0 || !(until > last)) return pending;
         var cuts = active.SelectMany(i => new[] { i.From, i.Until }).Where(t => last < t && t < until)
             .Append(last).Append(until).Distinct().Order().ToArray();
         double damage = carry;
@@ -159,7 +167,7 @@ public sealed class MonsterIgnites
         active.RemoveAll(i => i.Until <= until);
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(Math.Max(0, damage)));
         carry = active.Count == 0 ? 0 : damage - whole;
-        return whole;
+        return (int)Math.Min(int.MaxValue, (long)pending + whole);
     }
 
     /// <summary>Ends a dead monster's ignites. <paramref name="burnt"/>: its ignite killed it, so it died ignited even if
@@ -170,6 +178,7 @@ public sealed class MonsterIgnites
         if (active.Count > 0) corpse = active.Where(i => i.Spread > 0 && !i.Proliferated).ToList();
         active.Clear();
         carry = 0;
+        accrued = 0;
     }
 
     /// <summary>Drops a corpse's retained spreading ignites (shattered or consumed: nothing left to spread from).</summary>

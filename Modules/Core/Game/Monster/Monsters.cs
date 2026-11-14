@@ -473,7 +473,7 @@ public static partial class Game
             if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
                 conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
         }
-        var mapMods = MapDevice.Current(CharacterName(conn), layout.Hash)?.Mods;
+        var mapMods = MapDevice.ForInstance(conn)?.Mods;
         var scale = mapMods?.Packs ?? default;
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
@@ -498,7 +498,7 @@ public static partial class Game
             }
         foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
         int areaLevel = area.AreaLevel;
-        if (MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == layout.Hash && openMap.Area.Level > 0)
+        if (MapDevice.ForInstance(conn) is { } openMap && openMap.Area.Level > 0)
             areaLevel = openMap.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
         foreach (var s in spawns)
@@ -508,7 +508,7 @@ public static partial class Game
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);
         }
         int extra = 0;
-        if (MapDevice.Current(CharacterName(conn), layout.Hash) is { ItemRow: > 0 } opening)
+        if (MapDevice.ForInstance(conn) is { ItemRow: > 0 } opening)
         {
             var seen = new HashSet<string>(StringComparer.Ordinal);
             lock (conn.Monsters)

@@ -33,9 +33,9 @@ public static class PartyRoster
         || a.Account is not null && string.Equals(a.Account, b.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
     static bool Available(ClientState c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Ssf;
-    static bool Compatible(ClientState a, ClientState b) => Available(a) && Available(b)
-        && a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
-        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase)
+    static bool SameLeague(ClientState a, ClientState b) => a.Hardcore == b.Hardcore && a.LeagueForm == b.LeagueForm
+        && string.Equals(a.League, b.League, StringComparison.OrdinalIgnoreCase);
+    static bool Compatible(ClientState a, ClientState b) => Available(a) && Available(b) && SameLeague(a, b)
         && ReferenceEquals(a.Instance.Presence, b.Instance.Presence);
     static uint Find(ClientState c) => Humans.FirstOrDefault(p => p.Value.Any(m => Same(m, c))).Key;
     static int Count(uint id) => (Humans.GetValueOrDefault(id)?.Count ?? 0) + (Companions.GetValueOrDefault(id)?.Count ?? 0);
@@ -66,6 +66,19 @@ public static class PartyRoster
     public static uint PartyOf(ClientState c) { lock (Gate) return Find(c); }
     public static ClientState? Leader(uint id) { lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault(); }
     public static ClientState[] Players(uint id) { lock (Gate) return Humans.TryGetValue(id, out var members) ? [.. members] : []; }
+    internal static ClientState? TravelMember(ClientState actor, string name)
+    {
+        lock (Gate)
+        {
+            if (!Available(actor) || !actor.PlayerSent || actor.PlayerLife == 0 || actor.HardcoreDeathRecorded
+                || !InGame.ContainsKey(actor) || !Humans.TryGetValue(Find(actor), out var members)
+                || !members.Any(c => ReferenceEquals(c, actor))) return null;
+            return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Available(c) && SameLeague(actor, c)
+                && c.PlayerSent && c.PlayerLife > 0 && !c.HardcoreDeathRecorded && InGame.ContainsKey(c)
+                && string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public static int Size(uint id) { lock (Gate) return Math.Max(1, Count(id)); }
     public static bool ContainsCompanion(uint id, string account)
     {
@@ -124,8 +137,11 @@ public static class PartyRoster
     // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
     static Task Send(ClientState c, byte[] packet) => !c.Closed && c.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
+    // The third field is the player's own area as a WorldAreas HASH16 (0xa7 +0xa8), not their level: the party panel's row
+    // resolves it for the member's area name and offers the travel button only for an area, so a level shows
+    // "Travelling..." with the button disabled (#715).
     static byte[] Known(ClientState c) => InstanceSocial.KnownPlayer(c.Account ?? CharacterName(c), CharacterName(c),
-        c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c));
+        c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c));
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
     public static async Task Publish(uint party)
@@ -293,6 +309,9 @@ public static class PartyRoster
 
     public static ulong SharedInstance(ClientState c, PendingTransfer transfer)
     {
+        // Personal homes use their owner, and a map can only be entered through its finite portal pool.
+        // Explicit party travel already pins its destination; ordinary travel must not redirect to these members.
+        if (HideoutCatalog.ByArea(transfer.Area) is not null || MapDevices.Value.IsMapArea(transfer.Area)) return 0;
         ClientState[] members;
         lock (Gate) members = Humans.TryGetValue(Find(c), out var list) ? [.. list] : [];
         foreach (var member in members)

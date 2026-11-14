@@ -61,7 +61,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the map device can be clicked and opens its window (S→C 0x7b kind 5);
   maps go into its slots, Activate (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
   opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
-  stays gone); `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
+  stays gone); guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
+  Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
+  `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,

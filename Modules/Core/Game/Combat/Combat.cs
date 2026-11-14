@@ -893,7 +893,14 @@ public static partial class Game
                 // A cooldown use paid when it was accepted (TryBeginCooldownUseCore) is not paid again.
                 if (cooldownUse?.Paid is { } prepaid) (paid, cost, lifeCost) = (true, prepaid.Mana, prepaid.Life);
                 else paid = PayMana(conn, skillId, out cost, out lifeCost);
-                if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
+                if (paid)
+                {
+                    criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
+                    // Reserve the whole paid use before cost publication can yield to another held input.
+                    if (!IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
+                        && !SkillsFor(conn).IsChannelled(gem.Effect))
+                        ReserveMeleeRepeats(conn, skillId, SupportedAttackSeconds(conn, skillId));
+                }
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
                     channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
@@ -1307,10 +1314,14 @@ public static partial class Game
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
         // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll; a melee attack's
-        // Multistrike repeats are hits of the same use, spread over its attack time with their own more damage.
+        // Multistrike repeats are swings of the same paid use, each a full attack time apart.
         int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
         int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
-        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) / (meleeRepeats + 1) : 0;
+        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) : 0;
+        if (meleeRepeats > 0) actionToken ??= conn.ActionCount;
+        var repeatStats = meleeRepeats > 0 ? SupportedSkill(conn, skillId).Stats : null;
+        double? repeatRuthless = repeatStats is null ? null : RuthlessBlowMore(conn, skillId,
+            name => Stats.Key(name) is uint key ? repeatStats.GetValueOrDefault(key) : 0);
         // Fist of War: every ancestral_slam_interval_duration the next slam use is the big hit (more damage and area).
         double fistMore = 1, fistRadius = 1;
         bool spell = SkillsFor(conn).IsSpell(gem.Effect);
@@ -1391,11 +1402,12 @@ public static partial class Game
                 jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
                 continue;
             }
-            void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
+            void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHitForUse(repeatRuthless, remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
-                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
+                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1),
+                discharge: discharge));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -1599,9 +1611,22 @@ public static partial class Game
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, HolySweepHammers.Settings? hammer = null) =>
+        AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken,
+            cooldownUse, melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat,
+            radiusOverride, once, repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, scaledBlastChaos,
+            singleStrikeTarget, onHit, scheduledSession, hammer);
+
+    static Task AreaSkillHitForUse(double? ruthlessMore, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
+        bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
+        double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
+        uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
+        double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
+        DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
+        ProjectileSession? scheduledSession = null, HolySweepHammers.Settings? hammer = null) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
-            repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, null, null, scaledBlastChaos,
+            repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, hammer);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1620,12 +1645,14 @@ public static partial class Game
         // cut-in instead of running it (Lockstep.cs, measured live 2026-11-03), so the Move the server hears first is a
         // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
         // swing), and a real interruption (death, area change, pause, freeze, stun recovery) still ends this one.
-        bool holdsItsSwing = !spell && !immediate && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
-        bool preservesSwing = strikeIndex > 0 && !spell && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
+        bool holdsItsSwing = repeat == 0 && !spell && !immediate && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
+        bool preservesSwing = repeat == 0 && strikeIndex > 0 && !spell && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
+        int interruption = conn.ActionInterruptionGeneration;
         bool TokenCurrent() => holdsItsSwing || preservesSwing
             ? PlayerStateAllowsAction(conn)
             : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
         bool Current() => (triggeredCurrent?.Invoke() ?? true) && TokenCurrent()
+            && (repeat == 0 || spell || conn.ActionInterruptionGeneration == interruption)
             && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
@@ -1878,6 +1905,13 @@ public static partial class Game
                     ignite = SupportedIgnite(conn, skillId, spell, player, shield);
                     bleed = SupportedBleed(conn, skillId, spell, player, shield, melee: SkillsFor(conn).IsMelee(gem.Effect));
                     poison = SupportedPoison(conn, skillId, spell, player, shield, addedChaos);
+                    if (!spell && repeat > 0)
+                    {
+                        double repeatMore = MeleeRepeatDamageMore(conn, skillId, repeat);
+                        ignite = RepeatAilment(ignite, repeatMore);
+                        bleed = RepeatAilment(bleed, repeatMore);
+                        poison = RepeatAilment(poison, repeatMore);
+                    }
                 }
                 var contactHit = sweepHit;
                 if (SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam")
@@ -2343,6 +2377,7 @@ public static partial class Game
         Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
         conn.RecentEvents.Record(StatConditions.BeenStunned, now);
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
+        CancelMeleeRepeats(conn, now);
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
         // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
@@ -2692,7 +2727,7 @@ public static partial class Game
                 drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
             // tier lets the rolls add their base card/scarab drops in a map.
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
+            int mapTier = MapDevice.ForInstance(conn) is { } openMap
                 ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));

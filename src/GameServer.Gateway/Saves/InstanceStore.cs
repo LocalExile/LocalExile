@@ -10,6 +10,12 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
+    /// <summary>Reads a retained instance without admitting another connection.</summary>
+    public InstanceState? Find(ulong id, long created, string? soloOwner = null)
+    {
+        lock (_instances) return _instances.GetValueOrDefault((id, created, soloOwner?.ToUpperInvariant()));
+    }
+
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {

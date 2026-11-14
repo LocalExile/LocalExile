@@ -63,6 +63,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
   Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
   0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
+  Party rows carry each member's area; campaign travel and quest-gate refusal were checked through the native client.
+  Native map travel arrives outside the owner's device, spends its shared portals on entry and returns to that source ([28](../docs/protocol/28-player-trade.md)).
   Decline and disconnects are open.
   Decline and human-only disconnect cleanup remain open.
   See [28](../docs/protocol/28-player-trade.md) §5.

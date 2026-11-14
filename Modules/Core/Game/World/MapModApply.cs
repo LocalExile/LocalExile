@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     static MapMods? MapModsOf(ClientState conn) =>
-        MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods;
+        MapDevice.ForInstance(conn)?.Mods;
 
     static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {

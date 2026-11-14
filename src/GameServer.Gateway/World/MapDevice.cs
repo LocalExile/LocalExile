@@ -230,54 +230,121 @@ public sealed class MapDevice
     /// the device (0 to <see cref="PortalCount"/> - 1, <see cref="PortalCell"/>) whose portal is still there.</summary>
     public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
     {
+        public Guid Run { get; init; } = Guid.NewGuid();
+        public string Owner { get; init; } = "";
+        public bool EntryPending { get; init; }
         public int PortalsLeft => Left.Count;
         public Origin? ReturnTo { get; init; }
+        /// <summary>The device's exact source instance and arrival cell, retained independently of return routing.</summary>
+        public Origin? Entrance { get; init; }
     }
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
 
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
+    // A transfer can finish after its owner has replaced the device. Retain that arrival until the destination world
+    // owns it; an abandoned client must not retain it indefinitely.
+    static readonly ConcurrentDictionary<(ushort Area, ulong Instance), (OpenMap Map, long Until)> Arrivals = new();
 
     /// <summary>The character's open map, or null.</summary>
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow) { ReturnTo = returnTo };
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
+        Origin? entrance = null)
+    {
+        lock (Open)
+        {
+            if ((entrance ?? returnTo) is { Instance: not 0 } origin)
+                foreach (var other in Open.Where(p => (p.Value.Entrance ?? p.Value.ReturnTo) is { } at
+                    && at.Area == origin.Area && at.Instance == origin.Instance).ToArray())
+                    Open.TryRemove(other);
+            return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance };
+        }
+    }
+
+    // Keep the original callable signature for compiled consumers.
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo) =>
+        Activate(character, area, mods, itemRow, returnTo, null);
+
+    /// <summary>The run whose portals belong to this exact device instance.</summary>
+    public static OpenMap? AtEntrance(ushort area, ulong instance) => instance == 0 ? null
+        : Open.Values.FirstOrDefault(m => (m.Entrance ?? m.ReturnTo) is { } o && o.Area == area && o.Instance == instance);
+
+    sealed class InstanceMap(OpenMap map) { public OpenMap Map { get; } = map; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceState, InstanceMap> InstanceMaps = new();
+
+    /// <summary>The entered instance's rules and return route survive spending the last portal or replacing the device's run.</summary>
+    public static OpenMap? ForInstance(ClientState conn) => ForInstance(conn.Layout.Hash, conn.InstanceNumber, conn.Instance);
+
+    public static OpenMap? ForInstance(ushort area, ulong number, InstanceState? state)
+    {
+        if (state is not null && InstanceMaps.TryGetValue(state, out var remembered)) return remembered.Map;
+        var map = InInstance(area, number)?.Map;
+        if (map is not null && state is not null)
+        {
+            map = InstanceMaps.GetValue(state, _ => new(map)).Map;
+            Arrivals.TryRemove((area, number), out _);
+        }
+        return map;
+    }
 
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
         OpenOf(character) is { } open && open.Area.Hash16 == areaHash ? open : null;
 
     /// <summary>The map owner and run for this exact instance, including guests after its owner leaves.</summary>
-    public static (string Owner, OpenMap Map)? InInstance(ushort areaHash, ulong instance) =>
-        Open.Where(p => p.Value.Area.Hash16 == areaHash && p.Value.Instance == instance && instance != 0)
+    public static (string Owner, OpenMap Map)? InInstance(ushort areaHash, ulong instance)
+    {
+        if (instance == 0) return null;
+        if (Arrivals.TryGetValue((areaHash, instance), out var arrival) && arrival.Until > Environment.TickCount64)
+            return (arrival.Map.Owner, arrival.Map);
+        return Open.Where(p => p.Value.Area.Hash16 == areaHash && p.Value.Instance == instance)
             .Select(p => ((string Owner, OpenMap Map)?)(p.Key, p.Value)).FirstOrDefault();
+    }
 
     /// <summary>Takes the portal at place <paramref name="index"/> of the character's open map, so it does not come back.
     /// Returns the map as it was (its instance to enter, 0 for a new one) and how many portals are left, or null when no
-    /// map is open or that portal was taken already. The last one taken closes the map.</summary>
-    public static (OpenMap Map, int Left)? TakePortal(string character, int index)
+    /// map is open or that portal was taken already. Only one entrant can create its first instance.</summary>
+    public static (OpenMap Map, int Left)? TakePortal(string character, int index) => TakePortal(character, index, null);
+
+    public static (OpenMap Map, int Left)? TakePortal(string character, int index, Guid? run)
     {
         while (Open.TryGetValue(character, out var map))
         {
-            if (!map.Left.Contains(index)) return null;
-            var after = map with { Left = [.. map.Left.Where(i => i != index)] };
-            bool done = after.Left.Count == 0 && map.ReturnTo is null ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
-            if (done) return (map, after.Left.Count);
+            if (run is { } expected && map.Run != expected || map.EntryPending || !map.Left.Contains(index)) return null;
+            var after = map with { Left = [.. map.Left.Where(i => i != index)], EntryPending = map.Instance == 0 };
+            if (Open.TryUpdate(character, after, map)) return (map, after.Left.Count);
         }
         return null;
     }
 
     /// <summary>The first portal's transfer created the map's instance: the other portals lead there.</summary>
-    public static void Entered(string character, MapArea area, ulong instance)
+    public static void Entered(string character, MapArea area, ulong instance) => Entered(character, area, instance, null);
+
+    public static void Entered(string character, MapArea area, ulong instance, Guid? run)
     {
-        if (Open.TryGetValue(character, out var map) && map.Area == area && map.Instance == 0)
-            Open.TryUpdate(character, map with { Instance = instance }, map);
+        while (Open.TryGetValue(character, out var map) && map.Area == area && map.Instance == 0
+            && (run is null || map.Run == run))
+            if (Open.TryUpdate(character, map with { Instance = instance, EntryPending = false }, map)) return;
+    }
+
+    public static void Entered(OpenMap run, ulong instance)
+    {
+        long now = Environment.TickCount64;
+        foreach (var old in Arrivals.Where(p => p.Value.Until <= now)) Arrivals.TryRemove(old.Key, out _);
+        Arrivals[(run.Area.Hash16, instance)] = (run with { Instance = instance, EntryPending = false }, now + 600_000);
+        Entered(run.Owner, run.Area, instance, run.Run);
     }
 
     /// <summary>The map's instance is gone (expired): the map closes.</summary>
     public static void Close(string character) => Open.TryRemove(character, out _);
+
+    public static void Close(string character, Guid run)
+    {
+        if (Open.TryGetValue(character, out var map) && map.Run == run) Open.TryRemove(new(character, map));
+    }
 
     /// <summary>Where portal <paramref name="index"/> of <paramref name="count"/> stands: on a ring around the device,
     /// starting in front of it (south, +y).</summary>

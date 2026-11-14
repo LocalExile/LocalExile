@@ -26,7 +26,7 @@ public static partial class Game
         lock (conn.MapPortals)
             if (conn.MapPortals.Count == 0) return single;
         await SendMapPortals(remote, stream, ciphers, conn, deviceId,
-            MapDevice.OpenOf(CharacterName(conn))?.Area.Hash16 ?? conn.Layout.Hash);
+            conn.MapPortalRun?.Area.Hash16 ?? conn.Layout.Hash);
         return true;
     }
 
@@ -98,12 +98,23 @@ public static partial class Game
     public static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {
         byte style = conn.MapPortalStyle;
-        List<uint> ids;
-        lock (conn.MapPortals) ids = [.. conn.MapPortals.Keys.Order()];
-        string owner = CharacterName(conn);
+        List<(uint Id, int Index)> ids;
+        lock (conn.MapPortals) ids = [.. conn.MapPortals.OrderBy(p => p.Key).Select(p => (p.Key, p.Value.Index))];
+        var run = conn.MapPortalRun;
+        string owner = run?.Owner ?? CharacterName(conn);
         var list = (closed == 0 ? [] : new List<InstanceMapDevice.Portal> { new(closed, 0) })
-            .Concat(ids.Select(id => new InstanceMapDevice.Portal(id, area, owner, style, PortalVariation(conn, id)))).ToList();
+            .Concat(ids.Select(p => new InstanceMapDevice.Portal(p.Id, area, owner, style,
+                run is null ? PortalVariation(conn, p.Id) : MapPortalVariation(run, p.Index)))).ToList();
         await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, list),
             $"0x008f map device 0x{deviceId:x} portals: {ids.Count} open to 0x{area:x4}{(closed == 0 ? "" : $", 0x{closed:x} closed")}");
+    }
+
+    static ushort MapPortalVariation(MapDevice.OpenMap run, int index)
+    {
+        byte mode = CharacterSaves.Cosmetics(run.Owner).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
+            { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
+        if (mode == 0 || Cosmetics.Portals.Count == 0) return CharacterSaves.PortalCosmetic(run.Owner);
+        int seed = HashCode.Combine(run.Run, mode == 1 ? 0 : index);
+        return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
     }
 }

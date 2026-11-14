@@ -36,6 +36,12 @@ public static class InstanceSocial
     /// <summary>C→S 0x93: "Invite to Party": wstr the character's name.</summary>
     public static string ReadPartyInvite(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
+    /// <summary>C→S 0x92 "Travel": the button on a member's row of the party panel, with that member's character name in a
+    /// wstr (the packet the party invite's reader reads; captured live 2026-11-14 with 3.29.3c: <c>0092000F</c> then the
+    /// name). The client asks and the server moves the player.</summary>
+    public const ushort PartyTravelId = 0x92;
+    public static string ReadPartyTravel(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
+
     /// <summary>C→S 0x94: "Kick" on a party member, or "Cancel" on a pending invitation, from the Social party tab
     /// (sender 0x140a68080, functor 0x140a95010 / invoke 0x140a9cfa0; the HUD party menu 0x140ab8ed0). The wstr is the
     /// target's character name, the known-player entry's +0x40 that S→C 0xa7 writes at +0x70, not the account name.
@@ -120,16 +126,18 @@ public static class InstanceSocial
     /// and the party list (0xa9) look players up in; without an entry the request is dropped silently (live 2026-10-28).
     /// Wire: wstr account (key, entry +0x30), wstr (+0x50), u8 flags (bit 0: u16 pair +0xaa/+0xae follows, bit 1: u16
     /// pair +0xb0/+0xb2 follows, bit 2 +0xba: character data, bits 3..6 +0xbb/+0xbc/+0xbd/+0xbe); with bit 2: wstr character
-    /// (+0x70), u8 (+0xb9), u8 (+0xb8, the packed class), u16 BE (+0xa8, taken as the level), u16 BE (+0xac), wstr (+0x90),
+    /// (+0x70), u8 (+0xb9), u8 (+0xb8, the packed class), u16 BE (+0xa8, the area's WorldAreas HASH16: the party panel's row
+    /// resolves it (0x140207a95 reads +0xa8, 0x140208210 looks the area up) for the member's area name, so a level shows
+    /// "Travelling..."), u16 BE (+0xac), wstr (+0x90),
     /// u8 (+0xb4), then the pairs; without bit 2 a u64 (+0xa0). Read back by 0x141f96140. The bit 1 pair is the portrait
     /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b5a0) and social rows (0x140af7970) draw;
     /// the client's own writer leaves the pair out when both are 0.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, int level, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
+    public static byte[] KnownPlayer(string account, string character, ushort area, byte packedClass = 0, ushort frame = 0, ushort portrait = 0)
     {
         bool look = frame != 0 || portrait != 0;
         var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr("").U8((byte)(look ? 0x06 : 0x04))
-            .WStr(character).U8(0).U8(packedClass).U16((ushort)Math.Clamp(level, 0, ushort.MaxValue)).U16(0).WStr("").U8(0);
+            .WStr(character).U8(0).U8(packedClass).U16(area).U16(0).WStr("").U8(0);
         if (look) w.U16(frame).U16(portrait);
         return w.ToArray();
     }
