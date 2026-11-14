@@ -334,6 +334,16 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 p.Position += c.Normal * .001;
                 Publish(ProjectileEventKind.Redirect, p);
             }
+            else if (p.TerrainChainChance > 0 && !p.TerrainChained && !p.Profile.CannotChain
+                && Nearby(p, actors).FirstOrDefault() is { } chainTarget
+                && p.Random.Next(100) < p.TerrainChainChance)
+            {
+                p.TerrainChained = true;
+                p.Position += c.Normal * .001;
+                p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
+                p.Remaining = p.Profile.Range;
+                Publish(ProjectileEventKind.Redirect, p);
+            }
             else End(p, c.End.Value, terrainNormal: c.Normal);
         }
         else End(p, c.End!.Value);

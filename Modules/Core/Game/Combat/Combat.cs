@@ -2621,6 +2621,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
+            GainPhasingOnKill(conn);
             // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
             // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
             // ids stay NotModelled rather than being answered wrongly.

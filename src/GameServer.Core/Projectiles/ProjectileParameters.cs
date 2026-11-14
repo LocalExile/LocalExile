@@ -11,6 +11,7 @@ public sealed record ProjectileModifiers
     public int Chain { get; init; }
     public int Split { get; init; }
     public int ForkExtraProjectileChance { get; init; }
+    public int TerrainChainChance { get; init; }
     public bool Returns { get; init; }
     public bool CannotPierce { get; init; }
     public bool CannotFork { get; init; }
@@ -34,6 +35,7 @@ public static class ProjectileParameters
             Split = Math.Max(0, profile.Split + modifiers.Split), Returns = profile.Returns || modifiers.Returns,
             ForkExtraProjectileChancePercent = Math.Max(profile.ForkExtraProjectileChancePercent,
                 modifiers.ForkExtraProjectileChance),
+            TerrainChainChance = Math.Clamp(Math.Max(profile.TerrainChainChance, modifiers.TerrainChainChance), 0, 100),
             CannotPierce = profile.CannotPierce || modifiers.CannotPierce,
             CannotFork = profile.CannotFork || modifiers.CannotFork,
             CannotChain = profile.CannotChain || modifiers.CannotChain,

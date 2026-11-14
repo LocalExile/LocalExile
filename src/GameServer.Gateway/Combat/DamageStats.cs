@@ -147,6 +147,13 @@ public static class DamageStats
             // attack-/spell-specific stats are extra on top, not a replacement.
             var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"))
                 .Add(new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage")));
+            // The charm's "Adds X to Y Physical Damage if you've dealt a Critical Strike Recently" is a global physical
+            // added range whose id keeps its condition, so StatConditions leaves it under that id.
+            if (type == DamageType.Physical)
+                range = range.Add(new DamageRange(get("minimum_added_physical_damage"),
+                    get("maximum_added_physical_damage")))
+                    .Add(new DamageRange(get("minimum_added_physical_damage_if_have_crit_recently"),
+                        get("maximum_added_physical_damage_if_have_crit_recently")));
             if (!spell) range = range.Add(AttributeAdded(get, type));
             if (!spell && type == DamageType.Lightning)
             {

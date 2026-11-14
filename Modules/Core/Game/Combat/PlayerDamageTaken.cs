@@ -86,11 +86,23 @@ public static class PlayerDamageTaken
     public static bool Avoids(DamageType type, Func<string, int> get, Random random) =>
         RandomRolls.Chance(AvoidPct(type, get), 100, random);
 
+    /// <summary>"X% chance to Avoid All Damage from Hits" (Elusive): one roll for the whole hit, all its types.</summary>
+    public static bool AvoidsAll(int chance, Random random) => RandomRolls.Chance(chance, 100, random);
+
     /// <summary>The hit without the types it avoids, each rolled once in the packet's order (physical, lightning, cold,
     /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
-    /// happen (wiki Avoidance). The same packet when nothing is avoided.</summary>
-    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided)
+    /// happen (wiki Avoidance). <paramref name="avoidAllPct"/> is a separate "Avoid All Damage" roll (Elusive). The
+    /// same packet when nothing is avoided.</summary>
+    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided,
+        int avoidAllPct = 0)
     {
+        if (avoidAllPct > 0 && AvoidsAll(avoidAllPct, random))
+        {
+            var all = new List<DamageType>();
+            foreach (var (type, _) in hit.Components) all.Add(type);
+            avoided = [.. all];
+            return DamagePacket.Empty;
+        }
         var kept = DamagePacket.Empty;
         var dropped = new List<DamageType>();
         foreach (var (type, range) in hit.Components)
