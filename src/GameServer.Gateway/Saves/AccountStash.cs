@@ -477,9 +477,11 @@ public sealed partial class AccountStash
             : [.. t.Items.Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
 
     // How many of an item one cell of the tab holds: a currency tab's slot more than the item's own stack (not its crafting
-    // slot, which holds any item at its own stack size).
+    // slot, which holds any item at its own stack size). An item whose own stack is 1 stacks only in the fragment and
+    // Delirium tabs, whose client kinds show the count (Inventory); the divination tab's kind hides it for a one-card set.
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
         !item.Components.Contains("Stack") ? 1 :
+        shape.MaxStack <= 1 && !OversizedStacks(t.Saved.Type) ? 1 :
         _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
@@ -706,6 +708,9 @@ public sealed partial class AccountStash
         var fill = FillCells(tab, flasks.Concat(uniqueEntries.OfType<Item>()).DistinctBy(Key), Key, shapeOf, out why);
         return fill is null ? null : fill with { Skipped = fill.Skipped + uniqueEntries.Count(i => i is null) };
     }
+
+    /// <summary>Whether a tab of this type stacks items whose own stack size is 1 (Simulacrum, breachstones, emblems).</summary>
+    public static bool OversizedStacks(byte? type) => type is StashRules.Fragment or StashRules.Delirium;
 
     /// <summary>The tab's StashType row, or null for no such tab.</summary>
     public byte? TabType(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Type : null; }
