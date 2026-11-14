@@ -25,6 +25,12 @@ static partial class QuestobjectsRules
         {
             // Only simulate the part of this leg which was actually sent to the client.
             if (Moving) Walk.AdvanceCurrentLeg(Math.Min(elapsed, CommandSeconds));
+            // An order that ran to the leg's end can leave the cart a hair short of the corner (its seconds times the
+            // speed, rounded). That is the corner: the cart turns it, or the hair would count as not moving and the cart
+            // would never take the next leg (seen live at the Beacon, 2026-11-14).
+            var (cx, cy) = Walk.Position;
+            if (!Walk.Complete && Math.Abs(Walk.Destination.X - cx) + Math.Abs(Walk.Destination.Y - cy) < 0.01)
+                Walk.AdvanceCurrentLeg(0.02 / Walk.Speed);
             var (x, y) = Walk.Position;
             var (tx, ty) = Walk.Destination;
             double dx = tx - x, dy = ty - y, length = Math.Sqrt(dx * dx + dy * dy);
