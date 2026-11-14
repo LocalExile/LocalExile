@@ -303,6 +303,14 @@ public sealed class DivinationCardTests
             Assert.Empty(DivinationFeature.Move(conn, new(blocked.Id, false, true)));
             Assert.Equal(retained, Assert.Single(items.Items(27)));
             Assert.Equal(blocked, items.Items(0).Single(i => i.Id == blocked.Id));
+            // A reward offered for sale or trade stays where it is: with room in the backpack, a card moved in would
+            // otherwise copy the reward out while the inventory refuses to remove the offered original.
+            foreach (var room in items.Items(0).Where(i => i.Id != blocked.Id).Take(2).ToArray()) items.Remove(0, room.Id);
+            Assert.NotNull(items.Offer(27, retained.Id, 0, 0, Game.ShapeOf));
+            Assert.Empty(DivinationFeature.Move(conn, new(blocked.Id, false, true)));
+            Assert.Equal(retained.Id, Assert.Single(items.Items(27)).Id);
+            Assert.DoesNotContain(items.Items(0), i => i.Item.TypeHash == retained.Item.TypeHash);
+            items.CancelOffers();
             // Ordinary vendors have no exchange capability.
             conn.Npcs[499] = new(Game.Npcs.Value.Find("Metadata/NPC/Act1/Nessa")!, 10, 10);
             await DivinationFeature.Open(conn);

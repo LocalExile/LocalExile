@@ -63,6 +63,7 @@ static class DivinationFeature
     }
 
     internal static bool Current(ClientState conn) => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
+        && conn.Sale is null && conn.Trade is null
         && conn.ModuleWindow == Owner && Sessions.TryGetValue(conn, out var session)
         && conn.TalkingTo == session.Id && conn.Npcs.TryGetValue(session.Id, out var npc)
         && ReferenceEquals(npc, session.Npc);
@@ -110,7 +111,11 @@ static class DivinationFeature
         var items = ItemsOf(conn);
         byte main = PlayerInventories.MainInventory;
         byte source = request.IntoWindow ? (request.Expanded ? PlayerInventories.ExpandedInventory : main) : Row;
-        if (items.Items(PlayerInventories.Cursor).Count != 0 || items.Offered().Any(i => i.Id == request.ItemId)
+        // An item offered in a sale or trade cannot move: the inventory refuses to remove it, so a move that went on would
+        // copy it. That holds for the clicked card and for whatever lies in the window's slot.
+        var offered = items.Offered().Select(i => i.Id).ToHashSet();
+        if (items.Items(PlayerInventories.Cursor).Count != 0 || offered.Contains(request.ItemId)
+            || items.Items(Row).Any(i => offered.Contains(i.Id))
             || items.Items(source).FirstOrDefault(i => i.Id == request.ItemId) is not { } clicked) return [];
         byte[] rows = [main, Row, PlayerInventories.ExpandedInventory];
         var before = rows.ToDictionary(r => r, items.Items);
@@ -135,12 +140,13 @@ static class DivinationFeature
                 var preview = new PlayerInventories();
                 foreach (var inMain in items.Items(main).Where(i => source != main || i.Id != clicked.Id)) preview.Put(main, inMain);
                 if (Game.ShapeOf(slot.Item) is null || !preview.Fits(main, slot.Item, Game.ShapeOf)) return [];
-                items.Remove(source, clicked.Id);
-                items.Remove(Row, slot.Id);
+                if (items.Remove(source, clicked.Id) is null || items.Remove(Row, slot.Id) is null)
+                    throw new InvalidOperationException("Divination window item could not be removed");
                 if (items.AddStacked(main, slot.Item, Game.ShapeOf).Left != 0)
                     throw new InvalidOperationException("Divination reward no longer fits after preview");
             }
-            else items.Remove(source, clicked.Id);
+            else if (items.Remove(source, clicked.Id) is null)
+                throw new InvalidOperationException("Divination card could not be removed");
             items.Put(Row, clicked with { X = 0, Y = 0 });
             // The native slot listener submits 0x19a for a complete Ctrl-clicked set; moving alone never redeems it.
         }
@@ -167,7 +173,8 @@ static class DivinationFeature
         if (!Current(conn)) return null;
         var items = ItemsOf(conn);
         var slot = items.Items(Row);
-        if (slot.Count != 1 || ItemsFor(conn).ByHash(slot[0].Item.TypeHash) is not { Class: "DivinationCard" } card
+        if (slot.Count != 1 || items.Offered().Any(i => i.Id == slot[0].Id)
+            || ItemsFor(conn).ByHash(slot[0].Item.TypeHash) is not { Class: "DivinationCard" } card
             || DivinationRewards.Find(card.Id) is not { Enabled: true } reward
             || card.MaxStack != reward.Stack || slot[0].Item.StackSize != reward.Stack) return null;
         // Every refusal precedes the only persistent mutation. A reward with missing data never consumes the cards.
