@@ -113,6 +113,35 @@ So:
    and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
    or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
+   **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
+   its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
+   a shrine whose `Shrines.MonsterPacks` names packs (the eight apparition shrines, one of 2–9 monsters a pack, in
+   area-agnostic rows) stands one of those packs; a basic shrine names none and stands one of the area's own scattered
+   packs, at that pack's own `MinCount`–`MaxCount`. The client's shrine rooms carry no monster points of their own
+   (`metadata/shrines/*.arm`: the statue and decals only), nothing in the data scales a guard count by area level, Act,
+   map tier or difficulty, and the Atlas passives that make a map shrine's guard pack magic
+   (`map_shrines_have_guaranteed_magic_pack`) and add a chance of a second (`map_shrines_additional_pack_chance_%`) are
+   the only other statement the game makes about them: normal rarity, one pack, in the campaign. A map picks its rule
+   through `ShrineGuards.Resolve(..., mapArea)` so a map's rule can change without the campaign's. A shrine within
+   `AreaPopulation.TransitionClearance` (25 cells) of the arrival or an area transition is not guarded (the 1.0.0d note,
+   "Monster packs around shrines are now not spawned if they are too close to an area entrance or waypoint"). The guards
+   stand **around** the shrine and never on it: a guard is kept at least `ShrinePlacement.ObjectSize` (7) cells from the
+   shrine's cell, so the statue and its base stay clear, and out to `AreaPopulation.ShrineGuardRadius` (12) cells rather
+   than an ordinary pack's 9, where a pack of four still fits around a 2×2 shrine room. The log line says the spread
+   (`shrine Regen at (506, 643): guarded by Act1-Rhoa (2–4): 2 around it at (-6,6) (7,-7)`). The members are spread
+   around the statue rather than scattered from it: their bearings are `2π/n` apart from a rotation the instance's rng
+   gives, on radii `ObjectSize + 1` and `ObjectSize + 3` in turn (`RingCells`), so a pack of two stands on opposite sides
+   and neighbours never share a spot; a blocked ring cell falls back to the ordinary search. A guard has to be seen
+   standing, so an emerge variety — buried and rising only when the player is on top of it, which made a shrine guarded
+   by `Act1-ZombieMiredEmerge` look empty — is passed over while the pack has a standing variety (`guardSpawnable`); a
+   pack of emerge monsters only is still used rather than leaving the shrine bare. The guards
+   are planned with the area's monsters, so an instance keeps them: re-entry restores them rather than adding a pack, and
+   activating a shrine neither respawns nor removes its guards. The shrine's monster buff (`Monster_ShrineBuffsKey`) is
+   on the monsters around it while it is unclaimed (`MonsterAuraEffect`): every hostile monster within 20 cells
+   (`ShrineManager.NearbyRadius`) gets the row's own monster values as `EncounterStats`, the client is sent no buff icon,
+   and the buff comes off again when the shrine is claimed or the monster leaves the neighbourhood, restoring the
+   monster's previous `EncounterStats`. Live (2026-11-14, The Ledge, `/shrines Acceleration`): four Rhoas gained
+   `acceleration_monster` and lost it on the claim.
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the

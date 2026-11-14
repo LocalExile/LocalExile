@@ -6,6 +6,11 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
     {
         if (conn.Immune) return 0;
+        // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
+        // shrine's 20 s). It is the buff's own stat rather than a shrine-specific flag, so anything else that grants it
+        // protects the player the same way.
+        if (Stats.Key("base_cannot_be_damaged") is uint cannotBeDamaged
+            && player.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;

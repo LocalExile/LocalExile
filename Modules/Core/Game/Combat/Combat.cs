@@ -2250,6 +2250,10 @@ public static partial class Game
         Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
+        // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
+        // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
+        // path through this funnel leaves its life alone.
+        if (m.EncounterStats is { } aura && aura.GetValueOrDefault("base_cannot_be_damaged") > 0) return null;
         uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);

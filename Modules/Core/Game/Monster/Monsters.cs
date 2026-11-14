@@ -435,6 +435,20 @@ public static partial class Game
         var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
         points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
+        // A shrine the level generator placed is guarded (ShrineGuards): its own pack rows when the Shrines row names
+        // them, else one of the area's packs at that pack's own count. A shrine too close to an entrance or waypoint is not
+        // guarded (the 1.0.0d note). The guards are planned with the area's monsters, so an instance keeps them and a
+        // re-entry or an activation never spawns them again.
+        var shrineGuards = ServerLevels.For(layout.Id, conn.Seed) is { } shrineLevel
+            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, conn.Seed)
+                .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
+                    [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], AreaPopulation.TransitionClearance))
+                .Select(p =>
+                {
+                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.Value.IsMapArea(layout.Hash), Packs.Find);
+                    return (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
+                }).ToList()
+            : [];
         // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
         // scattered packs keep away from them (LabyrinthTrials.TrapClearance); what the room file places stands there:
         // its normal / magic / rare pack points (the Lower Prison trial's plaque platform), its monsters (the Imperial
@@ -478,7 +492,9 @@ public static partial class Game
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks],
+            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
+            // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
+            guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
         spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
@@ -725,13 +741,14 @@ public static partial class Game
                 }
                 if (conn.Minions.Attacks.TryGetValue(id, out var pendingMinion))
                 {
-                    if (ReferenceEquals(pendingMinion.Monster, m) && conn.Minions.Fights(id))
+                    if (ReferenceEquals(pendingMinion.Monster, m) && (conn.Minions.Fights(id) || m.AlliedFighter))
                     { plan.MinionSwings.Add(pendingMinion); continue; }
                     conn.Minions.Attacks.Remove(id);
                 }
                 if (!m.Aggro || !MonsterAiCadence.Due(now, m.BusyUntil) || cadence.SwingPending(m)) continue;
                 // The player's fighting minions attack his enemies near them; with none they follow him.
-                if (conn.Minions.Fights(id) && m.Attack is { } ma && MinionTargetLocked(conn, id, m, (mx, my), (px, py), now) is { } target)
+                if ((conn.Minions.Fights(id) || m.AlliedFighter) && m.Attack is { } ma
+                    && MinionTargetLocked(conn, id, m, (mx, my), (px, py), now) is { } target)
                 {
                     // A lockstep client takes no Move within 2 cells (07 §6), so a minion that near its approach cell gets
                     // its attack aimed at the target instead. A melee (pathing) attack walks up on the client

@@ -94,6 +94,75 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Shrines.** The level generator's shrine rooms (`Metadata/Shrines/Shrine` lines in their .arm) become shrine objects
+  on walkable ground, typed from the area seed — in campaign zones and in maps alike, because the generator is what rolls
+  them: its extra terrain features roll CoreLeagues row 1 "Shrine" against the area's own WorldAreaLeagueChances values
+  and spend the count on the room set's "shrine" rooms (no roll of ours). In that data most campaign zones roll 20%,
+  The Ledge 15%, the Caverns 10%, the Ancient Pyramid and the Sceptre of God 7%, and The Coast, the Tidal Island, the
+  Fetid Pool, the Southern Forest, the City of Sarn and the Aqueduct 0%; a map rolls 16%, the Labyrinth 20%, and the
+  repeat chance (10% in Acts 2–10, 8% in maps, at most 10 shrines in one area) can give a second one. Towns and hideouts
+  are outside the roll. Each shrine is guarded by one pack: the shrine's own `MonsterPacks` rows when its row names them
+  (the apparition shrines, 2–9 monsters), else one of the area's own packs at that pack's count
+  (`ShrineGuards.Resolve`, normal rarity, campaign and maps separately); a shrine within 25 cells of an entrance or
+  waypoint is not guarded. Its members stand in a ring evenly around the statue, never on it: their bearings are
+  `2*pi/n` apart from a rotation the area seed gives, on radii `ObjectSize + 1` and `ObjectSize + 3` in turn, and a
+  blocked cell falls back to the ordinary search. A pack whose varieties are emerge monsters (buried until the player is
+  near) is passed over while the area has one whose monsters stand, so a shrine is not guarded by invisible monsters. While a shrine is unclaimed it puts its own `Monster_ShrineBuffsKey` on every hostile monster
+  within 20 cells (guards included, server-side only), and a claim takes it off them. A
+  click in walk-up range grants that Shrines row's buff for its duration (45 s,
+  the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
+  click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
+  influence rows come from the data. The Lightning shrine's Shock Novas and shocked ground run around the shrine while it
+  stands unclaimed and around the player once its buff is up (an unclaimed shrine's own effects tick, so an effect that
+  casts has a driver; claiming it clears the ground it laid),
+  drawn with the gem's ring art (MiscAnimated 3350, its one `animate` clip is 1000 ms, so the object is kept 250 ms
+  past it rather than removed on the cast interval; the 3351 donut is not sent). The five ground patches are refreshed
+  in place while they stay around the caster, and the player's Shocked Ground icon (BuffDefinitions 232) is not sent:
+  that buff write desynced the client, while the ground, its monster shock and the nova hit are fine.
+  The Freezing shrine (the Cold row) has an effect of its own too: the Ice Nova of GrantedEffects 101 while it stands and
+  102 for the claimed buff is cast on the statue once a second, then follows the player, and it is two visuals from the
+  client's arts — the frozen ground the skill's `ice_nova_places_ground_ice` leaves (MiscAnimated 3871), placed once and
+  static, and the frost burst (MiscAnimated 14, `icenova_02`) over it, which lives its own 833 ms clip, so the burst is
+  the pulse. Both are drawn at the size their own art is made for (the meshes' ±244.4 and ±137.7 units, the burst ~12.7
+  cells), which is how the client shows them: enlarging them to the 30 cells the hit reaches (26 raised by the stat set's
+  15% final) drew a frozen floor across most of the screen.
+  The Shrouded shrine (the Smoke row) is the cloud its buff promises: GrantedEffects 2942 `ShrineSmokeCloud` over the
+  statue while it stands and around the player once its buff is up, drawn with the largest smoke of GroundEffects' Smoke
+  row (row 117, `smoke_blind_fog_of_war_large.ao`, the radius 350 its `__col4` gives, ~32 cells) and kept where the caster
+  is rather than re-cast. Its buff (BuffDefinitions 253 `shrine_smoke`) carries no stat but `has_shrine_effect`, so the
+  cloud is the whole effect. The fog blinds through the engine's timed Blind (buff 179 `blinded`, 20% less accuracy and
+  evasion): a player who walks into an unclaimed shrine's fog gets it, and so do the hostile monsters standing in a claimed
+  one, refreshed once a second while they stay inside and lapsing 1.5 s after they leave.
+  The Skeletal shrine (the Skeletons row) summons what its buff promises, "Skeletons are summoned to you": the row names
+  two daemons, MonsterVarieties 2926 for the unclaimed shrine and 2927 for the player's, whose granted effect
+  (GrantedEffects 1315 `ShrineSummonSkeletons`, 1316 for the player's) is ActiveSkill 183, the player's own
+  `summon_skeletons`, cast once a second for the 30 s its stat set 1326 gives each skeleton (`base_skill_effect_duration`
+  30000, `alternate_minion` 1, `summoned_monsters_no_drops_or_experience`). Unclaimed, the shrine is on the monsters'
+  side like its other rows, so its skeletons rise around the statue and fight the player; once the buff is up they are his
+  allies instead, rising beside him, following him (one left more than 10 cells behind is walked back to him, once a
+  second, with the AI's own Move order) and striking the monsters near him with their own melee attack (the AI's ally
+  path, `SpawnedMonster.AlliedFighter`). They are allies, not his minions — GGG on a report that his modifiers
+  did not reach them: "You are not considered to be summoning them" — so they take none of his minion modifiers, carry no
+  `is_player_minion` stat and count towards no minion limit. Each lives its own 30 s, whatever the 45 s buff has left. The
+  data sets no cap on how many: we keep 8 alive, as many as a Summon Skeletons gem's skeletons plus its quality.
+  and `/shrines [Id …]` places types around the player for checking.
+  Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
+  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`, `Effects/SmokeCloudEffect.cs`,
+  `Effects/SkeletonSummonEffect.cs`),
+  `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
+  `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
+  The on-kill explosion a shrine can promise (`explode_enemies_for_25%_life_as_chaos_on_kill_chance_%`, Gloom's 40%
+  for 25% of the dead monster's maximum life as chaos) is the existing kill explosion (`Game.ExplodeOnKill`), which
+  now reads that stat as well as `enemies_explode_for_%_life_as_physical_damage`.
+  `base_cannot_be_damaged` (the Divine shrine's buff) is honoured by both damage paths: the player's hit in
+  `DamagePlayerHitTyped` and a monster's at the hit funnel (`ApplyMonsterHitLocked`, so no path around it), which reads
+  the shrine aura's EncounterStats: a monster already in the shrine's radius gets it on the next tick, as one that walks in does.
+  The aura is server-side only: no 0x01c1 buff is sent for it, so the monsters around an unclaimed shrine wear no icon
+  (the stats still apply, and are restored when they leave, the shrine is claimed or the area unloads).
+  The Lightning, Freezing, Shrouded and Skeletal effects were checked with the client (their art draws, the novae's hits
+  land and the skeletons fight); the claimed buffs' versions are less exercised. The Burning shrine's nova is not built,
+  and the tables carry no activated statue state for the standard rows, so a used shrine is consumed rather than dimmed.
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
