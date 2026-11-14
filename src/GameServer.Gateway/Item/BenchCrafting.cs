@@ -18,7 +18,7 @@ public sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string f
     public Result? Apply(int row, Item item, Random rng)
     {
         if (Find(row) is not { } recipe || catalog.ByHash(item.TypeHash) is not { } type ||
-            !recipe.Classes.Contains(type.ClassRow) || item.Mirrored || !item.Components.Contains("Mods")) return null;
+            !recipe.Classes.Contains(type.ClassRow) || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods")) return null;
         bool socketCraft = recipe.Sockets > 0 || recipe.Links > 0 || recipe.Colours.Length > 0;
         if (item.Corrupted && !socketCraft) return null;
         if (!item.Identified && !socketCraft) return null;

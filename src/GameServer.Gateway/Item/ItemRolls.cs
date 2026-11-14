@@ -67,7 +67,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     bool TryModifiable(Item item, out ItemCatalog.BaseType type)
     {
         type = null!;
-        if (item.Corrupted || item.Mirrored || !item.Components.Contains("Mods") ||
+        if (item.Corrupted || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods") ||
             catalog.ByHash(item.TypeHash) is not { } found || !found.Supported || !found.Components.Contains("Mods") ||
             found.Unmodifiable) return false;
         type = found;
@@ -416,6 +416,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// change the mod, and the client reorders the tooltip by mod). Null when the item has no explicit mods.</summary>
     public Item? Reforge(Item item, Random rng, UniqueCatalog.StatRoll? own = null)
     {
+        if (item.Vestigial) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         bool Mutable(int i) => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is not null;
         if (!Enumerable.Range(0, item.Mods.Count).Any(Mutable)) return null;
@@ -457,7 +458,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// <see cref="Reforge"/> does for explicits; explicit, enchant and other mods stay. Null when the item has no implicit
     /// mod (nothing is spent).</summary>
     public Item? Bless(Item item, Random rng, UniqueCatalog.StatRoll? own = null) =>
-        !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
+        item.Vestigial || !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
         : item with { Mods = [.. item.Mods.Select(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is not null
             ? Reroll(m, rng, own) : m)] };
 

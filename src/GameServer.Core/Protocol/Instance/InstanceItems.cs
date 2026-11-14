@@ -109,6 +109,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Synthesised: the Mods component's flag bit 5 (+0x2e5, "synthetic" in its debug dump 0x1421e7b00).</summary>
     public bool Synthesised { get; init; }
 
+    /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
+    public bool Vestigial { get; init; }
+    public HeistBlueprintState? HeistBlueprint { get; init; }
+
     /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
     /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
     public bool Foreseeing { get; init; }
@@ -139,7 +143,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -196,7 +200,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
-                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)));
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0) | (Vestigial ? 0x400 : 0)));
                     MagicProperties(w); w.U8(0).U8(0);
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424b5720
@@ -215,6 +219,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // MapKey 0x1424b5290 reads a flag byte, then optional u32/u16/u8. The generic map base already names its
                 // tier; 0 sends no overrides.
                 case "MapKey": w.U8(0); break;
+                case "HeistBlueprint":
+                    (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
+                    break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
