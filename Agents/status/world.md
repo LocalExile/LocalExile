@@ -104,7 +104,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   are outside the roll. Each shrine is guarded by one pack: the shrine's own `MonsterPacks` rows when its row names them
   (the apparition shrines, 2–9 monsters), else one of the area's own packs at that pack's count
   (`ShrineGuards.Resolve`, normal rarity, campaign and maps separately); a shrine within 25 cells of an entrance or
-  waypoint is not guarded. While a shrine is unclaimed it puts its own `Monster_ShrineBuffsKey` on every hostile monster
+  waypoint is not guarded. Its members stand in a ring evenly around the statue, never on it: their bearings are
+  `2*pi/n` apart from a rotation the area seed gives, on radii `ObjectSize + 1` and `ObjectSize + 3` in turn, and a
+  blocked cell falls back to the ordinary search. A pack whose varieties are emerge monsters (buried until the player is
+  near) is passed over while the area has one whose monsters stand, so a shrine is not guarded by invisible monsters. While a shrine is unclaimed it puts its own `Monster_ShrineBuffsKey` on every hostile monster
   within 20 cells (guards included, server-side only), and a claim takes it off them. A
   click in walk-up range grants that Shrines row's buff for its duration (45 s,
   the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
