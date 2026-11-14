@@ -284,7 +284,6 @@ public sealed class ProjectileEntity
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
     internal int TerrainChainChance;
-    internal bool TerrainChained;
     internal int GroundChains;
     internal int ReturnContacts = 0;
     internal int OutboundContacts = 0;
