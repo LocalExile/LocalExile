@@ -41,11 +41,16 @@ public sealed partial class DeliriumModule : IModule
         public ItemMod[] Affixes { get; set; } = [];
         public Run? Next { get; set; }
         [System.Text.Json.Serialization.JsonIgnore] public bool Busy;
+        /// <summary>The wave's monster objects by id, while this module generation runs: a kill whose corpse the
+        /// killing blow consumed (an explosion, Devour) has already left conn.Monsters when the kill handlers run, so
+        /// it is matched here, and Step counts one that died out of the list.</summary>
+        [System.Text.Json.Serialization.JsonIgnore] public Dictionary<uint, SpawnedMonster> Bodies { get; } = [];
         [System.Text.Json.Serialization.JsonIgnore] public bool SpawningDone => ProgressGoal > 0 ? SpawnPoints >= ProgressGoal : Spawned >= Budget;
         public int SpawnAllowance(double now, int packSize, int activeLimit) => !Active || now < NextSpawnAt ? 0
             : Math.Max(0, Math.Min(Math.Min(packSize, ProgressGoal > 0 ? ProgressGoal - SpawnPoints : Budget - Spawned), activeLimit - Monsters.Count));
         public bool RecordKill(uint id)
         {
+            Bodies.Remove(id);
             if (!Monsters.Remove(id)) return false;
             Kills++;
             if (MonsterPoints.Remove(id, out int points)) KillPoints += points;
@@ -109,10 +114,18 @@ public sealed partial class DeliriumModule : IModule
         {
             if (!SimulacrumRules.IsArena(kill.Conn.Layout.Id)) return;
             var run = State(kill.Conn);
-            uint id = run.Monsters.FirstOrDefault(id => kill.Conn.Monsters.TryGetValue(id, out var m) && ReferenceEquals(m, kill.Monster));
-            if (id == 0 || !run.RecordKill(id)) return;
-            Save(kill.Conn, run);
-            if (run.Active && run.SpawningDone && run.Monsters.Count == 0)
+            bool last;
+            // The ordinary hit path runs kill handlers outside the Monsters lock, while the spawner and Step change the
+            // same run under it (and another player's kill may run at once).
+            lock (kill.Conn.Monsters)
+            {
+                uint id = run.Monsters.FirstOrDefault(id => run.Bodies.TryGetValue(id, out var body) && ReferenceEquals(body, kill.Monster)
+                    || kill.Conn.Monsters.TryGetValue(id, out var m) && ReferenceEquals(m, kill.Monster));
+                if (id == 0 || !run.RecordKill(id)) return;
+                Save(kill.Conn, run);
+                last = run.Active && run.SpawningDone && run.Monsters.Count == 0;
+            }
+            if (last)
                 kill.Later(() => Clients(kill.Conn).MinBy(c => c.PeerId) is { } live ? Step(live) : Task.CompletedTask);
         });
         GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, json) =>
@@ -156,21 +169,10 @@ public sealed partial class DeliriumModule : IModule
         conn.StashObject = stash; conn.StashAt = stashAt;
         }
         SaveView(conn, view);
-        // A guest uses the run owner's origin too, rather than opening a portal to their own hideout.
-        if (conn.ReturnPortal is null && MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber)?.Map.ReturnTo is { } origin)
-        {
-            uint portal = conn.TakeObjectId();
-            var p = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
-            await SendWorldCreate(remote, stream, ciphers, conn, portal, InstanceEntities.CreateObject(portal,
-                InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath), new MapPortalObject(p.X, p.Y, -1, MapPortalType, Open: 1).Blob()), "Simulacrum: return portal");
-            await SendWorldRecord(remote, stream, ciphers, conn, portal, InstanceProtocol.EnterWakeZone(portal), null);
-            conn.ReturnPortal = (portal, p.X, p.Y); conn.ReturnPortalTo = origin.Area;
-            ListPortal(remote, stream, ciphers, conn, portal, origin.Area, "return from Simulacrum", MapPortalEntryMs);
-        }
         var run = State(conn);
         await PlayerOf(conn).Tell(run.Wave == SimulacrumRules.Waves && run.Rewarded ? "Simulacrum complete. All 15 waves defeated."
             : run.Active ? $"Simulacrum: wave {run.Wave}/15 continues."
-            : $"Simulacrum: interact with the familiar entity to begin wave {run.Wave + 1}/15. Collect your rewards before starting the next wave.");
+            : $"Simulacrum: interact with the familiar entity to begin wave {run.Wave + 1}/15.");
     }
 
     async Task Start(ClientState conn)
@@ -202,9 +204,7 @@ public sealed partial class DeliriumModule : IModule
                 run.ProgressGoal = prepared.ProgressGoal; run.SpawnPoints = run.KillPoints = 0; run.MonsterPoints.Clear();
                 run.Affixes = prepared.Affixes; run.Next = null;
                 run.ModifierNames = prepared.ModifierNames; run.OmniThisWave = prepared.OmniThisWave; run.KosisThisWave = prepared.KosisThisWave;
-                run.Monsters.Clear(); run.Started = conn.Clock.Elapsed.TotalSeconds; run.NextSpawnAt = run.Started;
-                // The real encounter destroys uncollected loot when another wave starts.
-                foreach (var ground in conn.Instance.Ground.All()) conn.Instance.Ground.Take(ground.Id, ground.Item);
+                run.Monsters.Clear(); run.Bodies.Clear(); run.Started = conn.Clock.Elapsed.TotalSeconds; run.NextSpawnAt = run.Started;
                 Save(conn, run);
             }
             await Broadcast(conn, $"Simulacrum — Wave {run.Wave}/15 · Monster level {SimulacrumRules.Level(run.Wave)} · {SimulacrumRules.Delirious(run.Wave)}% Delirious\n"
@@ -223,7 +223,13 @@ public sealed partial class DeliriumModule : IModule
             if (!context.Lifetime.IsActive || !Current(conn) || !run.Active || run.Busy) return;
             run.Busy = true;
             foreach (uint id in run.Monsters.ToArray())
-                if (conn.Monsters.TryGetValue(id, out var monster) && (monster.Dead || monster.Life == 0)) run.RecordKill(id);
+            {
+                // Bodies is not saved: after a module reload it is learnt again from the list here, so a later
+                // corpse-consuming kill is still matched.
+                if (conn.Monsters.TryGetValue(id, out var monster)) run.Bodies.TryAdd(id, monster);
+                if (monster is not null ? monster.Dead || monster.Life == 0
+                    : run.Bodies.TryGetValue(id, out var body) && (body.Dead || body.Life == 0)) run.RecordKill(id);
+            }
         }
         try
         {

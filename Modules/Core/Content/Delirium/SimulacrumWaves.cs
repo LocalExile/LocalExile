@@ -107,7 +107,18 @@ public sealed partial class DeliriumModule
             bool kosis = run.KosisThisWave && run.Spawned == 40;
             string? boss = omni ? SimulacrumRules.Omniphobia : kosis ? SimulacrumRules.Kosis : null;
             var variety = boss is not null ? Monsters.Find(boss) : pool[Random.Shared.Next(pool.Length)];
-            if (variety is not { Supported: true }) throw new InvalidOperationException($"Unsupported Simulacrum monster: {boss}");
+            if (variety is not { Supported: true })
+            {
+                // A boss the client data cannot spawn would stop the wave at this count for good: it goes on without it.
+                Console.WriteLine($"[gateway] Simulacrum: {boss} cannot be spawned; wave {run.Wave} goes on without it");
+                lock (conn.Monsters)
+                {
+                    if (omni) run.OmniThisWave = false;
+                    if (kosis) run.KosisThisWave = false;
+                    Save(conn, run);
+                }
+                continue;
+            }
             variety = variety with { StateMachine = MonsterStates(variety.StateMachine), AggroRange = Math.Max(100, variety.AggroRange) };
             int rarityRoll = Random.Shared.Next(100);
             var rarity = boss is not null ? MonsterRarity.Unique : rarityRoll < 4 ? MonsterRarity.Rare
@@ -133,6 +144,7 @@ public sealed partial class DeliriumModule
                 {
                     monster.Aggro = true;
                     run.Monsters.Add(spawnedId);
+                    run.Bodies[spawnedId] = monster;
                     if (points > 0) { run.MonsterPoints[spawnedId] = points; run.SpawnPoints += points; }
                     run.Spawned++;
                     if (omni) run.OmniCount++;

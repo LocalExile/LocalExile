@@ -85,8 +85,9 @@ static class PortalsFeature
         opening = request.Opening;
         why = request.Reason;
         int[] consumedIndices = request.ConsumeSlots?.ToArray() ?? Enumerable.Range(0, slots.Count).ToArray();
-        if (consumedIndices.Length == 0 || consumedIndices.Distinct().Count() != consumedIndices.Length
-            || consumedIndices.Any(i => i < 0 || i >= slots.Count))
+        // Only an opening the check and the handlers allowed can have bad inputs; a refusal keeps its own reason.
+        if (opening is not null && (consumedIndices.Length == 0 || consumedIndices.Distinct().Count() != consumedIndices.Length
+            || consumedIndices.Any(i => i < 0 || i >= slots.Count)))
         { opening = null; why = "The selected recipe has no valid inputs."; }
         if (opening is null)
         {
