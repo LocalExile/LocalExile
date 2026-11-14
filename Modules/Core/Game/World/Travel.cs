@@ -16,6 +16,7 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(conn);
             if (conn.Closed || conn.PlayerLife == 0 || PlayerActionBlocked(conn, requestedAt, now)) return false;
+            CancelMeleeRepeats(conn, now);
             int action = Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now, tolerance) : conn.Walk.WalkUpTo(x, y, (int)reach, now);

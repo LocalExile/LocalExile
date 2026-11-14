@@ -225,7 +225,7 @@ level 1, 98% at 20; poedb). Each skill keeps its own count, counted as the use s
 counts (the wiki: the count advances whether or not the hit lands); that a use cancelled before its contact counts
 too is not verified. The count is server state only;
 the client's invisible `ruthless_big_hit_counter` buff is not sent. Not built: the blow's 0.8 s stun duration, its
-more damage with bleeding, poison and ignite, and the count across Multistrike repeats.
+more damage with bleeding, poison and ignite.
 
 PoEDB comparisons: [Second Wind](https://poedb.tw/us/Second_Wind_Support) (200% cost multiplier,
 +1 non-instant use, 24% reduced recovery at level 1, 5% at 20 and up to 5% increased recovery from quality),

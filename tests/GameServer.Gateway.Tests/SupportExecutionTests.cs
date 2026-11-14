@@ -238,6 +238,21 @@ public sealed class SupportExecutionTests
                         Game.CancelMeleeRepeats(conn, 10 + mainSeconds * 1.7);
                         Assert.Equal(10 + mainSeconds * 2, conn.NextAttackAt, 8);
                         Assert.True(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.7));
+                        // An object interaction replaces the action too (loot, portals, NPCs). It must release the
+                        // unstarted swings' reservation and movement gates, while preserving the current swing.
+                        conn.Clock.Stop();
+                        double now = Game.ProjectileWorldTime(conn), start = now - mainSeconds * .7;
+                        conn.NextAttackAt = start + mainSeconds;
+                        conn.LockstepBusyUntil = start + mainSeconds * .6;
+                        Game.ReserveMeleeRepeats(conn, id, mainSeconds);
+                        double reserved = conn.NextAttackAt;
+                        conn.PlayerLife = 0;
+                        Assert.False(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
+                        Assert.Equal(reserved, conn.NextAttackAt);
+                        conn.PlayerLife = 1000;
+                        Assert.True(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
+                        Assert.Equal(start + mainSeconds, conn.NextAttackAt, 8);
+                        Assert.True(Game.MeleeRepeatAllowsMove(conn, start + mainSeconds * 1.5));
                     }
                 }
                 foreach (string disabled in new[] { "disable_attack_repeats", "disable_skill_repeats" })
