@@ -30,9 +30,11 @@ static class FriendsFeature
         Moving.TryGetValue(name, out var m) && DateTime.UtcNow - m.Since < MovingGrace ? m.From : null;
 
     static ClientState? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
-    // Online, or between two connections of an area change (as the connection it left had them).
+    // Online, or between two connections of an area change (as the connection it left had them). The third field is the
+    // area the friend is in, a WorldAreas HASH16 (+0xa8): the friends' and party rows draw it as the area's name and show
+    // "Travelling..." for anything that is not an area (#715).
     static byte[] Details(Account a) => (Connected(a.Name) ?? Changing(a.Name)) is { } c
-        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c))
+        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c))
         : InstanceSocial.OfflinePlayer(a.Name);
 
     public static IEnumerable<(string Log, byte[] Message)> Enter(ClientState c)
