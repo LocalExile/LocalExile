@@ -190,6 +190,7 @@ public sealed partial class DeliriumModule : IModule
             if (!Current(conn) || conn.PlayerLife == 0 || run.Active || run.Busy || run.Wave >= SimulacrumRules.Waves) return;
             run.Busy = true;
         }
+        List<uint> cleared = [], shown = [];
         try
         {
             var prepared = run.Next ?? PrepareWave(conn, run.Wave + 1, run);
@@ -205,14 +206,33 @@ public sealed partial class DeliriumModule : IModule
                 run.Affixes = prepared.Affixes; run.Next = null;
                 run.ModifierNames = prepared.ModifierNames; run.OmniThisWave = prepared.OmniThisWave; run.KosisThisWave = prepared.KosisThisWave;
                 run.Monsters.Clear(); run.Bodies.Clear(); run.Started = conn.Clock.Elapsed.TotalSeconds; run.NextSpawnAt = run.Started;
+                cleared = ClearGround(conn.Instance.Ground);
+                // This client hears of its own at once; the others' ground syncs remove theirs.
+                foreach (uint id in cleared)
+                    if (conn.SeenGround.Remove(id)) shown.Add(id);
                 Save(conn, run);
             }
+            if (cleared.Count > 0) Console.WriteLine($"[gateway] Simulacrum wave {run.Wave}: {cleared.Count} items on the ground destroyed");
+            var (remote, stream, ciphers) = conn.Wire;
+            foreach (uint id in shown)
+                await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (Simulacrum wave {run.Wave} begins)");
             await Broadcast(conn, $"Simulacrum — Wave {run.Wave}/15 · Monster level {SimulacrumRules.Level(run.Wave)} · {SimulacrumRules.Delirious(run.Wave)}% Delirious\n"
                 + string.Join("; ", run.ModifierNames));
             await PublishStarter(conn, run, recreate: false);
         }
         finally { lock (conn.Monsters) run.Busy = false; }
         await Step(conn);
+    }
+
+    /// <summary>Every item on the arena's ground goes when the next wave begins, the players' own drops too (3.29.3c
+    /// ClientStrings ObjectDisplayAfflictionatorWarning: "All items on the ground are destroyed when the next wave
+    /// begins."). Returns the ids that went.</summary>
+    public static List<uint> ClearGround(InstanceGround ground)
+    {
+        List<uint> cleared = [];
+        foreach (var (id, item) in ground.All())
+            if (ground.Take(id, item) is not null) cleared.Add(id);
+        return cleared;
     }
 
     async Task Step(ClientState conn)

@@ -108,5 +108,15 @@ public sealed class SimulacrumTests
         Assert.True(resumed.TryComplete());
         Assert.False(resumed.TryComplete());
         Assert.Equal(7190, Enumerable.Range(1, 15).Sum(SimulacrumRules.Population));
+
+        // The next wave destroys every item on the ground: rewards, a player's own drop and one only its owner sees.
+        var ground = new InstanceState().Ground;
+        var loot = new Item(1, [], 0);
+        ground.Add(new WorldItemObject(10, 10, loot));
+        ground.Add(new WorldItemObject(11, 10, loot), new object());
+        ground.Add(new WorldItemObject(12, 10, loot), new object(), shared: false);
+        Assert.Equal(3, DeliriumModule.ClearGround(ground).Count);
+        Assert.Empty(ground.All());
+        Assert.Empty(DeliriumModule.ClearGround(ground));
     }
 }
