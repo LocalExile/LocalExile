@@ -55,6 +55,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 
+- **One connection per character (Gateway tests; not yet checked with two clients in the real game).**
+  A newer login takes the character from the older connection: the older client is told and its connection closed,
+  and the newer one loads the character only after the older one saved it, so two clients never write one character
+  (or its items) from two states. The same account's other characters and other accounts are unaffected.
+  Code: `Game.ClaimCharacter`/`ReleaseCharacter`, `Program.EndAsync`, `IGameLogic.AdmittingAsync`.
 - Selected league modes have server rules with automated coverage and native entry, exit and migration checks.
   Ordinary Hardcore death migrates to the matching softcore base while preserving SSF; Hardcore Ruthless stays dead.
   Carried progress and the death record commit together, source stash/gold stay behind, and stale writes cannot undo it.

@@ -114,7 +114,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   A mod reaches what a module reaches (the Gateway and Game are public; `depends` may name a module). `GameEvents` is
   the one hook system for modules and mods (chat commands, tick, client messages, area generated, monster killed, drop,
   experience and stat modifiers among it); a mod's subscriptions run in every league, and the host releases everything
-  an id holds (subscriptions, `ChatRoutes.Use`, `ExchangeRateStore.Use`) when it unloads. `GameServer.Modding` is only
+  an id holds (subscriptions, `ChatRoutes.Use`, `ExchangeRateStore.Use`) when it unloads. The drop hook carries the
+  kill's own equipment rarity roll (`DropRoll.EquipmentChances`), a multiplier on the currency alone
+  (`DropRoll.Currency`), and a unique's own pool and item level (`DropRoll.UniqueFromWorldPool`: one of the world's
+  uniques, a boss's encounter-only ones aside, whatever the monster's level; `DropRoll.UniqueItemLevel`, 2026-11-13), so
+  a mod can move a rarity's share, the currency and the uniques without replacing the roll.
+  `GameServer.Modding` is only
   the loader contract and host services (`IMod`, `IModule`, `League`, the context) and depends on nothing of the server;
   `IPlayer`, `IPlayerWorld` (`Program.WorldOf`) and build imports (`CharacterBuildApi.For(mod)`) are the Gateway's. A subscriber that throws is logged and skipped.
   The dev chat commands are the `gm-commands` mod in LocalExile-Mods; `/reload` and `/lastpackets` are the Gateway's.

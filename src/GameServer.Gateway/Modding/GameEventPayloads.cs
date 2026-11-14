@@ -51,6 +51,26 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>Scales how often equipment drops magic or rare (1: the server's own).</summary>
     public double Rarity { get; set; } = 1;
 
+    /// <summary>What this kill's equipment rarity roll starts from, or null for the server's own for the monster's rarity
+    /// (<see cref="ItemDrops.RarityChances"/>): each chance is of what the earlier ones left, unique first, then rare, then
+    /// magic, and the rest normal. <see cref="Rarity"/> and the character's increased item rarity scale it on top.</summary>
+    public ItemDrops.Chances? EquipmentChances { get; set; }
+
+    /// <summary>Scales how much currency a kill drops, and nothing else (1: the server's own): 3 drops three times as
+    /// many currency items, each its own pick, so they lie on the ground as their own piles. The other kinds keep their
+    /// weights, so this adds currency rather than taking the equipment's or a gem's place. Gold is <see cref="Gold"/>'s.
+    /// Below 1 it adds nothing: the drop path never takes a roll away.</summary>
+    public double Currency { get; set; } = 1;
+
+    /// <summary>True: a unique roll the rolled base has none of its own for takes one of the world's uniques — the pool
+    /// the game drops, a boss's own (an encounter's) left out — whatever the monster's level, instead of the rare the
+    /// game falls back to. Off: the server's own.</summary>
+    public bool UniqueFromWorldPool { get; set; }
+
+    /// <summary>The item level a unique this kill drops is given, or null for the server's own (the monster's level, plus
+    /// what its rarity adds). Every unique of the kill shares it.</summary>
+    public int? UniqueItemLevel { get; set; }
+
     /// <summary>Scales the gold pile (1: the server's own).</summary>
     public double Gold { get; set; } = 1;
 

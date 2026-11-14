@@ -40,6 +40,7 @@ public static class ServerConfig
 
     public static string PatchWebUrl => Text("Game_PATCH_URL", "Patch.WebUrl", "http://127.0.0.1:8080");
     public static int PatchPort => Port("Game_PATCH_TCP_PORT", "Patch.Port", 12995);
+    public static IPAddress PatchBind => Address("Game_PATCH_BIND", "Patch.BindAddress", "127.0.0.1");
     public static IPAddress LoginBind => Address("Game_BIND", "Login.BindAddress", "127.0.0.1");
     public static int LoginPort => Port("Game_LOGIN_PORT", "Login.Port", 20493);
     public static int ControlPort => Port("Game_AUTH_CONTROL_PORT", "AuthControl.Port", 20495);

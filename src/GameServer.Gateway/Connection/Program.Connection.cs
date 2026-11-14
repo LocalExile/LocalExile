@@ -116,10 +116,19 @@ public partial class Program
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
-                Logic.Admitting(conn);
-                // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
+                // Another connection's requests (a trade, a party invite) reach this client through its own send gate, and
+                // a rule that takes this connection over (AdmittingAsync) can tell it why before it is prepared.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
+                // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
+                // this connection's character is loaded only after that.
+                if (!await Logic.AdmittingAsync(conn))
+                {
+                    conn.CloseReason ??= "the game rules refused the connection";
+                    Console.WriteLine($"[gateway] {remote} connection refused by the rules");
+                    return;
+                }
+                Logic.Admitting(conn);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 HotReload.Register(conn);
                 InGame[conn] = 0;
@@ -226,7 +235,9 @@ public partial class Program
         {
             // A client leaving for another area often resets the connection instead of closing it; otherwise a reset
             // (IOException) is how a crashed client often looks from here, and its packets are the lead.
-            if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
+            if (left is { Closed: true, CloseReason: { } declared })
+                reason = declared;   // the server ended it on purpose (another login took the character, a failed output)
+            else if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
                 reason = "the client reset the connection (area change)";
             else
             {
@@ -256,6 +267,8 @@ public partial class Program
             ForgetCommands(left);
             Instances.Leave(left.Instance);
             CharacterBuildImports.Release(left);
+            // The connection has ended and its save is written: whoever ended it for another connection goes on.
+            left.Ended.TrySetResult();
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder

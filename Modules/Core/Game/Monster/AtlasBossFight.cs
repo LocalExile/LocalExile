@@ -215,9 +215,9 @@ abstract class AtlasBossFight
         }
     }
 
-    // Art that belongs to a later moment than the action that starts it: the celestial beam's rig stands on the ground
-    // from the end of the cast, not from its start, or the arena shows a beam nothing appears to have cast. Spawned by
-    // Expire on a later step, so no step waits for it.
+    // Art that belongs to a later moment than the pose that starts it: the celestial beam stands on the ground from the
+    // end of the charge, not from its start, or it reads as a beam nothing appears to have cast. Spawned by Expire on a
+    // later step, so no step waits for it.
     readonly List<(double At, ClientState Conn, (int X, int Y) Pos, string Ao, double Life, float Scale)> pending = [];
 
     /// <summary>Shows art at <paramref name="at"/> (clock seconds) instead of now.</summary>

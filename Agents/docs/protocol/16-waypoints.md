@@ -42,7 +42,9 @@ sequenceDiagram
 | StateMachine | `01 00` (1 state, 0 timers), compact int "active" `00`, flags `00` |
 
 The place comes from the tile record the walk-map recorder captures (08 §7: `.transitions.json` keeps `Waypoint`
-records next to the area transitions); Lioneye's Watch has a built-in fallback (256, 169), 3π/2, z −357.52. "active"
+records next to the area transitions); a capture that keeps no `Waypoint` record does not mean the area has none —
+the Gateway falls back to the `Waypoint` object its own generated layout places, which is where 1_1_5, 1_5_5,
+2_8_2_2 and 2_10_4 get theirs. Lioneye's Watch has a built-in fallback (256, 169), 3π/2, z −357.52. "active"
 stays 0: its client handler only plays the `inert` animation. The look comes from 0x4c (§3).
 
 ## 3. Messages
@@ -165,9 +167,10 @@ the Submerged Passage blocker), which matches having been there.
 
 ## Open
 
-- A generated area's waypoint is only known from a `-Walkmaps` capture for the seed. Without one the player arrives at
-  the layout's spawn, and without a walk map at an arbitrary cell outside the map (The Submerged Passage, seed 1). The
-  Roadmap's "every area at seed 1" capture fixes it for the dev seed.
+- A generated area's waypoint is only known from a `-Walkmaps` capture for the seed, or from the layout the Gateway
+  generates for it. Without either the player arrives at the layout's spawn, and without a walk map at an arbitrary
+  cell outside the map — which is what every act area at seed 1 used to do, until they were all captured at seed 1
+  (The Submerged Passage was the example). Other seeds still need their own capture.
 - 0x4c's u32 and 0x4d's u32; the other 0x7b kinds (0x01..0x72 open other panels: stash, vendors, …).
 - Real quest progress should set and save the flags instead of deriving them from visits.
 
