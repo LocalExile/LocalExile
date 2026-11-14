@@ -67,6 +67,15 @@ public sealed class CrueltySupportTests
         lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x9999, 1000, 1000, 1000, plain, 0);
         Assert.False(conn.SupportGems.CrueltyPct.ContainsKey(0x9999));
 
+        // Cruelty is one buff: a weaker hit from a second supported skill keeps the running 40 and refreshes it, and
+        // every supported skill reads that value.
+        double shared = conn.SupportGems.CrueltyUntil[skillId];
+        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x5678, 1, 1000, 1000, skill, 3);
+        Assert.Equal(40, Game.CrueltyActivePct(conn, 0x5678));
+        Assert.Equal(40, Game.CrueltyActivePct(conn, skillId));
+        Assert.True(conn.SupportGems.CrueltyUntil.Values.Max() > shared);
+        conn.SupportGems.CrueltyUntil.Clear();
+
         // The buff expiring removes the value: clear the deadline, then CrueltyActiveAt reports 0.
         conn.SupportGems.CrueltyUntil[skillId] = 0;
         Assert.Equal(0, Game.CrueltyActivePct(conn, skillId));

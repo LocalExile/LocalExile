@@ -118,9 +118,9 @@ public static partial class Game
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
-        // Cruelty: a skill the support links to gets the more damage over time of the buff its own hits grant. The buff
-        // is per skill (Overheat-style per-use state would not survive a panel build), and a skill without a running
-        // buff adds nothing. The stat is what AilmentPanelStats and the damage-over-time debuffs read.
+        // Cruelty: a skill the support links to gets the more damage over time of the one Cruelty buff on the character,
+        // whichever supported skill's hit granted it; with no running buff it adds nothing. The stat is what
+        // AilmentPanelStats and the damage-over-time debuffs read.
         if (Stats.Key(CrueltySupportedStat) is uint crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
             && CrueltyActivePct(conn, skillId) is int crueltyPct and > 0
             && Stats.Key(CrueltyDotStat) is uint crueltyKey)
