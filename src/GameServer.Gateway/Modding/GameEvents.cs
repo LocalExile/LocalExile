@@ -162,6 +162,15 @@ public static class GameEvents
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
 
+    /// <summary>A map device's checked input before any item is consumed.</summary>
+    public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
+
+    public static void ResolveMapOpening(MapOpening request)
+    {
+        foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
+            GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
+    }
+
     /// <summary>A hostile monster died by the player's hand, after its kill was committed (<see cref="Kill"/> runs inside the commit).</summary>
     public static readonly GameEvent<Func<MonsterKill, Task>> MonsterKilled = new();
 

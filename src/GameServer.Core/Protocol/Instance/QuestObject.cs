@@ -23,20 +23,26 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
+    public StateMachineData? StateMachine { get; init; }
+    public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
-        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement"];
+        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
-        components.Count > 0 && components[0] == "Positioned" && components.All(Supported.Contains);
+        CanSerialize(components, false);
+
+    public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine) =>
+        components.Count > 0 && components[0] == "Positioned"
+        && components.All(c => Supported.Contains(c) && (c != "StateMachine" || haveStateMachine));
 
     /// <summary>The index of the Transitionable component (for 0x2bc updates), or −1.</summary>
     public static int TransitionableIndex(IReadOnlyList<string> components) => components.ToList().IndexOf("Transitionable");
 
     public byte[] Blob()
     {
-        if (!CanSerialize(Components)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
+        if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
         w.U8(0);            // object flags
         w.U8(0);            // base data entry count
@@ -55,7 +61,11 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
-                case "ObjectMagicProperties": w.U16(0).U8(0).U8(0); break;
+                case "ObjectMagicProperties":
+                    if (Mods.Count == 0) w.U16(0).U8(0).U8(0);
+                    else { MagicProperties.Write(w, 0, true, Mods, []); w.U8(0); }
+                    break;
+                case "StateMachine": StateMachine!.Write(w); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
                 case "NPC": w.U8(0).U8(0xff); break;
                 case "InteractionAction": w.U8(0); break;

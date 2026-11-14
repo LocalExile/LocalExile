@@ -34,6 +34,21 @@ public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? Achievemen
     public byte? Level { get; init; }
 }
 
+/// <summary>A checked device recipe before payment: content may resolve an abstract destination or refuse it.</summary>
+public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> slots, bool campaign,
+    MapDevice.Opening? opening, string reason)
+{
+    public ClientState Conn { get; } = conn;
+    public IReadOnlyList<MapDevice.Slot> Slots { get; } = slots;
+    public bool Campaign { get; } = campaign;
+    public ushort Target { get; init; }
+    /// <summary>Input indices used by the selected recipe; null retains the checked device's complete input.</summary>
+    public IReadOnlyList<int>? ConsumeSlots { get; set; }
+    public MapDevice.Opening? Opening { get; set; } = opening;
+    public string Reason { get; set; } = reason;
+    public bool ReturnToSource { get; set; }
+}
+
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>
 public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 {
