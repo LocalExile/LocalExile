@@ -109,6 +109,14 @@ So:
    `rare`. Only a Trial of Ascendancy's rooms place them yet ([labyrinth-trials](../game/labyrinth-trials.md),
    "Monsters"); a quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
+   **Shrine guards**: a shrine the level generator placed (`Metadata/Shrines/Shrine` in its room; `ShrinePlacement`) is
+   guarded by one of the area's scattered packs at normal rarity, at the shrine's cell (`PopulateArea` passes the shrine
+   cells as `roomPacks` "normal" points). The client's shrine rooms carry no monster points of their own
+   (`metadata/shrines/*.arm`: the statue and decals only) and `Shrines.MonsterPacks` is empty for all 15 standard rows
+   (only the boss and Conqueror shrines name packs), so which monsters guard a shrine is the server's choice; the wiki's
+   "often surrounded by a pack of monsters guarding it" and the Atlas passives that upgrade a map shrine's guard to a
+   magic pack (`map_shrines_have_guaranteed_magic_pack`) and add a chance of another (`map_shrines_additional_pack_chance_%`)
+   are what identify it as one pack, normal, in the campaign (campaign areas carry no Atlas stats).
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the

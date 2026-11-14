@@ -97,7 +97,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Ledge 15%, the Caverns 10%, the Ancient Pyramid and the Sceptre of God 7%, and The Coast, the Tidal Island, the
   Fetid Pool, the Southern Forest, the City of Sarn and the Aqueduct 0%; a map rolls 16%, the Labyrinth 20%, and the
   repeat chance (10% in Acts 2–10, 8% in maps, at most 10 shrines in one area) can give a second one. Towns and hideouts
-  are outside the roll. A
+  are outside the roll. Each shrine is guarded by one of the area's monster packs, normal rarity (the Atlas passives
+  that make a map's guard magic are not campaign stats). A
   click in walk-up range grants that Shrines row's buff for its duration (45 s,
   the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
   click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
