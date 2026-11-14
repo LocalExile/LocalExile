@@ -44,4 +44,4 @@ it matches their known order (Orra Greengate 5, Igna Phoenix 6, Ash Lessard 7) b
 gives their more life from level 68 (150%) to 87+ (1 860%). They are unique monsters. No Mods.dat row grants `is_rogue_exile`.
 
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
-Gateway populates.
+Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.

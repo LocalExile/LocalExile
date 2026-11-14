@@ -564,6 +564,20 @@ public static class AreaPopulation
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20)
     {
         var depth = Depth(w, h, walkable);
+        // Game_ENCOUNTERS_AT_ARRIVAL=1, for testing: the walkable cell nearest a point 12 cells from the arrival.
+        if (Environment.GetEnvironmentVariable("Game_ENCOUNTERS_AT_ARRIVAL") == "1")
+        {
+            (int X, int Y)? best = null;
+            long bestDistance = long.MaxValue;
+            for (int y = Math.Max(0, arrival.Y - 40); y < Math.Min(h, arrival.Y + 40); y++)
+                for (int x = Math.Max(0, arrival.X - 40); x < Math.Min(w, arrival.X + 40); x++)
+                {
+                    if (depth[y * w + x] < 2) continue;
+                    long dx = x - (arrival.X + 12), dy = y - arrival.Y, d = dx * dx + dy * dy;
+                    if (d < bestDistance && !taken.Contains((x, y))) (best, bestDistance) = ((x, y), d);
+                }
+            if (best is not null) return best;
+        }
         var candidates = new List<(int X, int Y)>();
         for (int y = 0; y < h; y += 3)
             for (int x = 0; x < w; x += 3)
