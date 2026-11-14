@@ -98,8 +98,10 @@ truncates it rather than rounding up (`GatewayProjectileModifiers`).
 Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
 (`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
 Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
-(`MonsterRuptures`, `BleedTaken`); a bleed applied while Ruptures are present expires 25% more quickly per Rupture, using
-the Ruptures already on the target (the Rupture from the same hit affects later bleeds). Close Combat's supported melee hit grants Combat Rush for its listed
+(`MonsterRuptures`, `BleedTaken`). Each Rupture speeds up all running bleed timers by 25%, including its hit's own bleed;
+stack expiry restores the remaining time at the new rate, composed with Temporal Chains. The native Rupture buff is
+not shown. This is a dynamic expiry rate, not a shorter base duration ([GGG Q&A](https://www.pathofexile.com/forum/view-thread/3123794)).
+Close Combat's supported melee hit grants Combat Rush for its listed
 duration, and a travel skill the support does not support then takes
 `support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed.
 A successfully paid travel use consumes the buff.

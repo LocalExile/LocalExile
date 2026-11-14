@@ -139,6 +139,7 @@ public sealed class HitAilmentTests
         Assert.Equal((still, 0.0), (Game.BleedTaken(target, 0.1), Game.AggravatedExtra(target, 0)));
         conn.PlayerStats[Program.Stats.Key("cannot_cause_bleeding")!.Value] = 1;
         Assert.Equal(MonsterIgnites.Settings.None, Bleed());
+        VerifyRuptureClocks(conn);
 
         // The club's own "chance to Poison on Hit", which the panel counts, poisons an attack's hit and not a spell's.
         var player = Game.CharacterPlayerStats(conn);
@@ -154,6 +155,47 @@ public sealed class HitAilmentTests
             Assert.True(poisoned.Poisons.Poisoned);
         }
     });
+
+    static void VerifyRuptureClocks(ClientState conn)
+    {
+        var bleed = new MonsterIgnites.Settings(100, 100, 100, 100, 100, 10, CriticalChance: 100, RupturePercent: 25);
+        var target = Monster();
+        target.Bleeds.Add(0, 200, 10); // A stronger bleed applied before the first Rupture.
+        Game.BleedOnHitLocked(conn, 10, target, bleed, critical: true, now: 1);
+        Assert.Equal(9, target.Bleeds.Until, 8); // The new ten-second bleed immediately runs at 1.25x.
+        Assert.Equal(250, target.Bleeds.Advance(2, Game.BleedTaken(target, 2)) - 200); // One unruptured second retained.
+        Game.SettleBleeding(target, 5); // Crosses the stack's t=4 expiry with no intermediate tick.
+        Assert.Equal(700, target.Bleeds.Advance(5, 1)); // 2 seconds at 250, then one at 200.
+        Assert.Equal(10.25, target.Bleeds.Until, 8); // New bleed: 10 - 3*1.25 base seconds remain at t=4.
+        Assert.Equal(1, Game.BleedingExpiryRate(target, 5));
+
+        var staggered = Monster();
+        for (int i = 0; i < 5; i++)
+            Game.BleedOnHitLocked(conn, 11, staggered, bleed with { Seconds = 20 }, critical: true, now: i * .5);
+        Assert.Equal(4, staggered.Ruptures.Stacks(2));
+        Game.SettleBleeding(staggered, 6); // Replacement and every distinct expiry, in one advance.
+        Assert.Equal(0, staggered.Ruptures.Stacks(6));
+        Assert.Equal(1, Game.BleedingExpiryRate(staggered, 6));
+        Assert.True(staggered.Bleeds.Advance(6, 1) > 600);
+
+        var slowed = Monster();
+        slowed.RecipientDebuffRate = .5;
+        slowed.Bleeds.SetExpiryRate(0, .5);
+        Game.BleedOnHitLocked(conn, 12, slowed, bleed, critical: true, now: 0);
+        Assert.Equal(.625, Game.BleedingExpiryRate(slowed, 0));
+        Assert.Equal(16, slowed.Bleeds.Until, 8);
+        Game.SettleBleeding(slowed, 4);
+        Assert.Equal(19.25, slowed.Bleeds.Until, 8);
+        Assert.Equal(475, slowed.Bleeds.Advance(4, 1));
+        Assert.Equal(100, slowed.Bleeds.PerSecond(4)); // Expiry never scales the base DPS.
+
+        var shortBleed = Monster();
+        Game.BleedOnHitLocked(conn, 13, shortBleed, bleed with { Seconds = 1 }, critical: true, now: 0);
+        Game.SettleBleeding(shortBleed, 4);
+        Assert.False(shortBleed.Bleeds.Burning);
+        Assert.Equal(100, shortBleed.Bleeds.Advance(4, 1)); // 100 DPS * 1.25 taken * 0.8 seconds.
+        Assert.Equal(0, shortBleed.Bleeds.Advance(5, 1));
+    }
 
     static SpawnedMonster Monster(params (string, int)[] stats) => new("target", new(105, 100, 0), 0, 0, 100)
         { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };

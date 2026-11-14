@@ -236,7 +236,7 @@ public static partial class Game
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
     static async Task TickStrongestDots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
-        Func<SpawnedMonster, double, double>? aggravated = null)
+        Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -250,7 +250,11 @@ public static partial class Game
                 if (set.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) set.Clear();
-                else damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                else
+                {
+                    settle?.Invoke(m, now);
+                    damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                }
                 if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
