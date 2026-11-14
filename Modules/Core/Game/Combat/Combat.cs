@@ -301,10 +301,15 @@ public static partial class Game
                 await Task.Delay(16);
             }
             if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _)) return;
-            (int X, int Y) stop = default;
-            if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect, CooldownForSkill(conn, use.SkillId), false,
-                () => stop = conn.Walk.Position(ProjectileWorldTime(conn)), out var cooldownUse, actionToken: action)) return;
             (int X, int Y) aim = (use.X, use.Y);
+            (int X, int Y) stop = default;
+            // Not in reach of the aim (no path, an aim off the map, a body in the way): the client's action ends without
+            // a swing, so nothing is paid or echoed, as CastOn's SwingInReach refuses it for a monster. The reach is the
+            // weapon's range plus the same 2 cells of slack CastOn and Attack give; a normal arrival stops at range - 1.
+            if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect, CooldownForSkill(conn, use.SkillId), false,
+                () => stop = conn.Walk.Position(ProjectileWorldTime(conn)), out var cooldownUse, actionToken: action,
+                admit: () => !GroundAttackWalks(conn.Walk.Position(ProjectileWorldTime(conn)), aim, WeaponFor(conn).Range + 2)))
+                return;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
             if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
                 sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
