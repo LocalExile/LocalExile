@@ -87,6 +87,10 @@ Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binarie
 
 # The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
 Copy-Into 'sql' 'sql'
+Copy-Into 'scripts\re\divination_cards.py' 'scripts\re\divination_cards.py'
+Get-ChildItem 'scripts\re\divination' -Filter '*.py' -File | ForEach-Object {
+    Copy-Into $_.FullName (Join-Path 'scripts\re\divination' $_.Name)
+}
 
 # The bundled runtime of the extraction (Node, for GamePack's Oodle decoder), and the manifest with each entry's program.
 Step 'bundling Node ...'

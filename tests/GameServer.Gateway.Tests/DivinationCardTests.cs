@@ -29,6 +29,22 @@ public sealed class DivinationCardTests
         var wisdom = DivinationRewards.Create(scholar, items, uniques, rolls, new Random(1))!;
         Assert.Equal(items.Find("Scroll of Wisdom")!.Hash, wisdom.TypeHash);
         Assert.Equal(40, wisdom.StackSize);
+        var justice = DivinationRewards.Find(items.Find("Divine Justice")!.Id)!;
+        string[] spectrumBases = ["Metadata/Items/Jewels/JewelStr", "Metadata/Items/Jewels/JewelDex", "Metadata/Items/Jewels/JewelInt"];
+        Assert.Equal(spectrumBases.Order(), justice.Members.Select(m => m.Base).Order());
+        foreach (var member in justice.Members)
+        {
+            Assert.Equal("unique", member.Kind);
+            Assert.Equal("Grand Spectrum", member.Id);
+            var spectrum = DivinationRewards.Create(justice with { Members = [member] }, items, uniques, rolls, new Random(974))!;
+            Assert.NotNull(spectrum);
+            Assert.Equal(member.Base, items.ByHash(spectrum.TypeHash)!.Id);
+            Assert.Equal(ItemRarity.Unique, spectrum.Rarity);
+            Assert.True(spectrum.Corrupted);
+        }
+        var rolledSpectrumBases = Enumerable.Range(0, 32).Select(seed => items.ByHash(
+            DivinationRewards.Create(justice, items, uniques, rolls, new Random(seed))!.TypeHash)!.Id).ToHashSet();
+        Assert.Equal(spectrumBases.Order(), rolledSpectrumBases.Order());
         Assert.Null(DivinationRewards.Create(doctor with { Name = "No such unique" }, items, uniques, rolls, new Random(1)));
         Assert.Null(DivinationRewards.Create(doctor with { Enabled = false }, items, uniques, rolls, new Random(1)));
         Assert.Null(DivinationRewards.Create(doctor with { Kind = "void" }, items, uniques, rolls, new Random(1)));
@@ -39,10 +55,10 @@ public sealed class DivinationCardTests
         var implicits = amulet.Mods.Where(m => m.Section == ModSection.Implicit).ToArray();
         Assert.Equal(2, implicits.Length);
         Assert.All(implicits, m => Assert.Equal(5, items.Mods.ByHash(m.Hash)!.GenerationType));
-        // A plain "Corrupted" reward is corrupted without a corruption implicit: the unique keeps its own implicits.
+        // A plain "Corrupted" equipment reward has one corruption implicit in place of the base's own.
         var plain = DivinationRewards.Create(doubleImplicit with { TwoImplicit = false }, items, uniques, rolls, new Random(1))!;
         Assert.True(plain.Corrupted);
-        Assert.DoesNotContain(plain.Mods, m => m.Section == ModSection.Implicit && items.Mods.ByHash(m.Hash)!.GenerationType == 5);
+        Assert.Equal(5, items.Mods.ByHash(Assert.Single(plain.Mods, m => m.Section == ModSection.Implicit).Hash)!.GenerationType);
         var humble = DivinationRewards.Find(items.Find("Humility")!.Id)!;
         var robe = DivinationRewards.Create(humble, items, uniques, rolls, new Random(1))!;
         Assert.Equal(6, robe.Sockets.Count);
@@ -187,6 +203,44 @@ public sealed class DivinationCardTests
         var unresolved = DivinationRewards.All.Values.Where(r => r.Enabled
             && DivinationRewards.Create(r, items, uniques, rolls, new Random(499)) is null).Select(r => r.Card).ToArray();
         Assert.True(unresolved.Length == 0, string.Join("\n", unresolved));
+    }
+
+    [Fact]
+    public void Corrupted_rewards_replace_equipment_implicits_without_changing_special_rewards()
+    {
+        var items = Program.Items;
+        var uniques = new UniqueCatalog(items);
+        var rolls = new ItemRolls(items);
+        Item Reward(string name) => DivinationRewards.Create(DivinationRewards.Find(items.Find(name)!.Id)!,
+            items, uniques, rolls, new Random(974))!;
+        foreach (var name in new[] { "Apocalypse", "Divine Justice", "A Mother's Parting Gift", "The Warden" })
+        {
+            var reward = Reward(name);
+            Assert.NotNull(reward);
+            Assert.True(reward.Corrupted);
+            var implicitMod = Assert.Single(reward.Mods, m => m.Section == ModSection.Implicit);
+            Assert.Equal(5, items.Mods.ByHash(implicitMod.Hash)!.GenerationType);
+            if (name == "Apocalypse")
+            {
+                var definition = uniques.All.First(d => d.Name == "Eyes of the Greatwolf");
+                Assert.NotEmpty(definition.Mods);
+                Assert.All(definition.Mods, id => Assert.Contains(reward.Mods,
+                    m => m.Section == ModSection.Explicit && items.Mods.ByHash(m.Hash)!.Id == id));
+            }
+        }
+        var immunity = Reward("Lachrymal Necrosis");
+        var immunityMod = Assert.Single(immunity.Mods, m => m.Section == ModSection.Implicit);
+        Assert.Contains("CorruptedBloodImmunity", items.Mods.ByHash(immunityMod.Hash)!.Id);
+        var map = Reward("The Trial");
+        Assert.True(map.Corrupted);
+        Assert.DoesNotContain(map.Mods, m => m.Section == ModSection.Implicit && items.Mods.ByHash(m.Hash)!.GenerationType == 5);
+        var gem = Reward("The Artist");
+        Assert.True(gem.Corrupted);
+        Assert.DoesNotContain(gem.Mods, m => m.Section == ModSection.Implicit);
+        var talisman = Reward("Call to the First Ones");
+        Assert.True(talisman.Corrupted);
+        Assert.Contains(talisman.Mods, m => m.Section == ModSection.Implicit);
+        Assert.DoesNotContain(talisman.Mods, m => m.Section == ModSection.Implicit && items.Mods.ByHash(m.Hash)!.GenerationType == 5);
     }
 
     [Fact]
