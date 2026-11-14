@@ -2553,11 +2553,13 @@ on the monsters the client strikes.
   active-skill hash and that use as the first entry).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
-  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured
-  gems except Frost Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes
-  through the projectile runtime (`ScheduleGemProjectile`), which launches only its
-  projectiles: the server has no melee hit for these gems, so it has no spirit strikes or previous location for them
-  either and sends them no `skill_location_memory`.
+  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Wild Strike and their transfigured gems except Frost
+  Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes through the
+  projectile runtime (`ScheduleGemProjectile`), which launches only its projectiles: the server has no melee hit for
+  these gems, so it has no spirit strikes or previous location for them either and sends them no
+  `skill_location_memory`. Molten Strike is the exception: its melee hit (`MoltenStrike.cs`, a copy of `AreaSkillHit`'s
+  per-target pipeline) takes the spirit strikes and the previous location too, and launches its balls from the struck
+  enemies.
   The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
   damage on the server.
   The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
