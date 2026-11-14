@@ -178,6 +178,22 @@ item messages (13-items.md). The server takes the ItemClasses `Map`, `MapKey` an
 `0x1424b5290`: u8 flags, then optional u32/u16/u8; zeros are enough because `MapKeyTierN` names the tier, and the server
 sends one zero byte). `/item Map (Tier 5)` makes a tier-5 map.
 
+**Ctrl + click into the slots** is **C→S 0x00e4** (into) or **0x00e5** (out), 12 bytes: u32 BE item id, u8 flags (bit 0
+of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the low 7 bits are +0x27), u16 BE the open
+map device object's +0x7b (0 when it has none). The writers are `0x14216e300` and `0x14216e5d0`, serializer `0x141f9eac0`;
+the Ctrl + click handler `0x14030e970` picks them for any item class it finds "map-ish" (`0x140310fa6`). Both directions go
+through one handler (`ItemMoves.MoveToMapDevice`), which takes the direction from where the item is.
+
+- **A map never sends C→S 0xe8** — that is the Atlas Idol path: the handler tests the ItemClasses row 94 `AtlasRelic`
+  (`cmp eax,0x5f`, `0x140310f44`) and only that class reaches it, with a u32 BE item id, then five single bytes, no byte
+  swap (`0x14216e750`, serializer `0x141f9f660`); its first byte is 1 when the item is in inventory row 84
+  (`ExpandedMainInventory1`), and there is no row-13 byte. (The old note read `+0x10b8` as a window check: no such field is
+  used by this handler; what it tests are client UI state — a virtual at `[ui+0x10c8]`, `0x140310f63`, plus the branch
+  selector `[ui+0x6c0]`/`[ui+0x658]` — which no server message sets.)
+- Before these two ids were framed (`InstanceProtocol.KnownClientLength`), the click produced only an "unframed 0x00e4"
+  run in the gateway log and the map had to be dragged in. Live 2026-11-15: the click now arrives as `00E4 00000295 …` and
+  the map moves.
+
 **Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
 calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
 u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.

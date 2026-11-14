@@ -59,7 +59,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   its Waypoint (with HideoutDoodad data), Stash, Nessa and map device come from its decoration (`scripts/re/atlas
   hideouts` → `data/hideouts.json`); the HUD shows the Edit button;
   the map device can be clicked and opens its window (S→C 0x7b kind 5);
-  maps go into its slots, Activate (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
+  maps go into its slots (dragged, or Ctrl + clicked: C→S 0x00e4 in and 0x00e5 out, live 2026-11-15), Activate
+  (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
   opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
   stays gone); `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
