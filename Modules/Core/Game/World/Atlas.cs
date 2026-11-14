@@ -21,4 +21,32 @@ public static partial class Game
             await Send(remote, stream, ciphers, AtlasSlots(conn, preset),
                 $"0x003d {label}: Atlas preset {preset}, {conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points");
     }
+
+    /// <summary>The allocated Atlas passives' stats of the active preset, by stat name: what the tree adds to a map's.</summary>
+    public static Dictionary<string, int> AtlasStats(ClientState conn)
+    {
+        Dictionary<string, int> stats = [];
+        int preset = conn.AtlasPreset is >= 0 and < 3 ? conn.AtlasPreset
+            : Enumerable.Range(0, conn.AtlasPassives.Length).MaxBy(p => conn.AtlasPassives[p].Count);
+        foreach (ushort graphId in conn.AtlasPassives[preset])
+            if (AtlasPassiveNodes.Find(graphId) is { } node)
+                foreach (var (key, value) in node.Stats)
+                {
+                    string name = Stats.Name(key);
+                    stats[name] = stats.GetValueOrDefault(name) + value;
+                }
+        return stats;
+    }
+
+    /// <summary>The stats of the area the player is in that league mechanics read: a map's own (its affixes, scarabs and
+    /// fragments) and, in a map, the Atlas passives'. Empty outside a map.</summary>
+    public static Dictionary<string, int> AreaLeagueStats(ClientState conn)
+    {
+        Dictionary<string, int> stats = [];
+        if (MapModsOf(conn) is { } mods)
+            foreach (var (name, value) in mods.Stats) stats[name] = stats.GetValueOrDefault(name) + value;
+        if (MapDevices.Value.IsMapArea(conn.Layout.Hash))
+            foreach (var (name, value) in AtlasStats(conn)) stats[name] = stats.GetValueOrDefault(name) + value;
+        return stats;
+    }
 }

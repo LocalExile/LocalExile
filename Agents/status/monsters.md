@@ -152,8 +152,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - League encounters: each area rolls every CoreLeagues mechanic at its WorldAreaLeagueChances chance as the client does,
-  and modules place theirs after the packs. Anarchy: a wild Rogue Exile (5% in campaign and map areas), unique, with its
-  level's more life. Not seen live yet; map mods, atlas passives, scarabs and the exiles' full skill kits are missing.
+  and modules place theirs after the packs. Anarchy: wild Rogue Exiles (5% in campaign and map areas), unique, with their
+  level's more life, weapons and archetype kits (hits, travel skills, war cries and buffs, auras, curses on the player); the
+  map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
+  bosses and change their drops. Not confirmed live; possessed exiles (Torment) and the special and exceptional rewards'
+  contents are guesses or missing; the active Atlas preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).

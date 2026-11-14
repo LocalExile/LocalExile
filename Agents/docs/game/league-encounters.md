@@ -43,5 +43,15 @@ varieties). `__col2` (5–88; none for Torr Olgosso, Jonah Unchained and the new
 it matches their known order (Orra Greengate 5, Igna Phoenix 6, Ash Lessard 7) but is unconfirmed. RogueExileLifeScalingPerLevel
 gives their more life from level 68 (150%) to 87+ (1 860%). They are unique monsters. No Mods.dat row grants `is_rogue_exile`.
 
+RogueExileGiants lists the gigantified exiles: each wild exile's "Supporter" variety of the same name, which the server
+gives Mods MonsterSupporterGigantism1 (80% larger, 100% more life and area). The three "of the Afarud" varieties are
+Faridun's. An exile's skills are its variety's GrantedEffectsKeys, which share their ActiveSkill rows with the players'
+(Monster skills: `MonsterSkills.cs`).
+
+The map stats the module reads (`Game.AreaLeagueStats`: the map's affixes, scarabs and fragments, and in a map the
+allocated Atlas passives) come from the 3.29 sources still in the game: the Anarchy scarabs (`ScarabAnarchy1`–`4`:
+5 exiles, 30% gigantified, 50% paired, 1 exceptional), the Atlas tree's `atlas_anarchy_*` wheel and Jumbled Abundance.
+The leaguestone, watchstone and memory-line stats are read too, but nothing in 3.29 drops them.
+
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.

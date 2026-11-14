@@ -268,6 +268,7 @@ static class AtlasFeature
             await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
             return;
         }
+        conn.AtlasPreset = preset;
         var nodes = conn.AtlasPassives[preset];
         var character = CharacterName(conn);
         if (allocate)
