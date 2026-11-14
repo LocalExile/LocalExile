@@ -21,10 +21,9 @@ public sealed class SupportGemState
     public double InspirationUntil;
     public long InspirationSpent;
 
-    /// <summary>When each Cruelty-supported skill's buff ends (Clock seconds; absent means not running) and the more
-    /// damage over time that hit granted it (0-40 percent). The client shows the strongest running one.</summary>
-    public readonly Dictionary<ushort, double> CrueltyUntil = [];
-    public readonly Dictionary<ushort, int> CrueltyPct = [];
+    /// <summary>The running Cruelty instances: each strength (1-40 percent more damage over time) and when it ends
+    /// (Clock seconds). Only the strongest running one applies; a weaker one takes over when it ends.</summary>
+    public readonly Dictionary<int, double> CrueltyInstances = [];
 
     /// <summary>The one Cruelty buff instance shown to the client, the value and deadline it was last shown with, and
     /// whether the last gain or refresh changed something the client must be told about.</summary>
@@ -43,6 +42,12 @@ public sealed class SupportGemState
 
     public bool ArcaneSurgeActiveAt(double now) => ArcaneSurgeUntil > now;
 
-    public int CrueltyActiveAt(ushort skillId, double now) =>
-        CrueltyUntil.GetValueOrDefault(skillId) > now ? CrueltyPct.GetValueOrDefault(skillId) : 0;
+    /// <summary>The strongest running Cruelty instance and when it ends; (0, 0) when none is running.</summary>
+    public (int Pct, double Until) CrueltyActiveAt(double now)
+    {
+        (int Pct, double Until) best = (0, 0);
+        foreach (var (pct, until) in CrueltyInstances)
+            if (until > now && pct > best.Pct) best = (pct, until);
+        return best;
+    }
 }
