@@ -84,13 +84,13 @@ public sealed partial class DelveModule
     {
         var conn = ConnOf(player);
         if (_sulphite.TryGetValue(conn, out _) || !conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
-        var opened = MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber);
-        if (opened is null || !MapSulphite.Present(opened.Value.Map.Mods)) return;
+        var opened = MapDevice.ForInstance(conn);
+        if (opened is null || !MapSulphite.Present(opened.Mods)) return;
         if (!ClientTables.Has("DelveResourcePerLevel") || !ClientTables.Has("DelveUpgrades")) return;
         var positions = MapSulphite.Positions(conn.Layout, conn.Seed);
         var encounter = new SulphiteEncounter
         {
-            Map = opened.Value.Map, Owner = opened.Value.Owner,
+            Map = opened, Owner = opened.Owner,
             Deposits = positions.Select((p, i) => new Deposit(MineralFirstId + (uint)i, i, p.X, p.Y, (conn.Seed + i) % 3 == 0 ? MapSulphite.Chest : MapSulphite.Vein)).ToArray(),
         };
         // Generated/tick hooks for one connection are sequential. Publish before sending so a later tick cannot duplicate it.

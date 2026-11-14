@@ -19,7 +19,7 @@ static class PartyTravel
         if (member.InstanceNumber == 0) return null;
         PendingTransfer destination;
         // Party travel to a map goes outside its device. Direct entry would bypass its six-portal budget.
-        var map = MapDevice.InInstance(member.Layout.Hash, member.InstanceNumber)?.Map;
+        var map = MapDevice.ForInstance(member);
         if (map is not null || MapDevices.Value.IsMapArea(member.Layout.Hash))
         {
             if ((map?.Entrance ?? map?.ReturnTo) is not { Instance: not 0 } origin) return null;

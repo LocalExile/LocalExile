@@ -20,9 +20,8 @@ public sealed class PortalsModule : IModule
             await SpawnHideoutDoodads(remote, stream, ciphers, conn);
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
-            // The portals of the character's open map stand at the device again.
-            if (MapDeviceHere(conn) is { } device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open
-                && (open.ReturnTo is null ? !device.Campaign : open.ReturnTo.Area == conn.Layout.Hash && open.ReturnTo.Instance == conn.InstanceNumber))
+            // Everyone in this exact device instance sees and spends the same run's portals.
+            if (MapDevice.AtEntrance(conn.Layout.Hash, conn.InstanceNumber) is { PortalsLeft: > 0 } open)
                 await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>

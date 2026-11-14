@@ -327,7 +327,7 @@ public static partial class Game
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))
-                .Concat(Quests.Rows(own.Where(f => inHideout || f != Quests.ThisIsMyHideout)))
+                .Concat(Quests.Rows(own.Where(f => OwnHideout(conn) || conn.Layout.Hash == StashCatalog.DelveHub || f != Quests.ThisIsMyHideout)))
                 .Distinct().Order()];
     }
 
@@ -366,7 +366,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} {why}: no data/hideouts.json (run scripts/dev/extract-data.ps1)");
             return;
         }
-        if (conn.Layout.Hash == hideout.AreaHash16) { Console.WriteLine($"[gateway] {remote} {why}: already in the {hideout.Name}"); return; }
+        if (conn.Layout.Hash == hideout.AreaHash16 && OwnHideout(conn)) { Console.WriteLine($"[gateway] {remote} {why}: already in the {hideout.Name}"); return; }
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
@@ -398,10 +398,15 @@ public static partial class Game
         foreach (var check in GameEvents.TravelRefusal.For(conn))
             if (check(conn, t) is { } refusal)
             {
+                t.Done?.Invoke(new() { Ok = false, Error = refusal });
                 await conn.Commands!.Reply(refusal);
                 return;
             }
-        if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
+        if (!conn.TryBeginAreaChange(t, out var projectiles))
+        {
+            t.Done?.Invoke(new() { Ok = false, Error = "area change refused" });
+            return;
+        }
         await GameEvents.RunPlayerLeaving(conn, "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
@@ -469,6 +474,7 @@ public static partial class Game
         }
         if (!RetireVitalsForTransfer(conn))
         {
+            t.Done?.Invoke(new() { Ok = false, Error = "connection replaced" });
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
             return;

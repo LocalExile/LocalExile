@@ -39,12 +39,12 @@ public class PartyAreaTests
         var instance = new InstanceState(presence);
         var sent = new Dictionary<ClientState, List<byte[]>>();
         var players = new List<ClientState>();
-        ClientState Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard")
+        ClientState Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard", ulong? number = null)
         {
             var c = new ClientState(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
             {
                 Character = name, Account = name, League = league, Instance = world ?? instance, PlayerSent = true,
-                PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = (ulong)players.Count + 10,
+                PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = number ?? (ulong)players.Count + 10,
             };
             var packets = new List<byte[]>();
             c.Outbox = (bytes, _) => { lock (packets) packets.Add(bytes); return Task.CompletedTask; };
@@ -105,23 +105,67 @@ public class PartyAreaTests
             member.Closed = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.Closed = false;
             member.LeavingArea = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.LeavingArea = false;
             leader.PlayerLife = 0; Assert.Null(PartyTravel.Member(leader, member.Character!)); leader.PlayerLife = 100;
-            var mapArea = new MapDevice.MapArea(graveyard, "test-map", "test map", 1);
+            var mapArea = new MapDevice.MapArea(graveyard, "test-map", "test map", 12) { Level = 79 };
+            var mods = new MapMods(new Dictionary<string, int> { ["map_item_drop_quantity_+%"] = 40, ["map_item_drop_rarity_+%"] = 30 });
             var origin = new MapDevice.Origin(town, leader.InstanceNumber, 70, 80);
             try
             {
-                MapDevice.Activate(member.Character!, mapArea, entrance: origin);
+                var opened = MapDevice.Activate(member.Character!, mapArea, mods, entrance: origin);
+                Assert.Equal(opened.Run, MapDevice.AtEntrance(town, leader.InstanceNumber)?.Run);
+                Assert.Null(MapDevice.AtEntrance(town, leader.InstanceNumber + 1));
+                Assert.Equal(5, MapDevice.TakePortal(member.Character!, 0, opened.Run)?.Left);
+                Assert.Null(MapDevice.TakePortal(member.Character!, 1, opened.Run)); // First transfer not resolved yet.
                 MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
                 leader.QuestFlags.UnionWith(GameServer.Core.ClientTables.Table("WorldAreas")
                     .First(r => r.Int("HASH16") == town).Ints("EndQuestFlags")
                     .Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
                 var entrance = Assert.IsType<PendingTransfer>(PartyTravel.Destination(leader, member));
                 Assert.Equal((town, leader.InstanceNumber, (70, 80)), (entrance.Area, entrance.Instance, entrance.ArriveAt));
-                Assert.Equal(6, MapDevice.OpenOf(member.Character!)!.PortalsLeft);
-                MapDevice.Activate(member.Character!, mapArea);
-                MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
-                Assert.Null(PartyTravel.Destination(leader, member)); // No origin cannot mean free entry.
+                Assert.Equal(5, MapDevice.OpenOf(member.Character!)!.PortalsLeft); // Party travel spends none.
+                var guest = Player("MapGuest", graveyard, "test-map", member.Instance, number: member.InstanceNumber);
+                MapDevice.Activate(guest.Character!, mapArea); // Same map area, but a different personal run.
+                try
+                {
+                    Assert.Equal(opened.Run, MapDevice.ForInstance(guest)?.Run);
+                    Assert.Same(mods, MapDevice.ForInstance(guest)?.Mods);
+                    Assert.Equal(79, MapDevice.ForInstance(guest)?.Area.Level);
+                    Assert.Equal(1.4, Game.ItemQuantityFactor(guest), 8);
+                    Assert.Equal(30, Game.IncreasedItemRarity(guest));
+                    for (int i = 1; i < 6; i++)
+                        Assert.Equal(5 - i, MapDevice.TakePortal(member.Character!, i, opened.Run)?.Left);
+                    Assert.Equal(6, MapDevice.OpenOf(guest.Character!)!.PortalsLeft);
+                    Assert.Equal(origin, MapDevice.ForInstance(guest)?.Entrance); // Last entry retains the return route.
+                    var replacement = MapDevice.Activate(member.Character!, mapArea, entrance: origin);
+                    Assert.Null(MapDevice.TakePortal(member.Character!, 0, opened.Run));
+                    MapDevice.Entered(member.Character!, mapArea, 999, opened.Run);
+                    MapDevice.Close(member.Character!, opened.Run);
+                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character!)?.Run);
+                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character!)!.Instance);
+                    Assert.Equal(origin, MapDevice.ForInstance(guest)?.Entrance);
+                    Assert.Equal(origin.Instance, PartyTravel.Destination(leader, member)?.Instance);
+                    // A first transfer finishing after replacement must retain its own destination's rules too.
+                    MapDevice.Entered(opened, 999);
+                    var delayed = new InstanceState();
+                    Assert.Same(mods, MapDevice.ForInstance(mapArea.Hash16, 999, delayed)?.Mods);
+                    Assert.Equal(replacement.Run, MapDevice.OpenOf(member.Character!)?.Run);
+                    Assert.Equal(0ul, MapDevice.OpenOf(member.Character!)!.Instance);
+                }
+                finally { MapDevice.Close(guest.Character!); }
             }
             finally { MapDevice.Close(member.Character!); }
+            // Visiting another player's personal area must never turn it into the visitor's default home.
+            var registry = new GameServer.Core.World.InstanceRegistry { PersonalAreas = new HashSet<ushort> { graveyard } };
+            var own = registry.Enter(graveyard, "Owner");
+            var guestsHome = registry.Enter(graveyard, "Guest");
+            Assert.NotEqual(own.Id, guestsHome.Id);
+            Assert.Same(own, registry.EnterExisting(own.Id, "Guest"));
+            Assert.Equal("Owner", own.Owner);
+            Assert.Same(guestsHome, registry.Enter(graveyard, "Guest"));
+            Assert.Same(own, registry.Enter(graveyard, "Owner"));
+            var homeArea = HideoutCatalog.Default!;
+            var homeMember = Player("HomeMember", homeArea.AreaHash16, homeArea.AreaId);
+            await PartyRoster.InviteHuman(leader, homeMember.Character!); await PartyRoster.AcceptHuman(homeMember, party);
+            Assert.Equal(0ul, PartyRoster.SharedInstance(leader, new(homeArea.AreaHash16, 0, false)));
         }
         finally
         {
