@@ -81,7 +81,8 @@ Nothing yet.
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
-  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you" (its buff
+  icon is no longer shown for a self-excluding aura).
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,

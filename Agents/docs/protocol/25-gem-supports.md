@@ -105,7 +105,7 @@ raises the supported gem's level like the generic `supported_active_skill_gem_le
 `chance_to_crush_on_hit_%` crushes for 4 s and a crushed monster's physical damage reduction is 15% lower
 (BuffDefinitions `crushed`); Awakened Spell Echo's `spell_echo_plus_chance_double_damage_%_final` rolls only on the final
 repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
-keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
+keeps that aura out of the player's stats (the buff icon is not shown, and an enemy-debuff aura such as Pride still
 applies).
 
 Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
