@@ -75,6 +75,40 @@ public class ClientPathfinderTests
         Assert.Equal([(0, 0), (1, 0), (2, 1), (3, 1), (4, 2)], ClientPathfinder.Line((0, 0), (4, 2)));
         Assert.Equal([(0, 0), (0, 1), (1, 2), (1, 3)], ClientPathfinder.Line((0, 0), (1, 3)));
         Assert.Equal([(3, 3)], ClientPathfinder.Line((3, 3), (3, 3)));
+
+        // Every line from four cells to the cells round them, against the loop spelled out here: the search's line
+        // tests walk the same cells without an iterator.
+        static List<(int, int)> Spelled((int X, int Y) a, (int X, int Y) b)
+        {
+            var cells = new List<(int, int)>();
+            bool steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
+            int major = steep ? a.Y : a.X, majorEnd = steep ? b.Y : b.X, minor = steep ? a.X : a.Y, minorEnd = steep ? b.X : b.Y;
+            int majorLen = Math.Abs(majorEnd - major), minorLen = Math.Abs(minorEnd - minor);
+            int majorStep = major < majorEnd ? 1 : -1, minorStep = minor < minorEnd ? 1 : minor == minorEnd ? 0 : -1;
+            int err = -(majorLen / 2);
+            while (major != majorEnd + majorStep)
+            {
+                cells.Add(steep ? (minor, major) : (major, minor));
+                int e = minorLen + err;
+                major += majorStep;
+                if (e < 1) err = e;
+                else { err = e - majorLen; minor += minorStep; }
+            }
+            return cells;
+        }
+        foreach (var a in new[] { (0, 0), (5, 2), (-3, 7), (40, 40) })
+            for (int dx = -17; dx <= 17; dx++)
+                for (int dy = -17; dy <= 17; dy++)
+                {
+                    (int X, int Y) b = (a.Item1 + dx, a.Item2 + dy);
+                    Assert.Equal(Spelled(a, b), ClientPathfinder.Line(a, b));
+                    // LineBelow walks the same cells: it stops at the first one that is not on the line's first half.
+                    var cells = Spelled(a, b);
+                    var half = cells.Take(cells.Count / 2 + 1).ToHashSet();
+                    bool below = ClientPathfinder.LineBelow(a, b, (x, y) => half.Contains((x, y)) ? 1 : 0, 1, out var last);
+                    Assert.Equal(cells.Count > half.Count, below);
+                    Assert.Equal(cells[half.Count - 1], last);
+                }
     }
 
     [Fact]
@@ -129,5 +163,6 @@ public class ClientPathfinderTests
             ClientPathfinder.SearchLimit.Expansions100, out bool reached);
         Assert.True(path[^1].X > 60, $"ended at {path[^1]}");
         Assert.Contains(path, p => p.X == 59 && p.Y >= 130);
+        Assert.Equal([(50, 100), (59, 130), (61, 129), (64, 116)], path);
     }
 }

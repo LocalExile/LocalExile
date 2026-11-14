@@ -29,6 +29,29 @@ public static class TerrainHeights
         return v == Unknown ? null : v;
     }
 
+    /// <summary>An area's heights, looked up once (<see cref="At"/> finds the area by its name for every cell asked). A
+    /// reader that keeps one asks again when <see cref="Forgotten"/> has moved.</summary>
+    public sealed class Area
+    {
+        readonly int w, h;
+        readonly short[] cells;
+        internal Area(int w, int h, short[] cells) => (this.w, this.h, this.cells) = (w, h, cells);
+        /// <summary>The height (steps of 7.8125) of a cell, or null outside the grid or where it is not known.</summary>
+        public int? At(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= w || y >= h) return null;
+            short v = cells[y * w + x];
+            return v == Unknown ? null : v;
+        }
+    }
+
+    /// <summary>The area's heights as <see cref="At"/> reads them, or null when it has neither a capture nor a level.</summary>
+    public static Area? AreaOf(string areaId, uint seed) => Of(areaId, seed) is { } g ? new(g.W, g.H, g.Cells) : null;
+
+    /// <summary>How many times an area was forgotten (<see cref="Forget"/>): what was looked up before may be stale.</summary>
+    public static int Forgotten => Volatile.Read(ref forgotten);
+    static int forgotten;
+
     /// <summary>The grid's size in cells, or null without a capture or a generated level.</summary>
     public static (int W, int H)? Size(string areaId, uint seed) => Of(areaId, seed) is { } g ? (g.W, g.H) : null;
 
@@ -54,5 +77,9 @@ public static class TerrainHeights
     }
 
     /// <summary>Forgets a cached area (a capture written after the first lookup is then read on the next one).</summary>
-    public static void Forget(string areaId, uint seed) => Loaded.TryRemove($"{areaId}_seed{seed}", out _);
+    public static void Forget(string areaId, uint seed)
+    {
+        Loaded.TryRemove($"{areaId}_seed{seed}", out _);
+        Interlocked.Increment(ref forgotten);
+    }
 }

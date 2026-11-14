@@ -114,6 +114,8 @@ public sealed class MapBossFights
     /// <summary>Remembers a Voidstone part or sockets the slot. Returns the stone when it is newly unlocked.</summary>
     public Stone? Unlock(string character, string varietyId)
     {
+        // Every kill asks: only a monster some Voidstone names needs the character's save looked at.
+        if (!_stones.Any(s => s.Defeat.Contains(varietyId) || s.AllOf?.Contains(varietyId) == true)) return null;
         var have = Socketed(character);
         var parts = ParseParts(CharacterSaves.ModuleData(character, PartsKey));
         var (ready, part) = Resolve(varietyId, have, parts);

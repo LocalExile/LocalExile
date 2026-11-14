@@ -14,10 +14,10 @@ public static partial class Game
         public static AuraReconcileInputs Capture(ClientState conn)
         {
             var sources = CharacterStatSources(conn).Stats;
-            var saved = CharacterSaves.Load(CharacterName(conn));
+            var saved = CharacterSaves.Remembered(CharacterName(conn));
             return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
                 new(conn.PlayerStats), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
-                [.. saved?.ActiveAuras ?? []], saved?.Stance, saved?.PetrifiedBlood == true, conn.Stance,
+                [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, conn.Stance,
                 conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
@@ -166,7 +166,7 @@ public static partial class Game
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
-            RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
+            RestoreRememberedAuras(conn, CharacterSaves.Remembered(CharacterName(conn)).Auras);
         SuspendPetrifiedBloodIfUnavailable(conn);
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedPetrifiedBlood(conn);
