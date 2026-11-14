@@ -48,15 +48,16 @@ its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_l
 buff (BuffDefinitions 1846) for the support's 4000 ms base plus 100 ms per 1% quality. While it runs, supported hits
 take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% increased Life. A paid Vaal use follows the
 same Life cost.
-Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
-any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
-that use's ailments (6-8% per 3 at levels 1-20; Fortification's 20-stack base maximum caps it at 36%/48%). The stored
-value is applied through `WithOverheat` to `SupportedIgnite`, `SupportedBleed`, `SupportedPoison` and `ProjectileRelease`'s
-ailment settings, so a melee skill's projectiles inherit it. A use with fewer than three stacks stores nothing, and the
-next use without Fortification replaces the stored value with no bonus. Sources: poewiki "Overheat Support", poedb
-`support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`, and Path of Building's `SupportOverheat`.
+The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
 converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
 refused when its Life cost is not below current Life. Mana reservation is unchanged.
+Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
+any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
+that use's ailments. It is an exceptional gem: `support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`
+is 6, 7 and 8 at levels 1-3, so Fortification's 20-stack base maximum gives 36% to 48%. Every paid tick of a
+channelled skill is a use and consumes again. The stored value is applied through `WithOverheat` to the ignite, bleed
+and poison settings of the supported skill's hits and of the projectiles it releases. A use with fewer than three
+stacks stores nothing, so the next use without Fortification has no bonus.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.
@@ -121,11 +122,11 @@ keeps that aura out of the player's stats (the buff icon still shows, and an ene
 applies).
 Cruelty Support grants its buff on a hit of a supported skill: `CrueltyPctFor` computes `round(100 * (1 + cruelty_effect_+%/100) * (D/L)^0.2)`
 from the hit's damage `D` (capped at the life the target could lose) and the monster's maximum life `L`, capped at 40%.
-The buff is per supported skill and keeps the strongest running value while refreshing its 4 s duration (plus
-`cruelty_duration_+%`); that value is injected as `cruelty_damage_over_time_+%_final` into the skill's own stats while
-its buff runs, so its Damage over Time debuffs take it. Presentation is a single buff (BuffDefinitions 1815) showing
-the strongest running value, with `u82 = 0` and one value (the percent), re-sent on a value change or a deadline move of
-at least 0.25 s (the Arcane Surge pattern).
+Cruelty is one buff on the character: any supported hit keeps the stronger of the running value and its own and
+refreshes the buff's 4 s duration (plus `cruelty_duration_+%`), and every Cruelty-supported skill takes that value as
+`cruelty_damage_over_time_+%_final` in its own stats, so its Damage over Time debuffs take it. The buff
+(BuffDefinitions 1815) shows that value, with `u82 = 0` and one value (the percent), re-sent on a value change or a
+deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the granting hit itself do not get it yet.
 
 Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
@@ -187,8 +188,8 @@ gains a charge on a supported mana spend, five at most, or loses all of them whe
 threshold; each charge adds its more Elemental Damage and increased Critical Strike Chance, and its reduced Mana Cost
 applies to the supported skill. Controlled Blaze counts enemies ignited in the last four seconds: each one adds the
 support's more Ignite Damage up to its cap and its less Damage down to its floor, and its base ignite chance applies
-to the hit. Cruelty's hit damage already reaches supported hits and their ailments; its buff's additional damage over
-time is not modelled.
+to the hit. Cruelty's hit damage reaches supported hits and their ailments, and its buff's more damage over time is
+described above.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.

@@ -82,16 +82,8 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
-   Arrogance's aura reservation is modelled too: it moves a supported aura's reservation to life
-   (`base_skill_reserve_life_instead_of_mana`), exposes its increased aura effect (`aura_effect_+%`, 19 at level 20)
-   and scales the reservation percent by its own multiplier (201% at level 20), so level-20 Grace reserves 100.50%
-   of maximum life instead of 50% of maximum mana.
-   Cruelty's per-skill buff is modelled: a hit of a supported skill grants up to 40% more Damage over Time (from the
-   hit's damage relative to the monster's maximum life), keeps the strongest running value and refreshes its 4 s
-   duration; that value is injected as cruelty_damage_over_time_+%_final into the skill's own stats while its buff runs.
-   Overheat's Fortification consumption is modelled: a supported skill's use consumes all Fortification once, at the
-   start of the use, and stores (1 + 6-8% per 3 stacks consumed) more Ailment damage for that use's ailments, applied
-   through WithOverheat to SupportedIgnite/SupportedBleed/SupportedPoison and ProjectileRelease.
+  Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
+  Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
