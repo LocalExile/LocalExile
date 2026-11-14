@@ -502,6 +502,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
     public readonly PacketHistory Packets = new();
     public volatile string? CloseReason;
+    /// <summary>Completes once the connection has ended and everything it saves is written (Program.EndAsync waits for it,
+    /// so a connection that takes over the character loads what this one saved, never an older copy).</summary>
+    public readonly TaskCompletionSource Ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
