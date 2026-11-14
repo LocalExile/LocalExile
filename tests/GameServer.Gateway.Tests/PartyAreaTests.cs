@@ -39,11 +39,11 @@ public class PartyAreaTests
         var instance = new InstanceState(presence);
         var sent = new Dictionary<ClientState, List<byte[]>>();
         var players = new List<ClientState>();
-        ClientState Player(string name, ushort area, string areaId)
+        ClientState Player(string name, ushort area, string areaId, InstanceState? world = null, string league = "Standard")
         {
             var c = new ClientState(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
             {
-                Character = name, Account = name, League = "Standard", Instance = instance, PlayerSent = true,
+                Character = name, Account = name, League = league, Instance = world ?? instance, PlayerSent = true,
                 PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = (ulong)players.Count + 10,
             };
             var packets = new List<byte[]>();
@@ -62,10 +62,19 @@ public class PartyAreaTests
             await PartyRoster.AcceptHuman(member, party);
             foreach (var packets in sent.Values) lock (packets) packets.Clear();
             await PartyRoster.Publish(party);
+            // A real area change replaces both the connection and its instance presence. Travel must cross that boundary.
+            member.Closed = true;
+            member = Player("AreaMember", graveyard, "1_1_9", new());
+            await PartyRoster.Rebind(member);
             // Each side's row for the other names the area the other is in, so the panel has something to draw and travel to.
             Assert.Equal(graveyard, AreaOf(sent[leader], member.Account!));
             Assert.Equal(town, AreaOf(sent[member], leader.Account!));
             Assert.Same(member, PartyTravel.Member(leader, member.Character!));
+            var foreign = Player(member.Character!, graveyard, "1_1_9", new(), "DifferentLeague");
+            await PartyRoster.Rebind(foreign);
+            Assert.Null(PartyTravel.Member(leader, member.Character!));
+            foreign.Closed = true;
+            await PartyRoster.Rebind(member);
             Assert.Null(PartyTravel.Member(leader, leader.Character!));
             Assert.Null(PartyTravel.Member(leader, "NotInThisParty"));
             Assert.Equal(member.Character, InstanceSocial.ReadPartyTravel(
