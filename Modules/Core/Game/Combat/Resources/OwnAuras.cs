@@ -196,10 +196,14 @@ public static partial class Game
         var packets = new List<byte[]>();
         packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
         ClampReservedResources(conn);
-        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
+        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff && a.AffectsSelf == b.AffectsSelf;
         foreach (var old in conn.PresentedAuras.Values)
             if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))
-                packets.AddRange(AuraCatalog.EndPackets(old, PlayerId));
+            {
+                // An aura that does not affect the caster (Awakened Generosity) never had its buff icon sent, so there
+                // is nothing to remove when it ends or changes.
+                if (old.AffectsSelf) packets.AddRange(AuraCatalog.EndPackets(old, PlayerId));
+            }
         foreach (var id in conn.PresentedAuras.Keys.ToArray())
             if (!conn.Auras.TryGetValue(id, out var current) || !Same(conn.PresentedAuras[id], current))
                 conn.PresentedAuras.Remove(id);
@@ -207,7 +211,9 @@ public static partial class Game
             foreach (var aura in conn.Auras.Values)
                 if (!conn.PresentedAuras.ContainsKey(aura.SkillId))
                 {
-                    packets.AddRange(AuraBuffs(aura));
+                    // Awakened Generosity's "Supported Auras do not affect you": the aura's stats never reach the player,
+                    // so its buff icon is not shown either (no visual mismatch).
+                    if (aura.AffectsSelf) packets.AddRange(AuraBuffs(aura));
                     conn.PresentedAuras[aura.SkillId] = aura;
                 }
         if (conn.AuraStatsDirty)
