@@ -276,7 +276,8 @@ def generate(sendsites):
           "S→C classes locally (S→C instance 0xc0 is fed to the client's own handler through `0x141d65c80`; that is not a",
           "send and is not listed here).", "",
           "**Length** is the whole message in bytes, id included, when the writer is exact (only fixed-size stream writes,",
-          "no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable or conditional parts.", "",
+          "no branch, no call that takes the stream). `unknown` means no exact length was established;",
+          "the sum of fixed writes is not a lower bound when writes may be conditional.", "",
           "## Validation against the Gateway", "",
           f"`InstanceProtocol.KnownClientLength` has {len(gw)} fixed lengths: {agree} agree with an exact extracted length, "
           f"{len(bad)} disagree" + (": " + ", ".join(f"{i:#x} (Gateway {n}, extracted {x})" for i, n, x in bad) if bad else "")
@@ -289,10 +290,7 @@ def generate(sendsites):
         L += [f"## {title}", "", f"{len(rs)} ids.", "", "| Id | Class / writer | Length | S→C class | Senders | Notes |", "|---|---|---|---|---|---|"]
         for r in rs:
             cls = "<br>".join(f"`{c['vtable']}` / `{c['write']}`" for c in r["classes"]) or "inline"
-            if r["length"] is not None: ln = str(r["length"])
-            else:
-                fx = [c["fixed"] for c in r["classes"] if "fixed" in c]
-                ln = f"≥ {min(fx)}" if fx else ""
+            ln = str(r["length"]) if r["length"] is not None else "unknown"
             # a generic class (one u16, one u32, ...) is shared by many S→C ids: give the count only
             sc = "<br>".join(", ".join(c["s2c"]) if len(c["s2c"]) <= 3 else f"generic ({len(c['s2c'])} S→C ids)"
                              for c in r["classes"] if c["s2c"])
