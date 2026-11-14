@@ -2,6 +2,8 @@ using System.Runtime.CompilerServices;
 using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Core;
+using GameServer.Data.Terrain.Generation;
 using static Game;
 using static Program;
 
@@ -12,6 +14,51 @@ public static class DepravedTrinity
     const string Art = "Metadata/Effects/Spells/monsters_effects/act9/The_Trio/";
     public static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
+    sealed class Routes { public readonly Dictionary<AreaTransitionObject, (int Soul, bool Return)> Gates = []; }
+    static readonly RuleTable<ClientState, Routes> Routing = new();
+
+    public static void ConfigureRoutes(ClientState c)
+    {
+        if (c.Layout.Id != Area || c.Layout.Level is not { } level || Routing.TryGetValue(c, out _)) return;
+        var routes = Routing.GetValue(c, _ => new());
+        var labels = ClientTables.Table("ClientStrings").ToDictionary(r => r.Text("Id")!, r => r.UInt("HASH32"));
+        uint? Label(string key) => labels.TryGetValue(key, out uint hash) ? hash : null;
+        var names = new[] { "Doedre", "Maligaro", "Shavronne" };
+        var original = c.Layout.AreaTransitions.ToArray();
+        for (int n = 0; n < names.Length; n++)
+        {
+            var room = level.Records.SelectMany(r => r.Rooms).FirstOrDefault(r =>
+                r.Room.Path.Contains("/" + names[n] + "/Unique/organ_", StringComparison.Ordinal));
+            if (room is null) continue;
+            var pads = room.Room.Points.Where(p => p.Name == "telepad").Select(p =>
+            {
+                var (x, y) = Orientation.Map(room.Orientation, (int)p.X, (int)p.Y, room.Room.Width * 23, room.Room.Height * 23);
+                return (X: room.X * 23 + x, Y: room.Y * 23 + y);
+            }).ToArray();
+            if (pads.Length != 2) continue;
+            var hub = original.FirstOrDefault(p => Portal(p.Transition.Model) == n &&
+                p.Transition.SourceType?.EndsWith("UnholyTrioSubBossPortal", StringComparison.OrdinalIgnoreCase) == true);
+            if (hub.Transition is null) continue;
+            void Replace(uint id, AreaTransitionObject gate, (int X, int Y) target, uint? label, bool returning)
+            {
+                var updated = gate with { TeleportTo = target, Label = label };
+                c.ReplaceAreaTransition(id, updated);
+                routes.Gates[updated] = (n, returning);
+            }
+            Replace(hub.Id, hub.Transition, pads[1], Label("UnholySubBossDomain" + names[n]), false);
+            foreach (var (id, gate) in original.Where(p => p.Transition.GridX >= room.X * 23 && p.Transition.GridX < (room.X + room.Width) * 23
+                && p.Transition.GridY >= room.Y * 23 && p.Transition.GridY < (room.Y + room.Height) * 23))
+            {
+                if (gate.SourceType == "Metadata/MiscellaneousObjects/PortalToggleable")
+                    Replace(id, gate, (hub.Transition.GridX, hub.Transition.GridY), Label("MalachaiArenaName1"), true);
+                else if (gate.SourceType == "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition")
+                    Replace(id, gate, pads[0], Label(names[n] + "ArenaName"), false);
+            }
+        }
+        foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
+            if (AreaTransitionCatalog.HashOf("2_9_10_1") is { } destination)
+                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = destination, TeleportTo = null, Label = null, Kind = 0 });
+    }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly RuleTable<InstanceState, Fight> Fights = new();
     static readonly RuleTable<ClientState, SeedScene> Seeds = new();
@@ -113,6 +160,8 @@ public static class DepravedTrinity
     public static int Portal(string? model) => Array.FindIndex(PortalNames, n => model?.Contains(n, StringComparison.OrdinalIgnoreCase) == true);
     static int ReturnPortal(ClientState c, AreaTransitionObject t)
     {
+        if (Routing.TryGetValue(c, out var routes) && routes.Gates.TryGetValue(t, out var route))
+            return route.Return ? route.Soul : -1;
         if (Portal(t.Model) < 0 && t.SourceType?.Contains("PortalToggleable", StringComparison.Ordinal) != true
             && t.SourceType?.EndsWith("UnholyTrioSubbossPortal", StringComparison.OrdinalIgnoreCase) != true) return -1;
         return Enumerable.Range(0, 3).FirstOrDefault(i => Soul(c, i) is { } m && Distance(m.Walk.Position(c.Clock.Elapsed.TotalSeconds), (t.GridX, t.GridY)) < 180, -1);
@@ -122,6 +171,9 @@ public static class DepravedTrinity
         if (c.Layout.Id != Area) return null;
         lock (c.Monsters)
         {
+            if (Routing.TryGetValue(c, out var routes) && routes.Gates.TryGetValue(t, out var route))
+                return route.Return ? Dead(Soul(c, route.Soul)) : !Dead(Soul(c, route.Soul))
+                    && (c.HasQuestFlag("a9q1-PortalsOpen") || c.HasQuestFlag("a9q1-BlackHeartOpen") || c.ScriptShownTransitions.Contains(id));
             int n = ReturnPortal(c, t);
             if (n >= 0) return Dead(Soul(c, n));
             n = Portal(t.Model);
@@ -168,6 +220,8 @@ public static class DepravedTrinity
     public static (int X, int Y)? Destination(ClientState c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
+        if (Routing.TryGetValue(c, out var routes) && routes.Gates.ContainsKey(t) && t.TeleportTo is { } landing)
+            return c.Layout.Near(landing);
         lock (c.Monsters)
         {
             int n = ReturnPortal(c, t);
