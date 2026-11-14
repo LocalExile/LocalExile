@@ -39,6 +39,16 @@ public class ArrowRainAndMirageTests
         public readonly SpawnedMonster Enemy = new("target", new(120, 100, 0), 0, 0, 100000) { Hostile = true };
         public readonly SpawnedMonster Ally = new("friendly", new(120, 100, 0), 0, 0, 100000) { Hostile = false };
 
+        public async Task FlushOutput()
+        {
+            Assert.True(Session.Active, $"closed={Conn.Closed}, rules={Game.CurrentGameRules}, retired={Conn.RageRetired}");
+            var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Session.Enqueue(() => { done.SetResult(); return Task.CompletedTask; });
+            var completed = await Task.WhenAny(done.Task, Session.OutputCompleted);
+            Assert.Same(done.Task, completed);
+            await done.Task;
+        }
+
         public Battle(params string[] gems)
         {
             Game.CombatLifetime = lifetime;
@@ -100,23 +110,102 @@ public class ArrowRainAndMirageTests
     }
 
     [Fact]
-    public void Supported_ice_arrow_hit_grants_a_temporary_autonomous_attack()
+    public async Task Supported_ice_arrow_hit_grants_a_temporary_autonomous_attack()
     {
-        using var b = new Battle("Ice Shot", "Mirage Archer Support");
-        var gem = Game.GemSkillEffects(b.Conn).Single();
-        var use = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1));
-        var owner = Assert.IsType<ProjectileOffense>(use.Payload);
-        Assert.NotNull(owner.MirageSource);
-        b.Session.Schedule(0, () => true, () => use with { Payload = owner with { AlwaysHits = true } });
-        b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
-        uint initial = b.Enemy.Life;
-        Assert.True(initial < b.Enemy.MaxLife);
-        b.Session.AdvanceTo(ProjectileRuntime.Time(4.8));
-        Assert.True(b.Enemy.Life < initial);
-        uint expired = b.Enemy.Life;
-        b.Session.AdvanceTo(ProjectileRuntime.Time(9));
-        Assert.Equal(expired, b.Enemy.Life);
-        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        var packets = new System.Collections.Concurrent.ConcurrentQueue<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (ciphers, bytes) => { packets.Enqueue(bytes.ToArray()); outgoing?.Invoke(ciphers, bytes); };
+        try
+        {
+            using var b = new Battle("Ice Shot", "Mirage Archer Support");
+            var gem = Game.GemSkillEffects(b.Conn).Single();
+            var use = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1));
+            var owner = Assert.IsType<ProjectileOffense>(use.Payload);
+            Assert.NotNull(owner.MirageSource);
+            b.Conn.Clock.Start();
+            b.Session.Schedule(0, () => true, () => use with { Payload = owner with { AlwaysHits = true } });
+            b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+            await b.FlushOutput();
+            var visual = Assert.Single(b.Conn.MinionOrigins);
+            Assert.StartsWith("Metadata/Monsters/Mirage/", b.Conn.Monsters[visual.Key].Variety!.Id);
+            Assert.Equal(Program.PlayerId, visual.Value.Object.Parent);
+            Assert.Equal("Head_Attachment", visual.Value.Object.Bone);
+            Assert.True(b.Conn.Monsters[visual.Key].Invulnerable);
+            Assert.True(b.Conn.Monsters[visual.Key].NoRewards);
+            Assert.Null(b.Conn.Monsters[visual.Key].Attack);
+            byte[] shown = Assert.Single(packets, p => p.Length >= 16 && p[0] == 1 && p[1] == 0xc1 && p[14] == 3 && p[15] == 0xf9);
+            Assert.Equal(31, shown.Length);
+            Assert.Equal(new byte[] { 0, 0, 0, 1, 0, 0, 0, 0 }, shown[^8..]);
+            byte[] display = Assert.Single(packets, p => p.Length >= 16 && p[0] == 1 && p[1] == 0xc1 && p[14] == 6 && p[15] == 0xd4);
+            Assert.Equal(41, display.Length);
+            Assert.Equal(new byte[] { 3, 0x22 }, display[23..25]);
+            Assert.Equal(new byte[] { 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, display[^16..]);
+            using var observerWire = new SpellTotemExecutionTests.Wire();
+            var observer = new ClientState(b.Conn.Layout, 1, 1) { Instance = b.Conn.Instance, PlayerSent = true, PlayerLife = 1000 };
+            b.Conn.PlayerSent = true;
+            b.Conn.Instance.Presence.PublishPlayer(new(b.Conn.PeerId, 0, null!, 100, 100, 1000, b.Conn));
+            var actor = b.Conn.Monsters[visual.Key];
+            b.Conn.PublishedMinions = [new(visual.Key, visual.Value, actor, visual.Value.Object.GridX,
+                visual.Value.Object.GridY, actor.Walk.Destination, actor.Life)];
+            await Game.SyncPeerMinions("mirage-observer", observerWire.Stream, observerWire.Ciphers, observer);
+            uint otherId = observer.MirroredObjects[(b.Conn.PeerId, visual.Key)];
+            byte[] peerCreate = InstanceEntities.CreateObject(otherId, visual.Value.Type,
+                (visual.Value.Object with { Parent = b.Conn.PeerId }).Blob());
+            Assert.Contains(packets, p => Convert.ToHexString(p).Contains(Convert.ToHexString(peerCreate), StringComparison.Ordinal));
+            byte[] peerDisplay = display.ToArray();
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(peerDisplay.AsSpan(2), otherId);
+            Assert.Contains(packets, p => Convert.ToHexString(p).Contains(Convert.ToHexString(peerDisplay), StringComparison.Ordinal));
+            uint initial = b.Enemy.Life;
+            Assert.True(initial < b.Enemy.MaxLife);
+            b.Session.Schedule(ProjectileRuntime.Time(1), () => true, () => use);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(1.4));
+            await b.FlushOutput();
+            Assert.Equal(visual.Key, Assert.Single(b.Conn.MinionOrigins).Key);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(4.8));
+            Assert.True(b.Enemy.Life < initial);
+            Assert.Single(b.Conn.MinionOrigins);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(6));
+            await b.FlushOutput();
+            Assert.Empty(b.Conn.MinionOrigins);
+            Assert.DoesNotContain(visual.Key, b.Conn.Monsters.Keys);
+            Assert.Contains(packets, p => p.SequenceEqual(InstanceEntities.RemoveBuff(Program.PlayerId,
+                (ushort)(shown[12] << 8 | shown[13]))));
+            b.Conn.PublishedMinions = [];
+            await Game.SyncPeerMinions("mirage-observer", observerWire.Stream, observerWire.Ciphers, observer);
+            Assert.Empty(observer.SeenMinions);
+            uint expired = b.Enemy.Life;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(9));
+            Assert.Equal(expired, b.Enemy.Life);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            b.Session.Schedule(ProjectileRuntime.Time(9), () => true, () => use);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(9.4));
+            await b.FlushOutput();
+            Assert.Single(b.Conn.MinionOrigins);
+            b.Conn.PlayerLife = 0;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(12));
+            await b.FlushOutput();
+            Assert.Empty(b.Conn.MinionOrigins);
+            b.Conn.PlayerLife = 1000;
+            b.Session.Schedule(ProjectileRuntime.Time(12), () => true, () => use);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(12.4));
+            await b.FlushOutput();
+            var items = Game.ItemsOf(b.Conn);
+            var bow = items.Items(PlayerInventories.Weapon1).Single();
+            items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
+            b.Session.AdvanceTo(ProjectileRuntime.Time(15));
+            await b.FlushOutput();
+            Assert.Empty(b.Conn.MinionOrigins);
+            items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [2] });
+            b.Session.Schedule(ProjectileRuntime.Time(15), () => true, () => use);
+            b.Session.AdvanceTo(ProjectileRuntime.Time(15.4));
+            await b.FlushOutput();
+            uint retiring = Assert.Single(b.Conn.MinionOrigins).Key;
+            b.Session.Invalidate();
+            Assert.Empty(b.Conn.MinionOrigins);
+            Assert.Contains(retiring, b.Conn.RetiredCombatObjects);
+            Assert.Contains(b.Conn.RetiredCombatBuffs, p => p.Actor == Program.PlayerId);
+        }
+        finally { Program.Outgoing = outgoing; }
     }
 
     [Fact]

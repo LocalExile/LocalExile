@@ -93,7 +93,9 @@ Nothing yet.
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Mirage Archer uses linked bow skills after arrow hits; owner-only damage restriction changes await a client check.
+  Mirage Archer fires linked bow skills with a native head attachment and default green art; expiry removes it
+  ([25](../docs/protocol/25-gem-supports.md)).
+  Owner-only damage restriction overrides still await a client check.
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
   Blaze scales ignite damage and hit damage by enemies ignited recently
   ([25](../docs/protocol/25-gem-supports.md)).

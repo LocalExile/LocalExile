@@ -220,6 +220,20 @@ and [Close Combat](https://poedb.tw/us/Close_Combat_Support) (two-second Combat 
 20% more travel attack speed only without Close Combat). Values are read from the installed 3.29.3c tables;
 PoEDB is a comparison source, not a replacement for those versioned tables.
 
+## Mirage Archer presentation
+
+The 3.29.3c `MirageArcherVisualBuff` constructor at `0x1415d4c20` and destructor at `0x1417c7cb0`
+read element 0 of the buff's trailing u32 list without a length check.
+An empty list causes the null dereference at `0x1415d4d0c`; the owner actor itself is valid.
+The default appearance uses `[0]` on BuffDefinitions 1017, retained until the archer ends.
+This behaviour plays appear/disappear art; it does not create the persistent character model.
+That model is the class's `Metadata/Monsters/Mirage/*Mirage` actor with the owner's equipment,
+attached at `Head_Attachment` and tinted by BuffVisuals 802 `mirage_archer_effect`.
+BuffDefinitions 1748 `MirageArcherDisplayBuff` reads list element 1 in `0x1417c7010` and
+elements 0 and 2 in `0x1417c7260`; `[0, 0, 0]` selects default art without the separate proximity ring.
+The native actor is presentation for the existing server-side archer, outside the summon combat roster.
+Microtransaction variants and independent Occupying Force archers remain unverified.
+
 ## Remaining execution gaps
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.

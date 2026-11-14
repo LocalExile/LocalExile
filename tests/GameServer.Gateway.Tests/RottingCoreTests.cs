@@ -11,6 +11,45 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class RottingCoreTests
 {
+    [GameFilesFact]
+    public void Native_organ_gates_keep_their_domain_names_and_land_outside_each_arena()
+    {
+        foreach (uint seed in new uint[] { 1, 2, 3 })
+        {
+            var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(DepravedTrinity.Area)!.Value, seed);
+            Assert.NotNull(layout.Level);
+            var c = new ClientState(layout, 1, seed);
+            DepravedTrinity.ConfigureRoutes(c);
+            string[] names = ["Doedre", "Maligaro", "Shavronne"];
+            uint[] domains = [1017109034, 3550752648, 1836249657];
+            for (int n = 0; n < 3; n++)
+            {
+                var hub = Assert.Single(c.Layout.AreaTransitions, p => DepravedTrinity.Portal(p.Transition.Model) == n
+                    && p.Transition.SourceType?.EndsWith("UnholyTrioSubBossPortal", StringComparison.OrdinalIgnoreCase) == true).Transition;
+                var room = Assert.Single(layout.Level!.Records.SelectMany(r => r.Rooms), r => r.Room.Path.Contains("/" + names[n] + "/Unique/organ_"));
+                var gates = c.Layout.AreaTransitions.Where(p => p.Transition.GridX >= room.X * 23 && p.Transition.GridX < (room.X + room.Width) * 23
+                    && p.Transition.GridY >= room.Y * 23 && p.Transition.GridY < (room.Y + room.Height) * 23).Select(p => p.Transition).ToArray();
+                var arena = Assert.Single(gates, g => g.SourceType == "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition");
+                var back = Assert.Single(gates, g => g.SourceType == "Metadata/MiscellaneousObjects/PortalToggleable");
+                Assert.Equal(domains[n], hub.Label);
+                Assert.Equal(1058717380u, back.Label);
+                Assert.NotEqual(hub.TeleportTo, arena.TeleportTo);
+                Assert.Equal((hub.GridX, hub.GridY), back.TeleportTo);
+                var landing = DepravedTrinity.Destination(c, hub)!.Value;
+                Assert.InRange(landing.X, room.X * 23, (room.X + room.Width) * 23 - 1);
+                Assert.InRange(landing.Y, room.Y * 23, (room.Y + room.Height) * 23 - 1);
+                Assert.True(c.Layout.WalkableFor(landing.X, landing.Y, 1));
+            }
+            var exit = Assert.Single(c.Layout.AreaTransitions, p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn").Transition;
+            Assert.Equal(AreaTransitionCatalog.HashOf("2_9_10_1"), exit.DestinationHash16);
+            Assert.Null(exit.TeleportTo);
+            Assert.Null(DepravedTrinity.Destination(c, exit));
+            var before = c.Layout;
+            DepravedTrinity.ConfigureRoutes(c);
+            Assert.Same(before, c.Layout);
+        }
+    }
+
     [Fact]
     public void Organ_portals_follow_their_placed_boss_rooms_and_cannot_skip_living_souls()
     {

@@ -565,10 +565,14 @@ public static partial class Game
                     uint id = (uint)Interlocked.Increment(ref conn.NextMirroredObject);
                     conn.MirroredObjects[key] = id;
                     var o = m.Origin;
+                    if (o.Object.Parent == PlayerId)
+                        o = o with { Object = o.Object with { Parent = owner.PeerId } };
                     lock (conn.Monsters)
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                     packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life }).Blob()));
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                    if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
+                        packets.World(id, display);
                     if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
                         packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
                 }
