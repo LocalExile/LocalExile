@@ -140,7 +140,7 @@ conditional work, and no unique jewel has a normal drop or vendor source yet.
 | **Rain of Splinters** | 2 | 0 | 0% | 2 unread (no totems) |
 | **Replica Cheap Construction** | 2 | 0 | 0% | 2 unread (no traps) |
 | **Ancient Waystones** | 1 | 0 | 0% | 1 unread (no totemified auras) |
-| **Bloodnotch** | 1 | partial | — | Recovery applies on supported stunning hits |
+| **Bloodnotch** | 1 | 1 | 100% | Recovery applies on supported stunning hits |
 | **Immutable Force** | 1 | 0 | 0% | 1 panel only (stun recovery) |
 | **Mutated Growth** | 1 | 0 | 0% | 1 unread (corrupted gem experience) |
 | **Unstable Payload** | 1 | 0 | 0% | 1 unread (no traps) |
@@ -149,7 +149,7 @@ conditional work, and no unique jewel has a normal drop or vendor source yet.
 ## How the current passive-jewel support works
 
 - The ordinary tree has 21 large jewel sockets, exposed by the client as the `PassiveJewels1` inventory (Inventories.dat row 23, inventory id 24, 60x1).
-- The pane cell `x` is the `PassiveJewelSlots.dat` row; that row's `Slot` column is the `PassiveSkills.dat` row of the socket node. Cluster expansion rows (21-56) and the three ascendancy charm sockets (57-59) are not ordinary sockets.
+- The pane cell `x` is the `PassiveJewelSlots.dat` row; that row's `Slot` column is the `PassiveSkills.dat` row of the socket node. Cluster expansion rows (21-56) are not ordinary sockets, and rows 57-59 are the three Wildwood Primalist charm sockets, which hold an AnimalCharm while their node is allocated.
 - A normal jewel (ItemClasses `Jewel`, not `Metadata/Items/Jewels/JewelPassiveTreeExpansion*`) can be placed into an allocated socket with C->S 0x2a, swapped with 0x4a, and picked up with 0x28. The server checks the socket is allocated and the level requirement, saves the jewel in the inventory, and applies its global mods like a worn item's (`ItemModStats`).
 - Refunding a socket that still holds a jewel is refused until the jewel is taken out. A level trim prefers other leaves; if a jewel socket must be removed, the jewel is returned to the main inventory.
 - Unique jewels use the same socket and stat path. The 42 Global rows have a dev source (`/unique_jewel`); there is no normal drop or vendor path yet. Radius and conditional rows are not active until their mechanics are modelled; timeless node stats are implemented, but the conqueror keystones are not.
@@ -290,7 +290,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | **Assassin's Haste** | `ManaRegenerationUniqueJewel43` | 10% increased Mana Regeneration Rate | works |
 | **Assassin's Haste** | `MovementVelocityUniqueJewel43` | 4% increased Movement Speed | works |
 | **Assassin's Haste** | `AttackAndCastSpeedJewelUniqueJewel43` | 4% increased Attack and Cast Speed | works |
-| **Bloodnotch** | `StunningHitsRecoverLifeUnique__1` | (40-60)% of Damage taken from Stunning Hits is Recovered as Life | supported player stuns only |
+| **Bloodnotch** | `StunningHitsRecoverLifeUnique__1` | (20-30)% of Damage taken from Stunning Hits is Recovered as Life | supported player stuns only |
 | **Brawn** | `PercentageStrengthUniqueJewel29` | (4-6)% increased Strength | works |
 | **Brawn** | `PercentageDexterityUniqueJewel29` | (4-6)% increased Dexterity | works |
 | **Brawn** | `PercentageIntelligenceUniqueJewel29` | (10-15)% reduced Intelligence | works |
@@ -424,7 +424,7 @@ Their unconditional stats would work, but the condition is not modelled. **No mo
 
 ## Radius unique jewels
 
-The radius model is implemented for the server-side rows: node positions and groups, the jewel radius, the affected node set, and the per-modification rules (replace/augment node stats, notable replacements, threshold checks and allocation bypass). The mechanics, all 76 distinct jewels, the implementation plan and the reusable timeless pieces are in [radius-jewels.md](radius-jewels.md); the generated mechanism/status table is [radius-jewel-list.md](radius-jewel-list.md). **The six attribute-conversion, five damage/defence-conversion, three notable-replacement, ten passive-addition, eleven per-node-scaling, one passive-effect/notable-suppression, three allocation/tree-rule and three special/global-only (Might in All Forms, Pitch Darkness, Sudden Ignition) jewels are implemented with their server-side effects** (`/radius_jewel`); the 33 threshold rows have generated item sources, client local threshold mods and server attribute counting that adds the mapped target stats, while skill-specific consumers remain partial. Lioneye's Fall has an item source and client conversion; its server flag model is missing. Inspired Learning and Warrior's Tale remain inactive (no item source) beyond the fixed timeless radius described in [timeless-jewels.md](timeless-jewels.md).
+The radius model is implemented for the server-side rows: node positions and groups, the jewel radius, the affected node set, and the per-modification rules (replace/augment node stats, notable replacements, threshold checks and allocation bypass). The mechanics, all 76 distinct jewels, the implementation plan and the reusable timeless pieces are in [radius-jewels.md](radius-jewels.md); the generated mechanism/status table is [radius-jewel-list.md](radius-jewel-list.md). **The six attribute-conversion, five damage/defence-conversion, three notable-replacement, ten passive-addition, eleven per-node-scaling, one passive-effect/notable-suppression, three allocation/tree-rule and three special/global-only (Might in All Forms, Pitch Darkness, Sudden Ignition) jewels are implemented with their server-side effects** (`/radius_jewel`); the 33 threshold rows have generated item sources, client local threshold mods and server attribute counting that adds the mapped target stats, while skill-specific consumers remain partial. Lioneye's Fall converts supported melee weapon stats into their bow equivalents. Inspired Learning grants timed rare modifiers and Warrior's Tale scales tattoos. Timeless radii are described in [timeless-jewels.md](timeless-jewels.md).
 
 | Jewel | Base | Radius | Mods | Status |
 |---|---|---|---|---|
@@ -437,7 +437,7 @@ The radius model is implemented for the server-side rows: node positions and gro
 | **Combat Focus** | Crimson Jewel | Medium | (10-15)% increased Elemental Damage<br>(10-15)% increased Elemental Damage with Attack Skills<br>With 40 total Strength and Intelligence in Radius, Prismatic Skills deal 50% less Cold Damage<br>With 40 total Strength and Intelligence in Radius, Prismatic Skills cannot choose Cold | Radius; variants; limited to 2 |
 | **Combat Focus** | Cobalt Jewel | Medium | (10-15)% increased Elemental Damage<br>(10-15)% increased Elemental Damage with Attack Skills<br>With 40 total Intelligence and Dexterity in Radius, Prismatic Skills deal 50% less Fire Damage<br>With 40 total Intelligence and Dexterity in Radius, Prismatic Skills cannot choose Fire | Radius; variants; limited to 2 |
 | **Combat Focus** | Viridian Jewel | Medium | (10-15)% increased Elemental Damage<br>(10-15)% increased Elemental Damage with Attack Skills<br>With 40 total Dexterity and Strength in Radius, Prismatic Skills deal 50% less Lightning Damage<br>With 40 total Dexterity and Strength in Radius, Prismatic Skills cannot choose Lightning | Radius; variants; limited to 2 |
-| **Dead Reckoning** | Cobalt Jewel | Medium | Minions have +(7-10)% to all Elemental Resistances<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 3 Skeleton Mages<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 5 Skeleton Mages<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 15 Skeleton Mages<br>Skeletons gain Added Chaos Damage equal to (20-30)% of Maximum Energy Shield on your Equipped Shield | Radius; variants; limited to 1 |
+| **Dead Reckoning** | Cobalt Jewel | Medium | Minions have +(7-10)% to all Elemental Resistances<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 3 Skeleton Mages<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 5 Skeleton Mages<br>With at least 40 Intelligence in Radius, Summon Skeletons can Summon up to 15 Skeleton Mages<br>Skeletons gain Added Chaos Damage equal to (20-30)% of Maximum Energy Shield on your Equipped Shield | Equipped shield ES grants skeleton chaos damage; the radius threshold belongs to legacy variants |
 | **Divine Inferno** | Crimson Jewel | Medium | With at least 40 Strength in Radius, Combust is Disabled<br>With at least 40 Strength in Radius, Attacks Exerted by Infernal Cry deal (40-60)% more Damage with Ignite | Radius; limited to 1 |
 | **Efficient Training** | Crimson Jewel | Large | +(16-24) to Strength<br>Intelligence from Passives in Radius is Transformed to Strength | Radius; attribute conversion pilot |
 | **Eldritch Knowledge** | Cobalt Jewel | Medium | 5% increased Chaos Damage per 10 Intelligence from Allocated Passives in Radius | Radius; per-node scaling pilot |
@@ -459,7 +459,7 @@ The radius model is implemented for the server-side rows: node positions and gro
 | **Inevitability** | Cobalt Jewel | Medium | (10-15)% increased Fire Damage<br>With at least 40 Intelligence in Radius, Rolling Magma deals 50% less Damage<br>With at least 40 Intelligence in Radius, Rolling Magma deals 40% more Damage per Chain<br>With at least 40 Intelligence in Radius, Rolling Magma<br>has 10% increased Area of Effect per Chain<br>With at least 40 Intelligence in Radius, Rolling Magma fires an additional Projectile<br>With at least 40 Intelligence in Radius, Rolling Magma<br>has 10% increased Area of Effect per Chain | Radius; variants; limited to 1 |
 | **Inspired Learning** | Crimson Jewel | Small | With 4 Notables Allocated in Radius, When you Kill a Rare monster, you gain 1 of its Modifiers for 20 seconds | Radius |
 | **Intuitive Leap** | Viridian Jewel | Small | Passive Skills in Radius can be Allocated without being connected to your tree<br>Passage | Radius; allocation bypass pilot (no bridging) |
-| **Lioneye's Fall** | Viridian Jewel | Medium | Melee and Melee Weapon Type modifiers in Radius are Transformed to Bow Modifiers | Radius; item source + client conversion; server flag model missing |
+| **Lioneye's Fall** | Viridian Jewel | Medium | Melee and Melee Weapon Type modifiers in Radius are Transformed to Bow Modifiers | Radius; supported melee weapon stats convert to bow stats |
 | **Martial Artistry** | Crimson Jewel | Small | (10-15)% increased Area of Effect while Unarmed<br>+(0.3-0.4) metres to Melee Strike Range with Unarmed Attacks<br>Passive Skills in Radius also grant: 1% increased Unarmed Attack Speed with Melee Skills | Radius; passive addition pilot (partial); variants; limited to 1 |
 | **Might and Influence** | Viridian Jewel | Medium | Has Alt Variant: true<br>(10-15)% increased Attack Damage<br>(10-15)% increased Global Physical Damage<br>With at least 40 Dexterity in Radius, Dual Strike has (20-30)% increased<br>Accuracy Rating while wielding a Sword<br>With at least 40 Dexterity in Radius, Dual Strike has (10-15)% increased Attack<br>Speed while wielding a Claw<br>With at least 40 Dexterity in Radius, Dual Strike has +(20-30)% to Critical Strike<br>Multiplier while wielding a Dagger<br>With at least 40 Dexterity in Radius, Dual Strike Hits Intimidate Enemies for<br>4 seconds while wielding an Axe<br>With at least 40 Dexterity in Radius, Dual Strike has a 20% chance<br>to deal Double Damage with the Main-Hand Weapon<br>With at least 40 Dexterity in Radius, Dual Strike deals Off Hand Splash Damage<br>to surrounding targets<br>With at least 40 Dexterity in Radius, Dual Strike deals Splash Damage<br>to surrounding targets while wielding a Mace | Radius; variants; limited to 1 |
 | **Might in All Forms** | Crimson Jewel | Medium | Dexterity and Intelligence from passives in Radius count towards Strength Melee Damage bonus | Radius; Strength melee bonus implemented |
@@ -585,30 +585,49 @@ Abyss jewels go into abyss sockets on items, not into the passive tree. They are
 
 ## Catalogue gap check (poewiki, 2026-10-29)
 
-Five of the seven historical gaps below have a named item source. Random rolls come from the encounter-specific pools
-in world.db. Condition handling and encounter rewards are separate from creating an item.
+All seven historical gaps below have a named item source in world.db.
+Condition handling and encounter rewards are separate from creating an item.
 
 | Jewel | Base | Limit | Effect | Status |
 |---|---|---|---|---|
 | **Bound By Destiny** | Prismatic Jewel | 1 | One each of the influence item bonuses | Generates one modifier for each of the 2/4/6 influence-item thresholds. |
-| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
-| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
+| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
+| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
 | **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Four passives; three rolled notables and an empty small, with no jewel socket. |
 | **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. |
 | **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Generates elemental resistance and two distinct curse modifiers. |
 | **Watcher's Eye** | Prismatic Jewel | 1 | Two or three random aura modifiers | Generates three fixed modifiers and two aura modifiers (three for the level 86+ variant). |
 
-The client's `UniqueStashLayout`/`UniqueJewelLimits` also carry legacy names the current wiki list no longer has:
-Army of Bones, Boundless Grasp, Bulwark Legion, Cannibalistic Habits, Choking Ash, Divide and Conquer, Hotfooted,
-Miser of Misery, Specialised, Straight and True, Toxic Vapours, Underdog's Fury and Zerphi's Youth. They stay out of
-the catalogue until a current item source/version is confirmed. The docs also still list **Hotheaded**,
-**Fortified Legion** and **Seething Fury**, although the client's current visual table has no icon for them; keep them
-as legacy rows until the client data settles.
+### Historical names and unconfirmed sources
+
+The committed client tables contain both historical names and names whose release history remains unconfirmed:
+
+- **Army of Bones** was renamed **To Dust** in the [3.0.0 patch notes][army-rename].
+  `Words` row 494 has `Text2 = To Dust`; stash-layout row 339 points to renamed row 338, sharing its visual identity.
+  To Dust already has an enabled item definition and global-jewel entry; the old name is not a second missing item.
+- **Cannibalistic Habits**, **Miser of Misery** and **Specialised** are withdrawn Awakening-beta designs.
+  GGG's [State of the Beta #6][beta-jewels] described a possible reworked return, not a confirmed release.
+  They retain name/limit rows, but have no stash-layout row or server item definition under those names.
+- **Boundless Grasp**, **Choking Ash**, **Straight and True**, **Toxic Vapours**, **Underdog's Fury** and
+  **Zerphi's Youth** also retain name/limit rows without stash-layout rows or server item definitions.
+  Their release history is not established by the evidence here; they remain unconfirmed, outside the confirmed-source
+  catalogue, rather than declared current missing items or definitively never-released prototypes.
+- **Bulwark Legion**, **Hotfooted** and **Divide and Conquer** already have item definitions under those table names.
+  Their `Words.Text2` values are **Fortified Legion**, **Hotheaded** and **Seething Fury**, respectively.
+  The stash layout resolves the older `Words.Text` names to artwork, so a missing row under the newer name alone
+  does not establish missing art or an absent item source.
+
+A name, limit, visual or weight row alone does not establish an obtainable item or a requirement to implement it.
+An item definition does not establish complete modifiers, gameplay or drop availability.
+The Forbidden Flame/Flesh granted-node work in #791 is outside this historical-name check.
+
+[army-rename]: https://www.pathofexile.com/forum/view-thread/1930316
+[beta-jewels]: https://www.pathofexile.com/forum/view-thread/1288610
 
 ## Notes on effects that need a different model
 
 - **"In Radius" and threshold jewels** need the set of allocated passive nodes inside the jewel radius. The client packed graph has group coordinates and node orbit/position; `PassiveJewelRadii.dat` has Small/Medium/Large/VeryLarge radii in the same units.
-- **Node-modifying jewels** (for example Lioneye's Fall, Elegant Hubris) need modifier flags or alternate stat rows; Lioneye's Fall's item source and client conversion are present, but its server flag model is missing. Might of the Meek's passive-effect and notable-suppression override is implemented in the radius pilot.
+- **Node-modifying jewels** (for example Lioneye's Fall, Elegant Hubris) need modifier flags or alternate stat rows; Lioneye's Fall converts the stat families with native bow counterparts. Might of the Meek's passive-effect and notable-suppression override is implemented in the radius pilot.
 - **Granted keystone/notable** jewels need to add a passive node or a special stat that is not on the graph; the tree allocated list is currently the source of truth.
 - **Conditional stats** need conditions evaluated at the point of use (per allocated node, per item, per recent kill, low life, charges, and so on), not at login.
 - **Timeless jewels** need the legion seed, the alternate passive graph and the keystone substitution rules.

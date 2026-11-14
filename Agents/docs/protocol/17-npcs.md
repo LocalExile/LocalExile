@@ -150,6 +150,19 @@ A click on an NPC sends 0x24 (use skill on object, [09](09-area-change.md)) with
 as the waypoint. The client walks to the NPC first. The Gateway follows the walk (`NpcReach` 8 cells, not measured)
 and then answers with 0x84.
 
+**Shortcuts.** The click's flags say which keys were held: 0x0004 Ctrl (any target) and 0x0200 Alt, which the client
+sets only when the target has an NPC component (`0x1401285b0`, after 0x0400: `GetKeyState(VK_MENU)`). Live 2026-11-12
+with real input: 0x0408 plain, 0x040c Ctrl, 0x0608 Alt, 0x060c both. The client does nothing else with the keys; the
+server opens the option. NPCTalk `__col22` is each row's shortcut: 1 Ctrl, 2 Alt, 3 Ctrl + Alt, 4 none. Nessa: Sell
+Items 1, Purchase Items 2, Identify Items 3; Kirac: Purchase 1, Sell 2, Atlas Respecialisation 3. Rows of one NPC that
+share a shortcut differ in their quest flags (the hideout Niko's chart needs `ThisIsMyHideout`, else Sell Items).
+
+The Gateway runs the NPC's first row with the click's shortcut whose quest flags hold as a picked option (0x82 below),
+after a talk the NPC still has for the player and without 0x84 first. Live: the sell window (UI +0x7c8) and the buy
+window (UI +0x7b8) open with the inventory, Esc cancels the sale (C→S 0xb1) or sends 0x85, and the client takes the
+next click. A click without such a row, or whose option no module answers, lists the options (0x84 0xff). Not read: the
+rows' other conditions (below). That a waiting talk goes first is from player reports, not measured.
+
 ### S→C 0x84: open the dialogue (13 bytes)
 
 World group, class `0x1435e84d8`, read `0x141fe44d0`: the object header (u16 id, u32 BE object id → `+0x10`, u32, u16),
@@ -185,6 +198,16 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 | SellItems | two offer inventories (0xc0, manager 1) + S→C 0xb8 (verified: drops, Ctrl + click, Accept, Cancel; §5) |
 | RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc5fe0; a non-zero u32 shows it in mode 2, `0x1409df890`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
 | IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e7bb90` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071ff10`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
+
+Divination cards still use NPC dialogue in 3.29.3d: NPCTalk rows 616/1310 (Tasuni) and 2801 (hideout Lilly)
+have category `TradeDivinationCards` (36).
+S→C 0x7b kind 0x0c opens `DivinationWindow`; its first u32 selects a `DivinationWindowVisuals` row.
+The window uses player inventory row 27 (`DivinationCardTrade`), already registered with the player inventories.
+C→S 0xea (8 bytes, sender `0x14216e8d0`, writer `0x141f993f0`) is u32 BE item id, u8 expanded-inventory boolean, u8 into-window boolean.
+The Ctrl-click branch at `0x14030faa4` arms a client flag; the slot listener `0x140bb3210` calls `0x140bb41f0`, which submits the ordinary `0x19a` exchange for a complete set.
+Its exchange button (`0x140bb2980`) sends C→S 0x19a with no fields only when the slot holds one complete set.
+Its close handler (`0x140bb2f00`) sends C→S 0x85.
+An ordinary card pickup remains C→S 0x28; it is not an exchange request.
 
 C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
 otherwise the Gateway answers 0x84 with object 0,

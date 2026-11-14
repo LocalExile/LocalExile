@@ -8,7 +8,7 @@ public static partial class Game
     public static async Task<uint> SpawnNpc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Npc npc,
         int x, int y, float rotation)
     {
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
         await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type, obj.Blob()),
@@ -72,13 +72,17 @@ public static partial class Game
         conn.InNpcTalk = false;
         conn.NpcFinishFlag = null;
         conn.NpcRewardOffer = null;
-        // Ctrl + click goes straight to an NPC's Currency Exchange (Faustus), as picking the option does. An NPC without one, or a
-        // league without the module, talks as usual.
-        if (use.Ctrl && Npcs.Value.TalksOf(npc.Npc).FirstOrDefault(t => t.Category == "CurrencyExchange" && t.Available(Quests.Names(PlayerQuestFlags(conn)))) is { } exchange
-            && await GameEvents.AnyNpcOption(new(conn, npc.Npc.Name, exchange.Category, exchange.Option, exchange.Script, exchange.TextAudio.Count > 0,
-                exchange.Index, exchange.Row, exchange.OpensGuildHideouts, exchange.RewardOffer))) return;
         if (await GameEvents.AnyNpcTalk(conn, id, npc)) return;
         if (await ContinueQuestConversation(remote, stream, ciphers, conn, id)) return;
+        // Ctrl, Alt or both held on the click (0x24 flags 0x0004, 0x0200): the NPC's option with that shortcut, as if it
+        // was picked from the list: Nessa's Sell Items, Purchase Items and Identify Items, Faustus' Currency Exchange.
+        // A talk the NPC still has for the player came first, above. An NPC without that shortcut, or an option nothing
+        // answers (a league without its module), lists the options as a plain click does.
+        if (Npcs.Value.ShortcutOf(npc.Npc, NpcCatalog.ShortcutFor(use.Ctrl, use.Alt), Quests.Names(PlayerQuestFlags(conn))) is { } shortcut)
+        {
+            Console.WriteLine($"[gateway] {remote} npc {npc.Npc.Name} {(use.Ctrl ? "Ctrl + " : "")}{(use.Alt ? "Alt + " : "")}click: NPCTalk row {shortcut.Row} \"{shortcut.Option}\" ({shortcut.Category})");
+            if (await RunNpcOption(remote, stream, ciphers, conn, id, npc, shortcut, onClick: true)) return;
+        }
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -152,13 +156,18 @@ public static partial class Game
         await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
     }
 
-    public static async Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(remote, stream, ciphers, conn, id, npc, talk);
+
+    // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut
+    // (onClick: no talk is open). False when the row is not for this character now, or nothing answers it.
+    static async Task<bool> RunNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
     {
-        if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return;
-        if (!await GameEvents.AllowNpcOption(conn, talk)) return;
+        if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return false;
+        if (!await GameEvents.AllowNpcOption(conn, talk)) return false;
         // A row that sets a quest item's remove_flag takes the item (Nessa's Medicine Chest, Fairgraves' Allflame).
-        if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return;
+        if (!await HandInQuestItems(remote, stream, ciphers, conn, talk, npc.Npc.Id)) return false;
         await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
@@ -174,14 +183,23 @@ public static partial class Game
                 if (conn.NpcFinishFlag is { } finish) { conn.NpcFinishFlag = null; await SetQuestFlags(remote, stream, ciphers, conn, [finish]); }
                 // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
                 offeredScript = true;
-                if (await GameEvents.AnyNpcOption(option)) return;
-                if (await EndTalkScript(remote, stream, ciphers, conn, id, npc, talk)) return;
+                if (await GameEvents.AnyNpcOption(option)) return true;
+                // On the click itself a script that only ends the talk shows nothing: FinishNPCChat with a screen or an
+                // event of a system the server does not have (Einhar's BestiaryScreen). The caller lists the options.
+                if (onClick && talk.NextChat is null && talk.AreaTransition is null
+                    && !(talk.OpensScreen is { } screen && ScriptScreens.ContainsKey(screen)))
+                {
+                    Console.WriteLine($"[gateway] {remote} npc option {talk.Category} \"{talk.Option}\": its script shows nothing here ({talk.Script.Trim()})");
+                    return false;
+                }
+                if (await EndTalkScript(remote, stream, ciphers, conn, id, npc, talk)) return true;
             }
         }
         // What an option does is a module's (Modules/Core/npcdialogue); one nothing answers does nothing.
-        if (offeredScript || !await GameEvents.AnyNpcOption(new(conn, npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
-                talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer)))
-            Console.WriteLine($"[gateway] {remote} npc option category {talk.Category}: no module answers it");
+        if (!offeredScript && await GameEvents.AnyNpcOption(new(conn, npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
+                talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer))) return true;
+        Console.WriteLine($"[gateway] {remote} npc option category {talk.Category}: no module answers it");
+        return false;
     }
 
     // A quest's reward window (0xc0 and 0x87). False when the offer has nothing for this character, or was taken.
@@ -225,7 +243,10 @@ public static partial class Game
         var identified = items.IdentifyAll(row);
         if (identified.Count == 0)
         {
+            // The list grays the option itself, so this is the click's shortcut (Ctrl + Alt): list the options, where the
+            // client says why ("No items in your inventory can be identified").
             Console.WriteLine($"[gateway] {remote} npc {npc.Npc.Name} identify items: nothing unidentified");
+            await Send(remote, stream, ciphers, InstanceNpcs.Talk(conn.TalkingTo), $"0x0084 npc 0x{conn.TalkingTo:x}: options (nothing to identify)");
             return;
         }
         uint inventory = PlayerInventories.InventoryId(row);

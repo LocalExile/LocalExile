@@ -8,7 +8,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
   waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
   work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
-  items and waypoints live 2026-11-09).
+  items and waypoints live 2026-11-09). 3.29.3d (build 328228) runs with the same code too: login, a new character,
+  The Twilight Strand and a resync on a headless client, then the same character on 3.29.3.5 (2026-11-11).
+  The live scripts (`scripts/re/frida`, the walk-map recorder) hold the release's data addresses and where each
+  sits in the hotfix and in 3.29.3d: the component checker names all 537 component parts of 50 objects on both
+  (2026-11-11; with the release's addresses alone it named 49 on the hotfix).
+  Only the builds listed in `ClientBuilds.cs` run, each recognized by its
+  executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
+  extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
   Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` regenerates each data file that is
   missing or whose manifest version changed (stamps in `data/extract-stamps.json`); `live.ps1` runs its `-Servers`
@@ -25,9 +32,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
-- Steam's 3.29.3c (3.29.3.5, loose `Bundles2\`) as the client: data extraction, `live.ps1` and the player launcher take
-  either layout, and the client runs in standalone mode without Steam (`LooseFilesPatch` in `Game.patched.exe`); login,
-  character select and entering the game live 2026-11-11. Its 942 tables decode identical to the standalone client's.
+- Steam's 3.29.3c (the release and 3.29.3.5, loose `Bundles2\`) as the client: data extraction, `live.ps1` and the
+  player launcher take either layout, and the client runs in standalone mode without Steam (`LooseFilesPatch` in
+  `Game.patched.exe`); login, character select and entering the game live 2026-11-11 (3.29.3.5) and 2026-11-12 (the
+  release, through the launcher). The 942 tables of both decode identical to the standalone 3.29.3.5 client's.
   Code: `ClientFiles.cs`, `LooseFilesPatch.cs`. Docs: [GettingStarted](../GettingStarted.md) "What you need", step 5.
 - Local patching server: the client never contacts the official patch servers. A GGPK whose root hash is zero (the
   client then always patches and times out at "Checking resources") gets one on each start (`root-hash --repair`).
@@ -83,8 +91,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
   package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
-  `-Walkmaps`, named clients, and the client from a Linux release.
-  Code: `scripts/dev/platform-linux.ps1`.
+  named clients and the client from a Linux release. Linux `-Walkmaps` captures the real 3.29.3c client;
+  the Strand matches in tile hash, both grids, cell heights, doodads and transitions.
+  Code: `scripts/dev/platform-linux.ps1`, `scripts/walkmaps/proton.py`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
@@ -112,6 +121,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not tried in the client yet.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
+  Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
+  dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
+  context being freed.
+  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules and
+  freed every old one, seven times in a row: at rest, in a fight, and after a death and a new entry into the same
+  instance; movement went on and a buried monster rose for the new rules afterwards.
   Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
   remain free, and collected contexts release their copied files.
   Unit-tested: the copies' cleanup (`ModCopyTests`), user settings over the declared defaults (`ModSettingsTests`), a

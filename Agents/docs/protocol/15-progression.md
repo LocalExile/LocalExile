@@ -50,10 +50,10 @@ yet confirmed on screen).
   |---|---|---|
   | u16 | tree +0x270 | refund points (Orbs of Regret) |
   | u16 | +0x274 | `extra_skill_points` (quest points; dev extra points for now) |
-  | u16 | +0x27c | ascendancy points |
+  | u16 | +0x27c | ascendancy points; the three Wildwood Descendancy rows add their own eight points here, while the main ascendancy stays capped by its earned points |
   | u8 | +0x26c | **the level**: the client's `points_from_level` = (level − 1) × points per level |
   | u8 | +0x268 | class byte: base IntegerId + packed ClassNo (`CharacterClassByte`), the tree's start |
-  | u8 | +0x269 | |
+  | u8 | +0x269 | the second ascendancy layer's **Descendancy.dat row** (0 none): nodes whose `PassiveSkills.DescendancyKey` equals it are that layer's tree and spend the same earned points as the main ascendancy. The panel's own copy is the Player component's +0x1b0 ([04](04-player-entity.md) §4) |
   | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141efdcb0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
   | vec16 u16 | | (sent empty) |
@@ -230,7 +230,7 @@ Regret's way but gives two refund points (ClientStrings `ItemFunction2RespecPoin
 quantity. Each item is currency (35%: Scroll of Wisdom most, down to the Mirror), a gem (4%: an obtainable gem
 whose DropLevel is at most the monster's level, from `GemSources`, at gem level 1 like a vendor's), a life or mana flask (8%)
 or equipment (53%: a weighted slot, then any of its bases with DropLevel ≤ the monster's level, minus unique-only, event
-and league bases), item level = the monster's level, +1 magic, +2 rare, +3 unique (gems keep 1), with the type's default sockets. Equipment then rolls
+and league bases), item level = the monster's level, +1 magic, +2 rare or unique (gems keep 1), with the type's default sockets. Equipment then rolls
 unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
 `VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.

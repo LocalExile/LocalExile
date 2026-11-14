@@ -11,11 +11,7 @@ public static partial class Game
         if (conn.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)) return true;
         if (enemy.BusyUntil > now || MonsterActionFactor(enemy, now) == 0) return false;
         var here = enemy.Walk.Position(now);
-        var golem = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                && (g.Definition.IsGolem || g.Definition.Kind == "Purity" || conn.Summons.Definitions.GetValueOrDefault(g.Id)?.Targetable == true))
-            .Select(g => (G: g, Distance: Dist(here, g.Monster.Walk.Position(now))))
-            .Where(t => t.Distance <= enemy.AggroRange && (t.Distance < ownerDistance || t.G.Taunts.GetValueOrDefault(id) > now))
-            .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
+        var golem = GolemTargetLocked(conn, id, enemy, here, now, ownerDistance);
         if (golem.G is null) return false;
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
@@ -34,6 +30,17 @@ public static partial class Game
         conn.Golems.IncomingHits.Add(new(id, enemy, golem.G, attack, action));
         conn.Minions.OutputQueue.Add(new([], null, id, enemy, PlayerMinions.OutputKind.GolemIncoming, Action: action));
         return true;
+    }
+
+    static (GolemState.Golem? G, double Distance) GolemTargetLocked(ClientState conn, uint id, SpawnedMonster enemy,
+        (int X, int Y) here, double now, double ownerDistance)
+    {
+        if (conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count == 0) return default;
+        return conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
+                && (g.Definition.IsGolem || g.Definition.Kind == "Purity" || conn.Summons.Definitions.GetValueOrDefault(g.Id)?.Targetable == true))
+            .Select(g => (G: g, Distance: Dist(here, g.Monster.Walk.Position(now))))
+            .Where(t => t.Distance <= enemy.AggroRange && (t.Distance < ownerDistance || t.G.Taunts.GetValueOrDefault(id) > now))
+            .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
     }
 
     static byte[]? GolemIncomingPresentation(ClientState conn, PlayerMinions.Output output)
@@ -89,9 +96,11 @@ public static partial class Game
             int accuracy = source.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
             if (Random.Shared.Next(100) >= DamageModel.AccuracyHitChance(evasion, accuracy)) return false;
         }
-        int block = attack.Spell ? Player("minion_additional_spell_block_%") : Player("minion_block_%");
+        int block = attack.Spell ? Player("minion_additional_spell_block_%") + effects["base_spell_block_%"]
+            : Player("minion_block_%") + effects["monster_base_block_%"];
         if (Random.Shared.Next(100) < Math.Clamp(block, 0, 75))
         {
+            g.BlockedAt = now;
             m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player("minion_recover_%_of_maximum_life_on_block") / 100
                 + Player("minion_recover_X_life_on_block"));
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
@@ -120,6 +129,8 @@ public static partial class Game
                 value = (int)Math.Round(value * (1 - reduction));
             }
             value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
+                // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
+                * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
                 * (area ? Math.Max(0, 1 + effects["damage_taken_+%_from_area_hits"] / 100.0) : 1));
             if (type != DamageType.Chaos && g.Shield > 0)
             { double absorbed = Math.Min(g.Shield, value); g.Shield -= absorbed; value -= (int)absorbed; }

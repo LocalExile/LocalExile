@@ -20,6 +20,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
+    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -35,6 +37,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public int AccuracyMoreUnique { get; init; }
     public int AccuracyMoreClose { get; init; }
     public bool AlwaysHits { get; init; }
+    /// <summary>A hybrid strike's melee victim cannot also take that strike's projectile damage.</summary>
+    public GameServer.Core.Projectiles.ProjectileActorKey? ExcludedTarget { get; init; }
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
@@ -46,6 +50,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public int? VsProfaneCriticalChance { get; init; }
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
+    public Game.SupportedGem? MirageSource { get; init; }
     /// <summary>The client spawns this use's primary projectiles itself (its own skill use), so the server sends no object
     /// for them; continuation children still get one.</summary>
     public bool ClientPredicted { get; init; }

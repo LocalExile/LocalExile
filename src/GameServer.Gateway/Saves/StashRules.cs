@@ -7,7 +7,7 @@ using GameServer.Core;
 /// come from StashTabAffinityByBaseItemType, StashtabAffinityByItemClassCategory and the special tabs' layouts; each
 /// affinity lists the StashType rows that may hold it (StashTabAffinities). Normal, premium and quad tabs hold anything.
 /// The currency, essence, fragment, delve and blight tabs give each item type one slot (their *StashTabLayout
-/// FirstSlotIndex): the client shows a slot as cell (slot, 0), and an item dropped anywhere on the tab goes into its own
+/// FirstSlotIndex, plus Subtab for fragments): the client shows each slot at its inventory cell, and an item dropped anywhere on the tab goes into its own
 /// slot. Currency slots use CurrencyItems.CurrencyTab_StackSize; other slotted tabs default to <see cref="SlotStack"/>.
 /// </summary>
 public sealed class StashRules
@@ -207,6 +207,8 @@ public sealed class StashRules
             foreach (var r in ClientTables.Table(table))
             {
                 int slot = r.Int("FirstSlotIndex");
+                // Fragment slots address an inventory row as well as a column. Later pages reuse columns 0..254.
+                if (tabType == Fragment) slot += (r.IntOrNull("Subtab") ?? 0) * AccountStash.Types[Fragment].Width;
                 string id = r.Text("Id") ?? "";
                 if (id == "CraftingSlot" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
                 {

@@ -81,6 +81,8 @@ public static class InstanceProtocol
     /// (<see cref="InstanceChat.JoinChannelId"/>) and 0x0129 (id only); the 20 bytes once taken for 0x0099 were all four.</summary>
     public static int? KnownClientLength(ushort id) => id switch
     {
+        InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
+        InstanceDivination.MoveId => InstanceDivination.MoveLength,
         InstanceDelve.UpgradesRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
@@ -107,6 +109,7 @@ public static class InstanceProtocol
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
         InstanceWaypoints.AscendancyChosenId => InstanceWaypoints.AscendancyChosenLength,
+        InstanceWaypoints.DescendancyChosenId => InstanceWaypoints.DescendancyChosenLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,

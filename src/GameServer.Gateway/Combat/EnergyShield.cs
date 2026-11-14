@@ -24,6 +24,14 @@ public sealed class EnergyShield
         return amount - (int)absorbed;
     }
     public void Empty() { Current = 0; fraction = 0; Recharging = false; }
+    /// <summary>A cost paid from Energy Shield (a skill's cost): unlike damage, it does not restart the recharge delay.
+    /// False, and nothing spent, when there is not that much.</summary>
+    public bool Spend(uint amount)
+    {
+        if (amount > Current) return false;
+        Current -= amount;
+        return true;
+    }
     /// <summary>Instant recovery (Kiloava's Leadership on block), up to the maximum.</summary>
     public void Recover(uint amount)
     {
@@ -37,6 +45,9 @@ public sealed class EnergyShield
         Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
         if (Current == Maximum) Recharging = false;
     }
+    /// <summary>Whether recharge would run now, full or not: no damage within the delay and a positive rate.</summary>
+    public bool RechargeReady(double now, Func<string, int> get) =>
+        Maximum > 0 && now >= interruptedAt + Delay(get) && RechargePerMinute(Maximum, get) > 0;
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp(((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) + 50) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);
@@ -44,7 +55,9 @@ public sealed class EnergyShield
         get("cannot_recharge_energy_shield") != 0 || get("no_energy_shield_recharge_or_regeneration") != 0
             || get("keystone_ghost_reaver") != 0 ? 0 :
         max * 20.0 * Math.Max(0, 1 + get("energy_shield_recharge_rate_+%") / 100.0)
-        * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0);
+        * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0)
+        // Eldritch Battery: "50% less Energy Shield Recharge Rate".
+        * (get("keystone_eldritch_battery") != 0 ? 0.5 : 1);
     public static double RegenPerMinute(uint max, Func<string, int> get) =>
         get("no_energy_shield_recharge_or_regeneration") != 0 ? 0 :
         Math.Max(0, get("base_energy_shield_regeneration_rate_per_minute") + max * get("base_energy_shield_regeneration_rate_per_minute_%") / 100.0)

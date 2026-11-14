@@ -305,6 +305,9 @@ The stationary Crawler's wheels use zero values for these optional fields and th
 An empty bone name means `<root>` and `*` means `<lock>` (`0x141dc6820`). The attachment kind is a mask on the transform
 (`0x142909a50`): 1 drops the scale, 2 the translation, 4 the rotation, and 0x08 / 0x10 / 0x20 the same for the bone alone.
 Righteous Fire's ring rides on the player's `<root>` with kind 4, so it does not turn with the player.
+A monster rides the same way (the Goddess of Justice on Izaro's `jnt_back_spirit`, kind 0, mask 3). The attached
+object's facing comes from the bone and parent alone: `0x142909a50` never reads its own Positioned rotation, so an
+action aimed elsewhere does not turn it (live).
 Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 
@@ -323,7 +326,7 @@ u32. With 0 nothing else is read.
 | 9 raw bytes | +0x1e8 | |
 | u16, u16 | → +0x1f8, +0x208 | Hideouts.dat keys by HASH16 (lookups that fail give null and are tolerated); the first is the character's hideout ([21](21-hideouts.md) §1) |
 | u8 | +0x1b1 | non-zero → "WashedUp" state; Actor's initial stance must also be 68 (below) |
-| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5) |
+| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5). +0x1b0: the **Descendancy** row, Descendancy.dat, 0 = none (`PlayerObject.Descendancy`; [16](16-waypoints.md) §3) |
 | u32 n + n × u32 | → vtable +0x158 | |
 | u8 n + n × (record `0x141e8a960`, u32) | → vtable +0x160 | MicrotransactionCounters.dat |
 
@@ -334,6 +337,12 @@ component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 
 0x10 the Hideouts keys, 0x20 the class byte, 0x1000 → +0x1b0, 0x80 → +0x1ae/+0x1ad, 0x100 → +0x1af, 0x800 a u32-counted
 list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`); `PlayerPantheonUpdate` sends
 `0080` + the two Pantheon bytes after C→S 0x1ee.
+
+The second ascendancy layer has two copies of its row in the client: the Player component's **+0x1b0** and the
+passive tree's spare `0x33` byte (+0x269). The tree panel (`0x14099f370`) builds the Bloodline/Wildwood panel from
+the Player component's byte, so sending only `0x33` leaves the panel on the main ascendancy. `0x33` still carries
+the row for the tree's own allocation checks, and both layers spend the same earned ascendancy points. Update bit
+`0x1000` sets +0x1b0 without recreating the object.
 
 ### 4.8 Inventories (`0x141e22490`, through slot 17 → slot 20), 2 bytes minimal
 

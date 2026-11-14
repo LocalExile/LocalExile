@@ -13,9 +13,9 @@ public static class VaalOversoul
     public const int Slam = 1118, Summon = 1122, Laser = 1125, Travel = 1130, Ice = 1132, Cold = 1135, Rocks = 1137, RockHit = 1139;
     static readonly int[] Effects = [Rocks, Ice, Travel, Slam, Summon, Laser, RockHit, Cold];
     const string Art = "Metadata/Effects/Spells/monsters_effects/act2/inca_boss/";
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, GroundExposure> Exposures = new();
-    static readonly ConditionalWeakTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), IReadOnlyDictionary<uint, int>>> SkillStats = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, GroundExposure> Exposures = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), IReadOnlyDictionary<uint, int>>> SkillStats = new();
     sealed class GroundExposure { public double Dps; }
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
@@ -407,7 +407,7 @@ public static class VaalOversoul
         static (int X, int Y) Floor(ClientState c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
         async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double expires, uint animation, float scale = 1)
         {
-            uint fx; lock (c.Monsters) fx = c.NextObjectId++;
+            uint fx; lock (c.Monsters) fx = c.TakeObjectId();
             await All(InstanceEntities.CreateObject(fx, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()));
             await All(InstanceProtocol.EnterWakeZone(fx));
             await All(InstanceProtocol.AnimationUpdate(fx, 0, animation, 1));

@@ -14,8 +14,8 @@ public static class DoedreSewers
     const int Melee = 406, Wand = 6437, Burst = 6440, Warp = 6447, Emerge = 6742, Drain = 6743;
     static readonly int[] Effects = [Melee, Warp, Drain, Wand, Burst, Emerge];
     static readonly string[] Colours = ["Red", "Purple", "Green"];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, Exposure> Exposures = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, Exposure> Exposures = new();
     sealed class Exposure
     {
         public int Red, Green, Purple;
@@ -186,7 +186,7 @@ public static class DoedreSewers
                         ? new QuestObjectTypes.Info(at.Type, ["Positioned", "BaseEvents", "Animated", "Transitionable", "TriggerableBlockage"], 3, 3, false, null) { OwnModel = false } : null);
                     if (info is not null && QuestObject.CanSerialize(info.Components))
                     {
-                        uint obj = c.NextObjectId++;
+                        uint obj = c.TakeObjectId();
                         var placed = at;
                         if (name == "DoedreCauldronValve" && ServerLevels.For(Area, c.Seed)?.RoomObjects
                             .FirstOrDefault(o => o.Type == at.Type && o.X == at.X && o.Y == at.Y) is { } roomValve)
@@ -198,8 +198,8 @@ public static class DoedreSewers
             if (scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron")) is { } cauldron)
             {
                 centre = (cauldron.At.X, cauldron.At.Y);
-                hazards.Add(new(c.NextObjectId++, centre, double.PositiveInfinity, 3, Art + "cauldron/cauldron_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
-                hazards.Add(new(c.NextObjectId++, centre, double.PositiveInfinity, 5, Art + "pipe/pipe_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
+                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 3, Art + "cauldron/cauldron_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
+                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 5, Art + "pipe/pipe_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
             }
             boss.LifePhases ??= new([]);
             if (!boss.Dead && boss.Life > 0)
@@ -414,7 +414,7 @@ public static class DoedreSewers
         }
         async Task<uint> Effect(ClientState c, (int X, int Y) at, string model, double ends, int kind)
         {
-            uint fx = c.NextObjectId++; var h = new Hazard(fx, at, ends, kind, model, Moved: c.Clock.Elapsed.TotalSeconds); hazards.Add(h);
+            uint fx = c.TakeObjectId(); var h = new Hazard(fx, at, ends, kind, model, Moved: c.Clock.Elapsed.TotalSeconds); hazards.Add(h);
             foreach (var p in Present) await CreateHazard(p, h, model);
             return fx;
         }

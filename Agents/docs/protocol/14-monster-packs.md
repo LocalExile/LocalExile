@@ -106,8 +106,12 @@ So:
    What a room places itself is in its points too (version 8 keeps them in the rooms kept for other reasons): monsters
    by MonsterVarieties Id (`Metadata/Monsters/…`: boss arenas' daemons and guards, the Imperial Gardens trial's four
    `RootSpiderHidden`), server spawners (`Metadata/QuestObjects/…Spawner`) and pack points `normal`, `magic` and
-   `rare`. Only a Trial of Ascendancy's rooms place them yet ([labyrinth-trials](../game/labyrinth-trials.md),
-   "Monsters"); a quest room placed where the client placed it is also returned with its points and objects
+   `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
+   places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
+   captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
+   The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
+   and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
+   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
    **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
    its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
@@ -231,8 +235,15 @@ placement algorithms remain unknown.
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
   (it sets `num_states`, or pauses no clip) are still skipped.
-- Fire Fury uses only her first granted effect. Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
+- A campaign boss plays its whole kit, not just its first granted effect (an act boss, or any variety with
+  `BossHealthBar`, whose row grants more than one attack, spell or projectile; `Modules/Core/Game/Monster/BossKits.cs`).
+  The skill it always had stands first and still chooses on a tie, a ready skill with a cooldown goes before one without,
+  the rest rotate by least recently used, and a skill that reaches nothing in range waits while the boss walks in.
+  Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
   extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+- A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
+  deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
+  a seed nobody recorded has its boss; the room itself stays unplaced.
 - **Rarity life:** a magic, rare or unique monster has `monster_life_+%_final_from_rarity` of its rarity's monster mod
   (Mods.dat MonsterMagic2 148, MonsterRare2 390, MonsterUnique2 698) on top of its base life; the Gateway applies it
   and sends the stat and the final `maximum_life` in the monster's Stats (the client applies no modifier itself: with
@@ -347,6 +358,23 @@ resistances cannot be penetrated; no monster energy shield and no auras on their
 whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
+
+## Arakaali's arena lasers
+
+`SpiderGodActivateLaser` (ActionTypes row 722, HASH16 `0xf2d4`) enters
+`0x141c79bd0`, which gathers `ArakaaliTurret_A` and `ArakaaliTurret_B` objects. Its shuffle starts at `begin + 8`
+without checking an empty list: with both begin/end pairs null, the count becomes -1 and it dereferences address 8
+at `0x141c7a0e4`. The Toward/Away effects use the same action. These are encounter drivers, not standalone attacks;
+generic boss AI cannot call them without the turret objects. A missing `SpellProjectileCold` clip in the default
+stance is a separate phase-admission problem, not the faulting instruction.
+
+## ControlZone and Orion's projection
+
+The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`
+all use `0x1400f1180` for slot 17: `ret 0`, with no component bytes.
+`AtlasExile5ApparitionDetached` therefore adds nothing after its StateMachine data.
+Orion's ACT maps animation types 36/37/38 to the meteor-maze start/hold/end sequence in both stances.
+His BeamBomb stat set gives separate per-type degeneration; its hit conversion does not convert that degeneration.
 
 ## Maps
 

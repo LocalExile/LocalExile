@@ -13,7 +13,8 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "VaalGroundSlam";
+    public static bool VaalExecutor(ClientState conn, int effect) =>
+        SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike";
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
@@ -51,9 +52,13 @@ public static partial class Game
             life = mana;
             mana = 0;
         }
+        int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
+        double preventionBase = Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
+            ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
+            : preventionMs / 1000d;
         double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
             || Get("map_player_disable_soul_gain_prevention") != 0 ? 0
-            : Math.Max(0, SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level) / 1000.0
+            : Math.Max(0, preventionBase
                 * (1 + Get("vaal_skill_soul_gain_prevention_+%_final_from_pact_of_ktash") / 100.0));
         return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, life, prevention)
             { RageConverted = conversion };

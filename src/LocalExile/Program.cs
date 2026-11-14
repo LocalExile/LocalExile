@@ -6,7 +6,8 @@ using LocalExile;
 // It always works from its own folder, whatever folder it was started in: the servers' paths are relative to it.
 //   run (default)  everything above, until the client closes
 //   setup          everything above except the servers and the client
-//   check          say whether a folder holds the 3.29.3c client; changes nothing
+//   check          say whether a folder holds a client build LocalExile runs (ClientBuilds); changes nothing
+//   builds         list those builds, with what a tool needs to recognize or download one; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
 //   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db (the
@@ -15,12 +16,12 @@ using LocalExile;
 // Options: --client <folder> --client-mode copy|link --no-client --port-base <n> --account <name> --password-stdin
 //          --no-update-check --json
 
-const string Usage = """
-    LocalExile.exe [run|setup|check|stop|version|client-command|help] [options]
+string Usage = $"""
+    LocalExile.exe [run|setup|check|builds|stop|version|client-command|help] [options]
     LocalExile.exe account create <name> [--password-stdin]
     LocalExile.exe migrate-saves            move an older release's data\saves.db into the new databases
 
-      --client <folder>       the Path of Exile 3.29.3c install to use
+      --client <folder>       the Path of Exile {GameServer.Core.Protocol.ClientBuilds.Versions} install to use
       --client-mode <mode>    copy (a separate copy, the default), or for developers link: Client becomes a link to
                               the folder, which LocalExile then changes and whose game updates can break LocalExile
       --no-client             start only the servers
@@ -59,6 +60,9 @@ try
             return 0;
         case "client-command":
             log.Value("client-command", ClientLaunch.CommandLine(ports.Patch));
+            return 0;
+        case "builds":
+            foreach (var build in GameServer.Core.Protocol.ClientBuilds.Allowed) log.Build(build);
             return 0;
         case "check":
             ClientInstall.Check(options.Client ?? GameServer.Core.ServerConfig.ClientFolder, log);

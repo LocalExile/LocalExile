@@ -11,7 +11,9 @@ using GameServer.Data.Terrain.Generation;
 /// are on together (<c>Counter_Handler_Any</c>: any one); turned off, it no longer counts. A target once on stays on.</item>
 /// <item><c>transition1</c>…<c>4</c>: what a Counter_Handler (or a Switch_Once_Multi) turns on, in that order; a crank
 /// (<c>Switch_Reset*</c>) it takes is spent: it stays down.</item>
-/// <item><c>disable</c>, <c>disable1</c>…<c>3</c>: the target lever can no longer be used.</item>
+/// <item><c>disable</c> (a lever: the other of its pair), <c>disable1</c>…<c>3</c> (a door: its levers): the target lever can no
+/// longer be used. A lever's numbered one is not followed: EH bottleneck_06's lever 12 has <c>disable3</c> to lever 17 of
+/// the same counter, the door's link, which would leave the door shut for good (live).</item>
 /// </list>
 /// The links of the other kinds (rails, traps) are not followed here.
 /// </summary>
@@ -99,7 +101,11 @@ public sealed class LabyrinthWiring
                     else TurnOn(link.To, changes);
                     break;
                 case var name when name.StartsWith("disable", StringComparison.Ordinal):
-                    if (!disabled[link.To] && !on[link.To]) { disabled[link.To] = true; changes.Add((link.To, Change.Disabled)); }
+                    if ((name == "disable" || IsDoor(types[index])) && !disabled[link.To] && !on[link.To])
+                    {
+                        disabled[link.To] = true;
+                        changes.Add((link.To, Change.Disabled));
+                    }
                     break;
             }
     }

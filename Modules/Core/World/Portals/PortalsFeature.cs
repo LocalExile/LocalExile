@@ -10,26 +10,20 @@ static class PortalsFeature
     // a device once the world is active (21-hideouts.md §5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var origin = MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.ReturnTo;
+        var origin = (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)
+            ?? MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber)?.Map)?.ReturnTo;
         var hideout = HomeHideout(conn);
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
             $"0x02bb create the return portal 0x{id:x} at ({x}, {y})");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = 0;
-        string owner = CharacterName(conn);
-        _ = Task.Delay(MapPortalEntryMs).ContinueWith(async _ =>
-        {
-            if (!conn.Closed)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0,
-                    [new(id, destination, owner, Variation: conn.CosmeticPortalVariation)]),
-                    $"0x008f the return portal 0x{id:x} leads to 0x{destination:x4}");
-        });
+        global::Game.ListPortal(remote, stream, ciphers, conn, id, destination, "the return portal", MapPortalEntryMs);
     }
 
     // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
@@ -81,10 +75,20 @@ static class PortalsFeature
             }).DefaultIfEmpty("empty"))}");
         Task Tell(string text) => Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
-        var opening = MapDevices.Value.Check([.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
+        MapDevice.Slot[] checkedSlots = [.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
             { AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components }
-            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))], CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
+        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
+        GameEvents.ResolveMapOpening(request);
+        opening = request.Opening;
+        why = request.Reason;
+        int[] consumedIndices = request.ConsumeSlots?.ToArray() ?? Enumerable.Range(0, slots.Count).ToArray();
+        // Only an opening the check and the handlers allowed can have bad inputs; a refusal keeps its own reason.
+        if (opening is not null && (consumedIndices.Length == 0 || consumedIndices.Distinct().Count() != consumedIndices.Length
+            || consumedIndices.Any(i => i < 0 || i >= slots.Count)))
+        { opening = null; why = "The selected recipe has no valid inputs."; }
         if (opening is null)
         {
             Console.WriteLine($"[gateway] {remote} map device not activated: {why}");
@@ -97,8 +101,9 @@ static class PortalsFeature
         {
             var gone = new List<uint>();
             var left = new List<InventoryItem>();
-            foreach (var slot in slots)
+            foreach (int index in consumedIndices)
             {
+                var slot = slots[index];
                 if (items.ConsumeOne(PlayerInventories.MapDevice, slot.Id) is not { } take) continue;
                 gone.Add(slot.Id);
                 if (take.Left is { } remain) left.Add(remain);
@@ -111,7 +116,7 @@ static class PortalsFeature
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         await RemoveMapPortals(remote, stream, ciphers, conn);
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
-            device.Value.Campaign ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null);
+            device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null);
         if (device.Value.Campaign)
             await SetQuestFlags(remote, stream, ciphers, conn, ["a7q2-DeliveredItem"]);
         string extra = opening.Mods.ExtraMagicPacks > 0 || opening.Mods.PacksDropCards > 0
@@ -131,7 +136,8 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.ReturnTo is { } origin)
+        if ((MapDevice.Current(CharacterName(conn), conn.Layout.Hash)
+            ?? MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber)?.Map)?.ReturnTo is { } origin)
             await ChangeArea(remote, stream, ciphers, conn,
                 new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the Reverie Device");
         else if (conn.ReturnPortalTo is ushort town and not 0)
@@ -174,6 +180,18 @@ static class PortalsFeature
             $"0x00e8 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
+    // Whether Auth's list of the area's live instances, when it answered, no longer has the portal's instance.
+    internal static bool OriginExpired(ControlResponse response, ulong instance) =>
+        response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
+
+    internal static async Task<bool> ExpireTownPortal(ClientState conn, OpenPortal portal)
+    {
+        var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = portal.Area });
+        if (!OriginExpired(response, portal.Instance)) return false;
+        OpenPortals.TryRemove(new KeyValuePair<string, OpenPortal>(CharacterName(conn), portal));
+        return true;
+    }
+
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
     // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
     // to that cell (SpotArrivals).
@@ -185,20 +203,15 @@ static class PortalsFeature
             await OpenTownPortal(remote, stream, ciphers, conn, open.X, open.Y, "town portal again", replace: false);
             return;
         }
-        if (open.LeadsTo != conn.Layout.Hash) return;
+        if (open.LeadsTo != conn.Layout.Hash || await ExpireTownPortal(conn, open) || conn.Closed || conn.LeavingArea
+            || !OpenPortals.TryGetValue(CharacterName(conn), out var current) || current != open) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
-        uint id = conn.NextObjectId++;
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
-            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}");
+        uint id = conn.TakeObjectId();
+        if (!await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}")) return;
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.BackPortal = (id, x, y);
-        string owner = CharacterName(conn);
-        _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
-        {
-            if (!conn.Closed && conn.BackPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, open.Area, owner, Variation: conn.CosmeticPortalVariation)]),
-                    $"0x008f the portal back 0x{id:x} leads to 0x{open.Area:x4}");
-        });
+        global::Game.ListPortal(remote, stream, ciphers, conn, id, open.Area, "the portal back", MapPortalListMs);
     }
 
     // A Portal Scroll used (C→S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
@@ -242,12 +255,14 @@ static class PortalsFeature
         {
             await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(old.Id, 0)]), null);
             await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, old.Id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove the old portal 0x{old.Id:x}");
+            conn.ReturnPortal = null;
+            conn.ReturnPortalTo = 0;
         }
         // Beside the player, so the click that opens it is not on the player (a reopened portal stands where it stood).
         var (x, y) = !replace || conn.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
-        uint id = conn.NextObjectId++;
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
-            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})");
+        uint id = conn.TakeObjectId();
+        if (!await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+            new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})")) return;
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = toHideout ? (ushort)0 : town;
@@ -255,13 +270,9 @@ static class PortalsFeature
         string owner = CharacterName(conn);
         OpenPortals[owner] = new OpenPortal(here, conn.InstanceNumber, x, y, leadsTo);
         Console.WriteLine($"[gateway] {remote} {why}: town portal at ({x}, {y}) of 0x{here:x4} instance {conn.InstanceNumber} → 0x{leadsTo:x4}");
-        // 0x8f only reaches a portal the client has finished creating (MapPortalListMs, as the device's portals).
-        _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
-        {
-            if (!conn.Closed && conn.ReturnPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, leadsTo, owner, Variation: conn.CosmeticPortalVariation)]),
-                    $"0x008f the Portal Scroll's portal 0x{id:x} leads to 0x{leadsTo:x4} ({(toHideout ? "the hideout" : "the last town")})");
-        });
+        // 0x8f only reaches a portal the client has finished creating (Game.ListPortal).
+        global::Game.ListPortal(remote, stream, ciphers, conn, id, leadsTo,
+            $"the Portal Scroll's portal, to {(toHideout ? "the hideout" : "the last town")}", MapPortalListMs);
     }
     // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
     // what the next generic map key opens.
@@ -288,7 +299,7 @@ static class PortalsFeature
                 Console.WriteLine($"[gateway] {remote} hideout doodad {d.Name} ({d.Type}): unknown type or unsupported components, not created");
                 continue;
             }
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             // "active" 1: the map device stands open and idle (its .ot: per-player quest flag MapDeviceActive).
             var obj = new HideoutObject(d.X, d.Y, d.Rotation, components, new HideoutDoodad(d.Hash, (byte)d.Variation),
                 [.. states.Select(s => s == "active" ? 1 : 0)]);

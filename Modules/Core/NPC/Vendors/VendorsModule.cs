@@ -14,6 +14,7 @@ public sealed class VendorsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        DivinationFeature.Load(module);
         GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
             (conn, args) => RefreshKirac(conn));

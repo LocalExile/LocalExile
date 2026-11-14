@@ -15,7 +15,7 @@ public static partial class Game
     // Per instance, the mods its magic monsters share: "all monsters in an instance that are the same or very similar
     // will have the same magic monster modifier" (3.19.0 patch notes). Very similar: the same name (The Coast's
     // Drowned are several MonsterVarieties rows), as long as the affix can roll on it (MonsterModCatalog.SharedMagic).
-    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceState, Dictionary<string, MonsterModSet>> MagicModsOf = new();
+    public static readonly RuleTable<InstanceState, Dictionary<string, MonsterModSet>> MagicModsOf = new();
 
     /// <summary>The mods a new monster gets: <paramref name="kept"/> (a monster of a kept instance, a /mob_mods
     /// choice) when it has any, else freshly rolled for its rarity. Area packs pass <paramref name="alone"/> false;

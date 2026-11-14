@@ -7,23 +7,17 @@ static class DelveTerrain
 {
     public static DelveMine.Plan Procedural(DelveMine mine, DelveMine.Plan plan)
     {
-        bool horizontal = plan.To.X != plan.From.X;
-        int w = horizontal ? Random.Shared.Next(2, 4) : Random.Shared.Next(1, 3);
-        int h = horizontal ? Random.Shared.Next(1, 3) : Random.Shared.Next(2, 4);
-        var path = new List<(int X, int Y)>();
-        if (horizontal)
-            for (int x = 0; x < w; x++)
-                for (int j = 0; j < h; j++) path.Add((x, (x & 1) == 0 ? j : h - j - 1));
-        else
-            for (int y = 0; y < h; y++)
-                for (int j = 0; j < w; j++) path.Add(((y & 1) == 0 ? j : w - j - 1, y));
-        path = path.Select(p => (plan.To.X < plan.From.X ? w - p.X - 1 : p.X,
-            plan.To.Y < plan.From.Y ? h - p.Y - 1 : p.Y)).ToList();
+        int minX = plan.Route.Min(p => p.X), minY = plan.Route.Min(p => p.Y);
+        int w = checked(plan.Route.Max(p => p.X) - minX + 1), h = checked(plan.Route.Max(p => p.Y) - minY + 1);
+        if (w > 15 || h > 15 || minX < short.MinValue || minX > short.MaxValue || minY < 0 || (long)minY + h > ushort.MaxValue)
+            throw new ArgumentException("Choose a nearer destination within the mine terrain window");
+        // The client draws its current-position arrow from this origin plus the room's native cell index.
+        // Keep every selected corridor cell in chart coordinates; an unrelated serpentine window puts the arrow elsewhere.
+        var path = plan.Route.Select(p => (X: p.X - minX, Y: p.Y - minY)).ToList();
         var terrain = new byte[10 + w * h * 5];
         terrain[0] = 0x20; terrain[8] = (byte)(w | h << 4);
-        // Native cells read their depth separately from 0x1d's area level. Never send the tutorial's zero depth
-        // for a later window. The chart's logical coordinates remain account scoped, independent of this window.
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(terrain.AsSpan(4), (ushort)Math.Clamp(plan.Depth - h, 0, 5999 - h));
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(terrain.AsSpan(2), (short)minX);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(terrain.AsSpan(4), (ushort)minY);
         byte previousFeature = mine.LastScene?.DestinationFeature ?? 7;
         byte destination = (byte)Random.Shared.Next(10, 21);
         while (destination == previousFeature) destination = (byte)Random.Shared.Next(10, 21);

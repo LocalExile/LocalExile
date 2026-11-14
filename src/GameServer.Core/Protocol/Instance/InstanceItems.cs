@@ -30,7 +30,10 @@ public enum ItemInfluence : byte
 
 /// <summary>A mod on an item: a Mods.dat row by its HASH16 and one value per stat of that row (StatsKey1..8 in order,
 /// as many as the row has). The client counts the row's stats itself, so the count must match.</summary>
-public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int> Values);
+public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int> Values)
+{
+    public IReadOnlyList<int> Values { get; init => field = Owned.List(value); } = Owned.List(Values);
+}
 
 /// <summary>
 /// An item as the client deserializes it (Agents/docs/protocol/05-inventories-and-ui.md §6). The type is a BaseItemTypes
@@ -40,6 +43,8 @@ public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int>
 /// </summary>
 public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushort VisualIdentity)
 {
+    // Items stay in the servers' memory for as long as they run: their lists are the record's own (Owned).
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
 
@@ -61,13 +66,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     }
     public int Charges { get; init; }
     public ushort StackSize { get; init; } = 1;
-    public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
+    public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
     /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
     public Item? OriginalItem { get; init; }
 
     /// <summary>Link groups: the number of sockets in each, in socket order (null: every socket alone).</summary>
-    public IReadOnlyList<byte>? Links { get; init; }
+    public IReadOnlyList<byte>? Links { get; init => field = Owned.List(value); }
     public int GemExperience { get; init; }
 
     /// <summary>A gem's variant: its index in the SkillGems row's GemVariants (0 the normal gem, then the transfigured,
@@ -104,6 +109,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// <summary>Synthesised: the Mods component's flag bit 5 (+0x2e5, "synthetic" in its debug dump 0x1421e7b00).</summary>
     public bool Synthesised { get; init; }
 
+    /// <summary>Mods flag bit 10: a vestigial item, which the client excludes from currency modification.</summary>
+    public bool Vestigial { get; init; }
+    public HeistBlueprintState? HeistBlueprint { get; init; }
+
     /// <summary>Hinekora's Lock: the item is in the foreseeing state. Sent as the Mods component's flag bit 8
     /// (0x0100); the client reads it at item +0x2c0 and shows the purple glow and the Lock tooltip text.</summary>
     public bool Foreseeing { get; init; }
@@ -117,15 +126,15 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
         .Take(FracturedCount).Select(p => p.i).ToHashSet();
 
     /// <summary>Implicit, explicit and other mods, written into the Mods component per <see cref="ModSection"/>.</summary>
-    public IReadOnlyList<ItemMod> Mods { get; init; } = [];
+    public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A rare item's name: Words.dat keys (ObjectMagicProperties bit 8), prefix then suffix; only sent for
     /// identified items.</summary>
-    public IReadOnlyList<uint> NameWords { get; init; } = [];
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
-    public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init; } = [];
+    public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
 
     /// <summary>The four item types whose data ends with an extra u16 (0x1421f2800; the writer sends 1).</summary>
     static readonly uint[] TrailingU16 = [0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6];
@@ -134,7 +143,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed", "HeistBlueprint"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -191,7 +200,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
-                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)));
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0) | (Vestigial ? 0x400 : 0)));
                     MagicProperties(w); w.U8(0).U8(0);
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424b5720
@@ -210,6 +219,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // MapKey 0x1424b5290 reads a flag byte, then optional u32/u16/u8. The generic map base already names its
                 // tier; 0 sends no overrides.
                 case "MapKey": w.U8(0); break;
+                case "HeistBlueprint":
+                    (HeistBlueprint ?? new HeistBlueprintState(0, 1, 1, false, [])).Write(w);
+                    break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
@@ -297,6 +309,9 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
 public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
+
+    /// <summary>The player placed this item on the ground, rather than a monster or script drop.</summary>
+    public bool PlayerDropped { get; init; }
 
     public byte[] Blob() => Blob(justDropped: false);
 

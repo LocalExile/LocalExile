@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static readonly ConditionalWeakTable<ClientState, FortificationSession> FortificationSessions = new();
+    public static readonly RuleTable<ClientState, FortificationSession> FortificationSessions = new();
     public static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
     public static FortificationSession FortificationOf(ClientState conn) =>
         FortificationSessions.GetValue(conn, _ => new());
@@ -70,6 +70,18 @@ public static partial class Game
         }
         return FortificationOf(conn).Hit(conn.Clock.Elapsed.TotalSeconds, rawDamage, target.MaxLife,
             target.Rarity, Get, random ?? Random.Shared);
+    }
+
+    /// <summary>A successful melee stun (HitReaction.TryFlinch): roll the character's chance to Fortify and grant the
+    /// hit's damage-based stacks. Called under the owner's Monsters lock.</summary>
+    internal static bool FortificationFromMeleeStun(ClientState conn, decimal rawDamage, decimal maximumLife,
+        MonsterRarity rarity, Random? random = null)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
+        var player = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        return FortificationOf(conn).FortifyFromStun(conn.Clock.Elapsed.TotalSeconds, rawDamage, maximumLife, rarity,
+            Get, random ?? Random.Shared);
     }
 
     public static int FortificationDamageTaken(ClientState conn, int damage)
@@ -171,6 +183,7 @@ public static partial class Game
                     {
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
+                            visual: BuffArtVisual(conn, "fortify_buff", "virtual_fortify_art_variation"),
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));

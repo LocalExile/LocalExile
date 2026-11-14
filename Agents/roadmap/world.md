@@ -29,15 +29,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 2. The world
 
-### Every area's layout at seed 1
-
-- **Known:** generated areas only exist in the client; `live.ps1 -Walkmaps` captures an area's walk map, area
-  transitions and waypoint when the client generates it ([08](../docs/protocol/08-area-transitions.md) §7).
-  About 30 areas are captured; waypoint travel to an uncaptured one (The Submerged Passage) puts the player outside
-  the map ([16](../docs/protocol/16-waypoints.md) "Open").
-- **Start:** a dev command that walks the WorldAreas list with `/goto` and waits for each capture.
-- **Done when:** every act area has its seed-1 capture, and every waypoint area its waypoint in it.
-
 ### Server-side level generation
 
 - **Known:** the port reproduces the client's generator for every recorded trace and logged load
@@ -106,6 +97,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   gate.
   Other one-way links fall back to the area's spawn until their named entrance points are added.
 
+### The Wildwood (Affliction) league
+
+- **Known:** the 3.29.3c client keeps the Wildwood league's data and UI: the Wisp mechanic (the Primalist's
+  `azmeri_primalist_wisps_found_+%` is one of its consumers), the three Wildwood Descendancy rows
+  ([status](../status/progression.md), "Descendancy") and the `AnimalCharm` item class. The server implements none of
+  the league: no Wisps spawn, and there is no Wildwood area, NPC or reward flow.
+- **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
+  feeds `azmeri_primalist_wisps_found_+%` into that system.
+
 ### The Labyrinth
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
@@ -129,10 +129,19 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
-     what they leave), one at a time, and the Goddess of Justice.
+  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`; `LbBossShield`, in his row, was not seen in the original's
+     fight, so it is left out). Left: his taunt, the Spikes' slow, the
+     cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
+     (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
+     not live-checked).
+     Normal's five arena mechanics are done (Toggle Statues, Gargoyles, Portals, Chrono Statues, Lieutenants:
+     `Rules.IzaroArena.cs` places them and what they leave), and the Goddess of Justice. Ours, not the original's:
+     the lieutenants' Storm Call is a skill of its own (the data casts it on an attack's hit), `bull_thorns` returns no
+     damage (no values in the data), the circles' and their skills' radii, the Spirit Mortars' landing radius, and
+     her Guardians' mortars, which the server throws (her `SummonSpecificMonstersFromMortars` action would pick its
+     own landing spots, where the server places the guardians).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
-  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,

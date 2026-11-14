@@ -17,13 +17,32 @@ Game data: `PassiveTreeExpansionJewels` (indices per size), `PassiveJewelSlots` 
 | Medium | 4-6 | 1 | 2 | `Metadata/Items/Jewels/JewelPassiveTreeExpansionMedium` |
 | Large | 8-12 | 2 | 3 | `Metadata/Items/Jewels/JewelPassiveTreeExpansionLarge` |
 
-A non-unique cluster jewel carries two enchantments: how many passive skills the cluster has and what those passives
-grant (that decides its mod pool). Medium and large ones carry a third one for their sockets (one and two respectively
-since 3.11). The explicit mods then add notables, socket or keystone nodes.
+A non-unique cluster jewel carries one enchantment for its passives, and a medium or large one a second for its
+sockets (one and two respectively since 3.11). Its affixes add notables, more to the small passives ("also grant") or
+their effect.
 
-A cluster jewel's only affixes are its notables, and the rarity follows them: none is **Normal**, one or two **Magic**,
-three (a large cluster can carry three) **Rare**. A Magic jewel with no affix makes the client render the whole cluster
-as empty "Nothingness" nodes, so `/cluster_jewel` sets the rarity from the notable count.
+### The theme
+
+"Adds N Passive Skills" (`JewelExpansionPassiveNodes`) has two values. The second is the count. The first is the
+theme: **a `PassiveTreeExpansionSkills` row plus one**, 0 for none. Each of the 55 rows is a small passive, its
+mastery, a tag and the size it is for (rows 0-16 large, 17-37 medium, 38-54 small). The client words the value itself
+(`tree_expansion_jewel_passive` in the stat descriptions): 13 reads "Added Small Passive Skills grant: 12% increased
+Fire Damage". From it the client makes the small passives ("Fire Damage", with the row's stats) and puts the mastery in
+the middle of the ring; the server grants those stats from the same row. The row's tag is the jewel's: the notables that
+can roll with a theme have a spawn weight for that tag only, so the affix pool of a jewel includes its theme's tag.
+
+With 0 the client draws every small passive as the empty "Nothingness" (`affliction_empty_node_`) and the item shows no
+"grant" line, whatever the rarity: a rare jewel without affixes drew the same nodes as a normal one. An "also grant"
+mod still shows on those empty nodes (+3 to maximum Life). The server wrote 0 until it knew the themes, with an "also
+grant" mod in the enchant list in the theme's place; such a jewel keeps working as it did.
+
+Seen on the passive tree screen with jewels of value 0, 12 and 13 in tree cell 20; a jewel with value 13, 8 passives,
+two sockets, two fire notables and an "also grant" suffix drew its two notables, four "Fire Damage" passives each with
+the suffix's life, two sockets and the fire mastery, and read as the game's own item does.
+
+A new item of a cluster base gets these enchantments as it is made (`ItemCatalog.Create`): a theme of its size (not one
+whose tag says `old_do_not_use`), a count in the base's range and the size's sockets. The game's own weights for the
+theme and the count are not known; each is as likely as another.
 
 The client builds the layout from the **cell's size** (`PassiveTreeExpansionJewels` keyed by the base type), not from the
 jewel's: a large cell has 8-12 nodes of which 2 are sockets, a medium 4-6 of which 1, a small 2-3 of which 1. The
@@ -73,13 +92,14 @@ Voices, the unique large cluster jewel, is the exception the server uses as its 
 | Kind | Mods | Stat | What it does |
 |---|---:|---|---|
 | Notables | 301 | `local_affliction_notable_<name>` | "1 Added Passive Skill is <notable>". Every mod has a matching `affliction_notable_<name>` row in `PassiveSkills` (300 distinct names; one duplicate row) that carries the notable's stats. |
-| Small-passive grants (the theme) | 211 | `local_affliction_jewel_small_nodes_grant_<stat>` | "Added Small Passive Skills grant: ...", 42 distinct stats, three tiers each (`+2-3`, `+4-7`, `+8-10` life and so on). |
+| Small-passive grants ("also grant") | 211 | `local_affliction_jewel_small_nodes_grant_<stat>` | "Added Small Passive Skills also grant: ...", affixes, 42 distinct stats, three tiers each (`+2-3`, `+4-7`, `+8-10` life and so on). The theme itself is not one of these: it is the first value of "Adds N Passive Skills". |
 | Keystones | 7 | `local_jewel_expansion_keystone_<name>` | Lone Messenger, Disciple of Kitava, Nature's Patience, Secrets of Suffering, Kineticism, Veteran's Awareness, Hollow Palm Technique. |
 | Small-passive effect | 2 | `local_affliction_jewel_small_nodes_have_effect_+%` | 25% or 35% increased effect of the small passives. |
 | Structure (enchantments) | 11 | `local_jewel_expansion_passive_node_count`, `local_jewel_expansion_jewels_count`, `local_jewel_expansion_passive_node_index`, `local_unique_jewel_grants_x_empty_passives` | "Adds N Passive Skills", the jewel sockets, and Voices' empty passives. |
 
 The theme, the notables and the keystones are *inputs* to the cluster the client generates: it builds the small passives
-from the theme and the notable/keystone nodes from those mods, and the player allocates them like tree passives.
+from the theme (adding the "also grant" mods to each) and the notable/keystone nodes from those mods, and the player
+allocates them like tree passives.
 
 ## What works and what does not
 
@@ -106,10 +126,12 @@ Mods, kind by kind:
 | Kind | Works | Missing |
 |---|---|---|
 | **Notables** (301) | Every notable's `affliction_notable_*` row is added once all of the jewel's passives are allocated (the sum does not need their positions). All 301 have a row. The generated list marks 42 with every stat read, 118 partial (condition or unread stat) and 141 with no read stat; a partly allocated cluster has no notable stats yet. | The server applies the row generically, but conditional or minion/trap/totem stats may have no consumer. |
-| **Small-passive grants** (211, 42 stats) | The theme applies per allocated cluster node, up to the small passives of a full cluster (`ClusterJewelStats.ThemeStats` translates the granted stat: `..._grant_str` is `additional_strength`, `..._grant_fire_resistance_%` is `base_fire_damage_resistance_%`…). 20 of the 42 are translated. | Sockets are assumed to be taken last, so a partly allocated cluster may count one as a small passive; the other 22 stats (per-skill-type speeds, minion and totem grants and the like) are not translated or have no consumer. |
+| **Small passives** (the theme, and 211 "also grant" mods of 42 stats) | Each allocated small passive grants the theme's own stats (its `PassiveSkills` row) and the jewel's "also grant" mods (`ClusterJewelStats.ThemeStats` translates the granted stat: `..._grant_str` is `additional_strength`, `..._grant_fire_resistance_%` is `base_fire_damage_resistance_%`…; 20 of the 42 are translated). | Sockets are assumed to be taken last, so a partly allocated cluster may count one as a small passive; the other 22 "also grant" stats (per-skill-type speeds, minion and totem grants and the like) are not translated, and a theme's stat counts only where the server reads that stat. |
 | **Small-passive effect** (2) | **works** for the theme: `local_affliction_jewel_small_nodes_have_effect_+%` scales it on every small passive of a fully allocated cluster. | Not applied to the notables (they are not small passives). |
 | **Keystones** (7) | The item can carry them. | One node at template index zero grants its PassiveSkills stats on allocation. Most individual keystone effects remain partial. |
-| **Structure** (11) | **works**: `/cluster_jewel` writes the count, the sockets and the theme; `/voices` writes its override and empty passives; the socket counts drive which cells open. | The values are fixed by the dev commands, not rolled like a drop. |
+| **Structure** (11) | **works**: a new jewel has its theme, count and sockets; `/voices` writes its override and empty passives; the socket counts drive which cells open. | The theme and the count are picked evenly, not by the game's weights. |
+
+A single-keystone small cluster in tree cell 20 constructs node 199 (block 195, start 4, template index 0). In nested cell 51 it constructs node 208 (position 3, block 207). Only allocated host sockets grant cluster stats.
 
 How much of the notables' data the server could already use: their 301 rows carry 685 stat entries in 468 distinct
 stats. The generated [list](cluster-jewel-list.md) marks each notable conservatively from the source consumers; 42
@@ -168,8 +190,9 @@ position 4). Measured live (a rare small with Fettle, Prodigious Defence and Adv
 **225/227** (smalls) and **226** (its notable); in the large tree socket 17 it uses **157/161** (smalls) and **159**
 (notable). A Normal, theme-only small drew no graph in our test, so only the notable shapes are mapped.
 
-The client calls the smalls "Nothingness" but their tooltip carries the theme (+7 maximum Life for a life theme) - they
-are the real small passives. So each small passive grants the theme as it is allocated, a socket grants nothing, and
+The jewels of these measurements had no theme (value 0), so the client called their smalls "Nothingness" and showed the
+"also grant" mod on them (+7 maximum Life); a theme changes the smalls' name and stats, not where a node sits. So each
+small passive grants the theme and the "also grant" mods as it is allocated, a socket grants nothing, and
 each notable position applies the row of the notable the layout puts there (the jewel's notables in the order of their
 Stats.dat row: for Fettle, Prodigious Defence and Advance Guard, Prodigious at 204, Advance at 196 and Fettle at 200).
 
@@ -195,6 +218,9 @@ every expansion node and is the quickest way to check a new shape.
   `SpendClusterRemoval`, `CreateClusterJewel`, `CreateVoices`.
 - `Modules/Core/Game/Passive/Progression.cs`: cluster jewel nodes in the passive point budget and in 0x33; `ChangeClusterPassive` (which
   also saves the set and refreshes the stats).
+- `src/GameServer.Gateway/Item/ClusterJewels.cs`: the themes and bases from the client's tables, a jewel's theme
+  (`ThemeOf`), the enchantments of a new one (`Base.Roll`, `Base.Enchants`) and `Create`; `ItemRolls.Pool` adds the
+  theme's tag.
 - `ClusterJewelLayout.cs`: the client's layout for a jewel in a tree socket. `ClusterJewelStats.cs`: each mapped
   node's stats, and the full-allocation count for an expansion cell. `CharacterSaves.ClusterPassives` keeps the client's ids across sessions.
 - The Gateway logs every cluster node allocation/refund and the `passive jewel stats: life N, mana N, A/B cluster
@@ -205,7 +231,3 @@ every expansion node and is the quickest way to check a new shape.
   `passive:allocate`/`passive:refund` send the same 0x34/0x36 the client does. It reads the Gateway's
   `passive jewel stats: life N, mana N, A/B cluster node(s)` line. The theme is flat life, so the panel shows more than
   the tooltip's value when the character has increased maximum life (a 7-life small passive was +21 on a +200% build).
-
-
-A single-keystone small cluster in tree cell 20 constructs node 199 (block 195, start 4, template index 0).
-The returned node ID uses the same slot rotation as other expansion passives.

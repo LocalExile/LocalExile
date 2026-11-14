@@ -54,7 +54,7 @@ public static partial class Game
     public static void RestoreRememberedPetrifiedBlood(ClientState conn)
     {
         if (conn.PetrifiedBlood.Active || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
-            || InTown(conn) || CharacterSaves.Load(CharacterName(conn))?.PetrifiedBlood != true
+            || InTown(conn) || !CharacterSaves.Remembered(CharacterName(conn)).PetrifiedBlood
             || SpellsDisabled(conn)) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == PetrifiedBlood.EffectId);
         if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null
@@ -92,7 +92,7 @@ public static partial class Game
     static int Get(IReadOnlyDictionary<uint, int> stats, string name) =>
         Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
-    static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
+    internal static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
         LowLife.Threshold(Get(stats, "low_life_threshold_%_override"), Get(stats, "low_life_threshold_%"));
 
     // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay

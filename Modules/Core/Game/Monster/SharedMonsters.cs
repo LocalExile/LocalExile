@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Per recipient, not per killer: a virtual bot transport is not the player's view.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, DeadMonsterBars> DeadBars = new();
+    static readonly RuleTable<ClientState, DeadMonsterBars> DeadBars = new();
     sealed class DeadMonsterBars
     {
         public InstanceWorld? World;
@@ -73,6 +73,13 @@ public static partial class Game
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
+        double TargetDistance(ClientState owner, double distance)
+        {
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            var minion = GolemTargetLocked(owner, id, m, at, now, distance);
+            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+        }
+        d = TargetDistance(conn, d);
         var t = m.Target;
         bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
         if (live && ReferenceEquals(t, conn))
@@ -87,7 +94,7 @@ public static partial class Game
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= dt) return false;
+            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)
@@ -139,7 +146,21 @@ public static partial class Game
             }
             conn.PublishedMinions = [.. minions];
         }
-        Program.Outgoing ??= MirrorSharedMonsters;
+        Interlocked.CompareExchange(ref Program.Outgoing, Mirror, null);
+    }
+
+    // The Gateway's Outgoing hook is the loaded rules' mirror: set when they load and taken back when they unload, so a
+    // reload's new rules mirror from then on and the Gateway keeps no delegate into an unloaded game module (it held the
+    // old module in memory, and ran its mirror, until the Gateway restarted).
+    static readonly Action<ConnectionCiphers, byte[]> Mirror = MirrorSharedMonsters;
+    public static IDisposable InstallMirror()
+    {
+        Volatile.Write(ref Program.Outgoing, Mirror);
+        return new MirrorRelease();
+    }
+    sealed class MirrorRelease : IDisposable
+    {
+        public void Dispose() => Interlocked.CompareExchange(ref Program.Outgoing, null, Mirror);
     }
 
     // At disconnect: this player's minions leave the instance with them.

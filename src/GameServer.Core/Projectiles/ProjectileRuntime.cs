@@ -9,6 +9,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly PriorityQueue<Action, (long At, long Order)> scheduled = new();
     readonly ProjectileHitLedger ledger = new();
     readonly Dictionary<long, ProjectileEntity> pendingAreas = [];
+    readonly HashSet<long> pendingEmissions = [];
     long sequence, commandSequence;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
@@ -27,6 +28,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             throw new ArgumentException("Payload count must match initial projectile count.", nameof(use));
         if (use.ProjectileTargets is { } targets && targets.Count != use.Profile.Count)
             throw new ArgumentException("Target count must match initial projectile count.", nameof(use));
+        if (use.ProjectileSpeeds is { } speeds)
+        {
+            if (speeds.Count != use.Profile.Count)
+                throw new ArgumentException("Speed count must match initial projectile count.", nameof(use));
+            foreach (double s in speeds)
+                if (!double.IsFinite(s) || s <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(use), "Per-projectile speed must be finite and positive.");
+        }
         long useId = ++sequence, emission = ++sequence;
         // One sample per released use, independent of spread, damage and child RNG streams.
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
@@ -38,13 +47,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (spread is > 0 and < Math.PI && use.Profile.AimSpreadDistance > 0)
             spread = 2 * Math.Atan(Math.Tan(spread / 2) * use.Profile.AimSpreadDistance
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
+        bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
+        if (sharedSeries) pendingEmissions.Add(emission);
         for (int i = 0; i < count; i++)
         {
             double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
                 : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
                 (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
             var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
-            long group = use.Profile.SequentialDelay > 0 && i > 0 ? ++sequence : emission;
+            long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             if (unresolved.ReturnRolls is { } rolls)
@@ -56,8 +67,16 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
                     Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
             }
+            if (use.ProjectileSpeeds is { } projectileSpeeds)
+                projectileUse = projectileUse with { ProjectileSpeeds = null,
+                    Profile = projectileUse.Profile with { Speed = projectileSpeeds[i] } };
             int index = i;
-            void Emit() => Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+            void Emit()
+            {
+                if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
+                if (use.CanEmit?.Invoke() != false)
+                    Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+            }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
             else Emit();
         }
@@ -133,47 +152,60 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public void AdvanceTo(long until)
     {
         if (until < Now) throw new ArgumentOutOfRangeException(nameof(until));
-        while (true)
+        var search = Interlocked.Exchange(ref spareSearch, null) ?? new ContactSearch();
+        try
         {
-            while (scheduled.TryPeek(out _, out var due) && due.At <= Now) scheduled.Dequeue()();
-            if (projectiles.Count == 0)
+            while (true)
             {
-                if (Now == until) break;
-                Now = scheduled.TryPeek(out _, out var idleNext) ? Math.Min(until, idleNext.At) : until;
-                continue;
+                while (scheduled.TryPeek(out _, out var due) && due.At <= Now)
+                {
+                    contactEpoch++;
+                    scheduled.Dequeue()();
+                }
+                if (projectiles.Count == 0)
+                {
+                    if (Now == until) break;
+                    Now = scheduled.TryPeek(out _, out var idleNext) ? Math.Min(until, idleNext.At) : until;
+                    continue;
+                }
+                long horizon = Math.Min(until, (Now / TickQuanta + 1) * TickQuanta);
+                if (scheduled.TryPeek(out _, out var next)) horizon = Math.Min(horizon, next.At);
+                var actors = world.Actors(Now, horizon);
+                // Every projectile used to sort the same actors and evaluate their walks repeatedly.
+                // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
+                // and motion changes from a hit are read again on the very next simulation iteration.
+                if (search.Take(actors, Now, horizon, IndexActorsFrom)) contactEpoch++;
+                Contact? first = null;
+                foreach (var p in projectiles.Values)
+                {
+                    var candidate = NextContact(p, horizon, search);
+                    if (candidate is { } c && (first is null || c.CompareTo(first.Value) < 0)) first = c;
+                }
+                // The upper bound is inclusive: another flight may have a contact at the same instant.
+                if (first is null && Now == until) break;
+                long at = first?.At ?? horizon;
+                double seconds = (at - Now) / (double)QuantaPerSecond;
+                foreach (var p in projectiles.Values)
+                {
+                    if (p.WaitUntil > Now) continue;
+                    double distance = Math.Min(p.Remaining, seconds * p.Speed);
+                    p.Position += p.Direction * distance;
+                    p.Remaining -= distance;
+                    p.Distance += distance;
+                }
+                Now = at;
+                if (first is { } contact) Resolve(contact, actors);
             }
-            long horizon = Math.Min(until, (Now / TickQuanta + 1) * TickQuanta);
-            if (scheduled.TryPeek(out _, out var next)) horizon = Math.Min(horizon, next.At);
-            var actors = world.Actors(Now, horizon);
-            // Every projectile used to sort the same actors and evaluate their walks repeatedly.
-            // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
-            // and motion changes from a hit are read again on the very next simulation iteration.
-            var motion = actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation)
-                .Select(a => new ActorMotion(a, a.Position(Now), a.Position(horizon))).ToArray();
-            Contact? first = null;
-            foreach (var p in projectiles.Values)
-            {
-                var candidate = NextContact(p, horizon, motion);
-                if (candidate is { } c && (first is null || c.CompareTo(first.Value) < 0)) first = c;
-            }
-            // The upper bound is inclusive: another flight may have a contact at the same instant.
-            if (first is null && Now == until) break;
-            long at = first?.At ?? horizon;
-            double seconds = (at - Now) / (double)QuantaPerSecond;
-            foreach (var p in projectiles.Values)
-            {
-                if (p.WaitUntil > Now) continue;
-                double distance = Math.Min(p.Remaining, seconds * p.Speed);
-                p.Position += p.Direction * distance;
-                p.Remaining -= distance;
-                p.Distance += distance;
-            }
-            Now = at;
-            if (first is { } contact) Resolve(contact, actors);
+        }
+        finally
+        {
+            contactEpoch++;
+            search.Release();
+            spareSearch = search;
         }
         // Detached delayed areas still need the triggering flight's phase-specific admission history.
         ledger.RetainGroups(projectiles.Values.Concat(pendingAreas.Values)
-            .SelectMany(p => new[] { p.Id, p.EmissionId, p.ChildEmission }).ToHashSet());
+            .SelectMany(p => new[] { p.Id, p.EmissionId, p.ChildEmission }).Concat(pendingEmissions).ToHashSet());
     }
 
     readonly record struct Contact(long At, ProjectileEntity Projectile, ProjectileActor? Target,
@@ -191,7 +223,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     readonly record struct ActorMotion(ProjectileActor Actor, ProjectileVector From, ProjectileVector To);
 
-    Contact? NextContact(ProjectileEntity p, long horizon, IReadOnlyList<ActorMotion> motion)
+    Contact? NextContact(ProjectileEntity p, long horizon, ContactSearch search)
     {
         if (p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
@@ -208,34 +240,69 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
                 ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: p.Position + (to - p.Position) * fraction);
         }
-        foreach (var interaction in Interactions.OrderBy(w => w.Id))
-        {
-            if (interaction.Capacity <= 0 || p.Interactions.Contains(interaction.Id)
-                || (interaction.Team is int team && team != p.Use.Team)) continue;
-            if (Crossing(p.Position, to, interaction) is not double fraction) continue;
-            long at = Now + (long)Math.Ceiling((end - Now) * fraction);
-            if (best is null || at < best.Value.At) best = new(at, p, null, null, default, interaction);
-        }
+        if (Interactions.Count > 0)
+            foreach (var interaction in Interactions.OrderBy(w => w.Id))
+            {
+                if (interaction.Capacity <= 0 || p.Interactions.Contains(interaction.Id)
+                    || (interaction.Team is int team && team != p.Use.Team)) continue;
+                if (Crossing(p.Position, to, interaction) is not double fraction) continue;
+                long at = Now + (long)Math.Ceiling((end - Now) * fraction);
+                if (best is null || at < best.Value.At) best = new(at, p, null, null, default, interaction);
+            }
         int? contactLimit = p.Phase == 0 ? p.Profile.OutboundHitLimit : p.Profile.ReturnHitLimit;
         int contacts = p.Phase == 0 ? p.OutboundContacts : p.ReturnContacts;
         if (!p.Profile.DirectDamage || p.Profile.Lobbed || contactLimit is int limit && contacts >= limit) return best;
         var directRule = DirectHitRule(p);
         bool skipDenied = p.Phase == 0 ? p.Profile.SkipDeniedContacts || p.Profile.OutboundHitLimit is not null
             : p.Profile.SkipDeniedReturnContacts || p.Profile.ReturnHitLimit is not null;
-        foreach (var sweep in motion)
+        // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
+        // cells centred on integers, so the square's half-width is half a cell wider.
+        int? cells = p.Profile.ContactCells;
+        var motion = search.Motion;
+        // The first actor the flight meets, by itself: the earliest contact, and of several at one instant the first in
+        // the actors' order. It is set against the flight's own end, terrain and walls below.
+        Contact? hit = null;
+        int met = -1;
+        // With the actor where it is at the horizon (or still at its start), a contact needs the actor near the path:
+        // only those are looked at, in the same order (ContactSearch). A flight that ends between the two asks each
+        // actor where it is then, which can be off the straight line: it scans them all, every step.
+        bool straight = end == horizon || end == Now;
+        if (straight && KeepContacts && p.ContactEpoch == contactEpoch && p.ContactEnd == end && p.ContactFrom == p.Position && p.ContactTo == to)
         {
+            // Worked out in an earlier step of this instant, and nothing it came from has changed (contactEpoch).
+            if (p.ContactIndex >= 0) hit = new(p.ContactAt, p, motion[p.ContactIndex].Actor, null, default);
+        }
+        else
+        {
+            if (straight && search.Near(p.Position, to, cells is int most ? most + search.MaxSize + .5 : p.Profile.Radius + search.MaxRadius, out var near))
+            {
+                ForgetLeft(p, search, cells, directRule);
+                foreach (int i in near) Sweep(i);
+            }
+            else
+                for (int i = 0; i < search.Count; i++) Sweep(i);
+            if (straight)
+                (p.ContactEpoch, p.ContactEnd, p.ContactFrom, p.ContactTo, p.ContactIndex, p.ContactAt) =
+                    (contactEpoch, end, p.Position, to, met, hit?.At ?? 0);
+        }
+        // Terrain wins coincident contact. An actor at the range endpoint still receives its contact.
+        if (hit is { } actorHit && (best is null || actorHit.At < best.Value.At
+            || (actorHit.At == best.Value.At && best.Value.End != ProjectileEndReason.Terrain && best.Value.Target is null)))
+            return hit;
+        return best;
+
+        void Sweep(int index)
+        {
+            ref readonly var sweep = ref motion[index];
             var actor = sweep.Actor;
-            if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
-            // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
-            // cells centred on integers, so the square's half-width is half a cell wider.
-            int? cells = p.Profile.ContactCells;
-            if (cells is not null && actor.Size < 0) continue;
+            if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) return;
+            if (cells is not null && actor.Size < 0) return;
             double reach = cells is int c ? c + actor.Size + .5 : p.Profile.Radius + actor.Radius;
             var gap = p.Position - sweep.From;
             if (p.Contacts.Contains(actor.Key) && directRule.Repeat != ProjectileRepeat.Once
                 && (cells is null ? gap.Length : Math.Max(Math.Abs(gap.X), Math.Abs(gap.Y))) > reach + .001)
                 p.Contacts.Remove(actor.Key);
-            if (p.Contacts.Contains(actor.Key)) continue;
+            if (p.Contacts.Contains(actor.Key)) return;
             // Near expiry/range ends can precede horizon; use that exact walk position, not an
             // interpolation across a bend in the actor's path.
             var endPosition = end == horizon ? sweep.To : end == Now ? sweep.From : actor.Position(end);
@@ -243,23 +310,46 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             // A separating axis rejects distant sweeps for both round and square footprints.
             // Keep contact-history reset above this check and leave precise/tie rules unchanged.
             if (Math.Min(gap.X, endGap.X) > reach || Math.Max(gap.X, endGap.X) < -reach
-                || Math.Min(gap.Y, endGap.Y) > reach || Math.Max(gap.Y, endGap.Y) < -reach) continue;
+                || Math.Min(gap.Y, endGap.Y) > reach || Math.Max(gap.Y, endGap.Y) < -reach) return;
             double? t = cells is null ? ProjectileGeometry.Contact(gap, endGap, reach)
                 : ProjectileGeometry.SquareContact(gap, endGap, reach);
-            if (t is not double f) continue;
+            if (t is not double f) return;
             long at = Now + (long)Math.Ceiling((end - Now) * f);
             if (skipDenied && !ledger.CanHit(directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId,
-                p.Phase, "direct", actor.Key, at, p.CreatedAt, directRule)) continue;
-            // Terrain wins coincident contact. An actor at the range endpoint still receives its contact.
-            if (best is null || at < best.Value.At || (at == best.Value.At && best.Value.End != ProjectileEndReason.Terrain
-                && best.Value.Target is null)) best = new(at, p, actor, null, default);
+                p.Phase, "direct", actor.Key, at, p.CreatedAt, directRule)) return;
+            if (hit is null || at < hit.Value.At) { hit = new(at, p, actor, null, default); met = index; }
         }
-        return best;
+    }
+
+    // A flight that may hit an actor again forgets it once it has left it, wherever the actor is now: the plain scan
+    // does that as it passes each actor, so the near ones' scan does it here first for all of them.
+    void ForgetLeft(ProjectileEntity p, ContactSearch search, int? cells, ProjectileHitRule directRule)
+    {
+        if (p.Contacts.Count == 0 || directRule.Repeat == ProjectileRepeat.Once) return;
+        var keys = search.Keys;
+        keys.Clear();
+        keys.AddRange(p.Contacts);
+        foreach (var key in keys)
+        {
+            var (first, last) = search.Find(key);
+            for (int i = first; i <= last; i++)
+            {
+                ref readonly var sweep = ref search.Motion[i];
+                var actor = sweep.Actor;
+                if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
+                if (cells is not null && actor.Size < 0) continue;
+                double reach = cells is int c ? c + actor.Size + .5 : p.Profile.Radius + actor.Radius;
+                var gap = p.Position - sweep.From;
+                if ((cells is null ? gap.Length : Math.Max(Math.Abs(gap.X), Math.Abs(gap.Y))) > reach + .001)
+                    p.Contacts.Remove(key);
+            }
+        }
     }
 
     void Resolve(Contact c, IReadOnlyList<ProjectileActor> actors)
     {
         var p = c.Projectile;
+        p.ContactEpoch = -1;
         if (c.TerrainPoint is { } point)
         {
             // Contact time is quantized upward, but geometry must stay on the surface. Otherwise
@@ -315,6 +405,20 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 p.Position += c.Normal * .001;
                 Publish(ProjectileEventKind.Redirect, p);
             }
+            // "chance to be able to Chain when colliding with terrain": the Chain off the wall needs and spends one of the
+            // projectile's remaining chains, and its target must be in sight of the point hit (as a terrain split's).
+            else if (p.TerrainChainChance > 0 && !p.TerrainChained && !p.Profile.CannotChain && p.Chain > 0
+                && Nearby(p, actors).FirstOrDefault(a => world.TraceTerrain(p.Position + c.Normal * .001, a.Position(Now)) is null)
+                    is { } chainTarget
+                && p.Random.Next(100) < p.TerrainChainChance)
+            {
+                p.TerrainChained = true;
+                p.Chain--;
+                p.Position += c.Normal * .001;
+                p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
+                p.Remaining = p.Profile.Range;
+                Publish(ProjectileEventKind.Redirect, p);
+            }
             else End(p, c.End.Value, terrainNormal: c.Normal);
         }
         else End(p, c.End!.Value);
@@ -367,6 +471,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         rule ??= (admissionStage ?? stage) == "direct" ? DirectHitRule(p) : p.Profile.HitRule;
         long g = group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId);
+        contactEpoch++;
         var result = ProjectileHitResult.Blocked;
         ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
@@ -476,7 +581,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             p.GroundChains--;
             p.GroundBounces++;
-            p.Remaining = Math.Max(.001, p.Profile.GroundBounceDistance);
+            p.Remaining = Math.Max(.001, p.Profile.GroundBounceKeepsRange ? p.Profile.Range : p.Profile.GroundBounceDistance);
             Publish(ProjectileEventKind.Redirect, p);
             return;
         }
@@ -503,6 +608,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
     public void Discard(Func<ProjectileUse, bool> matches)
     {
+        contactEpoch++;
         foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
             End(p, ProjectileEndReason.Teardown, allowReturn: false);
         foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
@@ -511,7 +617,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     public void Clear()
     {
+        contactEpoch++;
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
-        scheduled.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
+        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
     }
 }

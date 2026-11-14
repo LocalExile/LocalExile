@@ -20,6 +20,7 @@ public static partial class Game
         var gem = SupportedSkill(conn, skill);
         var stats = SupportedStats(conn, skill);
         long limit = (long)BaseTotemsAllowed + GolemStat(stats, "number_of_additional_totems_allowed");
+        if (GolemStat(stats, "keystone_ancestral_bond") != 0) limit++;
         if (SkillsFor(conn).IsAttack(gem.Effect)) limit += GolemStat(stats, "attack_skills_additional_totems_allowed");
         if (GolemStat(gem.Stats, "is_ranged_attack_totem") != 0)
             limit += GolemStat(stats, "attack_skills_additional_ballista_totems_allowed");

@@ -57,7 +57,7 @@ public static partial class Game
         lock (conn.Monsters) return BloodCharges.More(own(BloodCharges.DamagePerCharge), conn.BloodCharges);
     }
 
-    // A use of a Blood Charge skill landed: kills take a charge each, a survivor gives one. True when the count changed.
+    // A use of a Blood Charge skill landed: kills take a charge each, a hit without kills gives one. True when the count changed.
     public static bool SettleBloodChargesLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, int kills, int survivors)
     {
         int before = conn.BloodCharges;

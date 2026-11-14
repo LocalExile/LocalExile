@@ -137,6 +137,7 @@ public sealed record ProjectileProfile(string Id)
     public int? ContactCells { get; init; }
     public long Lifetime { get; init; } = 1200000;
     public long SequentialDelay { get; init; }
+    public bool ShareSequentialHits { get; init; }
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
@@ -172,6 +173,10 @@ public sealed record ProjectileProfile(string Id)
     public bool CannotSplit { get; init; }
     public bool CannotReturn { get; init; }
     public int TerrainBounces { get; init; }
+    /// <summary>Chance (0-100) that a terrain collision redirects the projectile to a nearby enemy instead of ending,
+    /// from "Projectiles have X% chance to be able to Chain when colliding with terrain"; one terrain chain per
+    /// projectile.</summary>
+    public int TerrainChainChance { get; init; }
     public ProjectileHitRule HitRule { get; init; } = new();
     /// <summary>Optional direct-hit admission during return. Null inherits HitRule.</summary>
     public ProjectileHitRule? ReturnHitRule { get; init; }
@@ -192,6 +197,9 @@ public sealed record ProjectileProfile(string Id)
     public double ArcHeight { get; init; } = 40;
     public int GroundChains { get; init; }
     public double GroundBounceDistance { get; init; } = 20;
+    /// <summary>Reuse each projectile's resolved <see cref="Range"/> for ground-chain bounces instead of
+    /// <see cref="GroundBounceDistance"/>.</summary>
+    public bool GroundBounceKeepsRange { get; init; }
     public ProjectileCountConsumer CountConsumer { get; init; }
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
@@ -217,6 +225,7 @@ public sealed record ProjectileProfile(string Id)
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,
     int Team, ProjectileVector Origin, ProjectileVector Aim)
 {
+    public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
@@ -224,6 +233,9 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
     /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
+    /// <see cref="ProjectileProfile.Speed"/>.</summary>
+    public IReadOnlyList<double>? ProjectileSpeeds { get; init; }
     public int Seed { get; init; } = 1;
     /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
     public ushort Sequence { get; init; }
@@ -241,6 +253,7 @@ public sealed class ProjectileEntity
         Remaining = use.Profile.Range; Pierce = use.Profile.Pierce;
         Fork = use.Profile.Fork; Chain = use.Profile.Chain; Split = use.Profile.Split;
         TerrainBounces = use.Profile.TerrainBounces;
+        TerrainChainChance = use.Profile.TerrainChainChance;
         GroundChains = use.Profile.GroundChains;
         int seed = unchecked(use.Seed * 397 ^ (int)id);
         Random = new(seed);
@@ -270,6 +283,8 @@ public sealed class ProjectileEntity
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal int TerrainChainChance;
+    internal bool TerrainChained;
     internal int GroundChains;
     internal int ReturnContacts = 0;
     internal int OutboundContacts = 0;
@@ -288,6 +303,11 @@ public sealed class ProjectileEntity
     public Random ReactionRandomSource { get; }
     internal readonly HashSet<ProjectileActorKey> Contacts = [];
     internal readonly HashSet<long> Interactions = [];
+    // The first actor this flight meets (its place in the step's actors, -1 for none, and when), as last worked out
+    // (ProjectileRuntime.NextContact), with the runtime's contactEpoch and the flight's path then: kept while both stand.
+    internal long ContactEpoch = -1, ContactAt, ContactEnd;
+    internal int ContactIndex = -1;
+    internal ProjectileVector ContactFrom, ContactTo;
 
     // Freeze trigger-time flight state while sharing the use's chronological combat RNG streams.
     internal ProjectileEntity AreaSnapshot() => (ProjectileEntity)MemberwiseClone();

@@ -61,7 +61,14 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | Transformed | — | — | original item's unframed payload; u32 hash 0 represents an omitted original |
 | Armour | `0x143645930` | `0x1424b6a90` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
 | MapKey | `0x1436457f8` | `0x1424b5290` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
+| HeistBlueprint | — | `0x1424afe90` | u32 seed, u8 area level (+0x1c), u8 format (native constructor default 1), u8 wing count << 1 / confirmed bit0; wing records below |
 | LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
+
+The blueprint wing reader `0x1424c1bb0` takes a u8 job count << 1 / revealed bit0, then (u8 HeistJobs row, u8 level)
+per job, u8 crew count and one HeistNPCs row per crew slot (0xff: unassigned), then u8 room count and one packed
+u8 HeistChestRewardTypes row << 1 / revealed bit0 per room.
+Escape routes are room row 0 and carry the same reveal bit.
+The native writer `0x1424c2140` reproduces this layout; each in-memory wing is 0x50 bytes.
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
@@ -278,6 +285,10 @@ passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus
 attributes, resistances, block, suppression, speeds, crit, accuracy …) and the stats the client shows (0x1b3), the same
 way a passive's would. They are sent again when equipment changes (`SendEquipment`).
 
+Heist magnitude enchantments travel in the enchant list alongside the original explicit rolls.
+The native item tooltip scales eligible explicit values from those rolls.
+[#565](https://github.com/LocalExile/LocalExile/issues/565)
+
 Local mods on the active main hand (row 2 after weapon-set swapping) change the weapon profile through the shared
 `ItemWeaponStats` calculator (also used by `ItemWeapons`): `local_physical_damage_+%`,
 `local_minimum/maximum_added_physical_damage` and item quality on the weapon's physical damage (quality is a separate
@@ -449,7 +460,7 @@ from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask 
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
 (the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
 buff on the client with no duration (0x1c1 with the flask-bar cell and without bit 1), put on and taken off by a ticker
-(`RunUniqueBeltEffects`, about 4 a second) when the belt or the bar changes, on entering an area and on death. Magic utility
+(`StepUniqueBeltEffects`, every player tick) when the belt or the bar changes, on entering an area and on death. Magic utility
 flasks cannot be used while it is worn: the client enforces the item mod and the server refuses the use as a backstop.
 The character's stats are re-sent when the flask bar changes while it is worn (`PlaceItem`, `HeldOntoItem`, `PickUpItem`)
 and on equipment changes. Live 2026-10-26: placed flasks applied at once, and a flask key did nothing.

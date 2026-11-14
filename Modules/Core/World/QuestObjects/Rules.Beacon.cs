@@ -4,17 +4,53 @@ using GameServer.Core.Protocol.Instance;
 static partial class QuestobjectsRules
 {
     const string BeaconRefueled = "a6q1-RefueledBeacon", BeaconDelivered = "a6q1-DeliveredFlag";
-    // The native payload's visible escort circle is roughly this radius; speed 13 is its .ot base_speed.
-    const double BeaconEscortRadius = 22, BeaconSpeed = 13;
+    const double BeaconSpeed = 13;
+    const string BeaconCircle = "Metadata/Effects/Spells/monsters_effects/labyrinth/skeleton_king/circles_of_virtue/aoe_circle.ao";
+    // BeaconPayload attaches the PedestalBuffZone art. MiscAnimated stores its radius in world units.
+    static double BeaconEscortRadius => (global::Game.Art.ArtRadius(BeaconCircle) ?? 250) * 23d / 250;
     static string BeaconCartFlag(GlyphQuest.Placement at) => Quests.InstanceFlag($"BeaconCart:{at.X}:{at.Y}");
     static readonly ConditionalWeakTable<ClientState, BeaconView> BeaconViews = new();
     static readonly ConditionalWeakTable<InstanceState, BeaconRun> BeaconRuns = new();
 
-    sealed class BeaconCart(GlyphQuest.Placement start, RailEscort walk)
+    internal sealed class BeaconCart(GlyphQuest.Placement start, RailEscort walk)
     {
         public readonly GlyphQuest.Placement Start = start;
         public readonly RailEscort Walk = walk;
-        public bool Moving;
+        public bool Moving { get; private set; }
+
+        public (int X, int Y) CommandTarget { get; private set; }
+        public double CommandSeconds { get; private set; }
+
+        public void Update(double elapsed, IReadOnlyList<(int X, int Y)> escorts)
+        {
+            // Only simulate the part of this leg which was actually sent to the client.
+            if (Moving) Walk.AdvanceCurrentLeg(Math.Min(elapsed, CommandSeconds));
+            // An order that ran to the leg's end can leave the cart a hair short of the corner (its seconds times the
+            // speed, rounded). That is the corner: the cart turns it, or the hair would count as not moving and the cart
+            // would never take the next leg (seen live at the Beacon, 2026-11-14).
+            var (cx, cy) = Walk.Position;
+            if (!Walk.Complete && Math.Abs(Walk.Destination.X - cx) + Math.Abs(Walk.Destination.Y - cy) < 0.01)
+                Walk.AdvanceCurrentLeg(0.02 / Walk.Speed);
+            var (x, y) = Walk.Position;
+            var (tx, ty) = Walk.Destination;
+            double dx = tx - x, dy = ty - y, length = Math.Sqrt(dx * dx + dy * dy);
+            double reach = 0, radius = BeaconEscortRadius;
+            if (length > 0)
+                foreach (var p in escorts)
+                {
+                    double px = p.X - x, py = p.Y - y, squared = px * px + py * py;
+                    if (squared > radius * radius) continue;
+                    // Exit of this straight rail from the escort's visible circle.
+                    double projection = (px * dx + py * dy) / length;
+                    double exit = projection + Math.Sqrt(Math.Max(0, projection * projection + radius * radius - squared));
+                    reach = Math.Max(reach, Math.Min(length, exit));
+                }
+            Moving = reach > 0.001;
+            CommandSeconds = reach / Walk.Speed;
+            CommandTarget = Moving
+                ? ((int)Math.Round(x + dx * reach / length), (int)Math.Round(y + dy * reach / length))
+                : ((int)Math.Round(x), (int)Math.Round(y));
+        }
     }
     sealed class BeaconRun
     {
@@ -28,7 +64,7 @@ static partial class QuestobjectsRules
     sealed class BeaconView
     {
         public readonly List<uint> Carts = [];
-        public readonly Dictionary<uint, (int Target, bool Moving)> ShownMoves = [];
+        public readonly Dictionary<uint, ((int X, int Y) Target, bool Moving)> ShownMoves = [];
         public readonly Dictionary<uint, byte> ShownStates = [];
         public bool Loaded;
     }
@@ -51,17 +87,14 @@ static partial class QuestobjectsRules
             if (!view.Loaded) await CreateBeacon(conn, run, view);
             if (run.Carts.Count != 2) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
-            double seconds = Math.Clamp(now - run.LastAt, 0, 0.5);
+            double seconds = Math.Max(0, now - run.LastAt);
             run.LastAt = now;
             var players = run.Players.Select(w => w.TryGetTarget(out var c) ? c : null)
                 .Where(c => c is { Closed: false, LeavingArea: false }).Cast<ClientState>().ToArray();
+            var escorts = players.Where(c => c.PlayerLife > 0 && !c.Paused).Select(c => c.Walk.Position(now)).ToArray();
             foreach (var cart in run.Carts)
             {
-                var before = cart.Walk.Position;
-                bool escorted = players.Any(c => c.PlayerLife > 0 && !c.Paused && c.Walk.Position(now) is var p
-                    && Math.Pow(p.X - before.X, 2) + Math.Pow(p.Y - before.Y, 2) <= BeaconEscortRadius * BeaconEscortRadius);
-                cart.Walk.Advance(seconds, cart.Moving);
-                cart.Moving = escorted && !cart.Walk.Complete;
+                cart.Update(seconds, escorts);
                 if (cart.Walk.Complete)
                 {
                     conn.Instance.Transition(Act6Objects.BeaconPayload, cart.Start.X, cart.Start.Y);
@@ -144,7 +177,7 @@ static partial class QuestobjectsRules
                 var position = cart.Start with { X = (int)Math.Round(at.X), Y = (int)Math.Round(at.Y) };
                 lock (conn.QuestObjects)
                 {
-                    id = conn.NextObjectId++;
+                    id = conn.TakeObjectId();
                     conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
                 await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),
@@ -161,7 +194,7 @@ static partial class QuestobjectsRules
         if (!run.Players.Any(w => w.TryGetTarget(out var player) && !player.Closed && !player.LeavingArea))
         {
             run.LastAt = conn.Clock.Elapsed.TotalSeconds;
-            foreach (var cart in run.Carts) cart.Moving = false;
+            foreach (var cart in run.Carts) cart.Update(0, []);
         }
         run.Players.RemoveAll(w => !w.TryGetTarget(out var player) || player.Closed || player.LeavingArea);
         run.Players.Add(new(conn));
@@ -180,12 +213,12 @@ static partial class QuestobjectsRules
             var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
             lock (conn.QuestObjects)
                 if (conn.QuestObjects.TryGetValue(id, out var o)) conn.QuestObjects[id] = (o.Rule, o.At with { X = cell.Item1, Y = cell.Item2 }, o.Info);
-            var movement = (cart.Walk.Target, cart.Moving);
+            var movement = (cart.CommandTarget, cart.Moving);
             if (!view.ShownMoves.TryGetValue(id, out var shown) || shown != movement)
             {
                 view.ShownMoves[id] = movement;
-                var target = cart.Moving ? cart.Walk.Destination : (cell.Item1, cell.Item2);
-                float seconds = cart.Moving ? (float)Math.Max(0.05, cart.Walk.RemainingSeconds) : 0.05f;
+                var target = cart.CommandTarget;
+                float seconds = cart.Moving ? (float)Math.Max(0.05, cart.CommandSeconds) : 0.05f;
                 var move = InstanceProtocol.MoveTo(id, target.Item1, target.Item2, seconds, InstanceProtocol.FollowTerrain);
                 await Send(remote, stream, ciphers, cart.Moving
                     ? [.. InstanceProtocol.Orientation(id, (float)Math.Atan2(target.Item1 - at.X, at.Y - target.Item2)), .. move] : move,

@@ -164,6 +164,7 @@ public sealed partial class AccountStash
                 stash.Persist([.. repaired]);
             // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
             stash.EnsureMapChildren();
+            stash.EnsureUniqueChildren();
             return stash;
         });
 
@@ -199,6 +200,42 @@ public sealed partial class AccountStash
     });
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
+
+    /// <summary>The tabs the player sees: the roots only. A map tab's 191 hidden pages are children with a unique
+    /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
+    public int VisibleCount
+    {
+        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0); }
+    }
+
+    /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
+    /// tab row is written). What a tab is called and its colour are the caller's: the stash appends what it is given and
+    /// makes the names unique. The client's tab list (0x21, sent on entering an area) shows them next time.</summary>
+    public IReadOnlyList<int> AddTabs(byte type, int count, string namePrefix, byte r, byte g, byte b)
+    {
+        if (!Types.ContainsKey(type)) throw new ArgumentOutOfRangeException(nameof(type), $"no stash type {type}");
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), "at least one tab");
+        if (string.IsNullOrWhiteSpace(namePrefix)) throw new ArgumentException("a tab name prefix", nameof(namePrefix));
+        List<int> added;
+        lock (_lock)
+        {
+            if (_stale) throw new InvalidOperationException($"stash of {_account}: changed on a copy dropped after a failed save");
+            if (_tabs.Count + count > ushort.MaxValue) throw new InvalidOperationException("the tab list is full");
+            string prefix = namePrefix.Trim();
+            var names = _tabs.Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            added = new List<int>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int n = 1;
+                string name;
+                do name = $"{prefix} {n++}"; while (!names.Add(name));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                added.Add(_tabs.Count - 1);
+            }
+        }
+        Persist();
+        return added;
+    }
 
     /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
@@ -370,7 +407,10 @@ public sealed partial class AccountStash
         lock (_lock)
         {
             var t = _tabs[tab];
-            return (InstanceStash.TabSlot(t.Grid.W, t.Grid.H), [.. t.Items]);
+            var slot = InstanceStash.TabSlot(t.Grid.W, t.Grid.H);
+            // StashType.__col5: the native stack limit/display uses the inventory kind, not its shared row 26.
+            slot = slot with { Kind = t.Saved.Type switch { StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, _ => slot.Kind } };
+            return (slot, [.. t.Items]);
         }
     }
 
@@ -425,8 +465,7 @@ public sealed partial class AccountStash
         return SlotCell(t, slot);
     }
 
-    // Slot n of a slotted tab is cell (n mod width, n / width): every layout but the divination tab's fits its first row;
-    // its 470 cards run on into the second row of its 255 × 2.
+    // Slot n is cell (n mod width, n / width): divination cards span two rows, and fragments use their Subtab row.
     static (int X, int Y) SlotCell(TabState t, int slot) => (slot % t.Grid.W, slot / t.Grid.W);
 
     static string TypeName(TabState t) => Types.TryGetValue(t.Saved.Type, out var n) ? n.Name : $"type {t.Saved.Type}";
@@ -438,8 +477,11 @@ public sealed partial class AccountStash
             : [.. t.Items.Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
 
     // How many of an item one cell of the tab holds: a currency tab's slot more than the item's own stack (not its crafting
-    // slot, which holds any item at its own stack size).
+    // slot, which holds any item at its own stack size). An item whose own stack is 1 stacks only in the fragment and
+    // Delirium tabs, whose client kinds show the count (Inventory); the divination tab's kind hides it for a one-card set.
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
+        !item.Components.Contains("Stack") ? 1 :
+        shape.MaxStack <= 1 && !OversizedStacks(t.Saved.Type) ? 1 :
         _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
@@ -488,10 +530,11 @@ public sealed partial class AccountStash
         (InventoryItem, int) result;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || shapeOf(held.Item) is not { MaxStack: > 1 } shape) return null;
+            if (tab < 0 || tab >= _tabs.Count || shapeOf(held.Item) is not { } shape) return null;
             var t = _tabs[tab];
             if (CellIn(t, held.Item, x, y, out _) is not var (cx, cy)) return null;
             int max = MaxStack(t, held.Item, shape, cx, cy);
+            if (max <= 1) return null;
             if (InTheWay(t, cx, cy, shape, shapeOf) is not [var under] || under.Item.TypeHash != held.Item.TypeHash || under.Item.StackSize >= max) return null;
             int moved = Math.Min(Math.Min(held.Item.StackSize, most), max - under.Item.StackSize);
             var bigger = under with { Item = under.Item with { StackSize = (ushort)(under.Item.StackSize + moved) } };
@@ -568,7 +611,7 @@ public sealed partial class AccountStash
     /// <summary>
     /// The /item_tab command: up to <paramref name="amount"/> more of every item type that has a slot of its own in a
     /// slotted tab (currency, essence, fragment, delve, blight, delirium, divination), each into that slot only and as far
-    /// as the slot holds (<see cref="StashRules.MaxStack"/>; one of an item that doesn't stack), in one save.
+    /// as the slot holds (<see cref="StashRules.MaxStack"/>; requires a Stack component), in one save.
     /// <paramref name="create"/> makes an item of a type, or null when the server can't write it. Null with the reason
     /// when the tab has no slots of its own.
     /// </summary>
@@ -597,7 +640,7 @@ public sealed partial class AccountStash
                 // Another type in the slot (two layout rows naming one slot): leave it.
                 if (at >= 0 && t.Items[at].Item.TypeHash != type) { skipped++; continue; }
                 // The divination tab shows a card only once its set is complete (live 2026-10-28): fill it to its set.
-                int max = shape.MaxStack <= 1 || t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
+                int max = t.Saved.Type == StashRules.Divination ? Math.Max(1, (int)shape.MaxStack) : MaxStack(t, item, shape, -1, -1);
                 int room = max - (at >= 0 ? t.Items[at].Item.StackSize : 0);
                 if (room <= 0) { full++; continue; }
                 int take = Math.Min(amount, room);
@@ -665,6 +708,9 @@ public sealed partial class AccountStash
         var fill = FillCells(tab, flasks.Concat(uniqueEntries.OfType<Item>()).DistinctBy(Key), Key, shapeOf, out why);
         return fill is null ? null : fill with { Skipped = fill.Skipped + uniqueEntries.Count(i => i is null) };
     }
+
+    /// <summary>Whether a tab of this type stacks items whose own stack size is 1 (Simulacrum, breachstones, emblems).</summary>
+    public static bool OversizedStacks(byte? type) => type is StashRules.Fragment or StashRules.Delirium;
 
     /// <summary>The tab's StashType row, or null for no such tab.</summary>
     public byte? TabType(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Type : null; }

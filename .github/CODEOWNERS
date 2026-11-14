@@ -21,6 +21,9 @@ GEMINI.md @Wrathen
 /.gitattributes @Wrathen
 /.gitignore @Wrathen
 
+# What tells a reviewer where to look in a pull request
+/scripts/dev/pr_warnings.py @Wrathen @evrydayjunglist
+
 # What runs during a build, or adds a dependency
 Directory.Build.props @Wrathen
 Directory.Build.targets @Wrathen

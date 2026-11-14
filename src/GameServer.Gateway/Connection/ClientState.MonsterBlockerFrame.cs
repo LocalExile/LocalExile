@@ -4,6 +4,10 @@ using GameServer.Core.World;
 public sealed partial class ClientState
 {
     MonsterBlockerFrame? monsterFrame;
+    // The frame the last path search outside a pass was answered from, and a list to read the next one's bodies into
+    // (MonsterBlockers). Under Monsters.
+    MonsterBlockerFrame? keptFrame;
+    BodyList? spareBodies;
 
     /// <summary>One lock-owned position/index snapshot shared by all path orders in an AI or correction pass.</summary>
     public MonsterBlockerFrame BeginMonsterBlockerFrame(double now)
@@ -12,6 +16,69 @@ public sealed partial class ClientState
         var frame = new MonsterBlockerFrame(this, now, monsterFrame);
         monsterFrame = frame;
         return frame;
+    }
+
+    /// <summary>The bodies a blocker frame is made of, read at one instant in the order the frame takes them. A frame is
+    /// made from this list alone: two equal lists give frames that answer every question alike.</summary>
+    internal sealed class BodyList
+    {
+        public readonly List<ClientPathfinder.Blocker> Fixed = [];
+        public readonly List<(uint Id, int X, int Y)> Copies = [];
+        public readonly List<(uint Id, ClientPathfinder.Blocker Body)> Monsters = [];
+        public (int X, int Y)? Player;
+        public bool Phasing;
+
+        public void Read(ClientState owner, double now, bool placement)
+        {
+            Fixed.Clear(); Copies.Clear(); Monsters.Clear();
+            Player = null;
+            Fixed.AddRange(owner.StationaryBlockers);
+            // Another player stands where its published pose has it, unless this client runs a copy of it (PeerWalks):
+            // then the copy's own cell is its body, and it moves with the copy's steps.
+            foreach (var peer in owner.Instance?.PlayersExcept(owner.PeerId) ?? [])
+                if (peer.Life > 0 && peer.Owner is not null && (placement || !owner.PeerWalks.ContainsKey(peer.Id)))
+                    Fixed.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            if (!placement)
+                foreach (var (id, copy) in owner.PeerWalks)
+                {
+                    if (owner.Instance?.Player(id) is { Life: 0 }) continue;
+                    var p = copy.Position(now);
+                    Copies.Add((id, p.X, p.Y));
+                }
+            if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing) Player = owner.Walk.Position(now);
+            // Runtime collision follows native bodies. Proposed spawning deliberately retains its existing
+            // clearance policy; it is not evidence of GGG's authoritative spawn-placement algorithm.
+            if (placement)
+                foreach (var (id, m) in owner.Monsters)
+                {
+                    if (!LivingCollision.StepsWithBodies(m)) continue;
+                    var p = m.Walk.Position(now);
+                    Monsters.Add((id, new(p.X, p.Y, LivingCollision.Size(m))));
+                }
+            else if (owner.DormantMonsters.Count == 0)
+                foreach (var (id, m) in owner.Monsters)
+                {
+                    if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
+                }
+            else
+                foreach (var (id, m) in owner.CollisionMonsters)
+                    if (owner.MonsterBody(id, m, now) is { } body) Monsters.Add((id, body));
+            // Phasing (Quartz Flask): the player and the monsters pass each other. Read again: it ends on the clock.
+            Phasing = owner.IsPhasing;
+        }
+
+        public bool Same(BodyList other)
+        {
+            if (Phasing != other.Phasing || Player != other.Player || Fixed.Count != other.Fixed.Count
+                || Copies.Count != other.Copies.Count || Monsters.Count != other.Monsters.Count) return false;
+            for (int i = 0; i < Monsters.Count; i++)
+                if (Monsters[i].Id != other.Monsters[i].Id || Monsters[i].Body != other.Monsters[i].Body) return false;
+            for (int i = 0; i < Fixed.Count; i++)
+                if (Fixed[i] != other.Fixed[i]) return false;
+            for (int i = 0; i < Copies.Count; i++)
+                if (Copies[i] != other.Copies[i]) return false;
+            return true;
+        }
     }
 
     public sealed class MonsterBlockerFrame : IDisposable
@@ -25,47 +92,37 @@ public sealed partial class ClientState
         readonly IReadOnlyList<ClientPathfinder.Blocker> forPlayer;
         public readonly List<(uint Id, int X, int Y, int Size)> Bodies = [];
         public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers { get; }
+        /// <summary>What the frame was made from. Not to be changed while the frame is in use.</summary>
+        internal readonly BodyList Read;
 
         public MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer, bool placement = false)
+            : this(owner, outer, ReadBodies(owner, now, placement, out long startedAt), startedAt) { }
+
+        static BodyList ReadBodies(ClientState owner, double now, bool placement, out long startedAt)
         {
-            long startedAt = Stopwatch.GetTimestamp();
-            this.owner = owner; this.outer = outer;
-            var fixedBodies = new List<ClientPathfinder.Blocker>(owner.StationaryBlockers);
-            // Another player stands where its published pose has it, unless this client runs a copy of it (PeerWalks):
-            // then the copy's own cell is its body, and it moves with the copy's steps.
-            foreach (var peer in owner.Instance?.PlayersExcept(owner.PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null && (placement || !owner.PeerWalks.ContainsKey(peer.Id)))
-                    fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
-            FixedBlockers = new BlockerSet(fixedBodies);
-            current = new(fixedBodies);
-            if (!placement)
-                foreach (var (id, copy) in owner.PeerWalks)
-                {
-                    if (owner.Instance?.Player(id) is { Life: 0 }) continue;
-                    var p = copy.Position(now);
-                    indices.Add(id, (Bodies.Count, current.Add(new(p.X, p.Y, LivingCollision.PlayerSize))));
-                    Bodies.Add((id, p.X, p.Y, LivingCollision.PlayerSize));
-                }
-            if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing)
+            startedAt = Stopwatch.GetTimestamp();
+            var read = new BodyList();
+            read.Read(owner, now, placement);
+            return read;
+        }
+
+        internal MonsterBlockerFrame(ClientState owner, MonsterBlockerFrame? outer, BodyList read, long startedAt)
+        {
+            this.owner = owner; this.outer = outer; Read = read;
+            FixedBlockers = new BlockerSet(read.Fixed);
+            current = new(read.Fixed);
+            foreach (var (id, x, y) in read.Copies)
             {
-                var player = owner.Walk.Position(now);
-                playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
+                indices.Add(id, (Bodies.Count, current.Add(new(x, y, LivingCollision.PlayerSize))));
+                Bodies.Add((id, x, y, LivingCollision.PlayerSize));
             }
-            // Runtime collision follows native bodies. Proposed spawning deliberately retains its existing
-            // clearance policy; it is not evidence of GGG's authoritative spawn-placement algorithm.
-            IEnumerable<KeyValuePair<uint, SpawnedMonster>> actors = placement ? owner.Monsters : owner.CollisionMonsters;
-            foreach (var (id, m) in actors)
+            if (read.Player is { } player) playerBody = current.Add(new(player.X, player.Y, LivingCollision.PlayerSize));
+            foreach (var (id, blocker) in read.Monsters)
             {
-                if (placement && !LivingCollision.StepsWithBodies(m)) continue;
-                var p = m.Walk.Position(now);
-                int size = LivingCollision.Size(m);
-                ClientPathfinder.Blocker? selected = placement ? new(p.X, p.Y, size) : owner.MonsterBody(id, m, now);
-                if (selected is not { } blocker) continue;
                 indices.Add(id, (Bodies.Count, current.Add(blocker)));
                 Bodies.Add((id, blocker.X, blocker.Y, blocker.Size));
             }
-            // Phasing (Quartz Flask): the player and the monsters pass each other.
-            forPlayer = owner.IsPhasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
+            forPlayer = read.Phasing ? FixedBlockers : playerBody >= 0 ? current.Without(playerBody) : current;
             owner.Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
         }
 

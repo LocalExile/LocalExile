@@ -49,7 +49,22 @@ public static class Saves
 
     /// <summary>A character's save, or null when it has none. A save that can't be read throws
     /// <see cref="UnreadableSaveException"/> and is left as it is: starting over would write over it.</summary>
-    public static CharacterSaves.Save? LoadCharacter(string character) => Readable(SaveDatabase.Table.Characters, character, () => SaveRows.LoadCharacter(Db, character));
+    public static CharacterSaves.Save? LoadCharacter(string character) => Readable(SaveDatabase.Table.Characters, character, () =>
+    {
+        var db = Db;
+        return db.Read(() =>
+        {
+            _characterReads++;
+            return SaveRows.LoadCharacter(db, character);
+        });
+    });
+
+    /// <summary>How many times a character's save was read from its tables since the Gateway started (counted under the
+    /// database's lock). A whole save is costly to read (its items and their mods), so what runs many times a second must
+    /// not add to this: the lag probe prints its rate (ConnectionPerformance.RuntimeSummary), and CharacterSaves.Look
+    /// keeps the parts a fight asks for.</summary>
+    public static long CharacterReads => Interlocked.Read(ref _characterReads);
+    static long _characterReads;
 
     public static void PutCharacter(string character, CharacterSaves.Save save)
     {

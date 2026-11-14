@@ -43,19 +43,21 @@ public static partial class Game
         return found;
     }
 
-    // Who appears where a boss dies, on a later visit: beside the boss while its kill flags are set and the NPC's GoneWith
-    // is not (SinInnocence until a5q6-QuestReceived).
+    static string NpcAppearanceKey(string variety) => "quest-npc-kill:" + variety;
+
+    // A character's old kill flags do not mean a new instance's boss has died. Keep the death site in the instance;
+    // corpses are omitted from its saved monster list. A later visit uses the NPC's completed entrance state.
     public static IEnumerable<QuestNpc> AppearedBefore(ClientState conn)
     {
         string area = conn.Layout.Id;
         foreach (var rule in QuestsOf(conn).Appearing(area).Where(r => r.GoneWith is not null))
         {
             if (!QuestsOf(conn).OnMonsterKilled(area, rule.Variety).Any(f => ClientHasQuestFlag(conn, f))) continue;
-            SpawnedMonster? boss;
-            lock (conn.Monsters) boss = conn.Monsters.Values.FirstOrDefault(m => m.Variety?.Id == rule.Variety);
-            if (boss is null || Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
-            var at = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            var (x, y) = conn.Layout.Near(((int)at.X + 8, (int)at.Y + 8));
+            if (conn.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety)) is not { } at
+                || Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
+            var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
+            if (npc.Components?.Contains("Transitionable") == true)
+                npc = npc with { TransitionState = NpcTransitionStates(npc) };
             yield return AppearingNpc(area, rule, npc, x, y);
         }
     }
@@ -115,21 +117,34 @@ public static partial class Game
     public static async Task QuestNpcsAppear(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         MonsterCatalog.Variety variety, (int X, int Y) at)
     {
-        string area = conn.Layout.Id;
-        foreach (var rule in QuestsOf(conn).AppearOnKill(area, variety.Id))
+        var instance = conn.Instance;
+        instance.RememberPosition(NpcAppearanceKey(variety.Id), at);
+        await Show(conn, remote, stream, ciphers);
+        foreach (var peer in instance.Presence.PlayersExcept(conn.PeerId))
+            if (peer.Owner is { Closed: false, LeavingArea: false, PlayerSent: true } other
+                && ReferenceEquals(other.Instance, instance))
+                other.KillShares.Enqueue((address, output, keys) =>
+                    !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, instance)
+                        ? Show(other, address, output, keys) : Task.CompletedTask);
+
+        async Task Show(ClientState viewer, string address, NetworkStream output, ConnectionCiphers keys)
         {
-            if (Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType)
+            string area = viewer.Layout.Id;
+            foreach (var rule in QuestsOf(viewer).AppearOnKill(area, variety.Id))
             {
-                Console.WriteLine($"[gateway] {remote} {rule.NpcType}: unknown or unsupported NPC");
-                continue;
+                if (Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType)
+                {
+                    Console.WriteLine($"[gateway] {address} {rule.NpcType}: unknown or unsupported NPC");
+                    continue;
+                }
+                lock (viewer.QuestNpcs)
+                {
+                    if (viewer.QuestNpcs.Any(c => c.Npc.Id == rule.NpcType && (c.Appears is not null || c.Id != 0))) continue;
+                    var (x, y) = viewer.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? viewer.Layout.Near(at) : at;
+                    viewer.QuestNpcs.Add(AppearingNpc(area, rule, npc, x, y));
+                }
             }
-            lock (conn.QuestNpcs)
-            {
-                if (conn.QuestNpcs.Any(c => c.Npc.Id == rule.NpcType && c.Id != 0)) continue;
-                var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
-                conn.QuestNpcs.Add(AppearingNpc(area, rule, npc, x, y));
-            }
+            await UpdateQuestNpcs(address, output, keys, viewer, $"{variety.Name} died");
         }
-        await UpdateQuestNpcs(remote, stream, ciphers, conn, $"{variety.Name} died");
     }
 }

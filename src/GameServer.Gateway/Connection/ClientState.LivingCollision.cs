@@ -132,13 +132,29 @@ public sealed partial class ClientState
         return new BlockerSet(result);
     }
 
+    /// <summary>What stands in a monster's way now. Inside a pass its frame answers. Outside one (an order placed at
+    /// its send gate, a skill's walk) the bodies are read each time, and the frame made from them is kept for as long as
+    /// they read the same: a crowd's orders of one client frame would otherwise each index every body again.</summary>
     public IReadOnlyList<ClientPathfinder.Blocker> MonsterBlockers(uint self)
     {
         lock (Monsters)
         {
             if (monsterFrame is { } frame) return frame.For(self);
-            using var snapshot = BeginMonsterBlockerFrame(Clock.Elapsed.TotalSeconds);
-            return snapshot.For(self);
+            long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            double now = Clock.Elapsed.TotalSeconds;
+            var read = spareBodies ?? new BodyList();
+            spareBodies = null;
+            read.Read(this, now, placement: false);
+            if (keptFrame is { } kept && kept.Read.Same(read))
+            {
+                spareBodies = read;
+                Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
+                return kept.For(self);
+            }
+            // The frame given up is used by nobody (its views are read only inside the search they were asked for).
+            spareBodies = keptFrame?.Read;
+            keptFrame = new MonsterBlockerFrame(this, null, read, startedAt);
+            return keptFrame.For(self);
         }
     }
 
@@ -154,10 +170,11 @@ public sealed partial class ClientState
         }
     }
 
-    public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique) =>
+    /// <param name="throughBodies">Its walk goes through living bodies (<see cref="MonsterMovement.ThroughBodies"/>).</param>
+    public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique, bool throughBodies = false) =>
         new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
-            () => size < 0 ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
+            () => size < 0 || throughBodies ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
             // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.
             limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100, sight: Layout.Sight)
         { FrameOf = LockstepFrameOf };

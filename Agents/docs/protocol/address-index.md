@@ -3,6 +3,10 @@
 Every address used in the protocol docs, grouped by subsystem. Fn = function, Vt = vtable, Cls = message class vtable,
 G = global / static data.
 
+Fn addresses hold for every allowed client build (`ClientBuilds.cs`: 3.29.3c, its 3.29.3.5 hotfix, 3.29.3d). Vt, Cls and
+G addresses are the 3.29.3c release's: data moves between builds whose code does not
+([re/tooling.md](../re/tooling.md) §11).
+
 ## Network core
 | Address | Kind | What |
 |---|---|---|

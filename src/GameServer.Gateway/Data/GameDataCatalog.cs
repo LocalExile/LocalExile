@@ -73,6 +73,8 @@ public static class GameDataCatalog
         var ranges = Children(store, "unique_item_ranges", "name, base_type, ord", "name", "base_type");
         var groups = Children(store, "unique_item_roll_groups", "name, base_type, grp", "name", "base_type");
         var options = Children(store, "unique_item_roll_options", "name, base_type, grp, ord", "name", "base_type", "grp");
+        var identities = store.LoadRows("unique_item_identities", "name, base_type")
+            .ToDictionary(r => Key(r, "name", "base_type"), r => Text(r, "visual_identity"));
         return [.. Enabled(store.LoadRows("unique_items", "name, base_type")).Select(row =>
         {
             string key = Key(row, "name", "base_type");
@@ -85,8 +87,10 @@ public static class GameDataCatalog
                 Bool(row, "encounter_only"),
                 groups[key].Any() ? [.. groups[key].Select(g => new UniqueCatalog.RollGroup((int)Int(g, "count"),
                     [.. options[Key(g, "name", "base_type", "grp")].Select(o => Text(o, "mod"))],
-                    IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count")))] : null,
-                (int)Int(row, "jewel_limit"));
+                    IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count"),
+                    [.. options[Key(g, "name", "base_type", "grp")].Select(o => o.ContainsKey("weight") ? (int)Int(o, "weight") : 1)]))] : null,
+                (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus"),
+                    VisualIdentityId = identities.GetValueOrDefault(key) };
         })];
     }
 

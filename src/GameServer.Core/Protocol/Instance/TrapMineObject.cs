@@ -4,6 +4,8 @@ namespace GameServer.Core.Protocol.Instance;
 public sealed record TrapMineObject(int X, int Y, bool Mine, IReadOnlyList<GrantedSkill> Skills,
     IReadOnlyList<(uint Key, int Value)> Stats)
 {
+    public IReadOnlyList<GrantedSkill> Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
+    public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
     public byte[] Blob()
     {
         var w = new BlobWriter();

@@ -251,7 +251,7 @@ public static partial class Game
                     if (Progression.LevelFor(peer.Template.Experience, CharacterStats.LevelStarts)
                         > Progression.LevelFor(previous.Template.Experience, CharacterStats.LevelStarts))
                     {
-                        uint effect = conn.NextObjectId++;
+                        uint effect = conn.TakeObjectId();
                         conn.TemporarySkillEffects[effect] = AreaTime(conn) + 3;
                         packets.Create(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                             new EffectObject(peer.X, peer.Y, "Metadata/Effects/misc/levelup_new/rig.ao")
@@ -299,9 +299,14 @@ public static partial class Game
         if (now <= from) return;
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
-        // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse).
+        // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse). A monster the
+        // grid has not listed yet joins it before this pass's steps (ClientEntityGrid: in the order the server added its
+        // monsters, where it stands).
         foreach (var (id, m) in conn.Monsters)
+        {
+            if (!ClientEntityGrid.Lists(conn, id)) ClientEntityGrid.Stepped(conn, id, m.Walk.Position(from));
             if (LivingCollision.StepsWithBodies(m) || conn.CorpseWalks(id, m)) walks[id] = m.Walk;
+        }
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
         // The other players' copies on a lockstep client: walkers like any other, ticked in id order.
         if (frame is not null)
@@ -326,7 +331,7 @@ public static partial class Game
             foreach (var (at, id, cell) in steps)
             {
                 if (stopped.Contains(id)) continue;
-                if (!Step(bodies, id, walks[id], at, cell)) stopped.Add(id);
+                if (!Step(conn, bodies, id, walks[id], at, cell)) stopped.Add(id);
             }
             pending.Clear();
             foreach (var (id, walk) in walks)
@@ -371,7 +376,7 @@ public static partial class Game
             {
                 if (id == PlayerId && attack is not null && PlayerWalkUpOpen(conn) == attack)
                 {
-                    var (result, timer) = StepWalkUp(bodies, new(PlayerId, conn.Walk, true, attack.TargetId, attack.Target?.Walk,
+                    var (result, timer) = StepWalkUp(conn, bodies, new(PlayerId, conn.Walk, true, attack.TargetId, attack.Target?.Walk,
                         attack.Reach, attack.Tolerance, attack.TimerFrom, attack.GroundTarget), start, end, length);
                     attack.TimerFrom = timer;
                     if (result == WalkUpResult.Swings) LockstepAttackSwings(conn, attack, start, end);
@@ -380,7 +385,7 @@ public static partial class Game
                 }
                 if (chases.TryGetValue(id, out var chaser) && WalkUpOpen(conn, chaser))
                 {
-                    var (result, timer) = StepWalkUp(bodies, new(id, chaser.Walk, walks.ContainsKey(id), PlayerId,
+                    var (result, timer) = StepWalkUp(conn, bodies, new(id, chaser.Walk, walks.ContainsKey(id), PlayerId,
                         walks.GetValueOrDefault(PlayerId) ?? conn.Walk, (int)(chaser.Attack!.Range - 1), LivingCollision.PlayerSize,
                         chaser.ClientChaseTimerFrom), start, end, length);
                     chaser.ClientChaseTimerFrom = timer;
@@ -399,7 +404,7 @@ public static partial class Game
                 {
                     bool stopped = false;
                     foreach (var (at, cell) in walk.Steps(start, end))
-                        if (!Step(bodies, id, walk, at, cell)) { stopped = true; break; }
+                        if (!Step(conn, bodies, id, walk, at, cell)) { stopped = true; break; }
                     if (stopped || walk.Reached || walk.ArrivesAt > end) break;
                     walk.Repath(walk.ArrivesAt);
                 }
@@ -466,7 +471,7 @@ public static partial class Game
     // that has left the cell it last searched toward, 2.0 s after that search, or 0.7 s after it once the target is 64
     // cells from that cell (0x141e826a0: each tick adds its frame to +0x55c before the test, and 0x141e82010 zeroes it;
     // decompiled, not reached live). Returns the turn's outcome and when the search timer last started.
-    static (WalkUpResult Result, double TimerFrom) StepWalkUp(ClientState.MonsterBlockerFrame bodies, WalkUpTurn up,
+    static (WalkUpResult Result, double TimerFrom) StepWalkUp(ClientState conn, ClientState.MonsterBlockerFrame bodies, WalkUpTurn up,
         double start, double end, double length)
     {
         var walk = up.Walk;
@@ -477,8 +482,9 @@ public static partial class Game
         {
             foreach (var (at, cell) in walk.Steps(start, end))
             {
-                if (up.Blocks && !Step(bodies, up.Id, walk, at, cell))
+                if (up.Blocks && !Step(conn, bodies, up.Id, walk, at, cell))
                     return (InGoal(walk.Position(end)) ? WalkUpResult.Swings : WalkUpResult.Fails, timerFrom);
+                if (!up.Blocks) ClientEntityGrid.Stepped(conn, up.Id, cell);
                 if (walk.EndsPiece(at) && InGoal(cell))
                 {
                     walk.StopAfter(at);
@@ -528,7 +534,7 @@ public static partial class Game
     }
 
     // One step of a walk, as the client checks it: false when it was blocked and ended the walk.
-    static bool Step(ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
+    static bool Step(ClientState conn, ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
     {
         bool floor = walk.Floor(cell.X, cell.Y);
         bool body = floor && ClientPathfinder.ObjectBlocks(id == PlayerId ? bodies.ForPlayer : bodies.For(id),
@@ -541,6 +547,7 @@ public static partial class Game
         if (!body) walk.WalksThrough = false;
         if (id == PlayerId) bodies.MovePlayer(cell.X, cell.Y);
         else bodies.Move(id, cell.X, cell.Y);
+        ClientEntityGrid.Stepped(conn, id, cell);
         return true;
     }
 }

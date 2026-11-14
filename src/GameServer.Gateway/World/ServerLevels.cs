@@ -38,6 +38,8 @@ public static class ServerLevels
         public IReadOnlyList<PlacedTileObject> RoomObjects { get; init; } = [];
         /// <summary>The rooms' links between <see cref="RoomObjects"/> (indexes in it): the Labyrinth's puzzle wiring.</summary>
         public IReadOnlyList<PlacedLink> RoomLinks { get; init; } = [];
+        /// <summary>The placed rooms that have pack points, with those points (<see cref="AreaPopulation.PackRooms"/>).</summary>
+        public IReadOnlyList<AreaPopulation.PlacedRoom> PackRooms { get; init; } = [];
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
@@ -307,6 +309,7 @@ public static class ServerLevels
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
+                PackRooms = AreaPopulation.PackRooms(result.Records),
             };
         }
         catch (Exception ex)

@@ -38,6 +38,7 @@
     <InternalsVisibleTo Include="cosmetics" />
     <InternalsVisibleTo Include="currencyexchange" />
     <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="delirium" />
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />

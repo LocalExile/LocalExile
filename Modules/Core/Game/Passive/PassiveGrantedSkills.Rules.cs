@@ -12,13 +12,56 @@ public static partial class Game
 
     /// <summary>The skills the player's allocated passives grant whose node carries this trigger stat
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
-    /// Call under the Monsters lock.</summary>
+    /// A tattoo that replaces such a node (the Loyalty summons) is a grant of its own: its
+    /// PassiveSkillOverrides.Effect and the has_trigger_on_* stat from TattooStats. Call under the Monsters lock.</summary>
     static IEnumerable<PassiveGrantedSkills.Grant> TriggeredGrantsLocked(ClientState conn, string trigger)
     {
         if (Stats.Key(trigger) is not uint key) return [];
         var passives = PassivesFor(conn);
-        return (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For([.. conn.Passives, .. conn.MainAscendancy.Allocated])
+        var passiveGrants = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value
+            .For([.. conn.Passives, .. conn.MainAscendancy.Allocated])
             .Where(g => passives.Find(g.Node)?.Stats.Any(s => s.Key == key && s.Value != 0) == true);
+        return passiveGrants.Concat(TattooTriggeredGrantsLocked(conn, key));
+    }
+
+    // Tattooed passives whose effect is a granted triggered skill: the tattoo's trigger stat comes from its
+    // TattooStats row and the skill from the client's PassiveSkillOverrides.Effect (a GrantedEffectsPerLevel row).
+    internal static IEnumerable<PassiveGrantedSkills.Grant> TattooTriggeredGrantsLocked(ClientState conn, uint triggerKey)
+    {
+        var skills = SkillsFor(conn);
+        var tree = PassivesFor(conn);
+        Dictionary<ushort, string> tattoos;
+        ushort[] allocated;
+        lock (conn.Monsters)
+        {
+            tattoos = new(conn.Tattoos);
+            allocated = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        }
+        // Tattoos are saved apart from allocation, so refunding the node must remove its trigger: only allocated nodes
+        // count. A timeless jewel that replaces an allocated node disables its tattoo in the stat pass; its trigger
+        // stops with it, while an augmenting or unaffected node in the radius keeps its tattoo and trigger.
+        var allocatedNodes = allocated.ToHashSet();
+        var replaced = new HashSet<ushort>();
+        var catalog = ItemsFor(conn);
+        foreach (var jewel in ItemsOf(conn).Items(PlayerInventories.PassiveJewels).OrderBy(i => i.X))
+        {
+            if (tree.JewelNodeForSlot(jewel.X) is not { } socket || !allocatedNodes.Contains(socket)) continue;
+            if (TimelessJewelCatalog.Read(jewel.Item, catalog.Mods) is not { } spec) continue;
+            var inRadius = tree.NodesInRadius(socket, spec.Radius).ToHashSet();
+            foreach (ushort node in allocatedNodes)
+                if (inRadius.Contains(node) && tree.Find(node) is { } passive
+                    && TimelessJewels.Alternate(passive, spec, node) is { Replaces: true })
+                    replaced.Add(node);
+            break;
+        }
+        foreach (var (node, name) in tattoos)
+        {
+            if (!allocatedNodes.Contains(node) || replaced.Contains(node)) continue;
+            if (TattooCatalogue.Find(name) is not { GrantsSkill: true } entry) continue;
+            if (TattooStats.For(name)?.Any(s => s.Key == triggerKey && s.Value != 0) != true) continue;
+            if (skills.EffectsPerLevel(entry.Effect) is not { } level || skills.EffectId(level.Effect) is not { } effectId) continue;
+            yield return new(node, entry.Effect, level.Effect, effectId, level.Level);
+        }
     }
 
     // The skills the player's allocated passives grant, as virtual gem sources after the socketed gems
@@ -208,7 +251,7 @@ public static partial class Game
             at = conn.Walk.Position(now);
             targets = [.. conn.Monsters.Where(e => e.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(e.Value.Walk.Position(now), at) <= radius).Select(e => (e.Key, e.Value))];
-            if (art is not null) effectObject = conn.NextObjectId++;
+            if (art is not null) effectObject = conn.TakeObjectId();
         }
         if (effectObject is uint obj)
             await SendWorldCreate(conn, obj, () =>

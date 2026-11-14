@@ -14,7 +14,7 @@ public static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems, Slayer, Hierophant;
+        public long Golems, Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
         public bool Moving;
@@ -43,7 +43,7 @@ public static partial class Game
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
-            Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
+            Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
         };
@@ -52,7 +52,7 @@ public static partial class Game
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.Slayer == b.Slayer && a.Offerings == b.Offerings && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty;
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
@@ -80,7 +80,7 @@ public static partial class Game
     // Off a live connection (tests, the build scopes) every read builds.
     const double PlayerStatsFrame = 1.0 / 60;
     sealed class ThrottledStats { public PlayerStatsEntry? Entry; }
-    static readonly ConditionalWeakTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
+    static readonly RuleTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
 
     static Dictionary<uint, int> ThrottledPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
@@ -106,8 +106,8 @@ public static partial class Game
     // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
-    sealed class SentSkillList { public byte[]? Bytes; }
-    static readonly ConditionalWeakTable<ClientState, SentSkillList> SentSkillLists = new();
+    sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
+    static readonly RuleTable<ClientState, SentSkillList> SentSkillLists = new();
 
     public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
@@ -116,7 +116,7 @@ public static partial class Game
         lock (sent)
         {
             if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
-            sent.Bytes = bytes;
+            (sent.Bytes, sent.Skills) = (bytes, skills);
         }
         return bytes;
     }
@@ -125,6 +125,20 @@ public static partial class Game
     public static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
-        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
+        lock (sent) (sent.Bytes, sent.Skills) = (InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn)), skills);
+    }
+
+    /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),
+    /// null when the skill was not sent. The client times some effects by the skill's stats it holds, not the
+    /// character's current ones (Hammerfalls' waves).</summary>
+    public static int? SentSkillStat(ClientState conn, ushort skillId, string stat)
+    {
+        if (Stats.Key(stat) is not uint key || !SentSkillLists.TryGetValue(conn, out var sent)) return null;
+        lock (sent)
+        {
+            if (sent.Skills?.FirstOrDefault(s => s.Id == skillId) is not { } skill) return null;
+            foreach (var (k, value) in skill.Stats ?? []) if (k == key) return value;
+            return 0;
+        }
     }
 }

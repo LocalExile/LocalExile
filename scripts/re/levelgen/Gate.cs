@@ -13,7 +13,8 @@ namespace LevelGenTool;
 /// same way, and every (area, seed) the client logged (the oracle), run by worker processes that each open the game
 /// once. The results go to gate-latest.json beside this file and are compared with gate-baseline.json (committed):
 /// what was gained, what was lost, and the first-difference clusters to work on next. `--save` makes the results the
-/// new baseline; the exit code is 1 when anything was lost.
+/// new baseline; the exit code is 1 when anything was lost. A warning names each area the new baseline would no
+/// longer support (<see cref="LeftOut"/>); it does not change the exit code.
 /// Options: --jobs N, --only &lt;area regex&gt;, --no-oracle, --save.</summary>
 static class Gate
 {
@@ -97,12 +98,60 @@ static class Gate
         Summary(results, baseline);
         int lost = Compare(results, baseline);
         Clusters(results);
+        var next = only == "." && oracle || !File.Exists(baselinePath) ? results : Merge(baselinePath, results);
+        LeftOut(baselinePath, next, save);
         if (save)
         {
-            Write(baselinePath, only == "." && oracle ? results : Merge(baselinePath, results));
+            Write(baselinePath, next);
             Console.WriteLine($"saved as the baseline ({Path.GetRelativePath(root, baselinePath)})");
         }
         return lost > 0 ? 1 : 0;
+    }
+
+    /// <summary>Warns when the baseline this run gives (<paramref name="next"/>) supports fewer areas than the committed
+    /// one (<c>ServerLevelAreas</c>' rules): a check that got no worse can still leave an area out, e.g. a newly logged
+    /// load that does not match is a new entry, not a lost one. Names each area with its entries that are new or changed.</summary>
+    static void LeftOut(string baselinePath, SortedDictionary<string, Result> next, bool save)
+    {
+        if (!File.Exists(baselinePath)) return;
+        var before = JsonSerializer.Deserialize<SortedDictionary<string, Result>>(File.ReadAllText(baselinePath)) ?? new();
+        string scratch = Path.GetTempFileName();
+        HashSet<string> was, now;
+        try
+        {
+            Write(scratch, next);
+            was = GameServer.Core.World.ServerLevelAreas.Load(baselinePath);
+            now = GameServer.Core.World.ServerLevelAreas.Load(scratch);
+        }
+        finally { File.Delete(scratch); }
+        var dropped = was.Except(now).Order(StringComparer.Ordinal).ToList();
+        if (dropped.Count == 0) return;
+        Console.WriteLine($"WARNING: {(save ? "the saved baseline leaves" : "saving this run would leave")} out {dropped.Count} area(s) the Gateway " +
+            "generates today (the next server_level_areas list made from it loses them):");
+        foreach (string area in dropped.Take(40))
+        {
+            static bool Of(string key, string area) => key.Split(' ') is { Length: >= 2 } parts && parts[1] == area;
+            // What a check fails on, or null for one that passes all it has.
+            static string? Fails(string key, Result r)
+            {
+                if (!r.HashOk) return r.Hash;
+                if (key.StartsWith("oracle ") || key.StartsWith("failure ")) return null;
+                var parts = new List<string>();
+                if (!r.GridsOk) parts.Add("grids");
+                if (!r.DrawsOk) parts.Add("draws");
+                if (r.Captured >= 0 && !r.DoodadsOk) parts.Add("doodads");
+                if (r.Heights > 0) parts.Add("cell heights");
+                if (r.Objects > 0) parts.Add("transitions");
+                return parts.Count == 0 ? null : string.Join(", ", parts);
+            }
+            var changed = next.Where(e => Of(e.Key, area) && (!before.TryGetValue(e.Key, out var b) || b != e.Value)).ToList();
+            var why = changed.Where(e => Fails(e.Key, e.Value) is not null)
+                .Select(e => $"{e.Key}: {(before.ContainsKey(e.Key) ? "changed" : "new")} ({Fails(e.Key, e.Value)})").ToList();
+            why.AddRange(before.Keys.Where(k => Of(k, area) && !next.ContainsKey(k)).Select(k => $"{k}: not checked any more"));
+            if (why.Count == 0) why.Add(changed.Count == 0 ? "no entry of its own changed" : $"{changed.Count} new or changed entries, all passing");
+            Console.WriteLine($"  ! {area}: {string.Join("; ", why.Take(4))}{(why.Count > 4 ? $"; … {why.Count - 4} more" : "")}");
+        }
+        if (dropped.Count > 40) Console.WriteLine($"  ! … {dropped.Count - 40} more area(s)");
     }
 
     /// <summary>`levelgen survey [--jobs N]`: every WorldAreas row with a topology that has no generation trace

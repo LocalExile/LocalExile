@@ -12,8 +12,8 @@ public static class BrineKing
     const string Art = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/";
     public const int MeleeEffect = 406;
     static readonly int[] Effects = [6354, 6359, 6670, 6668, 6361, MeleeEffect, 4365, 6759, 6761, 6360, 6355];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, Tide> Tides = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, Tide> Tides = new();
     // Row 856 is not IsRecovery: its GrantedStats do not travel in 0x1c1 (11-skills.md §12).
     public static byte[] TideBuff(uint player, ushort instance) => InstanceEntities.AddBuff(player, instance, 856);
     sealed class Tide
@@ -107,7 +107,7 @@ public static class BrineKing
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
-        IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 1).Set("tide_rush", 0) : null;
+        IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 0).Set("tide_rush", 0) : null;
 
     public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
     {
@@ -183,6 +183,7 @@ public static class BrineKing
         readonly List<GlyphQuest.Placement> spawners;
         readonly double radius, speed;
         double floodAt = double.NaN, nextSlam, nextRush, rushUntil, nextMinion, nextChase, nextStorm, nextOrb, nextWaveHit, expandUntil;
+        double emergeUntil = double.NaN;
         int floodStep;
         uint waveId;
         byte waveState;
@@ -222,13 +223,12 @@ public static class BrineKing
                 lock (conn.Monsters)
                 {
                     boss.ActionGeneration++; boss.SwingGeneration = null;
-                    boss.States = (boss.States ?? boss.Variety!.StateMachine)?.Set("rock_mode", 1);
                     if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                         conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { Skills = skills, StateMachine = boss.States } };
                 }
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.PlayerSkillsChange(id, skills,
                     boss.Attack is { } old && !skills.Any(s => s.Id == old.SkillId) ? [old.SkillId] : []), "[Brine King] full actor skill list");
-                await State(conn, "rock_mode", 1);
+                if (Phases.Active && floodStep >= 2) await Basic(conn, "ChangeToStance2", conn.Clock.Elapsed.TotalSeconds, viewer: conn);
             }
             if (waveId != 0 && waveViews.Add(conn))
             {
@@ -274,6 +274,18 @@ public static class BrineKing
                 if (Distance(pos, player) > boss.AggroRange) return;
                 boss.Aggro = true;
             }
+            if (boss.EntranceGrace)
+            {
+                if (double.IsNaN(emergeUntil))
+                {
+                    // BrineKingBody/rig.amd: the native Emerge clip lasts 3333 ms.
+                    emergeUntil = now + 3.333;
+                    await Basic(conn, "Emerge", now);
+                }
+                if (now < emergeUntil) return;
+                await State(conn, "rock_mode", 1);
+                boss.EntranceGrace = false;
+            }
             if (!boss.BossBarShown && boss.Variety is { BossHealthBar: true } && boss.States?.IndexOf("boss_life_bar") >= 0)
             {
                 lock (runner.Monsters) { boss.BossBarShown = true; conn.BossBarsSeen.Add(id); }
@@ -308,6 +320,7 @@ public static class BrineKing
                 }
                 if (now >= floodAt + 3 && floodStep == 1)
                 {
+                    await Basic(conn, "ChangeToStance2", now);
                     await WaveState((byte)(3 + 4 * Phases.Completed));
                     floodStep = 2;
                 }
@@ -320,6 +333,7 @@ public static class BrineKing
                     }
                     if (immunity is { } buff) await All(id, InstanceEntities.RemoveBuff(id, buff), monster: true);
                     immunity = null;
+                    await Basic(conn, "ChangeToStance1", now);
                     lock (conn.Monsters) Phases.Finish();
                     floodAt = double.NaN;
                     nextSlam = now + 1; nextRush = now + 8;
@@ -360,16 +374,16 @@ public static class BrineKing
             {
                 nextSlam = now + 5;
                 int effect = Phases.Completed >= 2 && Random.Shared.Next(2) == 0 ? (Random.Shared.Next(2) == 0 ? 6759 : 6761) : 6668;
-                await Cast(conn, effect, player, now);
+                if (await Cast(conn, effect, player, now) is not { } generation) return;
                 var attack = Attack(conn, boss.Variety!, boss.Level, effect);
-                hits.Add((now + attack.Seconds * 0.65, player, effect == 6668 ? 12 : 18, attack, boss.ActionGeneration));
+                hits.Add((now + attack.Seconds * 0.65, player, effect == 6668 ? 12 : 18, attack, generation));
                 return;
             }
             if (distance <= boss.Variety!.AttackRange + 1)
             {
-                await Cast(conn, MeleeEffect, player, now);
+                if (await Cast(conn, MeleeEffect, player, now) is not { } generation) return;
                 var attack = Attack(conn, boss.Variety!, boss.Level, MeleeEffect);
-                hits.Add((now + attack.Seconds * 0.5, player, boss.Variety.AttackRange + 2, attack, boss.ActionGeneration));
+                hits.Add((now + attack.Seconds * 0.5, player, boss.Variety.AttackRange + 2, attack, generation));
             }
             else if (now >= nextChase)
             {
@@ -380,7 +394,7 @@ public static class BrineKing
             }
         }
 
-        async Task Cast(ClientState conn, int effect, (int X, int Y) target, double now)
+        async Task<int?> Cast(ClientState conn, int effect, (int X, int Y) target, double now)
         {
             var attack = Attack(conn, boss.Variety!, boss.Level, effect);
             int generation;
@@ -391,11 +405,12 @@ public static class BrineKing
                 boss.BusyUntil = now + attack.Seconds + 0.2;
             }
             var (remote, stream, ciphers) = conn.Wire;
-            await SendMonsterAction(remote, stream, ciphers, conn, id, boss, generation, () =>
+            bool sent = await SendMonsterAction(remote, stream, ciphers, conn, id, boss, generation, () =>
             {
                 var p = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 return InstanceProtocol.ActionStarted(id, p.X, p.Y, target.X, target.Y, Skill(effect), conn.NextActionSequence(), 0x0408);
             }, $"[Brine King] skill {effect}, phase {Phases.Completed}");
+            return sent ? generation : null;
         }
 
         async Task Move(ClientState conn, (int X, int Y) target, double now)
@@ -409,6 +424,16 @@ public static class BrineKing
                 boss.Walk.Order(target.X, target.Y, conn.Clock.Elapsed.TotalSeconds);
                 return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, 0x2909, conn.NextActionSequence(), 0x0408);
             }, "[Brine King] move");
+        }
+
+        async Task Basic(ClientState conn, string action, double now, ClientState? viewer = null)
+        {
+            if (Game.SkillsFor(conn).ActionSkillId(action) is not { } skill) return;
+            var at = boss.Walk.Position(now);
+            var record = InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, conn.NextActionSequence(), 0x0800, id);
+            if (viewer is null) await All(id, record, monster: true);
+            else await SendWorldRecord(viewer.Wire.Remote, viewer.Wire.Stream, viewer.Wire.Ciphers, viewer, id, record,
+                "[Brine King] restore defensive stance");
         }
 
         async Task State(ClientState conn, string name, int value)
@@ -427,7 +452,7 @@ public static class BrineKing
             if (waveId == 0)
             {
                 var conn = players[0];
-                lock (conn.Monsters) waveId = conn.NextObjectId++;
+                lock (conn.Monsters) waveId = conn.TakeObjectId();
                 foreach (var player in players) { await CreateWave(player); waveViews.Add(player); }
             }
             else await All(waveId, InstanceEntities.TransitionableUpdate(waveId, 3, state));
@@ -564,7 +589,7 @@ public static class BrineKing
         async Task<uint> Effect(ClientState conn, (int X, int Y) at, string ao, double expires)
         {
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             var obj = new EffectObject(at.X, at.Y, ao);
             await All(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()), create: true);
             await All(effect, InstanceProtocol.EnterWakeZone(effect));

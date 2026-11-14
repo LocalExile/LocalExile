@@ -25,6 +25,14 @@ public sealed class NpcCatalog
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
+    /// <summary>The keys held on a click that pick one of an NPC's options at once, as NPCTalk's <c>__col22</c> numbers
+    /// them (4 there is none): Ctrl + click on Nessa sells, Alt + click buys, both identify (17-npcs.md §3).</summary>
+    public enum Shortcut { None = 0, Ctrl = 1, Alt = 2, CtrlAlt = 3 }
+
+    /// <summary>The shortcut a click with these keys held asks for.</summary>
+    public static Shortcut ShortcutFor(bool ctrl, bool alt) =>
+        ctrl ? alt ? Shortcut.CtrlAlt : Shortcut.Ctrl : alt ? Shortcut.Alt : Shortcut.None;
+
     /// <summary>An NPCTalk row: the NPC's dialogue option <paramref name="Index"/> (column 1, what C→S 0x82 carries), its
     /// NPCTalkCategory Id (Gossip, Quests, BuyItems, SellItems, IdentifyItems, RespecPassivePointsForGold …), script and
     /// NPCTextAudio rows.</summary>
@@ -34,6 +42,8 @@ public sealed class NpcCatalog
         /// (the character's list has no argument or 0).</summary>
         public bool OpensGuildHideouts => System.Text.RegularExpressions.Regex.IsMatch(Script, @"HideoutSelectionWindow\s*,\s*1\s*\)");
         public bool Introduction { get; init; }
+        /// <summary>The keys that pick this row on the click itself (NPCTalk <c>__col22</c>).</summary>
+        public Shortcut Shortcut { get; init; }
         public bool Automatic { get; init; }
         public bool AutomaticContextSupported { get; init; }
         public int Priority { get; init; }
@@ -203,6 +213,12 @@ public sealed class NpcCatalog
             && t.StartFlag is { } start && !flags.Contains(start) && t.Available(flags))
         .OrderByDescending(t => t.Priority).FirstOrDefault();
 
+    /// <summary>The option a click with <paramref name="keys"/> held picks: the NPC's first row with that shortcut whose
+    /// quest flags the character meets (rows that share one differ in them: Alva's "View Temple" in the player's own
+    /// hideout, else "Sell Items"). The rows' other conditions (17-npcs.md §3) are not read, as for a picked option.</summary>
+    public Talk? ShortcutOf(Npc npc, Shortcut keys, IReadOnlySet<string> flags) =>
+        keys == Shortcut.None ? null : TalksOf(npc).FirstOrDefault(t => t.Shortcut == keys && t.Available(flags));
+
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
@@ -322,6 +338,7 @@ public sealed class NpcCatalog
                 [.. r.Ints("NPCTextAudioKeys")])
             {
                 Introduction = r.BoolOrNull("__col13") == true,
+                Shortcut = OptionalInt("__col22") is >= 1 and <= 3 and var keys ? (Shortcut)keys : Shortcut.None,
                 Automatic = r.BoolOrNull("__col33") == true,
                 Priority = OptionalInt("__col34"),
                 AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }

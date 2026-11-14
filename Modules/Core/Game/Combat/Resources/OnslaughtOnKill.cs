@@ -80,7 +80,7 @@ public sealed class KillOnslaught
 
 public static partial class Game
 {
-    public static readonly ConditionalWeakTable<ClientState, KillOnslaught> KillOnslaughts = new();
+    public static readonly RuleTable<ClientState, KillOnslaught> KillOnslaughts = new();
     public static KillOnslaught KillOnslaughtOf(ClientState conn) => KillOnslaughts.GetValue(conn, _ => new());
 
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
@@ -136,7 +136,8 @@ public static partial class Game
             if (removed != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, removed));
             if (seconds is double left)
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, o.Buff = conn.NextBuff++, onslaught!.BuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)left)));
+                    u68: BitConverter.SingleToUInt32Bits((float)left),
+                    visual: BuffArtVisual(conn, "onslaught_buff", "virtual_onslaught_art_variation")));
             if (stats)
             {
                 RecomputePoolsAndSpeed(conn);

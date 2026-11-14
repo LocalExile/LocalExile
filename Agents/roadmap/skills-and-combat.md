@@ -26,11 +26,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   clock, with pauses and default attacks between throws; then read every class and stance's Melee views from the ACT
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
-- **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up
-  (the action's two repeat paths are in [11](../docs/protocol/11-skills.md) §9).
-  Start: cast Ice Nova with Spell Echo linked under `scripts/re/frida/trace-ice-nova-repeat.js`, with
-  `Game_ICE_NOVA_REPEATS=1` set for the Gateway so it sends the count, then hit with each ring.
-  Done when: every Ice Nova ring drawn with Spell Echo deals damage once.
+- Verify transfigured Ice Nova repeats when the area expands from Frostbolts.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats
@@ -46,13 +42,14 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Impale:** conditional weapon/Pride chance, extra applications and consumption overrides, Impaler mechanics,
   native count/visual publication, corpse consumers and official duration rounding ([20](../docs/protocol/20-damage.md)
   §3a).
-- **Cooldowns:** multi-use recharge, shared groups, typed/conditional/more recovery and official tick boundaries
+- **Cooldowns:** remaining stored-use sources, conditional recovery modifiers and official tick boundaries
   ([11](../docs/protocol/11-skills.md) §9).
 - **Attack timing:** an attack longer than its clip stretches the clip's slow span, which `AttackContactDelay` does not
   model; the arrow arrives about 25 ms after the muzzle flash, with a fixed 60 ms lead tuned on localhost rather than
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
   off-hand alternation, conditional damage and support/modifier scope; check equipment UI refresh live.
+  Attack base/added coefficients are separate; remaining skill-specific added inputs and native checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
@@ -113,7 +110,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Start:**
   - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging and alternative ailments on
     monsters beyond ignites and bleeds, and further added-damage/support effects.
-  - Weapon-local "with this Weapon per 10 <attribute>" and spell per-Intelligence added damage.
+  - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
@@ -122,8 +119,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Whisperer, Arcane Might, Steel Willed, Rampager and Behemoth's remaining scope is in their docs
     ([Whisperer](../docs/game/whisperer.md), [Arcane Might](../docs/game/arcane-might.md),
     [Steel Willed armour](../docs/game/steel-willed-armour.md), [Behemoth](../docs/game/behemoth.md)).
-  - Frostblink: moving targets, use during an active walk, departure/arrival damage, chilled ground, enemy-dependent
-    recovery and shared Blink groups. Extend terrain and movement restrictions from native evidence before accepting
+  - Frostblink: moving targets, use during an active walk and enemy-dependent cooldown recovery. Extend terrain and movement restrictions from native evidence before accepting
     other instant movement skills.
   - Add support effects through `DamagePacket.Add`, `Scale`, `Convert` and `AddGain`. When owned-actor execution is
     implemented, supply the actual caster's stats to `SkillDamageContext`; do not inherit an owner's spell-damage
@@ -146,7 +142,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 
 - Native composition with supported projectiles, area sweeps, equipment sources, notification delays and slow
   destination loading; queued refreshes across expiry and decay-speed modifiers.
-  Measure official capped-attempt refresh and area-loading timer parity before replacing policy v1.
+  Capped regeneration now refreshes activity at any advance cadence (policy v2); measure
+  official capped-attempt refresh for discrete gains and area-loading timer parity before replacing policy v2.
   See [26-rage.md](../docs/protocol/26-rage.md).
 
 ### Vaal execution and remaining soul checks

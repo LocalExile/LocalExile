@@ -36,6 +36,12 @@ The real client accepted Cyclone with Increased Area of Effect and later constru
 The server applies linked area modifiers, added attack/spell damage, selected unconditional more/less damage,
 conversion/gain-as-extra, damage prohibitions, attack/cast/projectile speed, critical modifiers and mana costs.
 Reservation uses support cost multipliers; changing links refreshes active aura reservation values.
+Arrogance Support adds its stat set's `base_skill_reserve_life_instead_of_mana` and `aura_effect_+%` (19 at level 20)
+to the aura it supports: `ReservationContext` moves the reservation from mana to life, and `AuraSupport` supplies the
+increased effect (the aura still affects its caster, unlike Generosity's `aura_cannot_affect_self`). Arrogance's own
+reservation multiplier (201% at level 20) multiplies the aura's percentage, so level-20 Grace reserves 100.50% of
+maximum life instead of 50% of maximum mana. That product is computed as an exact decimal percentage, not a binary
+`double`, so 201% of 50% keeps its last permyriad (`GemSupports.SupportedReservation`).
 AttackSpeedMultiplier is an increased percentage: Cyclone 200 means three times base attack speed.
 Lifetap Support turns the supported skill's whole Mana cost into Life (`base_skill_cost_life_instead_of_mana`, with
 its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_life_threshold`, and grants the Lifetap
@@ -45,6 +51,13 @@ same Life cost.
 The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
 converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
 refused when its Life cost is not below current Life. Mana reservation is unchanged.
+Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
+any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
+that use's ailments. It is an exceptional gem: `support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`
+is 6, 7 and 8 at levels 1-3, so Fortification's 20-stack base maximum gives 36% to 48%. Every paid tick of a
+channelled skill is a use and consumes again. The stored value is applied through `WithOverheat` to the ignite, bleed
+and poison settings of the supported skill's hits and of the projectiles it releases. A use with fewer than three
+stacks stores nothing, so the next use without Fortification has no bonus.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
 Conditional modifiers are not treated as unconditional bonuses.
 Skill panel values and ordinary hit execution use the same supported-skill calculation.
@@ -107,6 +120,13 @@ raises the supported gem's level like the generic `supported_active_skill_gem_le
 repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
 keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
 applies).
+Cruelty Support grants its buff on a hit of a supported skill: `CrueltyPctFor` computes `round(100 * (1 + cruelty_effect_+%/100) * (D/L)^0.2)`
+from the hit's damage `D` (capped at the life the target could lose) and the monster's maximum life `L`, capped at 40%.
+Cruelty is one buff on the character: any supported hit keeps the stronger of the running value and its own and
+refreshes the buff's 4 s duration (plus `cruelty_duration_+%`), and every Cruelty-supported skill takes that value as
+`cruelty_damage_over_time_+%_final` in its own stats, so its Damage over Time debuffs take it. The buff
+(BuffDefinitions 1815) shows that value, with `u82 = 0` and one value (the percent), re-sent on a value change or a
+deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the granting hit itself do not get it yet.
 
 Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
@@ -146,13 +166,19 @@ monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physic
 factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
 maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
 for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
-kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
+kill (`ItemQuantityFactor`) and Item Rarity's `base_killed_monster_dropped_item_rarity_+%` raises that kill's rarity
+chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
+(`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
 maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
 shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
-Devour recovers its life/mana on a killing blow (the corpse is not removed); Sacrifice pays its share of current life
-for added chaos; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
+the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
+Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
+unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;
+area poison uses the same added chaos base. Source identity survives gem experience/level-lock edits, not replacement.
+Proxy/trigger executors must supply their own actual caster and never reuse the player payment; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.
 
@@ -162,8 +188,8 @@ gains a charge on a supported mana spend, five at most, or loses all of them whe
 threshold; each charge adds its more Elemental Damage and increased Critical Strike Chance, and its reduced Mana Cost
 applies to the supported skill. Controlled Blaze counts enemies ignited in the last four seconds: each one adds the
 support's more Ignite Damage up to its cap and its less Damage down to its floor, and its base ignite chance applies
-to the hit. Cruelty's hit damage already reaches supported hits and their ailments; its buff's additional damage over
-time is not modelled.
+to the hit. Cruelty's hit damage reaches supported hits and their ailments, and its buff's more damage over time is
+described above.
 
 In the live Cyclone example, the level-one support adds 30% increased area to the character's 136%.
 A base radius of 16 becomes 26 cells after area-to-radius conversion and integer rounding.
@@ -202,11 +228,14 @@ instant skills retain their original count, and spent uses recover in sequence o
 changes preserve progress; removing the support changes capacity without refunding spent uses. Native Actor cooldown
 updates replace the complete spent-use queue. Duplicate same-effect gems and the special cooldown exclusions in
 `SingleUseCooldown` retain their existing limitations. Momentum's stacks need a skill-use and movement signal;
-Barrage needs its own release pattern, not a stat.
+Barrage's attack-time penalty uses the resolved projectile count, including additional arrows, before final-speed rounding.
+In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x2d6`) and
+`support_barrage_attack_time_+%_per_projectile_fired` (`0x2a28`), multiplying final speed by
+`100 / (100 + count * penalty)` at `0x142708769..0x1427087fd` before rounding to an integer percent.
+This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
-their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
-aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
-more damage over time on top of its hit damage.
+their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
+needs warcry exertion.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.

@@ -4,6 +4,20 @@
 'use strict';
 const module = Process.getModuleByName('Game.patched.exe');
 const at = va => module.base.add(ptr(va).sub(ptr('0x140000000')));
+// A global's address, read from an instruction that uses it. Data moves between client builds whose code does not
+// (Agents/docs/re/tooling.md section 11), so a fixed data address fits one build only. `pattern` is the instruction and
+// the bytes after it in hex, with ???????? for its RIP-relative displacement, which must end the instruction.
+function globalAt(name, va, pattern) {
+  const p = at(va), gap = pattern.indexOf('?') / 2;
+  const actual = Array.from(new Uint8Array(p.readByteArray(pattern.length / 2)))
+    .map(x => x.toString(16).padStart(2, '0')).join('');
+  if (![...pattern].every((c, i) => c === '?' || c === actual[i])) {
+    throw new Error(`Unsupported client: ${name} code differs from 3.29.3c`);
+  }
+  return p.add(gap + 4).add(p.add(gap).readS32());
+}
+// The version the executable names itself (" tags/3.29.3d", lea rax at the crash uploader's command line).
+const BUILD = globalAt('version tag', '0x140df56c3', '488d05????????488944246048c7442468').readCString().trim().replace(/^tags\//, '');
 const specs = {
   frame: ['0x141528fbf', '488b5d284883eb10483b5d200f848800'],
   connect: ['0x142144340', '48895c2408488974241055574156488d'],
@@ -60,8 +74,11 @@ function lockedWrite(socket, writeIt) {
   if (threaded) acquireLock(lock);
   try { writeIt(); } finally { if (threaded) releaseLock(lock); socket.add(0x240).writeU8(0); }
 }
-const app = () => at('0x1445d6fd8').readPointer();
-const stack = () => at('0x1445d6fb0').readPointer();
+// mov rax, [app] and mov rax, [state stack]: 0x1445d6fd8 and 0x1445d6fb0 in 3.29.3c, 0x10 higher in 3.29.3d.
+const appGlobal = globalAt('application global', '0x1400f3b30', '488b05????????488907488b05');
+const stackGlobal = globalAt('state stack global', '0x1400f29e3', '488b05????????488906488b05');
+const app = () => appGlobal.readPointer();
+const stack = () => stackGlobal.readPointer();
 const loginObject = () => app().add(0x358).readPointer();
 const instance = () => app().add(0x348).readPointer();
 rpc.exports.identity = () => ({pid: Process.id, path: module.path, build: '3.29.3c'});
@@ -149,7 +166,7 @@ function characters() {
 }
 function status() {
   const a=app(),sm=stack();
-  if(a.isNull() || sm.isNull()) return {pid:Process.id,build:'3.29.3c',screen:'starting',states:[],loginState:0,instanceState:0};
+  if(a.isNull() || sm.isNull()) return {pid:Process.id,build:BUILD,screen:'starting',states:[],loginState:0,instanceState:0};
   const l=a.add(0x358).readPointer(),i=a.add(0x348).readPointer();
   const begin = sm.add(0x20).readPointer(), end = sm.add(0x28).readPointer();
   const count = end.sub(begin).toInt32() / 16;
@@ -157,7 +174,7 @@ function status() {
   const states = Array.from({length: count}, (_, n) => begin.add(n * 16).readPointer().add(0x209).readU8());
   const loginState = l.isNull() ? 0 : l.add(0xde8).readU32();
   const instanceState = i.isNull() ? 0 : i.add(0xc3a0).readU32();
-  return {pid: Process.id, build: '3.29.3c', states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
+  return {pid: Process.id, build: BUILD, states, screen: ({4:'game',6:'login',7:'login',9:'characters',11:'loading'})[states.at(-1)] || 'other',
     loginState, instanceState,
     account: loginState === 3 ? text(l.add(0xe10)) : null,
     character: instanceState !== 3 ? null : text(l.add(0xdf0)),

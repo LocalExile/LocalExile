@@ -25,6 +25,8 @@ public sealed class SaveDatabase : IDisposable
     readonly Lock _gate = new();
     SqliteTransaction? _tx;
     List<Action>? _undo;
+    long _ended;
+    SqliteCommand? _dataVersion;
 
     /// <summary>The characters database.</summary>
     public string Path { get; }
@@ -99,6 +101,26 @@ public sealed class SaveDatabase : IDisposable
                 _tx.Dispose();
                 _tx = null;
                 _undo = null;
+                _ended++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A value that is the same only while nothing in the characters database can have changed: this connection has ended
+    /// no transaction (every write is in one) and no other connection has committed (SQLite's data_version, which also
+    /// sees Auth's process). What was read under one value may be kept and used again while the value stays the same.
+    /// Null inside a transaction, whose reads see its own unfinished writes: read the rows then.
+    /// </summary>
+    public (long Own, long Others)? Unchanged
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (_tx is not null) return null;
+                _dataVersion ??= Command("PRAGMA main.data_version");
+                return (_ended, Convert.ToInt64(_dataVersion.ExecuteScalar()));
             }
         }
     }
@@ -253,6 +275,10 @@ public sealed class SaveDatabase : IDisposable
 
     public void Dispose()
     {
-        lock (_gate) _db.Dispose();
+        lock (_gate)
+        {
+            _dataVersion?.Dispose();
+            _db.Dispose();
+        }
     }
 }

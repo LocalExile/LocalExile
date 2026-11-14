@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
@@ -8,10 +9,20 @@ public interface IGameLogic
 {
     /// <summary>Claim this already active area's player updates after entry or game replacement.</summary>
     void ResumePlayerUpdates(ClientState conn) { }
+    /// <summary>A server frame of the connection ended (Program.RunWorldFrames); the next one starts at
+    /// <paramref name="nextFrameStart"/>, on the connection's clock.</summary>
+    Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) => Task.CompletedTask;
+    /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
+    ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
     Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>
     void Admitting(ClientState conn);
+    /// <summary>Before <see cref="Admitting"/>: whether the framework goes on with this connection. A rule that lets one
+    /// connection hold a character ends the one it replaces here (Program.EndAsync) and waits for that one's save, so this
+    /// connection's load cannot race it. False refuses the connection: its thread still runs <see cref="Save"/> and
+    /// <see cref="Left"/>, and its character was not prepared.</summary>
+    Task<bool> AdmittingAsync(ClientState conn) => Task.FromResult(true);
     /// <summary>Loads the character into the connection, before the area is sent; the character's level.</summary>
     int PrepareCharacter(string remote, ClientState conn, int level);
     /// <summary>What the area's header says of the league (S→C 0x1d).</summary>

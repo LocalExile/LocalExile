@@ -174,10 +174,10 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -286,6 +286,16 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] AnimatedModel(uint entityId, byte animatedIndex, string ao) =>
         ComponentUpdate(entityId, animatedIndex, new BlobWriter().U8(1).WStr32(ao).ToArray());
+
+    public const ushort ActorFileId = 0x1b6;
+
+    /// <summary>
+    /// S→C 0x1b6 (class 0x1435e82b8, read 0x141fe4570; handled by the Actor, 0x14219aa10): object header, wstr, u8. The
+    /// path is an .act file the Actor loads in place of its own animation set, and the u8 the stance it takes there
+    /// (0 the base one); the live counterpart of the Actor's leading path in the object blob.
+    /// </summary>
+    public static byte[] ActorFile(uint entityId, string act, byte stance = 0) =>
+        new LoginWriter().U16(ActorFileId).U32(entityId).U32(0).U16(0).WStr(act).U8(stance).ToArray();
 
 
     /// <summary>
@@ -625,14 +635,33 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     MonsterRarity Rarity = MonsterRarity.Normal, string? Name = null, StateMachineData? StateMachine = null, byte TransitionState = 1,
     ushort Team = 1, IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null)
 {
+    // An instance keeps its monsters' records for the clients that come later: their lists are the record's own (Owned).
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
+    public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
+
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
-    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
+
+    /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
+    /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
+    public uint Parent { get; init; }
+
+    /// <summary>The parent's bone it rides on.</summary>
+    public string Bone { get; init; } = "<root>";
+
+    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 drops the parent's turn. The client
+    /// takes the attached object's facing from the bone alone (0x142909a50), never its own.</summary>
+    public byte AttachKind { get; init; } = EffectObject.AttachWithoutRotation;
+
+    /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
+    public byte AttachFlags { get; init; }
 
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
@@ -654,7 +683,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => Extras.Contains(c) && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
@@ -682,8 +711,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
                 case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
-                    if (AnimatedObject is null) w.U8(0);
-                    else w.U8(1).WStr32(AnimatedObject);
+                    w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
+                    if (AnimatedObject is not null) w.WStr32(AnimatedObject);
+                    if (Parent != 0)
+                        w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
+                            .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
@@ -710,7 +742,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
+                // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
+                // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks
@@ -721,11 +754,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>The monster's mods in ObjectMagicProperties' lists (Gateway MonsterModCatalog): the rarity's own mods
     /// and the rolled affixes, one value per stat of each Mods.dat row.</summary>
-    public IReadOnlyList<ItemMod> Mods { get; init; } = [];
+    public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A rare monster's name: Words.dat HASH32 keys (flags bit 8), prefix then suffix; a custom
     /// <see cref="Name"/> wins.</summary>
-    public IReadOnlyList<uint> NameWords { get; init; } = [];
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 }
 
 /// <summary>
@@ -739,6 +772,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 /// </summary>
 public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<string>? Components = null, StateMachineData? StateMachine = null)
 {
+    public IReadOnlyList<string>? Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public static readonly string[] BaseComponents = ["Positioned", "Stats", "Pathfinding", "Buffs", "Life", "Animated", "Actor", "PetAi"];
 
     static readonly HashSet<string> Extras = ["StateMachine", "Functions", "BaseEvents"];
@@ -830,7 +864,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
-    const byte AttachWithoutRotation = 4;
+    public const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -995,6 +1029,8 @@ public sealed record BlockerObject(int GridX, int GridY, float Rotation, float S
 /// define_shared_timer entries (scripts/re/ot_components.py "shared_states" / "shared_timers").</summary>
 public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int SharedTimers, IReadOnlyList<string>? Names = null)
 {
+    public IReadOnlyList<int> SharedStates { get; init => field = Owned.List(value); } = Owned.List(SharedStates);
+    public IReadOnlyList<string>? Names { get; init => field = Owned.List(value); } = Owned.List(Names);
     /// <summary>States the server set (<see cref="Set"/>): sent with flags 0x02, which makes the client keep the sent
     /// value (the update reader 0x141e42a90 takes the type's default for a flag-0 state the client controls).</summary>
     public IReadOnlySet<int> Overridden { get; init; } = new HashSet<int>();
@@ -1036,12 +1072,13 @@ public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int Share
 /// CooldownMs is the skill's cooldown, which the client takes from the record, not from the data.</summary>
 public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLevelRow, uint Source = 0)
 {
-    public IReadOnlyList<uint> ExtraStatSets { get; init; } = [];
+    public IReadOnlyList<uint> ExtraStatSets { get; init => field = Owned.List(value); } = [];
 }
 
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
     public (uint Object, ushort Skill)? Parent { get; init; }
     /// <summary>The record's u8 → skill +0xcc: the charge the client lets the skill spend while it cools down
     /// (GrantedEffectsPerLevel CooldownBypassType: 1 Endurance, 2 Frenzy, 3 Power; 0x141ea4290, 0x141ea4560). At 0
@@ -1050,11 +1087,11 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x14219d650.</summary>
-    public IReadOnlyList<GrantedSupport> Supports { get; init; } = [];
+    public IReadOnlyList<GrantedSupport> Supports { get; init => field = Owned.List(value); } = [];
     /// <summary>The effect's additional stat sets (GrantedEffects StatSet2, e.g. Volcanic Fissure's), in order: each one's
     /// GrantedEffectStatSetsPerLevel row and stats. The record must carry one of each per set, or the client misreads it
     /// (and crashed, live 2026-10-23).</summary>
-    public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init; } = [];
+    public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
@@ -1105,6 +1142,14 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
     ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
 {
+    // The connection keeps its player's record: its lists are the record's own (Owned).
+    public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
+    public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); } = Owned.List(Equipped);
+    public IReadOnlyCollection<int>? QuestFlags { get; init => field = Owned.Collection(value); } = Owned.Collection(QuestFlags);
+    public IReadOnlyCollection<int>? LeagueQuestFlags { get; init => field = Owned.Collection(value); } = Owned.Collection(LeagueQuestFlags);
+    public IReadOnlyList<VaalSoulBudget>? Souls { get; init => field = Owned.List(value); } = Owned.List(Souls);
+
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
     public float Rotation { get; init; }
@@ -1112,10 +1157,21 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+    /// <summary>The Animated component's index in the same order.</summary>
+    public const byte AnimatedIndex = 5;
+
+    /// <summary>The Actor's leading path (0x1421993f0): an .act file that replaces the type's own animation set, which a
+    /// replacement <see cref="AnimatedObject"/> of another rig needs (a morph: 23-microtransactions.md §3). Null or
+    /// empty keeps the class's.</summary>
+    public string? ActorFile { get; init; }
 
     /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
     public byte PantheonMajor { get; init; }
     public byte PantheonMinor { get; init; }
+
+    /// <summary>The Descendancy.dat row the client's tree panel draws as the second ascendancy layer (Player +0x1b0):
+    /// Affliction's Wildwood specialisations and the 3.29 Bloodline classes, 0 = none.</summary>
+    public byte Descendancy { get; init; }
 
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
@@ -1183,7 +1239,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8((byte)(WashedUp ? 1 : 0)) // +0x1b1 (non-zero → "WashedUp" state)
          .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
          .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
-         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
+         .U8(Descendancy)    // +0x1b0: the Descendancy.dat row (the Bloodline/Wildwood second ascendancy layer, 0 = none)
+         .U8(0)              // +0x1af
+         .U8(0)              // +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears
@@ -1191,7 +1249,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32("").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);

@@ -11,6 +11,10 @@ sealed class DelveJourney
     public bool Finished => Travelled >= Length;
     public int Charged { get; private set; }
     public int Depth { get; }
+    // The authored circle bounds span its diameter; gameplay uses the visible radius.
+    public const float StartRadius = 81f / 2;
+    public bool Started { get; private set; }
+    public bool TryStart((int X, int Y) player) => Started || (Started = DelveRailRoute.Distance(points[0], player) > StartRadius);
     int completed;
     public bool Completed => Volatile.Read(ref completed) != 0;
     public HashSet<uint> EncounterMonsters { get; } = [];
@@ -42,6 +46,15 @@ sealed class DelveJourney
         return Facing(b.X - a.X, b.Y - a.Y);
     }
 
+    public float CableHeading(double travelled)
+    {
+        double from = Math.Floor(Math.Clamp(travelled, 0, Length) / 30) * 30;
+        if (from >= Length) from = Math.Max(0, from - 30);
+        var a = At(from).At;
+        var b = At(Math.Min(Length, from + 30)).At;
+        return a == b ? Heading(travelled) : Facing(b.X - a.X, b.Y - a.Y);
+    }
+
     // DelveTractor rig.ast has an inverse-bind Y of -50.029 for front_axle, +8.061 for rear_axle.
     // Its nose faces +Y at zero, opposite the character's -Y; keep the front axle leading the displacement.
     public static float Facing(int dx, int dy) => MathF.Atan2(dx, -dy) + MathF.PI;
@@ -68,7 +81,7 @@ sealed class DelveJourney
 
     public double EscortStep((int X, int Y) player, double seconds, bool moving)
     {
-        if (seconds <= 0) return 0;
+        if (!Started || seconds <= 0) return 0;
         var projected = Project(player);
         bool leading = projected.Along > Travelled + 8 && projected.Away <= 70;
         double separation = DelveRailRoute.Distance(At(Travelled).At, player);

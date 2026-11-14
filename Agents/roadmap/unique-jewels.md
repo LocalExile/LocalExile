@@ -19,8 +19,8 @@ change.
   its level requirement must be met. Refunding a socket that still holds a jewel is refused until the jewel is taken
   out; a level trim returns the jewel to the main inventory if it has to give the socket up.
 - Unique jewels use the same socket and stat path, so an existing unique item with plain unconditional global mods
-  already applies. **There is no unique-item catalogue, generator, drop or vendor entry yet**, so unique jewels cannot
-  be obtained in normal play.
+  already applies.
+  Item definitions and jewel catalogues exist in world.db; an item source alone does not verify its mechanics or drops.
 - **Pilot done: The Adorned.** `/adorned [0-1000]` creates the corrupted unique Crimson Jewel; its
   `0-100% increased Effect of Jewel Socket Passive Skills containing Corrupted Magic Jewels` scales corrupted magic
   jewels in the ordinary passive sockets. Live check: a corrupted magic jewel gave +15% fire resistance, The Adorned at
@@ -28,7 +28,8 @@ change.
 
 ## What is not done
 
-- No unique item definitions (name, base type, visual identity, mod list, variants) and no `/item`/drop/vendor path.
+- Remaining source/version gaps need per-item evidence.
+  Client name, limit and weight rows are not a playable catalogue.
 - No conditional-stat engine: today every non-local mod is applied unconditionally, so "if you have", "recently",
   "on kill", per-charge and threshold mods would be wrong.
 - No passive-tree radius model, so "in Radius" jewels, threshold jewels and node-modifying jewels are not modelled.
@@ -38,18 +39,16 @@ change.
 
 ## Plan
 
-### 1. Unique item catalogue and source
+### 1. Remaining item sources and historical names
 
-- Build `data/unique-jewels.json` from the client's `UniqueStashLayout`, `Words`, `BaseItemTypes`, `ItemVisualIdentity`
-  and `Mods`, cross-checked with Path of Building's `src/Data/Uniques/jewel.lua` (the same data used for the catalogue).
-  Each entry needs: stable unique name, base item type, unique visual identity, implicit/explicit mod HASH16s and
-  values, variants, level requirement and the `UniqueJewelLimits` entry.
-- Add `/item <unique jewel name>` (and a unique drop/vendor source later) so the item can be tested. The item must be
-  sent with `ItemRarity.Unique`, the unique visual identity and the correct mod list; the client derives the name from
-  its own tables.
-- Tests: every catalogue row creates a serialisable item with the expected base, visual and mod count; unknown names
-  are refused; a reload keeps the item.
-- Done when `/item Might of the Meek` creates the item and the next phases can use it.
+- Existing definitions use world.db's `unique_items`/child tables and `unique_jewels`/`unique_jewel_mods`.
+  The name/art lookup joins the client's `Words`, `UniqueStashLayout` and `ItemVisualIdentity` tables.
+- The [historical-name check](../docs/game/unique-jewels.md#historical-names-and-unconfirmed-sources) separates
+  Army of Bones' rename, the three withdrawn beta designs and six names whose release history remains unconfirmed.
+  None is established here as a separate current item that needs adding.
+- Remaining acceptance is per confirmed item: definition, serialized identity/modifiers, save/load, supported effects
+  and an independently verified acquisition source.
+  Forbidden Flame/Flesh's granted-node model (#791) is a separate task; this check does not complete #358.
 
 ### 2. Global unique jewels (42 in the catalogue)
 
@@ -91,7 +90,8 @@ Full classification, mechanics, radius/ring model and reuse notes:
   stat; special mechanics (corpse destruction).
 - **Wiki gap check (2026-10-29):** of the poewiki names this catalogue lacked, Bound By Destiny, Megalomaniac,
   Sublime Vision, The Balance of Terror and Watcher's Eye now have item generation (their encounter drop rates and
-  conditional-stat consumers are partial); Forbidden Flame and Forbidden Flesh still have no item source.
+  conditional-stat consumers are partial).
+  Forbidden Flame and Forbidden Flesh also have item definitions; their granted-node effect remains separate.
 - **Generated specials:** Impossible Escape (`/impossible_escape`, 48 keystone variants) is implemented with the
   keystone-radius allocation bypass; Rational Doctrine's `/unique_jewel` source and its stationary consecrated /
   critical-strike profane ground mechanics are implemented (see [status](../status/progression.md)).
@@ -158,7 +158,7 @@ The catalogue also has 1 Special row, 8 cluster rows and 9 abyss rows, for 185 e
 
 ## Suggested order and acceptance
 
-1. Catalogue + `/item` (unblocks every later phase).
+1. Confirm remaining source/version gaps against the existing catalogue.
 2. Global rows (highest value, low risk).
 3. Conditional rows (conditions evaluated at use).
 4. Radius rows, split into in-radius stats, thresholds, node modification and granted nodes.

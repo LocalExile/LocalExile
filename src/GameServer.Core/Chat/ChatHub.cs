@@ -86,20 +86,23 @@ public sealed class ChatHub(TimeProvider? time = null)
     void Say(ChatMember member, ChatFrame frame)
     {
         if (frame.Kind is not { } kind || !member.Channels.TryGetValue(kind, out var room)) return;
-        if (ChatWire.Clean(frame.Text) is not { Length: > 0 } text || !Spend(member)) return;
-        var line = ChatWire.Fitted(new ChatFrame(ChatFrame.Line, member.Name, kind, Text: text, Items: ChatWire.Items(text, frame.Items)));
+        frame = ChatWire.CleanLine(frame);
+        if (frame.Text is not { Length: > 0 } text || !Spend(member)) return;
+        var line = ChatWire.Fitted(new ChatFrame(ChatFrame.Line, member.Name, kind, Text: text, Items: frame.Items));
         foreach (var listener in _channels[(kind, room.Channel, room.Language)]) listener.Send(line);
     }
 
     void Whisper(ChatMember member, ChatFrame frame)
     {
-        if (!ChatWire.ValidMember(frame.Name) || ChatWire.Clean(frame.Text) is not { Length: > 0 } text || !Spend(member)) return;
+        if (!ChatWire.ValidMember(frame.Name)) return;
+        frame = ChatWire.CleanLine(frame);
+        if (frame.Text is not { Length: > 0 } text || !Spend(member)) return;
         if (!_members.TryGetValue(frame.Name!, out var target))
         {
             member.Send(new ChatFrame(ChatFrame.Offline, frame.Name));
             return;
         }
-        var items = ChatWire.Items(text, frame.Items);
+        var items = frame.Items;
         target.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whisper, member.Name, Text: text, Items: items)));
         member.Send(ChatWire.Fitted(new ChatFrame(ChatFrame.Whispered, target.Name, Text: text, Items: items)));
     }

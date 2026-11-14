@@ -42,6 +42,19 @@ public class DormantMonsterTests
                 Assert.Equal([(50, 50), (49, 51), (48, 52), (47, 51), (47, 43), (50, 39)], Path(frame.For(0x3041)));
                 Assert.DoesNotContain(new ClientPathfinder.Blocker(50, 50, 2), frame.For(0x3041));
             }
+            // Outside a pass a search is answered from a frame kept while the bodies read the same (MonsterBlockers):
+            // asked after each change below, and twice, it answers as a new frame does.
+            void AnswersAsANewFrame(double now)
+            {
+                foreach (uint id in new uint[] { 0x303f, 0x3041, 0x3043, 0x4000 })
+                {
+                    ClientPathfinder.Blocker[] inPass;
+                    using (var frame = conn.BeginMonsterBlockerFrame(now)) inPass = [.. frame.For(id)];
+                    Assert.Equal(inPass, conn.MonsterBlockers(id));
+                    Assert.Equal(inPass, conn.MonsterBlockers(id));
+                }
+            }
+            AnswersAsANewFrame(0);
 
             var catalog = new MonsterCatalog();
             var drowned = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1"));
@@ -52,6 +65,7 @@ public class DormantMonsterTests
             var nonblocking = new SpawnedMonster("nonblocking", new PlayerWalk(60, 50, 8), 60, 2, 23) { Variety = ghost };
             MonsterEmerge.AddLocked(conn, 0x3042, nonblocking, EmergeKind.Buried, unrisen: true);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(60, 50, 2), conn.Blockers);
+            AnswersAsANewFrame(0);
             using (var frame = conn.BeginMonsterBlockerFrame(0))
                 Assert.DoesNotContain(frame.Bodies, b => b.Id == 0x3042);
 
@@ -71,7 +85,9 @@ public class DormantMonsterTests
                 Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.For(0x3041));
                 Assert.Equal(conn.StationaryBlockers, frame.For(0x3043));
             }
+            AnswersAsANewFrame(0);
             conn.Monsters.Remove(0x3043);
+            AnswersAsANewFrame(0);
 
             // Phasing removes living bodies only from the player's collision view; terrain objects remain,
             // and a different monster still sees the dormant bodies but no longer sees the phased player.
@@ -81,7 +97,12 @@ public class DormantMonsterTests
             conn.Walk.Teleport(100, 100, 0);
             using (var frame = conn.BeginMonsterBlockerFrame(0))
                 Assert.Contains(new ClientPathfinder.Blocker(100, 100, LivingCollision.PlayerSize), frame.For(0x3041));
+            AnswersAsANewFrame(0);
+            conn.Walk.Teleport(101, 100, 0);
+            AnswersAsANewFrame(0);
+            conn.Walk.Teleport(100, 100, 0);
             conn.Phasing = true;
+            AnswersAsANewFrame(0);
             Assert.Equal(new[] { new ClientPathfinder.Blocker(70, 70, 1) }, conn.Blockers);
             using (var frame = conn.BeginMonsterBlockerFrame(0))
             {
@@ -92,6 +113,7 @@ public class DormantMonsterTests
             conn.Phasing = false;
             conn.PlayerSent = false;
             conn.RemoveBlocker(0x2000);
+            AnswersAsANewFrame(0);
 
             var emerge = new MonsterEmerge();
             var risen = emerge.RiseLocked(conn, (50, 50), 1, out bool watching);
@@ -104,6 +126,7 @@ public class DormantMonsterTests
             Assert.Same(nonblocking, conn.Monsters[0x3042]);
             using (var frame = conn.BeginMonsterBlockerFrame(1))
                 Assert.Equal(new uint[] { 0x303f, 0x3040, 0x3041 }, frame.Bodies.Select(b => b.Id));
+            AnswersAsANewFrame(1);
             Assert.Empty(emerge.RiseLocked(conn, (50, 50), 2, out watching));
             Assert.False(watching);
             Assert.Equal(4, conn.Monsters.Count);
@@ -137,6 +160,7 @@ public class DormantMonsterTests
             Assert.DoesNotContain(new ClientPathfinder.Blocker(52, 47, 2), conn.Blockers);
             using (var frame = conn.BeginMonsterBlockerFrame(2))
                 Assert.Equal(new uint[] { 0x3041 }, frame.Bodies.Select(b => b.Id));
+            AnswersAsANewFrame(2);
 
             // Life and Positioned's blocking lifetime differ: a post-kill path still sees the death cell until
             // the clear is sent. A replacement at the same ID must not inherit the old corpse's body.
@@ -145,6 +169,7 @@ public class DormantMonsterTests
             Assert.False(LivingCollision.StepsWithBodies(first));
             using (var frame = conn.BeginMonsterBlockerFrame(2))
                 Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.ForPlayer);
+            AnswersAsANewFrame(2);
             Assert.Null(conn.MonsterBody(0x303f, new("replacement", new(80, 80, 8), 60, 2, 0), 2));
             conn.ReleaseCorpseBody(0x303f, first);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
@@ -287,6 +312,38 @@ public class DormantMonsterTests
             Assert.Same(sharedBody, firstClient.Monsters[0x303f]);
             Assert.False(MonsterEmerge.Unwatched(firstClient));
         }
+    }
+
+    [Fact]
+    public async Task An_emerge_watch_ends_with_its_rules_and_leaves_the_waiting_monsters_to_the_next()
+    {
+        // A game module reload: the old rules' watch stops at once, and what still waits is the instance's, unwatched, for
+        // the new rules' SyncInstanceMonsters to watch.
+        var previous = Game.CombatLifetime;
+        var rules = new ModuleLifetime("Game");
+        var instance = new InstanceState();
+        var conn = new ClientState(new(1, "emerge-reload", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            Instance = instance, PlayerSent = true, PlayerLife = 100,
+        };
+        try
+        {
+            Game.CombatLifetime = rules;
+            lock (conn.Monsters)
+            {
+                Assert.True(MonsterEmerge.AddLocked(conn, 0x3050, new("lurking", new PlayerWalk(60, 60, 8), 60, 2, 23), EmergeKind.Lurking, unrisen: true));
+                Assert.True(MonsterEmerge.StartWatch(conn));
+            }
+            rules.Stop(ex => throw ex);
+            await Game.RunEmergeWatch("emerge-reload", null!, null!, conn);
+            lock (conn.Monsters)
+            {
+                Assert.Contains(0x3050u, instance.World.EmergeGround.Lurking);
+                Assert.True(MonsterEmerge.Waiting(conn, 0x3050));
+                Assert.True(MonsterEmerge.Unwatched(conn));
+            }
+        }
+        finally { Game.CombatLifetime = previous; }
     }
 
     [Fact]

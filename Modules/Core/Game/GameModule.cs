@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Rules = global::Game;
@@ -6,13 +7,26 @@ using Rules = global::Game;
 namespace GameServer.Modules.Game;
 
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
-public sealed class GameModule : IModule
+public sealed class GameModule : IModule, IDisposable
 {
+    /// <summary>The end of an unload: the host disposes a module's entry after it stopped the module's lifetime, so the
+    /// clean-ups that lifetime owns (the fights' CleanupOnUnload) have read the rule tables by now.</summary>
+    public void Dispose()
+    {
+        Rules.ForgetClaimedCharacters();
+        RuleTables.Empty();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        module.Lifetime.Own(Rules.InstallMirror());
         string id = module.Manifest.Id;
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
@@ -20,6 +34,7 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::BrineKing.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
@@ -36,6 +51,7 @@ public sealed class GameModule : IModule
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
@@ -43,7 +59,7 @@ public sealed class GameModule : IModule
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Hierophant.PlayerStats));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
     }
@@ -54,6 +70,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
+    public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
+        HeistModifierMagnitudes.For(item, mods);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);
@@ -62,10 +80,38 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
             Rules.EnsurePlayerUpdates(conn);
     }
+    public Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) =>
+        Rules.LockstepFrameEnded(remote, stream, ciphers, conn, nextFrameStart);
     public Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
         Rules.OnClientMessages(remote, stream, ciphers, messages, unknown, conn, readAt);
 
     public void Admitting(ClientState conn) => Rules.RegisterVitalsAdmission(conn);
+
+    /// <summary>GGG's login rule: one connection holds a character at a time. The newer login takes it and the older client
+    /// is told and dropped, and this one's character is loaded only after that connection saved what it held, so the two
+    /// never write the same character (or its items) from two states.</summary>
+    public async Task<bool> AdmittingAsync(ClientState conn)
+    {
+        foreach (var previous in Rules.ClaimCharacter(conn))
+        {
+            // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once
+            // this one is up (09 §6). It is not another login, and main's transfer path already orders its saves.
+            if (previous.TransferAccepted) continue;
+            Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: another login took the character; ending the older connection");
+            try
+            {
+                await Program.EndAsync(previous, "another login took this character",
+                    "This character was entered from another client: you have been disconnected.");
+            }
+            catch (TimeoutException)
+            {
+                Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: the older connection did not finish ending within "
+                    + $"{Program.EndingTimeout.TotalSeconds:0} s; this login is refused");
+                return false;
+            }
+        }
+        return true;
+    }
 
     public int PrepareCharacter(string remote, ClientState conn, int level)
     {
@@ -121,6 +167,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
 
     public void Left(ClientState conn)
     {
+        Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         if (conn.MonstersPlaced) Rules.KeepInstanceMonsters(conn);

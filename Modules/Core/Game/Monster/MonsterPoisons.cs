@@ -10,13 +10,14 @@ public static partial class Game
 
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
     public static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, int addedChaos = 0)
     {
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
         string hand = spell ? "spell" : "main_hand";
-        return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-            spell || weapon is not null ? null : MainHandLocalSources(conn));
+        return WithOverheat(conn, skillId,
+            MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon, addedChaos: addedChaos), hand,
+                name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+                spell || weapon is not null ? null : MainHandLocalSources(conn)));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
@@ -122,7 +123,7 @@ public static partial class Game
         }
         foreach (var (id, buff, stacks, remaining) in updated)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))), null);
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)), visual: AilmentArtVisual(conn, "poison")), null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)

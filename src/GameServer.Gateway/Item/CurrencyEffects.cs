@@ -374,8 +374,13 @@ public static class CurrencyEffects
         double[] weights = [0, 500, 3500, 4500, 1400, 90, 10];
         var layouts = new List<byte[]>();
         int[] sizes = new int[7];
+        int blockedEdges = 0;
+        for (int edge = 0; edge < count - 1; edge++)
+            if (item.Sockets[edge].Colour == SocketColour.Abyss || item.Sockets[edge + 1].Colour == SocketColour.Abyss)
+                blockedEdges |= 1 << edge;
         for (int mask = 0; mask < 1 << (count - 1); mask++)
         {
+            if ((mask & blockedEdges) != 0) continue;
             var groups = new List<byte> { 1 };
             for (int edge = 0; edge < count - 1; edge++)
                 if ((mask & (1 << edge)) != 0) groups[^1]++;
@@ -386,6 +391,7 @@ public static class CurrencyEffects
         }
         var choices = layouts.Where(g => !g.SequenceEqual(old)).Select(g =>
             (Links: g, Weight: weights[g.Max()] / sizes[g.Max()] * Math.Pow(1 + item.Quality / 100.0, g.Max() - 1))).ToArray();
+        if (choices.Length == 0) return null;
         double roll = random.NextDouble() * choices.Sum(c => c.Weight);
         foreach (var choice in choices)
         {
@@ -408,7 +414,7 @@ public static class CurrencyEffects
         if (!item.Components.Contains("Sockets") || !type.Components.Contains("Sockets")) return 0;
         // The class setting is the cap, not the inventory cell count: a wand is 1x3 cells but may be given six
         // sockets by the setting, as the old Game_SOCKET_CAPACITY dev flag already allowed. The client accepts it.
-        return SystemSettings.Default.SocketMax(type.Class);
+        return type.HasOneSocket ? Math.Max(1, item.Sockets.Count) : SystemSettings.Default.SocketMax(type.Class);
     }
 
     /// <summary>Reroll the socket count and link groups. Refused targets spend no currency. 3.29: only the sockets the
@@ -418,7 +424,11 @@ public static class CurrencyEffects
         int max = MaximumSockets(item, type);
         if (max == 0 || item.Sockets.Count >= SocketCapacity(item, type) || item.Sockets.Any(s => s.Gem is not null)) return null;
         (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (6, 1)];
-        var allowed = choices.Where(c => c.Count <= max && c.Count != item.Sockets.Count).ToArray();
+        var abyss = item.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
+        if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey("local_cannot_have_non_abyssal_sockets"))
+            return null;
+        var ordinary = item.Sockets.Where(s => s.Colour != SocketColour.Abyss).ToArray();
+        var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count).ToArray();
         if (allowed.Length == 0) return null;
         int roll = random.Next(allowed.Sum(c => c.Weight));
         int count = allowed[0].Count;
@@ -431,9 +441,10 @@ public static class CurrencyEffects
         var links = new List<byte> { 1 };
         for (int i = 0; i < count; i++)
         {
-            sockets.Add(i < item.Sockets.Count ? item.Sockets[i] : new(SocketColour.White));
+            bool isAbyss = i >= count - abyss.Length;
+            sockets.Add(isAbyss ? abyss[i - (count - abyss.Length)] : i < ordinary.Length ? ordinary[i] : new(SocketColour.White));
             if (i == 0) continue;
-            if (random.Next(2) == 0) links[^1]++;
+            if (!isAbyss && random.Next(2) == 0) links[^1]++;
             else links.Add(1);
         }
         return item with { Sockets = sockets, Links = links };

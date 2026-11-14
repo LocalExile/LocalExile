@@ -31,7 +31,8 @@ A plain line reaches its listeners, the player too, as a 0x17 chat line (the Cha
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
-Party and guild lines are not sent. A whisper is typed `@Name text`.
+A `%` party line goes to the human members of the sender's party, in whatever area each one is, as a 0x17 whose sender
+carries the `%` prefix; guild lines are not sent. A whisper is typed `@Name text`.
 
 The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
 Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
@@ -342,8 +343,11 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
     - **Lurking** (69 types, 115 varieties: Tide Strider, Blood Elemental, Dreadwheel …): the client shows them frozen
       in the first frame of the clip but targetable. They stay among the connection's monsters and can be hit; the AI
       leaves them alone until they rise, and they rise when hit.
-    - **Unique monsters** keep their own state (no rise): a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
-      Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script.
+    - **Unique monsters** keep their own state: a boss's entrance (Kitava's 7 s `phase1_transition_in`, the
+      Daughters of Merveil, the Conqueror Wurm) belongs to its fight's script. Campaign Yugul is an exception:
+      `SilverFrog.ot` starts untargetable in a paused clip and enables targeting on transition to state 2. Without
+      a rise, first entry stayed in state 1 while instance rebind recreated him in state 2. He uses the buried rise
+      before generic AI, with the native `jump_out` clip (1.166 s). His dive/mirror phases remain separate work.
 
     The server raises one:
     In one tick, in GGG's order:

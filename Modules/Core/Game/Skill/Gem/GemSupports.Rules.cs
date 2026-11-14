@@ -87,7 +87,8 @@ public static partial class Game
             {
                 string stat = Stats.Name(key) ?? "";
                 if (stat is "base_spell_cast_time_ms" or "virtual_base_spell_cast_time_ms" or "hundred_times_casts_per_second"
-                    or "casting_spell" or "base_mana_cost" or "mana_cost" or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
+                    or "casting_spell" or "base_life_cost" or "life_cost" or "base_es_cost" or "es_cost" or "base_mana_cost" or "mana_cost"
+                    or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
                 own[key] = stat.EndsWith("_final", StringComparison.Ordinal) && own.TryGetValue(key, out int previous)
                     ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
                     : own.GetValueOrDefault(key) + value;
@@ -106,7 +107,8 @@ public static partial class Game
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
-        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
+        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
+            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
@@ -118,6 +120,13 @@ public static partial class Game
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
+        // Cruelty: a skill the support links to gets the more damage over time of the one Cruelty buff on the character,
+        // whichever supported skill's hit granted it; with no running buff it adds nothing. The stat is what
+        // AilmentPanelStats and the damage-over-time debuffs read.
+        if (Stats.Key(CrueltySupportedStat) is uint crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
+            && CrueltyActivePct(conn, skillId) is int crueltyPct and > 0
+            && Stats.Key(CrueltyDotStat) is uint crueltyKey)
+            own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
         if (SkillsFor(conn).IsMelee(selected.Effect)
             && conn.Auras.Values.FirstOrDefault(a => a.EffectId == "BloodAndSand" && a.AffectsSelf) is { } stance)
         {
@@ -155,7 +164,8 @@ public static partial class Game
         foreach (var (key, value) in own)
         {
             string stat = Stats.Name(key) ?? "";
-            bool replace = stat is "mana_cost" or "base_mana_cost" or "casting_spell" or "virtual_base_spell_cast_time_ms"
+            bool replace = stat is "base_life_cost" or "life_cost" or "base_es_cost" or "es_cost" or "mana_cost" or "base_mana_cost"
+                or "casting_spell" or "virtual_base_spell_cast_time_ms"
                 or "base_spell_cast_time_ms" or "hundred_times_casts_per_second" || stat.Contains("_base_", StringComparison.Ordinal)
                 && (stat.StartsWith("spell_minimum", StringComparison.Ordinal) || stat.StartsWith("spell_maximum", StringComparison.Ordinal));
             result[key] = replace ? value : ArcaneMight.IsGrant(key)
@@ -163,6 +173,24 @@ public static partial class Game
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
             result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0);
+        if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
+        {
+            int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
+            result[life] = (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
+                100m + Read("base_cost_+%") + Read("base_life_cost_+%") + Read("life_cost_+%")) / 100m), 0, int.MaxValue);
+        }
+        // An Energy Shield cost: the skill's own (CostTypes 2) plus "Skills gain a Base Energy Shield Cost equal to X% of
+        // Base Mana Cost" (Replica Covenant), taken from the supported base mana cost, then the increased cost of skills.
+        if (Stats.Key("es_cost") is uint esKey)
+        {
+            int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
+            long baseEs = own.GetValueOrDefault(esKey);
+            int gain = Read("base_skill_gain_es_cost_%_of_mana_cost");
+            if (gain > 0 && Stats.Key("mana_cost") is uint manaKey && own.TryGetValue(manaKey, out int baseMana))
+                baseEs += (long)Math.Floor(Math.Max(0, baseMana) * gain / 100.0);
+            if (baseEs > 0)
+                result[esKey] = (int)Math.Clamp(decimal.Floor(baseEs * Math.Max(0m, 100m + Read("base_cost_+%")) / 100m), 0, int.MaxValue);
+        }
         return result;
     }
 
@@ -213,8 +241,9 @@ public static partial class Game
         if (milliseconds > 0) m.ExcommunicatedUntil = Math.Max(m.ExcommunicatedUntil, now + milliseconds / 1000.0);
     }
 
-    // Devour Support: a killing blow recovers its flat life/mana (the corpse itself is not removed by this server yet).
-    public static void DevourOnKill(ClientState conn, IReadOnlyDictionary<uint, int>? skill)
+    // Devour Support: a killing blow recovers its flat life/mana and consumes the corpse. The kill path removes the
+    // corpse object (ConsumeDevouredCorpseLocked), so the death, its loot and its corpse-blocking cleanup run first.
+    public static void DevourOnKill(ClientState conn, SpawnedMonster corpse, IReadOnlyDictionary<uint, int>? skill)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int life = Get("killing_blow_consumes_corpse_restore_x_life");
@@ -223,6 +252,9 @@ public static partial class Game
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + life);
         if (mana > 0 && conn.PlayerLife > 0)
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
+        // A shattered or already consumed corpse has nothing left to consume; its life/mana still recovered above, as
+        // before, but the kill sends no removal for an object that is already gone.
+        if ((life > 0 || mana > 0) && !corpse.Ailments.Shattered && IsCorpse(corpse)) corpse.DevourCorpse = true;
     }
 
     // FireBeam's duration slot (0x1419ea070) uses base cast time / cast speed, including fractional milliseconds.
@@ -248,7 +280,15 @@ public static partial class Game
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
     public static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick = true, bool proxy = false)
+        bool clampToTick = true, bool proxy = false) => SupportedAttackTiming(conn, skillId, offHand, clampToTick, proxy).Seconds;
+
+    /// <summary>The supported attack's main-hand increased attack speed, the increase its swing time divides by before
+    /// any more multiplier: what the client reads as the skill's <c>combined_main_hand_attack_speed_+%</c>.</summary>
+    public static int SupportedMainHandAttackSpeedPct(ClientState conn, ushort skillId) =>
+        SupportedAttackTiming(conn, skillId, null, clampToTick: true, proxy: false).Increased;
+
+    static (double Seconds, int Increased) SupportedAttackTiming(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
+        bool clampToTick, bool proxy)
     {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -277,6 +317,15 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
+        int barrageTime = Get("support_barrage_attack_time_+%_per_projectile_fired");
+        if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
+        {
+            var projectiles = projectileParameters.Resolve(Get, 1, ArrowsFor(conn, gem.Effect));
+            int count = Get("projectiles_rain") != 0 && projectiles.EndEmission is { } rain
+                ? rain.Child.Count : projectiles.Count;
+            // The native final-speed consumer divides by 1 + the per-projectile time penalty before rounding.
+            more /= 1 + (double)barrageTime * count / 100;
+        }
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
@@ -303,7 +352,7 @@ public static partial class Game
         // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
             / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / (proxy ? 1 : PlayerActionFactor(conn));
-        return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
+        return (clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced), baseSpeed);
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
@@ -352,8 +401,8 @@ public static partial class Game
         conn.CombatRushAttackSpeed = 0;
     }
 
-    public static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
-        => SupportedHitFor(conn, skillId, suppress: false, area);
+    public static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area, int addedChaos = 0)
+        => SupportedHitFor(conn, skillId, suppress: false, area, projectile: true, addedChaos: addedChaos);
 
     // The same supported attack swung with the off-hand weapon of a dual-wielded attack (the Offence tab's Off Hand rows).
     public static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
@@ -367,8 +416,10 @@ public static partial class Game
         bool WieldingWand = false, bool WieldingBow = false);
 
     // charges: the removable charge counts a charge-spending use counted (Discharge), instead of the ones held now.
+    // projectile: separates the projectile stage of hybrid melee-projectile attacks (such as Molten Strike) from the melee hit.
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null)
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, bool projectile = false,
+        int addedChaos = 0, bool totem = false)
     {
         var gem = SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
@@ -376,18 +427,36 @@ public static partial class Game
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
+        if (totem && Stats.Key("damage_+%") is uint damage)
+            stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, "totem_damage_+%");
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
             : Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool attack = SkillsFor(conn).IsAttack(gem.Effect);
         var types = Supports.Of(gem.Effect)?.Types.ToHashSet() ?? [];
+        // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
+        // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
+        bool lightningStrike = IsLightningStrike(gem.Effect);
+        if (lightningStrike) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
+        bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect));
+        if (molten)
+        {
+            if (projectile) { types.Remove(19); types.Add(2); }
+            else { types.Remove(2); types.Remove(7); }
+        }
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!plan.CanHit) return null;
         var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
+        var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
         var raw = attackWeapon is not null
-            ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(attackWeapon, Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, coefficients.Base, coefficients.Added)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
+        if (!attack && addedChaos > 0)
+            raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
+                new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(conn, gem.Effect, gem.Level)));
+        if (lightningStrike && projectile)
+            raw = raw.Scale(Math.Max(0, 1 + Get("active_skill_hit_ailment_damage_with_projectile_+%_final") / 100.0));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
         if (!attack && Get("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage") is int bladeGain and > 0)
@@ -396,10 +465,13 @@ public static partial class Game
             if (bladeWeapon.Melee && bladeWeapon.LocalDamage is not null)
             {
                 double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
-                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon, Get).Components)
+                // The weapon's attack-only attribute grant is not added damage for this spell.
+                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon with { LocalSources = null }, Get).Components)
                     raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
             }
         }
+        if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         return new(raw, Get, DamageStats.Conversion(stats, Stats, attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
@@ -409,8 +481,9 @@ public static partial class Game
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null)
-        => SupportedHitInputsFor(conn, skillId, area, weapon, charges) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, bool projectile = false,
+        int addedChaos = 0)
+        => SupportedHitInputsFor(conn, skillId, area, weapon, charges, projectile: projectile, addedChaos: addedChaos) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
     public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
@@ -426,8 +499,8 @@ public static partial class Game
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of
     // an attack with that hand's weapon, or a spell's / secondary-damage skill's hit.
     public static List<(string Stat, int Value)> SupportedAilmentRows(ClientState conn, ushort skillId, string hand,
-        SkillCatalog.Unarmed? weapon = null)
-        => SupportedHitInputsFor(conn, skillId, weapon: weapon) is { } inputs ? SupportedAilmentRowsFrom(inputs, hand) : [];
+        SkillCatalog.Unarmed? weapon = null, bool projectile = false, int addedChaos = 0)
+        => SupportedHitInputsFor(conn, skillId, weapon: weapon, projectile: projectile, addedChaos: addedChaos) is { } inputs ? SupportedAilmentRowsFrom(inputs, hand) : [];
 
     public static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
     {
@@ -493,7 +566,9 @@ public static partial class Game
                 && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
-        double factor = gem.Supports.Aggregate(1.0, (v, support) => v * support.CostMultiplier / 100.0);
+        // Integer multipliers are exact percentages (Arrogance's 201% of Grace's 50% is 100.50%), so binary floating
+        // point must not cost the reservation its last permyriad (2.01 * 5000 = 10049.99...).
+        decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
         return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
     }
 

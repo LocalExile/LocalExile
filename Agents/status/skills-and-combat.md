@@ -10,9 +10,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Sweep's art: base `skill_art_variation` 2 plus the worn effect's value.
   Docs: [23](../docs/protocol/23-microtransactions.md) §3.
 - Holy Sweep's area: its swings hit around the player. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Flicker Strike: the server teleports the player to the target, with its charge speed and buff.
+- Flicker Strike: the server teleports the player to the target, with its charge speed and buff; with no monster in
+  range the use is refused and costs nothing.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Cooldown bypass: a use during the cooldown spends a charge. Docs: [11](../docs/protocol/11-skills.md) §9.
+- Cooldown bypass: a use during the cooldown spends a charge; a cooldown skill pays its cost when its use is
+  accepted. Docs: [11](../docs/protocol/11-skills.md) §9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md).
@@ -39,13 +41,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §4–5, [20](../docs/protocol/20-damage.md) §2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2.
-- Gem skills, their projectiles and triggered releases.
+- Gem skills, their projectiles and triggered releases, including linked summons and Desecrate.
   Docs: [11](../docs/protocol/11-skills.md) §9–10, [25](../docs/protocol/25-gem-supports.md).
 - Resistances, with the Kitava penalties. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Movement speed and action speed. Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block and Spell Block. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Endurance, Frenzy, Power, converted and Blood Charges. Docs: [11](../docs/protocol/11-skills.md) §15.
+- Endurance, Frenzy, Power, converted and Blood Charges, including Reap's life cost and mixed-target hits. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) §14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) §5b.
@@ -62,9 +64,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
+  it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
+  Transference, a spread when a projectile or a minion makes the kill.
+- Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
+  Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
+  Desperation's life loss, the debuff in Survivors.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
+  Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
+  attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
+  hit roll and drops them along the swing.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
@@ -72,6 +84,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
 - Lifetap Support. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Blood Magic. Docs: [25](../docs/protocol/25-gem-supports.md).
+- Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
+  from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
+  Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,
@@ -84,12 +99,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
 - Weapon-local damage and timing. Docs: [20](../docs/protocol/20-damage.md) §2a.
+  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) §2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
-- Vaal souls (#308) and Vaal Ground Slam. Docs: [27](../docs/protocol/27-vaal-souls.md),
+- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball and Vaal Spark. Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -117,16 +133,25 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spells disabled (Devout of Gruthkul). Docs: [11](../docs/protocol/11-skills.md) §10j.
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Lightning Strike resolves its melee hit and secondary projectiles.
+- Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
+  Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
+- Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
+  over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
-- Instant skills, cooldowns, Bladefall of Trarthus and Frostblink. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Blink Arrow leaves its clone at departure. Lightning Warp queues teleports and hits both endpoints.
+- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
-- Animated equipment, summons, mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps.
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, projectile spells and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, Arc, projectile spells and ballistas; placement validates the linked source again at release.
+  Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
-- Rampage and Soul Eater from item stats. Docs: [11](../docs/protocol/11-skills.md) §12.
+- Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - Stats: the client's stat keys and the player's base pools. Docs: [11](../docs/protocol/11-skills.md) §4, §8, §14.
 - Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) §4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) §9.
@@ -147,7 +172,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The player's debuffs on monsters: taunt, enemy auras, Intimidate, Unnerve and Wither.
   Docs: [11](../docs/protocol/11-skills.md) §12, [Paladin](../docs/game/paladin.md).
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
-- Self-targeted spells. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
 
@@ -158,8 +183,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spirit of Utula's Leadership and Rakiata's Mark trigger need their own chieftain executors.
   Docs: [11](../docs/protocol/11-skills.md) §10f.
 - Where Flicker Strike lands beside the monster is the server's guess, and its buff ignores increased buff effect.
-  Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers deal no damage: the server has no hammerfall hits.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Effects attached to bones (Righteous Fire's orbs) are not sent; banners and combat auras are not implemented.
   Docs: [11](../docs/protocol/11-skills.md) §12.

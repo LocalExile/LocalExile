@@ -124,6 +124,10 @@ public static class PanelStats
         .. Hands(h => new($"{h}_local_mana_gain_per_target", ["mana_gain_per_target"], Local: ["local_mana_gain_per_target"])),
         .. HandLeech("life"), .. HandLeech("mana"),
         new("virtual_leech_energy_shield_instead_of_life", ["leech_energy_shield_instead_of_life", "keystone_ghost_reaver"], Flag: true),
+        // Eldritch Battery: network stats run no calculator, so without these the client spent its Mana on costs and drew
+        // no Energy Shield over the Mana globe.
+        new("virtual_spend_energy_shield_for_costs_before_mana", ["spend_energy_shield_for_costs_before_mana", "keystone_eldritch_battery"], Flag: true),
+        new("virtual_energy_shield_protects_mana", ["energy_shield_protects_mana", "keystone_eldritch_battery"], Flag: true),
         new("virtual_life_leech_does_not_stop_at_full_life", ["life_leech_does_not_stop_at_full_life"], Flag: true),
         // Defence
         new("virtual_energy_shield_delay_-%", ["energy_shield_delay_-%"]),
@@ -169,7 +173,8 @@ public static class PanelStats
         new("projectile_speed_+%", ["base_projectile_speed_+%"]),
         new("display_skill_increased_item_rarity_+%", ["base_item_found_rarity_+%", "item_found_rarity_+%",
             "base_killed_monster_dropped_item_rarity_+%"]),
-        new("display_skill_increased_item_quantity_+%", ["base_item_found_quantity_+%", "item_found_quantity_+%"]),
+        new("display_skill_increased_item_quantity_+%", ["base_item_found_quantity_+%", "item_found_quantity_+%",
+            "base_killed_monster_dropped_item_quantity_+%"]),
         new("virtual_trap_throwing_speed_+%", ["trap_throwing_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_mine_throwing_speed_+%", ["mine_laying_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_cooldown_speed_+%", ["base_cooldown_speed_+%"]),
@@ -267,7 +272,7 @@ public static class PanelStats
         : (int)Math.Clamp(value, int.MinValue, int.MaxValue);
 
     static readonly Sum[] SelectedSums = [.. Sums.Where(s => s.Display is "skill_area_of_effect_+%"
-        or "display_skill_increased_item_rarity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
+        or "display_skill_increased_item_rarity_+%" or "display_skill_increased_item_quantity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
         or "reduce_enemy_fire_resistance_%" or "reduce_enemy_cold_resistance_%"
         or "reduce_enemy_lightning_resistance_%"
         or "virtual_ignite_duration_+%" or "virtual_scorch_duration_+%" or "virtual_scorch_effect_+%"
