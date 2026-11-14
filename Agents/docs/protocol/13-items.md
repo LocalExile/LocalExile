@@ -763,7 +763,7 @@ The 3.29.0 patch notes ("Gem Socket Changes"):
 - A gem in a red, green or blue socket of its own colour gets +10% quality ([25](25-gem-supports.md), the support and
   skill stats read it).
 - Chromatic Orbs and Tainted Chromatic Orbs force one of the item's sockets non-white and roll the rest normally;
-  higher item quality raises the chance of non-white sockets.
+  higher item quality raises the chance of non-white sockets. The tainted one ignores the attribute requirements.
 - Currency that adds sockets (Jeweller's, Tainted Jeweller's, Orb of Binding) adds them white.
 - Vaal Orb corruption turns a white socket coloured; the Locus of Corruption turns all white sockets coloured.
 - The old single-colour bench crafts are gone. `CraftingBenchOptions` now has **At Least Two / Three / Four Non-White
@@ -781,7 +781,7 @@ rest; `Jewellers` and the bench's socket-count crafts add white sockets and keep
 handles the `NN` crafts (rerolls the colours until the item has at least N non-white sockets, with the item's chance,
 then forces any missing ones); `CurrencyEffects.Vaal` colours one white socket.
 
-Not modelled: Tainted Chromatic and Tainted Jeweller's Orbs, the Orb of Binding, the Locus of Corruption and the
+Not modelled: the Locus of Corruption and the
 bench's milestone reward (25 reforges keeping the most non-white sockets). Verified live 2026-10-26: white sockets are
 drawn and accepted, Chromatic leaves one socket non-white and the rest white, Jeweller's keeps retained colours and
 adds white ones, and the matching-colour +10% quality changes the gem's stats; the stat path is in
@@ -1164,9 +1164,11 @@ item overrides remain open. No extracted-data changes are required.
 - **Orb of Binding** turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as
   Alchemy) with four linked sockets coloured from the base's requirements.
 - **Tainted currency** (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's Whetstone)
-  applies to a corrupted item and leaves it corrupted: the item is handed to the ordinary effect with its corruption
-  cleared and the result is corrupted again; tainted quality currency adds 1%. A non-corrupted item, or anything the
-  ordinary effect refuses, is refused before spending (`CurrencyEffects.Binding`/`EldritchAnnulment`/`Tainted`).
+  applies only to a corrupted item, which stays corrupted (the client's `CurrencyItems` descriptions): Chaos rerolls
+  or strips every non-fractured explicit (rarity drops as far as the fractured mods allow), Exalted adds or removes
+  one mod, Jeweller's adds a white socket or removes one, Fusing adds or removes one link of the largest group, the
+  Scrap and Whetstone set a random 0-20% quality. Each either-or is 50/50 (the wiki's tested odds for Jeweller's and
+  Fusing; none published for Chaos and Exalted). Anything else is refused before spending (`CurrencyEffects.Tainted`).
   Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing are not implemented.
 
 ## 6. Equipment on the character: visuals, attributes, gem skills
