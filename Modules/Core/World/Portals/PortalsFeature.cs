@@ -46,7 +46,7 @@ static class PortalsFeature
             await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, use.TargetId, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x}");
             return;
         }
-        if (deviceId != 0) await SendMapPortals(remote, stream, ciphers, conn, deviceId, map.Area.Hash16, closed: use.TargetId);
+        if (deviceId != 0) await SendMapPortals(remote, stream, ciphers, conn, deviceId, map.Area, closed: use.TargetId);
         await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, use.TargetId, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x} (used)");
         Console.WriteLine($"[gateway] {remote} map portal at place {at.Index} taken: {left} left, into {(map.Instance == 0 ? "a new instance" : $"instance {map.Instance}")} of {map.Area.Name}");
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0)
@@ -115,6 +115,7 @@ static class PortalsFeature
             $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         await RemoveMapPortals(remote, stream, ciphers, conn);
+        global::Game.ResetRunCompleted(conn); // a new map: its boss has not died yet, so its portals read plain
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
             device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null);
         if (device.Value.Campaign)

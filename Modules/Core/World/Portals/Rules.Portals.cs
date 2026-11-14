@@ -40,13 +40,13 @@ static partial class PortalsRules
                 lock (conn.MapPortals) conn.MapPortals[id] = (x, y, index);
                 await Task.Delay(MapPortalListMs);
                 if (!Current()) return;
-                await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
+                await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area);
             }
             // Every portal but the last was listed again with the next one; the last gets its second listing here
             // (Game.ListPortal says why one listing can be lost).
             if (n == 0) return;
             await Task.Delay(MapPortalRelistMs);
-            if (Current()) await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
+            if (Current()) await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area);
         });
         return Task.CompletedTask;
     }
