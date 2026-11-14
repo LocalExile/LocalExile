@@ -701,6 +701,22 @@ public static partial class Game
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
+                // Multistrike: a use repeats, each repeat after the first taking its own more damage. The panel's
+                // damage per use and DPS average all of those repeats rather than only the first hit's.
+                if (SkillsFor(conn).IsAttack(effect) && supportedHit != GameServer.Core.World.DamagePacket.Empty)
+                {
+                    int msRepeats = MeleeAttackRepeats(conn, id);
+                    if (msRepeats > 0)
+                    {
+                        double total = 1, mult = 1;
+                        for (int r = 1; r <= msRepeats; r++)
+                        {
+                            mult *= MeleeRepeatDamageMore(conn, id, r);
+                            total += mult;
+                        }
+                        supportedHit = supportedHit.Scale(total);
+                    }
+                }
                 double seconds = SkillsFor(conn).IsAttack(effect)
                     ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
                     : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
