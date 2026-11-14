@@ -115,9 +115,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   cloud is the whole effect. The fog blinds through the engine's timed Blind (buff 179 `blinded`, 20% less accuracy and
   evasion): a player who walks into an unclaimed shrine's fog gets it, and so do the hostile monsters standing in a claimed
   one, refreshed once a second while they stay inside and lapsing 1.5 s after they leave.
+  The Skeletal shrine (the Skeletons row) summons what its buff promises, "Skeletons are summoned to you": the row names
+  two daemons, MonsterVarieties 2926 for the unclaimed shrine and 2927 for the player's, whose granted effect
+  (GrantedEffects 1315 `ShrineSummonSkeletons`, 1316 for the player's) is ActiveSkill 183, the player's own
+  `summon_skeletons`, cast once a second for the 30 s its stat set 1326 gives each skeleton (`base_skill_effect_duration`
+  30000, `alternate_minion` 1, `summoned_monsters_no_drops_or_experience`). Unclaimed, the shrine is on the monsters'
+  side like its other rows, so its skeletons rise around the statue and fight the player; once the buff is up they are his
+  allies instead, rising beside him, following him (one left more than 10 cells behind is walked back to him, once a
+  second, with the AI's own Move order) and striking the monsters near him with their own melee attack (the AI's ally
+  path, `SpawnedMonster.AlliedFighter`). They are allies, not his minions — GGG on a report that his modifiers
+  did not reach them: "You are not considered to be summoning them" — so they take none of his minion modifiers, carry no
+  `is_player_minion` stat and count towards no minion limit. Each lives its own 30 s, whatever the 45 s buff has left. The
+  data sets no cap on how many: we keep 8 alive, as many as a Summon Skeletons gem's skeletons plus its quality.
   and `/shrines [Id …]` places types around the player for checking.
   Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
-  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`, `Effects/SmokeCloudEffect.cs`),
+  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`, `Effects/SmokeCloudEffect.cs`,
+  `Effects/SkeletonSummonEffect.cs`),
   `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
   `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
   The on-kill explosion a shrine can promise (`explode_enemies_for_25%_life_as_chaos_on_kill_chance_%`, Gloom's 40%
@@ -128,10 +141,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   the shrine aura's EncounterStats: a monster already in the shrine's radius gets it on the next tick, as one that walks in does.
   The aura is server-side only: no 0x01c1 buff is sent for it, so the monsters around an unclaimed shrine wear no icon
   (the stats still apply, and are restored when they leave, the shrine is claimed or the area unloads).
-  The Lightning, Freezing and Shrouded effects were checked with the client (their art draws and the novae's hits land);
-  the claimed buffs' versions are less exercised. The other types' active effects (the Burning nova, Skeletal summons)
-  are not built, and the tables carry no activated statue state for the standard rows, so a used shrine is consumed
-  rather than dimmed.
+  The Lightning, Freezing, Shrouded and Skeletal effects were checked with the client (their art draws, the novae's hits
+  land and the skeletons fight); the claimed buffs' versions are less exercised. The Burning shrine's nova is not built,
+  and the tables carry no activated statue state for the standard rows, so a used shrine is consumed rather than dimmed.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

@@ -182,6 +182,18 @@ public static class ShrineRegistry
             AfterActivation = [() => new SmokeCloudEffect()],
         });
 
+        // Skeletal (the client's row id is Skeletons): BuffDefinitions 254 (shrine_skeleton, "Skeletons are summoned to
+        // you") for 45 s, BuffTemplates 399. The row summons MonsterVarieties 2926, whose ShrineSummonSkeletons is the
+        // player's own summon_skeletons: skeletons beside the statue while it stands and beside the player once the buff
+        // is up, each for the skill's 30 s, fighting as his minions.
+        Register(new ShrineDefinition
+        {
+            Id = "Skeletons",
+            Name = "Skeletal Shrine",
+            BeforeActivation = [() => new SkeletonSummonEffect()],
+            AfterActivation = [() => new SkeletonSummonEffect()],
+        });
+
         // Lightning: Shock Novas and shocked ground around the shrine while it stands unclaimed, then around the player
         // while its buff is up.
         Register(new ShrineDefinition

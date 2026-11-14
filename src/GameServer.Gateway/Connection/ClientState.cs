@@ -140,6 +140,11 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
+    /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
+    /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
+    /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
+    public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
