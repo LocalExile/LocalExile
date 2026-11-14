@@ -48,6 +48,18 @@ glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (p
 per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
 
+**The map overlay's "X monsters remain"** is S→C 0x1a0, one byte, and the client never counts monsters itself. The
+instance constructor (0x14214b4a0, at 0x14214e686) starts `instance+0xd7cd` at 0xff, and 0x1a0 is its only writer in
+the whole client (dispatcher case 0x7e at 0x14215718b copies `byte [msg+0x10]` there), so with nobody sending it every
+area read "More than 50 monsters remain". The text builder 0x1406b24e0, reached from the overlay builder 0x1406b25f0 at
+0x1406b279b, picks ClientStrings 0x1ab6 "1 monster remains" for 1, 0x1ab7 "{0} monsters remain" for 0..50 and 0x1ab8
+"More than 50 monsters remain" for 51..255, so an area of more than 50 living monsters is sent 255. The Gateway sends
+the byte once the area's packs are placed (after 0x21) and again whenever the count changes — a kill, a summon, a
+buried monster rising, a removal — recounting the instance's living monsters with the corpses left out, the rule
+`/mobs` lists them by (`Game.MonsterRemaining.cs`). Live 2026-11-14 with `/raw` in an entered area: `01a0 05` → "5
+monsters remain", `01a0 01` → "1 monster remains", `01a0 00` → "0 monsters remain", `01a0 33` → "More than 50 monsters
+remain".
+
 **An instance keeps its monsters** (#12), as in the real game. When a connection closes, the instance
 (`InstanceStore`) saves each living monster's variety, level, rarity, mods, team, life and current position (its walk
 estimate, `SavedMonster.Save`); dead ones are not saved. The next connection into that instance re-creates exactly
