@@ -122,8 +122,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   swing. All are scripted (the ordinary AI skips them), own their whole effect list on the actor under ids 0x4000-0x4005
   (Shaper), 0x4010-0x4015 (Elder) and 0x4020-0x402c (Sirus) — never a gem id — and play it from one controller per
   monster: the Shaper's melee (481), Celestial Beam (6093, a three-second degen whose fire/cold/lightning come from its
-  per-minute stats; the client draws the beam itself from the row, so the server's own `celestialbeam` rig takes over at
-  the clip's end and holds the beam on the ground for five seconds), accelerating projectiles (6106, three of
+  per-minute stats; the pose is the rig's own `beam_start` clip played through 0x1b2, never the skill's action, which
+  would draw the skill's art as a second beam beside the server's `celestialbeam` rig, and that rig stands on the ground
+  for 2.5 s from the end of a one-second charge), accelerating projectiles (6106, three of
   Projectiles.dat's `ShaperProjectile` — the skill names no `monster_projectile_variation`, so the shot is named in code
   and flown at 300 units/s because the server accelerates nothing), flicker slam (6091), retreat (6089) and the
   bullet-hell ring (6111,
@@ -140,8 +141,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   forms the walking Sirus and his four storms. Both are Sirus and both fight; the seated one casts without leaving the
   throne. Damage comes from
   each effect's own stat set at the area's level, pacing from its clip: the clip the variety's ACT pool holds for the
-  skill's animation key when it has one (`monster_contact_clips` — the Shaper's beam casts for its `beam_start`'s 2.5 s,
-  not the 1 s its row reports, which cut the beam a second in), else the row's cast time; a timed hit lands on every player
+  skill's animation key when it has one (`monster_contact_clips` — a skill the client animates itself, the projectile
+  cast, plays for its `spellcast2`'s 2.13 s instead of the 1 s its row reports, which stopped the animation a second
+  in), else the row's cast time; a timed hit lands on every player
   standing in it, not only on the connection that owns the fight, and an intermission returns the boss to the arena's
   own `ArenaMiddle` marker (the layout's spawn is the map entrance, which put the Shaper at the door). Sirus' rows carry it as a fraction of
   the variety's damage (0.8-2.4, read as a multiplier, not as the flat hit the rounded row would suggest); every `.ao`
