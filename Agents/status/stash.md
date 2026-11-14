@@ -29,9 +29,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   currency-tab limits come from `CurrencyItems.CurrencyTab_StackSize` (generally 10 000; lifeforce 50 000).
   Earlier real-client verification and Gateway logs show yellow lifeforce merging into one 50 000 stack in slot 99.
   Automated tests cover manual and quick merges, Harvest types, overflow and save reloads;
-  dedicated fragment and Delirium cells also stack items whose inventory limit is one (including Simulacrum,
-  offerings, Maven's Writ, emblems, Divine Vessels, Sacred Blossoms and breachstones); withdrawals respect inventory
-  limits. Their native inventory kinds also show the stack counters for these items. Fragment layout rows use both
+  dedicated fragment, Delirium and divination cells also stack items whose inventory limit is one (including
+  Simulacrum, offerings, Maven's Writ, emblems, Divine Vessels, Sacred Blossoms, breachstones and one-card sets);
+  withdrawals respect inventory limits. Their native inventory kinds also show the stack counters for these items,
+  and the divination tab shows each held card with its count over the set. Fragment layout rows use both
   FirstSlotIndex and Subtab, including all eight current Allflame embers.
   Ctrl + click on currency goes to its affinity tab's slot (C→S 0xe1, live 2026-10-20) and a plain click on a currency
   slot picks up the stack; the tab settings' affinities (0xd3) are saved;
@@ -51,7 +52,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/18-stash.md §3.
 - **Dev tab fill (`/item_tab <tab name> <count>`).** On a currency, essence, fragment, delve, blight, delirium or divination tab it
   adds up to `count` more, at most 1000 per command, of every item type that has its own slot, as far as each slot holds.
-  Divination cards are filled to complete sets, which is what that tab shows.
+  Divination cards are filled to complete sets.
   On a gem tab it adds one of every creatable gem variant not already there, as far as its 500 cells go.
   The flask tab adds one missing standard flask or tincture base and each creatable unique flask/tincture identity.
   Ordinary flasks include 12 life, 12 mana, 6 hybrid and 18 utility bases; Royale duplicates are excluded.

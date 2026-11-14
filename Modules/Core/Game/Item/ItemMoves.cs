@@ -76,7 +76,7 @@ public static class ItemMoves
             // The client drops a map on the map tab itself, and the map tab holds nothing directly: its page does (#477).
             tab = stash.MapDestination(tab, item.Item, shapeOf);
             if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
-            if (shape.MaxStack > 1 || item.Item.Components.Contains("Stack") && AccountStash.OversizedStacks(stash.TabType(tab)))
+            if (shape.MaxStack > 1 || item.Item.Components.Contains("Stack"))
             {
                 if (stash.AddStacked(tab, item.Item, shapeOf, out reason) is not { } stacked) return null;
                 if (stacked.Left == item.Item.StackSize) { reason = "the tab is full"; return null; }
