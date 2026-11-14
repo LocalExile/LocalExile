@@ -252,7 +252,8 @@ public static class AreaPopulation
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
-        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null)
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
+        Func<int, bool>? guardSpawnable = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -336,13 +337,26 @@ public static class AreaPopulation
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
         // Shrine guards (ShrineGuards): the pack rows the shrine's Shrines row names when it names any, else one of the
         // area's own packs at that pack's own count. One pack a shrine, normal rarity unless the rule says otherwise.
+        // A guard has to be seen: an emerge variety (Act1-ZombieMiredEmerge, Act1-SandspitterEmerge) starts buried and
+        // only rises when the player is on top of it, which leaves the shrine looking unguarded. The area's standing
+        // varieties are preferred; a pack with none is still used rather than leaving the shrine bare.
+        var visible = guardSpawnable ?? spawnable;
+        bool PackStands(PackCatalog.Pack p) => p.Entries.Any(e => visible(e.Variety));
         foreach (var (shrine, rule, own, x, y) in shrineGuards ?? [])
         {
             if (!rule.Required) continue;
             var at = (X: x, Y: y);
-            var guard = rule.AreaPool
-                ? (packs.Count > 0 ? PickPack(packs, rng) : null)
-                : own.Count > 0 ? own[rng.Next(own.Count)] : null;
+            PackCatalog.Pack? guard;
+            if (rule.AreaPool)
+            {
+                var standing = packs.Where(p => PackStands(p.Pack)).ToList();
+                guard = standing.Count > 0 ? PickPack(standing, rng) : packs.Count > 0 ? PickPack(packs, rng) : null;
+            }
+            else
+            {
+                var standing = own.Where(PackStands).ToList();
+                guard = standing.Count > 0 ? standing[rng.Next(standing.Count)] : own.Count > 0 ? own[rng.Next(own.Count)] : null;
+            }
             if (guard is null)
             {
                 notes.Add($"shrine {shrine} at {at}: no pack of {area.AreaId} to guard it");
@@ -351,7 +365,7 @@ public static class AreaPopulation
             // Around the shrine, never on it: the statue and its base stay clear by the shrine type's object size, and
             // the pack rings it a little further out than an ordinary pack's members stand.
             int first = spawns.Count;
-            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, spawnable, memberLimit: rule.Fixed ?? int.MaxValue,
+            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, visible, memberLimit: rule.Fixed ?? int.MaxValue,
                 keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius);
             centres.Add(at);
             var ring = spawns.Skip(first).Select(s => Math.Max(Math.Abs(s.X - at.X), Math.Abs(s.Y - at.Y))).ToList();
