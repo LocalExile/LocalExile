@@ -229,7 +229,10 @@ public static class AreaPopulation
     // The first 35 seconds were not recorded; this is a calibration target, not a recovered server constant.
     public const int StrandMonsterTarget = 45;
     // Cells kept free around the player's arrival point, between pack centres, and around area transitions.
-    const int SpawnClearance = 60, PackSpacing = 28, TransitionClearance = 25;
+    const int SpawnClearance = 60, PackSpacing = 28;
+    /// <summary>Cells a shrine must stand clear of an entrance or waypoint to be guarded (also the clearance the scattered
+    /// packs keep from an area transition).</summary>
+    public const int TransitionClearance = 25;
     // A pack centre needs this many walkable cells to the nearest blocked cell; members stand within MemberRadius of it.
     const int CentreDepth = 5, MemberRadius = 9, MemberSpacing = 3;
 
@@ -244,7 +247,8 @@ public static class AreaPopulation
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
-        Func<int, int, bool>? scatterable = null)
+        Func<int, int, bool>? scatterable = null,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -326,6 +330,25 @@ public static class AreaPopulation
 
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
+        // Shrine guards (ShrineGuards): the pack rows the shrine's Shrines row names when it names any, else one of the
+        // area's own packs at that pack's own count. One pack a shrine, normal rarity unless the rule says otherwise.
+        foreach (var (shrine, rule, own, x, y) in shrineGuards ?? [])
+        {
+            if (!rule.Required) continue;
+            var at = (X: x, Y: y);
+            var guard = rule.AreaPool
+                ? (packs.Count > 0 ? PickPack(packs, rng) : null)
+                : own.Count > 0 ? own[rng.Next(own.Count)] : null;
+            if (guard is null)
+            {
+                notes.Add($"shrine {shrine} at {at}: no pack of {area.AreaId} to guard it");
+                continue;
+            }
+            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, spawnable, memberLimit: rule.Fixed ?? int.MaxValue);
+            centres.Add(at);
+            notes.Add($"shrine {shrine} at {at}: guarded by {guard.Id} " +
+                (rule.Fixed is int fixedCount ? $"({fixedCount})" : $"({guard.MinCount}\u2013{guard.MaxCount})"));
+        }
         if (packs.Count == 0) return spawns;
         foreach (var p in roomPacks ?? [])
             if (p.Name switch { "normal" => MonsterRarity.Normal, "magic" => MonsterRarity.Magic, "rare" => MonsterRarity.Rare, _ => (MonsterRarity?)null }

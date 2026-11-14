@@ -85,4 +85,56 @@ public sealed class ShrineTests
         var bare = ShrinePlacement.Plan([new(ShrinePlacement.Type, "", 5, 5, 0f, 0f)], Walkable, seed: 7);
         Assert.Equal(ShrinePlacement.DefaultModel, bare[0].Model);
     }
+
+    [Fact]
+    public void Guards_come_from_the_shrines_own_pack_rows_or_the_areas_and_keep_clear_of_entrances()
+    {
+        // A basic shrine names no pack: it is guarded by one of the area's packs, one pack, at that pack's own count,
+        // normal rarity (no Atlas passive reaches a campaign area).
+        var basic = ShrineGuards.Resolve(ShrineCatalog.Find("Acceleration")!, mapArea: false, _ => null).Rule;
+        Assert.True(basic.Required);
+        Assert.True(basic.AreaPool);
+        Assert.Empty(basic.Packs);
+        Assert.Null(basic.Fixed);
+        Assert.Equal(MonsterRarity.Normal, basic.Rarity);
+
+        // A shrine the data gives packs takes its count from them: Brine King's five rows roll 2–9, the Conquerors' 2–7.
+        var brine = ShrineGuards.Resolve(ShrineCatalog.Find("BrineKing")!, mapArea: true, _ => null).Rule;
+        Assert.False(brine.AreaPool);
+        Assert.Equal(5, brine.Packs.Count);
+        Assert.Equal((4, 9), (brine.Min, brine.Max));
+        Assert.Equal((3, 7), (ShrineGuards.Resolve(ShrineCatalog.Find("Crusader")!, true, _ => null).Rule.Min,
+            ShrineGuards.Resolve(ShrineCatalog.Find("Crusader")!, true, _ => null).Rule.Max));
+
+        // A shrine too close to the entrance or a transition is not guarded (the 1.0.0d note): within 25 cells.
+        Assert.True(ShrineGuards.TooNearEntrance((30, 30), (10, 30), [(200, 200)], 25));
+        Assert.True(ShrineGuards.TooNearEntrance((30, 30), (200, 200), [(10, 30)], 25));
+        Assert.False(ShrineGuards.TooNearEntrance((100, 30), (10, 30), [(200, 200)], 25));
+    }
+
+    [Fact]
+    public void Each_shrine_gets_its_own_guard_pack_around_its_own_cell()
+    {
+        // Two shrines in one area, each guarded by one pack of the area's own monsters, members within 9 cells of the
+        // shrine and never stacked on each other: the packs stay their own.
+        var pack = new PackCatalog.Pack(0, "Test-Pack", 3, 4, 0, 0, [], [(1, 1)], new Dictionary<int, int>());
+        var area = new PackCatalog.AreaPacks("Test", 10, [(pack, 100)], new Dictionary<string, PackCatalog.Pack>(), []);
+        var rule = ShrineGuards.Resolve(ShrineCatalog.Find("Acceleration")!, false, _ => null).Rule;
+        bool Walkable(int x, int y) => x > 0 && y > 0 && x < 99 && y < 99;
+        var notes = new List<string>();
+        var spawns = AreaPopulation.Plan(area, 100, 100, Walkable, (50, 50), [], [], seed: 11, _ => true, notes,
+            shrineGuards: [("Acceleration", rule, [], 20, 20), ("Brutal", rule, [], 80, 80)]);
+        var guards = spawns.Where(s => s.Pack == "Test-Pack").ToList();
+        foreach (var cell in new[] { (20, 20), (80, 80) })
+        {
+            var mine = spawns.Where(s => Math.Abs(s.X - cell.Item1) <= 9 && Math.Abs(s.Y - cell.Item2) <= 9).ToList();
+            Assert.InRange(mine.Count, 3, 4);
+            Assert.All(mine, s => Assert.Equal("Test-Pack", s.Pack));
+            Assert.All(mine, s => Assert.Equal(MonsterRarity.Normal, s.Rarity));
+        }
+        // No member stands twice in one cell, and each shrine's pack is its own: the scattered packs keep their 28-cell
+        // spacing from both shrine centres, so these members are the guards.
+        Assert.Equal(guards.Count, guards.Select(s => (s.X, s.Y)).Distinct().Count());
+        Assert.Equal(2, notes.Count(n => n.StartsWith("shrine ")));
+    }
 }

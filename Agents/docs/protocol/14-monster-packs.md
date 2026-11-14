@@ -109,14 +109,21 @@ So:
    `rare`. Only a Trial of Ascendancy's rooms place them yet ([labyrinth-trials](../game/labyrinth-trials.md),
    "Monsters"); a quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
-   **Shrine guards**: a shrine the level generator placed (`Metadata/Shrines/Shrine` in its room; `ShrinePlacement`) is
-   guarded by one of the area's scattered packs at normal rarity, at the shrine's cell (`PopulateArea` passes the shrine
-   cells as `roomPacks` "normal" points). The client's shrine rooms carry no monster points of their own
-   (`metadata/shrines/*.arm`: the statue and decals only) and `Shrines.MonsterPacks` is empty for all 15 standard rows
-   (only the boss and Conqueror shrines name packs), so which monsters guard a shrine is the server's choice; the wiki's
-   "often surrounded by a pack of monsters guarding it" and the Atlas passives that upgrade a map shrine's guard to a
-   magic pack (`map_shrines_have_guaranteed_magic_pack`) and add a chance of another (`map_shrines_additional_pack_chance_%`)
-   are what identify it as one pack, normal, in the campaign (campaign areas carry no Atlas stats).
+   **Shrine guards** (`ShrineGuards`, `PopulateArea`): a shrine the level generator placed (`Metadata/Shrines/Shrine` in
+   its room; `ShrinePlacement`) gets one guard pack at its cell. Which pack and how many come from the shrine's rule:
+   a shrine whose `Shrines.MonsterPacks` names packs (the eight apparition shrines, one of 2–9 monsters a pack, in
+   area-agnostic rows) stands one of those packs; a basic shrine names none and stands one of the area's own scattered
+   packs, at that pack's own `MinCount`–`MaxCount`. The client's shrine rooms carry no monster points of their own
+   (`metadata/shrines/*.arm`: the statue and decals only), nothing in the data scales a guard count by area level, Act,
+   map tier or difficulty, and the Atlas passives that make a map shrine's guard pack magic
+   (`map_shrines_have_guaranteed_magic_pack`) and add a chance of a second (`map_shrines_additional_pack_chance_%`) are
+   the only other statement the game makes about them: normal rarity, one pack, in the campaign. A map picks its rule
+   through `ShrineGuards.Resolve(..., mapArea)` so a map's rule can change without the campaign's. A shrine within
+   `AreaPopulation.TransitionClearance` (25 cells) of the arrival or an area transition is not guarded (the 1.0.0d note,
+   "Monster packs around shrines are now not spawned if they are too close to an area entrance or waypoint"). The guards
+   are planned with the area's monsters, so an instance keeps them: re-entry restores them rather than adding a pack, and
+   activating a shrine neither respawns nor removes its guards. Their shrine buff (`Monster_ShrineBuffsKey`) is not
+   applied yet.
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the
