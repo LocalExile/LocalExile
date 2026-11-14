@@ -296,6 +296,10 @@ public static partial class Game
                         t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size });
                 result.Add(kept.Actor);
             }
+            // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
+            // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
+            // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
+            if (actorOf.Count > 2 * result.Count + 64) PruneActors();
             foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
                 result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
@@ -303,6 +307,17 @@ public static partial class Game
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
+        }
+
+        void PruneActors()
+        {
+            var listed = new HashSet<SpawnedMonster>(Conn.Monsters.Values, ReferenceEqualityComparer.Instance);
+            foreach (var monster in actorOf.Keys.Where(m => m.Dead || m.Life == 0 || !listed.Contains(m)).ToArray())
+                actorOf.Remove(monster);
+            // A living monster that left the list (asleep, held back) keeps its generation, so a flight that already hit
+            // it does not see a new actor when it returns.
+            foreach (var monster in generations.Keys.Where(m => (m.Dead || m.Life == 0) && !listed.Contains(m)).ToArray())
+                generations.Remove(monster);
         }
 
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
