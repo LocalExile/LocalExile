@@ -60,6 +60,16 @@ public sealed partial class InstanceState
         return Map;
     }
 
+    readonly Lock _areaStatsGate = new();
+    IReadOnlyDictionary<uint, int>? _areaStats;
+
+    /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
+    /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
+    public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaStats ??= compose();
+    }
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();

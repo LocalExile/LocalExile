@@ -103,8 +103,14 @@ public partial class Program
                 var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
                 // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
                 byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
-                // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
+                // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
+                // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
+                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
+                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(
+                    ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup),
+                    new AreaStatsRequest(characterName, resolved.League, areaHash, map)));
+                // The client generates the area at the seed, level and stats of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -148,10 +154,10 @@ public partial class Program
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
                 if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
+                    Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.

@@ -41,6 +41,16 @@ public sealed class MapInstanceTests
 
             // An area the map does not open plays without it.
             Assert.Null(MapDevice.Admit(store.Enter(43, 1), 0xa5, 0x4321, 43));
+
+            // The area stats are composed by the instance's first connection only: a later one (another atlas, another
+            // map) gets the same list, so its level is the one already generated.
+            int composed = 0;
+            var stats = instance.AreaStats(() => { composed++; return new Dictionary<uint, int> { [1] = 40 }; });
+            var again = instance.AreaStats(() => { composed++; return new Dictionary<uint, int> { [1] = 99 }; });
+            Assert.Same(stats, again);
+            Assert.Equal(1, composed);
+            Assert.Equal(new Dictionary<uint, int> { [1] = 40, [2] = 5 },
+                InstanceEvents.Merge(stats, new Dictionary<uint, int> { [2] = 5 }));
         }
         finally { MapDevice.Close(owner); }
     }
