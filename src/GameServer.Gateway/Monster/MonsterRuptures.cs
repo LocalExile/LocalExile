@@ -8,15 +8,20 @@ public sealed class MonsterRuptures
     public const int Maximum = 4;
     public const double Seconds = 3;
 
-    readonly List<(double Until, int Percent)> active = [];
+    public sealed record Rupture(long Id, double Until, int Percent);
+    readonly List<Rupture> active = [];
+    long nextId;
     double expiryRate = 1;
+
+    /// <summary>The surviving independent timers; settle bleeding before pruning them.</summary>
+    public IReadOnlyList<Rupture> Active => active;
 
     /// <summary>Rupture is a recipient debuff (BuffDefinitions category 2), so its own timer is slowed too.</summary>
     public void SetExpiryRate(double now, double rate)
     {
         rate = Math.Max(.25, rate);
         for (int i = 0; i < active.Count; i++)
-            active[i] = (RecipientEffectTime.RetimedDeadline(active[i].Until, now, expiryRate, rate), active[i].Percent);
+            active[i] = active[i] with { Until = RecipientEffectTime.RetimedDeadline(active[i].Until, now, expiryRate, rate) };
         expiryRate = rate;
     }
 
@@ -37,7 +42,7 @@ public sealed class MonsterRuptures
     {
         Stacks(now);
         if (active.Count >= Maximum) active.RemoveAt(active.FindIndex(r => r.Until == active.Min(x => x.Until)));
-        active.Add((now + Seconds / expiryRate, percent));
+        active.Add(new(++nextId, now + Seconds / expiryRate, percent));
     }
 
     public void Clear() => active.Clear();

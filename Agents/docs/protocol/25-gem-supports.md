@@ -100,7 +100,13 @@ Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the f
 Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
 (`MonsterRuptures`, `BleedTaken`). Each Rupture speeds up all running bleed timers by 25%, including its hit's own bleed;
 stack expiry restores the remaining time at the new rate, composed with Temporal Chains. Rupture itself is category 2
-in BuffDefinitions, so its own expiry clock is slowed too. The native Rupture buff is not shown. This is a dynamic expiry rate, not a shorter base duration ([GGG Q&A](https://www.pathofexile.com/forum/view-thread/3123794)).
+in BuffDefinitions, so its own expiry clock is slowed too. This is a dynamic expiry rate, not a shorter base duration
+([GGG Q&A](https://www.pathofexile.com/forum/view-thread/3123794)).
+Native BuffDefinitions 1722 `rupture` uses one instance per stack (limit 4, UIStackMode 3), each with a three-second
+base timer. It is not `IsRecovery`: no inline values or extra word follow its duration. Its public
+`rupture_debuff_bleeding_time_passed_+%_final` stat carries 25 per stack; the native bleeding buff then runs at 2x with
+four stacks. BuffVisuals 1481 supplies `rupture_02.epk`. Each observer also needs the recipient's public timer stats:
+another player's Temporal Chains otherwise leaves that client's Rupture clock at 1x while the server runs it slower.
 Close Combat's supported melee hit grants Combat Rush for its listed
 duration, and a travel skill the support does not support then takes
 `support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed.

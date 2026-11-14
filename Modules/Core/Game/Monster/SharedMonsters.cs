@@ -729,6 +729,8 @@ public static partial class Game
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
+                        SettleBleeding(m, now);
+                        foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
                         conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life);
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));

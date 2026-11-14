@@ -110,7 +110,7 @@ public static partial class Game
             target.Ruptures.Add(now, settings.RupturePercent);
             target.Bleeds.SetExpiryRate(now, BleedingExpiryRate(target, now));
         }
-        return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
+        return [.. PresentRupturesLocked(conn, id, target, now), .. ShowDotBuffLocked(conn, id, target.Bleeds, row, now)];
     }
 
     public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
