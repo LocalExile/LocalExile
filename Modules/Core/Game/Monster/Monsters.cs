@@ -1627,6 +1627,9 @@ public static partial class Game
             return;
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }
+        // An action that carries no hit of its own (the boss's degen skills, whose damage the controller applies) must
+        // not commit an empty contact: the client would show that hit's zero next to the real one.
+        if (a.NoContact) return;
         await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a);
     }
 

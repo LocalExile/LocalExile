@@ -43,6 +43,10 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A summoning skill (SkillCatalog.MonsterSummon, the Labyrinth's Immolator): its action brings monsters
     /// ahead of the summoner instead of a hit (Program.MonsterSwing). Null for an attack.</summary>
     public SkillCatalog.MonsterSummonInfo? Summon { get; init; }
+    /// <summary>The action carries no hit of its own: its damage is a degen the controller applies itself (the Shaper's
+    /// beam) or an area hit it places (his flicker slam). Without this the action's contact still commits a hit, and the
+    /// client shows that empty hit's zero next to the real one (Program.MonsterSwing).</summary>
+    public bool NoContact { get; init; }
     /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>

@@ -126,8 +126,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   per-minute stats; the pose is the rig's own `beam_start` clip played through 0x1b2, never the skill's action, which
   would draw the skill's art as a second beam beside the server's `celestialbeam` rig, and that rig stands on the ground
   for 2.5 s from the end of a one-second charge), accelerating projectiles (6106, three of
+  per-minute stats; the action runs the whole beam, the 2.5 s charge and the
+  three seconds it burns, because the client stretches the skill's effect over the action's time and the effect's rig is
+  a 500 ms orb then the looping ray; the rig's own `beam_start` pose is played through 0x1b2 so the Shaper raises his
+  arms, and the burn follows the line from the Shaper to the point he aimed at), accelerating projectiles (6106, three of
   Projectiles.dat's `ShaperProjectile` — the skill names no `monster_projectile_variation`, so the shot is named in code
-  and flown at 300 units/s because the server accelerates nothing), flicker slam (6091), retreat (6089) and the
+  and flown at 260 units/s because the server accelerates nothing, one orb per
+  contact of the rig's `spellcast2` (433, 966 and 1533 ms), each from the hand that throws it), flicker slam (6091, the impact on the clip's own contact 800 ms in, where the Shaper stands, for the monster's
+  default hit with the skill's +200 %), retreat (6089) and the
   bullet-hell ring (6111,
   twelve in a circle) behind `immune_shield.ao` at 75/50/25%; the Elder's melee (406), siphon (9058, a physical degen
   that heals him a quarter of what it takes), slamming tentacles (9062, five portals around the player), expanding nova
@@ -152,8 +158,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   path is checked against the client's metadata. Not yet: the Shaper's fragment summon (3429 names a GameObject, not a
   monster variety), his teleport-the-player (6092) and portal warp (6090), the uber phase variants (6112-6114, 7905), the
   Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
-  the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
+  the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. The framework
+  runs the Shaper, the Elder and the Sirus of the Gauntlet and the standalone arenas only: `AtlasExilesBoss5` belongs to
+  the dedicated encounter (see the Sirus line under "Partly working" below). Code:
   `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
+  Docs: [shaper](../docs/game/shaper.md) (the Shaper's client data: the kit, its numbers, the rig's clips and the
+  object's phase machine).
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
@@ -163,6 +173,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
+- Normal Sirus: entry, the confrontation with Kirac and Zana, the six portals, four phases, the storms and rewards.
+  One controller owns the arena, the dedicated encounter (`Sirus.cs`), not the Shaper/Elder framework: the framework
+  used to claim every Sirus variety there as well and gave the throne — a seated stage with no granted effects of its
+  own — a whole rotation beside the encounter (live 2026-11-14: 301 actions from the throne alone). His kit is the
+  client's own `GrantedEffectsKeys` in order, all 36 body and 18 apparition effects, the clone circle and the beam
+  bombs play clips that exist, the ground layers resolve at the boss's level, and a descend no longer retires one of
+  the arena's six stationary storms for good. AI weighting, the storm radii, the portal's label and the death storms
+  are still provisional; the throne's life is not the body's.
+  Code: `Modules/Core/Game/Monster/Sirus*.cs`, `AtlasBosses.cs` (`FrameworkDrives`, which `SirusTests` covers).
+  Docs: [sirus](../docs/game/sirus.md), [14](../docs/protocol/14-monster-packs.md).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
