@@ -12,6 +12,24 @@ public class PartyAreaTests
     [Fact]
     public async Task The_party_list_carries_each_members_area_as_a_worldareas_hash()
     {
+        // The real input path must frame 0x92, including fragments and compact Unicode names, before dispatch.
+        foreach (string name in new[] { "AreaMember", "Voyageur\u00e9\U0001f409" })
+        {
+            byte[] request = new LoginWriter().U16(InstanceSocial.PartyTravelId).WStr(name).ToArray();
+            byte[] following = new LoginWriter().U16(InstanceSocial.PartyAcceptId).U32(0x101).ToArray();
+            for (int cut = 1; cut < request.Length; cut++)
+            {
+                Assert.Empty(InstanceProtocol.SplitClientMessages(request.AsSpan(0, cut), out var partial, out var unknown));
+                Assert.Empty(unknown);
+                Assert.Equal(request[..cut], partial);
+                var messages = InstanceProtocol.SplitClientMessages([.. partial, .. request[cut..], .. following],
+                    out partial, out unknown);
+                Assert.Empty(partial); Assert.Empty(unknown); Assert.Equal(2, messages.Count);
+                Assert.Equal(InstanceSocial.PartyTravelId, messages[0].Id);
+                Assert.Equal(name, InstanceSocial.ReadPartyTravel(messages[0].Bytes));
+                Assert.Equal(InstanceSocial.PartyAcceptId, messages[1].Id);
+            }
+        }
         // 0xa7 reads the member's cosmetics from a save database, as a server has one open (the scratch store pattern of
         // PartyKickTests).
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-party-area-{Guid.NewGuid():N}.db");
