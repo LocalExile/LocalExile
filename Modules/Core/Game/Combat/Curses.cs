@@ -181,6 +181,7 @@ public static partial class Game
                     SettleBleeding(m, now);
                     m.Ignites.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
                     m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
+                    m.Ruptures.SetExpiryRate(now, rate);
                     m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
                 }
                 m.ReceivedActionFactor = Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;

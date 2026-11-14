@@ -9,6 +9,16 @@ public sealed class MonsterRuptures
     public const double Seconds = 3;
 
     readonly List<(double Until, int Percent)> active = [];
+    double expiryRate = 1;
+
+    /// <summary>Rupture is a recipient debuff (BuffDefinitions category 2), so its own timer is slowed too.</summary>
+    public void SetExpiryRate(double now, double rate)
+    {
+        rate = Math.Max(.25, rate);
+        for (int i = 0; i < active.Count; i++)
+            active[i] = (RecipientEffectTime.RetimedDeadline(active[i].Until, now, expiryRate, rate), active[i].Percent);
+        expiryRate = rate;
+    }
 
     /// <summary>The next change in the active set, before pruning, so a caller can settle elapsed effects first.</summary>
     public double NextExpiry => active.Count == 0 ? double.PositiveInfinity : active.Min(r => r.Until);
@@ -27,7 +37,7 @@ public sealed class MonsterRuptures
     {
         Stacks(now);
         if (active.Count >= Maximum) active.RemoveAt(active.FindIndex(r => r.Until == active.Min(x => x.Until)));
-        active.Add((now + Seconds, percent));
+        active.Add((now + Seconds / expiryRate, percent));
     }
 
     public void Clear() => active.Clear();

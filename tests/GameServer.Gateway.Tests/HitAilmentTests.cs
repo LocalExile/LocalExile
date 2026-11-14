@@ -184,10 +184,31 @@ public sealed class HitAilmentTests
         Game.BleedOnHitLocked(conn, 12, slowed, bleed, critical: true, now: 0);
         Assert.Equal(.625, Game.BleedingExpiryRate(slowed, 0));
         Assert.Equal(16, slowed.Bleeds.Until, 8);
+        Assert.Equal(6, slowed.Ruptures.NextExpiry); // Rupture is itself a debuff; Temporal Chains slows it too.
         Game.SettleBleeding(slowed, 4);
-        Assert.Equal(19.25, slowed.Bleeds.Until, 8);
-        Assert.Equal(475, slowed.Bleeds.Advance(4, 1));
+        Assert.Equal(16, slowed.Bleeds.Until, 8);
+        Assert.Equal(500, slowed.Bleeds.Advance(4, 1));
         Assert.Equal(100, slowed.Bleeds.PerSecond(4)); // Expiry never scales the base DPS.
+        Game.SettleBleeding(slowed, 7);
+        Assert.Equal(18.5, slowed.Bleeds.Until, 8);
+        Assert.Equal(350, slowed.Bleeds.Advance(7, 1));
+
+        var changed = Monster();
+        Game.BleedOnHitLocked(conn, 14, changed, bleed, critical: true, now: 0);
+        Game.SettleBleeding(changed, 1);
+        changed.RecipientDebuffRate = .5;
+        changed.Ruptures.SetExpiryRate(1, .5);
+        changed.Bleeds.SetExpiryRate(1, Game.BleedingExpiryRate(changed, 1));
+        Assert.Equal(5, changed.Ruptures.NextExpiry);
+        Game.SettleBleeding(changed, 6);
+        Assert.Equal(17.5, changed.Bleeds.Until, 8);
+        Assert.Equal(725, changed.Bleeds.Advance(6, 1));
+        // Speeding a live timer back up preserves elapsed progress, and never revives an expired stack.
+        var restored = new MonsterRuptures(); restored.Add(0, 25);
+        restored.SetExpiryRate(1, .5); restored.SetExpiryRate(2, 1);
+        Assert.Equal(3.5, restored.NextExpiry);
+        restored.SetExpiryRate(4, .5);
+        Assert.Equal(0, restored.Stacks(4));
 
         var shortBleed = Monster();
         Game.BleedOnHitLocked(conn, 13, shortBleed, bleed with { Seconds = 1 }, critical: true, now: 0);
