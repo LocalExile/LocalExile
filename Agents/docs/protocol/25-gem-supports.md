@@ -133,7 +133,8 @@ deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the
 Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
 speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
-exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
+exist, so the base support was a pure damage penalty). The panel's damage per use and DPS now average all of those
+repeats rather than only the first hit. Melee Splash hits the enemies around each struck one for the
 support's less damage; its radius is the 12-cell default grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 

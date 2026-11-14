@@ -85,7 +85,8 @@ Nothing yet.
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
-  Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
+  Multistrike repeats its hits within the attack time, and the panel now averages those repeats in its damage per use
+  and DPS; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
