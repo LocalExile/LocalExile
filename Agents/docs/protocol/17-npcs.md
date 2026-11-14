@@ -216,6 +216,13 @@ The [reward rule](https://www.poewiki.net/wiki/Divination_card#Rewards) also app
 Maps, gems, named corruption implicits and naturally corrupted Talisman rewards have separate rules.
 Apocalypse's Corrupted Eyes of the Greatwolf therefore has a corruption implicit; its explicit magnitude doubler remains.
 
+`python scripts/re/divination_cards.py --check` regenerates the card definitions, constraints, members and
+supplemental unique identities from tracked SQL and curated source facts, then compares every managed row.
+`--client-db data/client.db` instead reads an already built client database; it never writes it.
+`--output sql/updates/pending_world/divination_refresh.sql` proposes only differences in a new file.
+The generator does not overwrite merged updates; its source restrictions and ring implicit list are reviewed
+inputs in `scripts/re/divination/sources.py`, with the Path of Building source blob IDs recorded there.
+
 C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
 otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
