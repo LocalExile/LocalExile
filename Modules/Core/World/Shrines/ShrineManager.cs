@@ -50,20 +50,36 @@ public static class ShrineManager
 
     // ---- Spawn ----------------------------------------------------------------------------------------------------
 
-    /// <summary>The area's shrines: the level generator's shrine room lines, on walkable ground, each with its type from
-    /// the seed and cell. A town, a hideout or an area without a generated level has none.</summary>
+    /// <summary>The area's shrines: the level generator's shrine room lines on walkable ground, each with its type from the
+    /// seed and cell, and one area in twenty a shrine of its own where the generator placed none — the campaign's zones have
+    /// no shrine rooms, and a map may roll one beyond them (<see cref="ShrinePlacement.AreaShrine"/>). A town, a hideout or
+    /// an area without a walkable layout has none.</summary>
     public static async Task SpawnArea(ClientState conn)
     {
         var state = Of(conn);
         ClearArea(state);
-        if (!MapDevices.Value.IsMapArea(conn.Layout.Hash)) return;
         if (conn.Layout.Walkable is not { } walk) return;
-        if (ServerLevels.For(conn.Layout.Id, conn.Seed) is not { } level) return;
-        foreach (var placed in ShrinePlacement.Plan(level.RoomObjects, walk, conn.Seed))
-            await Create(conn, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model));
+        if (MapDevices.Value.IsMapArea(conn.Layout.Hash) && ServerLevels.For(conn.Layout.Id, conn.Seed) is { } level)
+            foreach (var placed in ShrinePlacement.Plan(level.RoomObjects, walk, conn.Seed))
+                await Create(conn, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model));
+        if (state.Instances.Count == 0 && !NoShrineAreas(conn))
+        {
+            // The roll is logged either way: an area with no shrine says so, and the seed with it, so the numbers can be
+            // checked against the area's hash.
+            var rolled = ShrinePlacement.AreaShrine(conn.Layout.Hash, conn.Seed, walk, conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} area {conn.Layout.Id}: shrine roll {ShrinePlacement.Roll(conn.Layout.Hash, conn.Seed)} " +
+                $"of 100 (one area in {100 / ShrinePlacement.AreaChancePercent}) at seed {conn.Seed}: " +
+                (rolled is null ? "none" : $"{rolled.Shrine.Id} at ({rolled.X}, {rolled.Y})"));
+            if (rolled is not null) await Create(conn, NewInstance(rolled.Shrine, rolled.X, rolled.Y, rolled.Rotation, rolled.Model));
+        }
         if (state.Instances.Count > 0)
             Console.WriteLine($"[gateway] {conn.Wire.Remote} area {conn.Layout.Id}: {state.Instances.Count} shrine(s) created");
     }
+
+    /// <summary>Towns and hideouts get no rolled shrine: they are where the player sorts his stash, not where a shrine's
+    /// buff is worth the walk.</summary>
+    static bool NoShrineAreas(ClientState conn) =>
+        WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } || HideoutCatalog.ByArea(conn.Layout.Hash) is not null;
 
     static ShrineInstance NewInstance(ShrineCatalog.ShrineDefinition definition, int x, int y, float rotation, string? model)
     {

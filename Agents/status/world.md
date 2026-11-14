@@ -90,8 +90,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- **Map shrines.** A generated map's shrine room lines (`Metadata/Shrines/Shrine`) become shrine objects on walkable
-  ground, typed from the area seed; a click in walk-up range grants that Shrines row's buff for its duration (45 s,
+- **Shrines.** A generated map's shrine room lines (`Metadata/Shrines/Shrine`) become shrine objects on walkable
+  ground, typed from the area seed; and one area in twenty that the level generator left without a shrine rolls one of its
+  own (`ShrinePlacement.AreaShrine`: 5%, from the area's hash and seed, 24–72 cells from the arrival with room for the
+  statue), which is what puts them in the campaign, whose zones have no shrine rooms; towns and hideouts roll none. A
+  click in walk-up range grants that Shrines row's buff for its duration (45 s,
   the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
   click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
   influence rows come from the data. The Lightning shrine's Shock Novas and shocked ground run around the shrine while it

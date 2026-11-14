@@ -85,4 +85,31 @@ public sealed class ShrineTests
         var bare = ShrinePlacement.Plan([new(ShrinePlacement.Type, "", 5, 5, 0f, 0f)], Walkable, seed: 7);
         Assert.Equal(ShrinePlacement.DefaultModel, bare[0].Model);
     }
+
+    [Fact]
+    public void One_area_in_twenty_rolls_its_own_shrine_beyond_the_generators()
+    {
+        // The campaign's zones have no shrine rooms and a map may roll one beyond its rooms: 5% of areas carry a shrine
+        // of their own, rolled from the area's hash and seed so an instance keeps it on every entry.
+        Assert.Equal(5, ShrinePlacement.AreaChancePercent);
+        const ushort coast = 0x7ad2;
+        const int centre = 500;
+        bool Ground(int x, int y) => Math.Max(Math.Abs(x - centre), Math.Abs(y - centre)) < 400;
+        var placed = Enumerable.Range(0, 2000).Select(seed => ShrinePlacement.AreaShrine(coast, (uint)seed, Ground, (centre, centre))).ToList();
+        int hits = placed.Count(p => p is not null);
+        Assert.InRange(hits, 85, 115);   // 5% of 2000, within a couple of standard deviations
+        Assert.Equal(placed, Enumerable.Range(0, 2000).Select(seed => ShrinePlacement.AreaShrine(coast, (uint)seed, Ground, (centre, centre))));
+        double Distance(ShrinePlacement.Placed p) => Math.Sqrt(Math.Pow(p.X - centre, 2) + Math.Pow(p.Y - centre, 2));
+        foreach (var shrine in placed.OfType<ShrinePlacement.Placed>())
+        {
+            Assert.Contains(shrine.Shrine, ShrineCatalog.Standard);
+            Assert.Equal(ShrinePlacement.DefaultModel, shrine.Model);
+            Assert.True(Ground(shrine.X, shrine.Y));
+            Assert.InRange(Distance(shrine), ShrinePlacement.NearestCell, ShrinePlacement.FarthestCell + 1);
+        }
+        // A roll that misses places nothing, whatever the ground; a hit on ground with no room for the statue places nothing too.
+        Assert.All(placed.Where((p, i) => ShrinePlacement.Roll(coast, (uint)i) >= 5), p => Assert.Null(p));
+        uint hit = (uint)placed.FindIndex(p => p is not null);
+        Assert.Null(ShrinePlacement.AreaShrine(coast, hit, (_, _) => false, (centre, centre)));
+    }
 }
