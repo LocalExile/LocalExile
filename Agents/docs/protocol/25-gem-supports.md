@@ -92,7 +92,8 @@ Green supports with a condition or an execution of their own now run: Cull the W
 `additional_chance_to_freeze_chilled_enemies_%` counts an enemy chilled by an earlier hit (not the hit's own chill),
 Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignites, bleeds and poisons, Vicious Projectiles'
 `support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
-`support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
+`support_chain_count_+%_final` multiplies the whole chain count; PoB keeps the resulting fraction, so the server
+truncates it rather than rounding up (`GatewayProjectileModifiers`).
 
 Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
 (`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
@@ -134,7 +135,7 @@ Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the 
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
 speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
 exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
-support's less damage; its radius is the 12-cell default grown by the area modifier and
+support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
 Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
@@ -218,6 +219,20 @@ PoEDB comparisons: [Second Wind](https://poedb.tw/us/Second_Wind_Support) (200% 
 and [Close Combat](https://poedb.tw/us/Close_Combat_Support) (two-second Combat Rush, consumed by travel,
 20% more travel attack speed only without Close Combat). Values are read from the installed 3.29.3c tables;
 PoEDB is a comparison source, not a replacement for those versioned tables.
+
+## Mirage Archer presentation
+
+The 3.29.3c `MirageArcherVisualBuff` constructor at `0x1415d4c20` and destructor at `0x1417c7cb0`
+read element 0 of the buff's trailing u32 list without a length check.
+An empty list causes the null dereference at `0x1415d4d0c`; the owner actor itself is valid.
+The default appearance uses `[0]` on BuffDefinitions 1017, retained until the archer ends.
+This behaviour plays appear/disappear art; it does not create the persistent character model.
+That model is the class's `Metadata/Monsters/Mirage/*Mirage` actor with the owner's equipment,
+attached at `Head_Attachment` and tinted by BuffVisuals 802 `mirage_archer_effect`.
+BuffDefinitions 1748 `MirageArcherDisplayBuff` reads list element 1 in `0x1417c7010` and
+elements 0 and 2 in `0x1417c7260`; `[0, 0, 0]` selects default art without the separate proximity ring.
+The native actor is presentation for the existing server-side archer, outside the summon combat roster.
+Microtransaction variants and independent Occupying Force archers remain unverified.
 
 ## Remaining execution gaps
 

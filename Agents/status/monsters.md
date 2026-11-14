@@ -169,7 +169,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
   bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
-- The campaign Trinity has native attacks and two scorpion phases; exact official AI weights remain unverified.
+- The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
+  room entrance pads and return pairs; exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).

@@ -85,7 +85,8 @@ public static class InstanceEntities
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
     /// that many, or the client misreads the message), and a u32-counted list of u32 (<paramref name="list"/>, buff +0x80: a
     /// RecordSkillUseLocations buff's first entry and the <c>frost_fury_stage</c> buff's entries 1 and 2 (the client's
-    /// Winter Orb channelling art), which those behaviours read unchecked: give at least the entries the row's behaviour
+    /// Winter Orb channelling art), and MirageArcherVisualBuff's element 0 / MirageArcherDisplayBuff's elements 0..2,
+    /// which those behaviours read unchecked: give at least the entries the row's behaviour
     /// reads, since an empty list leaves the vector null). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
     /// f6c is the countdown rate (default 1.0). A duration is drawn as a countdown clock under the icon (below the

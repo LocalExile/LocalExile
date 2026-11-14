@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public static partial class Game
@@ -34,13 +35,79 @@ public static partial class Game
             public readonly ushort Skill = skill;
             public readonly SupportedGem Source = source;
             public long Expires, NextAttack;
+            public uint Actor;
+            public ushort Buff;
+            public bool BuffShown;
         }
         Archer? archer;
 
-        void MirageEffect(string phase)
+        static byte[] MirageDisplay(uint actor) => InstanceEntities.AddBuff(actor, 1, 1748,
+            visual: 802, list: [0, 0, 0]);
+
+        internal byte[]? MiragePeerDisplay(uint actor, uint recipient) =>
+            archer is { Actor: > 0 } current && current.Actor == actor ? MirageDisplay(recipient) : null;
+
+        void StartMirage(Archer current)
         {
-            var at = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
-            Effect(at.X, at.Y, $"Metadata/Effects/Spells/mirage_archer/{phase}.ao", ProjectileRuntime.Time(1));
+            string name = Conn.ClassRow switch
+            { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" };
+            if (Monsters.Find($"Metadata/Monsters/Mirage/{name}Mirage") is not { Supported: true } variety) return;
+            current.Buff = Conn.NextBuff++;
+            Enqueue(async () =>
+            {
+                bool Current() => Active && ReferenceEquals(archer, current);
+                if (!Current()) return;
+                var at = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+                var stats = new Dictionary<uint, int>(current.Source.Stats);
+                if (Stats.Key("skill_used_by_mirage_archer") is uint mirage) stats[mirage] = 1;
+                var skill = SkillsFor(Conn).FindByRow(current.Skill, current.Source.Effect, current.Source.Level,
+                    [.. stats.Select(p => (p.Key, p.Value))]);
+                await SpawnMonster(remote, stream, ciphers, Conn, variety, (byte)Math.Clamp(Conn.Pools.Level, 1, 100),
+                    MonsterRarity.Normal, at.X, at.Y, friendly: true, log: false,
+                    ownedLooks: Looks(Conn, ItemsOf(Conn)), ownedSkills: skill is null ? [] : [skill],
+                    attachTo: (PlayerId, "Head_Attachment", 0, 3), ownedCurrent: Current,
+                    owned: (id, actor) =>
+                    {
+                        current.Actor = id;
+                        actor.NoRewards = true; actor.EntranceGrace = true; actor.Attack = null;
+                    });
+                if (current.Actor == 0) return;
+                await SendWorldRecord(remote, stream, ciphers, Conn, current.Actor, MirageDisplay(current.Actor), null, still: Current);
+                await SendWorldRecords(remote, stream, ciphers, Conn, PlayerId, () =>
+                {
+                    lock (Conn.Monsters)
+                    {
+                        if (!Current()) return null;
+                        current.BuffShown = true;
+                        // Native MirageArcherVisualBuff reads list[0] in its constructor and destructor.
+                        return [InstanceEntities.AddBuff(PlayerId, current.Buff, 1017, PlayerId, list: [0])];
+                    }
+                });
+            });
+        }
+
+        void EndMirage(Archer current, bool retire = false)
+        {
+            if (ReferenceEquals(archer, current)) archer = null;
+            if (current.Actor != 0)
+            {
+                Conn.Monsters.Remove(current.Actor);
+                Conn.MinionOrigins.TryRemove(current.Actor, out _);
+            }
+            if (retire)
+            {
+                if (current.Actor != 0) Conn.RetiredCombatObjects.Add(current.Actor);
+                if (current.BuffShown) Conn.RetiredCombatBuffs.Add((PlayerId, current.Buff));
+                return;
+            }
+            Enqueue(async () =>
+            {
+                if (current.BuffShown)
+                    await SendWorldRecord(remote, stream, ciphers, Conn, PlayerId,
+                        InstanceEntities.RemoveBuff(PlayerId, current.Buff), null);
+                if (current.Actor != 0)
+                    await SendWorldRemoval(remote, stream, ciphers, Conn, current.Actor);
+            });
         }
 
         void MirageOnArrowHit(ProjectileOffense shot)
@@ -54,15 +121,14 @@ public static partial class Game
                 * Math.Max(0, 1 + (Player("mirage_archer_duration_+%") + Own("mirage_archer_duration_+%")) / 100d);
             if (seconds <= 0) return;
             long end = Runtime.Now + ProjectileRuntime.Time(seconds);
-            // The owner's 3.29.3c actor can render the appear/disappear effects. Applying
-            // mirage_archer_visual_buff to that actor crashes the client on the first supported hit.
             if (archer is { } old && old.Skill == shot.SourceSkill && SameTriggerSource(old.Source, source))
             {
                 old.Expires = end;
                 return;
             }
+            if (archer is { } previous) EndMirage(previous);
             var current = archer = new Archer(shot.SourceSkill, source) { Expires = end };
-            MirageEffect("appear");
+            StartMirage(current);
             double factor = Math.Max(.01, 1 + Own("support_mirage_archer_attack_speed_+%_final") / 100d);
             long Interval() => Math.Max(ProjectileRuntime.TickQuanta, ProjectileRuntime.Time(SupportedAttackSeconds(Conn, current.Skill) / factor));
             current.NextAttack = Runtime.Now + Interval();
@@ -72,8 +138,7 @@ public static partial class Game
                 if (Runtime.Now >= current.Expires || Conn.PlayerLife == 0 || !WeaponProfileFor(Conn, activeSet: true).Bow
                     || !SameTriggerSource(current.Source, SupportedSkill(Conn, current.Skill)))
                 {
-                    archer = null;
-                    MirageEffect("disappear");
+                    EndMirage(current);
                     return;
                 }
                 if (Runtime.Now >= current.NextAttack)
@@ -88,6 +153,13 @@ public static partial class Game
                         var gem = GemSkillEffects(Conn).FirstOrDefault(g => g.Id == current.Skill);
                         if (gem.Name is not null)
                         {
+                            if (current.Actor != 0)
+                            {
+                                if (Conn.Monsters.TryGetValue(current.Actor, out var actor)) actor.Walk.Teleport(from.X, from.Y, now);
+                                WorldRecords(current.Actor, () => ReferenceEquals(archer, current)
+                                    ? [InstanceProtocol.ActionStarted(current.Actor, from.X, from.Y, aim.X, aim.Y,
+                                        current.Skill, Conn.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(current.Actor)] : null);
+                            }
                             var crit = CaptureSkillCriticalRoll(Conn, current.Skill);
                             if (ArrowRain(SkillsFor(Conn).EffectId(gem.Effect)))
                                 ReleaseArrowRain(this, current.Skill, gem, aim, crit, 0, mirage: true);
