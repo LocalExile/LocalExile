@@ -190,17 +190,11 @@ public static partial class Game
             state.PendingStats = true;
         }
 
-        // Cruelty: one buff for the player, showing the strongest running per-skill value (BuffDefinitions 1815, its
-        // one GrantedStats value is the more damage over time). The client's field +0x82 is a percent increase to the
-        // shown value, so it is sent as 0, as the elemental ailment rows' is.
-        int crueltyPct = 0;
-        double crueltyUntil = 0;
-        foreach (var (skill, pct) in state.CrueltyPct)
-        {
-            if (state.CrueltyUntil.GetValueOrDefault(skill) <= now || pct <= 0) continue;
-            double until = state.CrueltyUntil[skill];
-            if (pct > crueltyPct || pct == crueltyPct && until > crueltyUntil) (crueltyPct, crueltyUntil) = (pct, until);
-        }
+        // Cruelty: one buff for the player, showing the strongest running instance (BuffDefinitions 1815, its one
+        // GrantedStats value is the more damage over time); when it ends a weaker running one is shown in its place.
+        // The client's field +0x82 is a percent increase to the shown value, so it is sent as 0, as the elemental
+        // ailment rows' is.
+        var (crueltyPct, crueltyUntil) = state.CrueltyActiveAt(now);
         int shownCruelty = state.PresentedCrueltyPct;
         bool crueltyChanged = crueltyPct != shownCruelty;
         if (state.PresentedCruelty != 0 && (crueltyPct == 0 || crueltyChanged

@@ -30,7 +30,7 @@ public sealed class CrueltySupportTests
     }
 
     [Fact]
-    public void CrueltyOnHit_keeps_the_strongest_value_per_skill_and_refreshes_its_deadline()
+    public void CrueltyOnHit_applies_the_strongest_running_instance_and_a_weaker_one_after_it()
     {
         var conn = new ClientState(new(1, "cruelty", 1000, 1000, 100, 100, null, []), 1, 1)
         {
@@ -45,40 +45,32 @@ public sealed class CrueltySupportTests
         const ushort skillId = 0x1234;
         var monster = new SpawnedMonster("target", new(0, 0, 0), 0, 0, 1000) { Hostile = true };
 
-        // First hit: 1 of 1000 life -> 25%.
+        // First hit: 1 of 1000 life -> 25% for four seconds.
+        var state = conn.SupportGems;
         lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, skillId, 1, 1000, 1000, skill, 0);
-        Assert.Equal(25, conn.SupportGems.CrueltyPct[skillId]);
-        double firstUntil = conn.SupportGems.CrueltyUntil[skillId];
-        Assert.True(firstUntil > 0);
+        Assert.Equal((25, 4.0), state.CrueltyActiveAt(0));
 
-        // A stronger hit raises the value and moves the deadline forward.
+        // A stronger hit applies at once; the weaker instance that ends sooner is gone.
         lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, skillId, 1000, 1000, 1000, skill, 1);
-        Assert.Equal(40, conn.SupportGems.CrueltyPct[skillId]);
-        Assert.True(conn.SupportGems.CrueltyUntil[skillId] >= firstUntil);
+        Assert.Equal((40, 5.0), state.CrueltyActiveAt(1));
+        Assert.Single(state.CrueltyInstances);
 
-        // A weaker hit never downgrades the value, but still refreshes the deadline.
-        double before = conn.SupportGems.CrueltyUntil[skillId];
-        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, skillId, 1, 1000, 1000, skill, 2);
-        Assert.Equal(40, conn.SupportGems.CrueltyPct[skillId]);
-        Assert.True(conn.SupportGems.CrueltyUntil[skillId] >= before);
+        // A weaker hit, from this or another supported skill, neither lowers nor extends the running 40: it waits as
+        // its own instance and takes over when the 40 ends.
+        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x5678, 1, 1000, 1000, skill, 3);
+        Assert.Equal((40, 5.0), state.CrueltyActiveAt(3));
+        Assert.Equal(40, Game.CrueltyActivePct(conn, 0x5678));
+        Assert.Equal((25, 7.0), state.CrueltyActiveAt(5));
+        Assert.Equal((0, 0.0), state.CrueltyActiveAt(7));
+
+        // A hit of a running strength refreshes that instance.
+        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, skillId, 1, 1000, 1000, skill, 4);
+        Assert.Equal((25, 8.0), state.CrueltyActiveAt(5));
 
         // A skill without the supported_by_cruelty stat never gains the buff.
         var plain = new Dictionary<uint, int> { [Program.Stats.Key("cruelty_effect_+%")!.Value] = 0 };
-        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x9999, 1000, 1000, 1000, plain, 0);
-        Assert.False(conn.SupportGems.CrueltyPct.ContainsKey(0x9999));
-
-        // Cruelty is one buff: a weaker hit from a second supported skill keeps the running 40 and refreshes it, and
-        // every supported skill reads that value.
-        double shared = conn.SupportGems.CrueltyUntil[skillId];
-        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x5678, 1, 1000, 1000, skill, 3);
-        Assert.Equal(40, Game.CrueltyActivePct(conn, 0x5678));
-        Assert.Equal(40, Game.CrueltyActivePct(conn, skillId));
-        Assert.True(conn.SupportGems.CrueltyUntil.Values.Max() > shared);
-        conn.SupportGems.CrueltyUntil.Clear();
-
-        // The buff expiring removes the value: clear the deadline, then CrueltyActiveAt reports 0.
-        conn.SupportGems.CrueltyUntil[skillId] = 0;
-        Assert.Equal(0, Game.CrueltyActivePct(conn, skillId));
+        lock (conn.Monsters) Game.CrueltyOnHitLocked(conn, 0x9999, 1000, 1000, 1000, plain, 6);
+        Assert.Equal((25, 8.0), state.CrueltyActiveAt(6));
     }
 
     [Fact]
@@ -122,13 +114,12 @@ public sealed class CrueltySupportTests
             Assert.Equal(0, gem.Stats.GetValueOrDefault(dotKey));
 
             // Grant a running buff for this skill: the injection now adds its percentage.
-            conn.SupportGems.CrueltyPct[skill] = 30;
-            conn.SupportGems.CrueltyUntil[skill] = conn.Clock.Elapsed.TotalSeconds + 4;
+            conn.SupportGems.CrueltyInstances[30] = conn.Clock.Elapsed.TotalSeconds + 4;
             var gem2 = Game.SupportedSkill(conn, skill);
             Assert.Equal(30, gem2.Stats.GetValueOrDefault(dotKey));
 
             // The buff expiring removes the injection again.
-            conn.SupportGems.CrueltyUntil[skill] = 0;
+            conn.SupportGems.CrueltyInstances.Clear();
             var gem3 = Game.SupportedSkill(conn, skill);
             Assert.Equal(0, gem3.Stats.GetValueOrDefault(dotKey));
         }

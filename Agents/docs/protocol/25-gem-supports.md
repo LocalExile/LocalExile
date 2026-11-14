@@ -122,8 +122,10 @@ keeps that aura out of the player's stats (the buff icon still shows, and an ene
 applies).
 Cruelty Support grants its buff on a hit of a supported skill: `CrueltyPctFor` computes `round(100 * (1 + cruelty_effect_+%/100) * (D/L)^0.2)`
 from the hit's damage `D` (capped at the life the target could lose) and the monster's maximum life `L`, capped at 40%.
-Cruelty is one buff on the character: any supported hit keeps the stronger of the running value and its own and
-refreshes the buff's 4 s duration (plus `cruelty_duration_+%`), and every Cruelty-supported skill takes that value as
+Cruelty is one buff on the character with separate instances: each supported hit grants an instance of its own value
+for 4 s (plus `cruelty_duration_+%`; a hit of a running value refreshes it), only the strongest running one applies, and
+a weaker one takes over when it ends. BuffDefinitions 1815 shares its stacking class (`__col7` 13) with ignite, shock,
+chill, Exposure and Arcane Surge, the client's strongest-instance buffs. Every Cruelty-supported skill takes that value as
 `cruelty_damage_over_time_+%_final` in its own stats, so its Damage over Time debuffs take it. The buff
 (BuffDefinitions 1815) shows that value, with `u82 = 0` and one value (the percent), re-sent on a value change or a
 deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the granting hit itself do not get it yet.
