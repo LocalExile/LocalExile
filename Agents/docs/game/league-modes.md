@@ -117,6 +117,7 @@ Ruthless gameplay also applies reduced item, gold, rarity, gem-XP and vendor-sal
 reduction at high levels and nearby campaign-boss recovery after death.
 Those unpublished numeric rates are LocalExile tuning described below.
 The crafting bench rejects opening and crafting in Ruthless.
+Ruthless leagues do not list the Pantheon module: Ruthless has no Pantheon powers.
 The opening support-gem chest and its support drop are disabled.
 Quest choices use the pinned `QuestRewards.__col16` discriminator: 0 shared, 1 ordinary-only, 2 Ruthless-only.
 Support gems are excluded from deterministic quest rewards; the table's gear and Uncarved Gemstone alternatives apply.
