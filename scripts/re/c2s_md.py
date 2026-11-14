@@ -66,12 +66,15 @@ def writer(fa):
     """Bytes a writer writes: the sum of its fixed-size stream writes; exact when it has no variable write, no call
     that takes the stream and no branch or loop."""
     t = src("%09x" % fa)
+    # Comments and quoted text are not executable decompiler C; spaces keep adjacent tokens separate.
+    t = re.sub(r"""\/\*.*?\*/|//[^\r\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""",
+               " ", t or "", flags=re.S)
     if not t or "{" not in t: return None
     body = t.split("{", 1)[1]
     fixed = sum(int(n, 0) for n in re.findall(r"FUN_140dfa000\([^,]+,[^,]+,(0x[0-9a-f]+|\d+)\)", body))
     var = re.search(r"FUN_140dfa000\([^,]+,[^,]+,[^)0-9][^)]*\)", body)
     calls = set(re.findall(r"(FUN_1[0-9a-f]{8})\([^;]*param_2", body)) - {"FUN_140dfa000"}
-    branch = re.search(r"\b(if|for|while|do)\b", body)
+    branch = re.search(r"\b(if|for|while|do|switch)\b|\?", body)
     return fixed, not var and not calls and not branch
 
 def gateway_framing():
