@@ -107,7 +107,7 @@ public static class BrineKing
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
-        IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 1).Set("tide_rush", 0) : null;
+        IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 0).Set("tide_rush", 0) : null;
 
     public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
     {
@@ -183,6 +183,7 @@ public static class BrineKing
         readonly List<GlyphQuest.Placement> spawners;
         readonly double radius, speed;
         double floodAt = double.NaN, nextSlam, nextRush, rushUntil, nextMinion, nextChase, nextStorm, nextOrb, nextWaveHit, expandUntil;
+        double emergeUntil = double.NaN;
         int floodStep;
         uint waveId;
         byte waveState;
@@ -222,13 +223,12 @@ public static class BrineKing
                 lock (conn.Monsters)
                 {
                     boss.ActionGeneration++; boss.SwingGeneration = null;
-                    boss.States = (boss.States ?? boss.Variety!.StateMachine)?.Set("rock_mode", 1);
                     if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                         conn.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { Skills = skills, StateMachine = boss.States } };
                 }
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.PlayerSkillsChange(id, skills,
                     boss.Attack is { } old && !skills.Any(s => s.Id == old.SkillId) ? [old.SkillId] : []), "[Brine King] full actor skill list");
-                await State(conn, "rock_mode", 1);
+                if (Phases.Active && floodStep >= 2) await Basic(conn, "ChangeToStance2", conn.Clock.Elapsed.TotalSeconds, viewer: conn);
             }
             if (waveId != 0 && waveViews.Add(conn))
             {
@@ -274,6 +274,18 @@ public static class BrineKing
                 if (Distance(pos, player) > boss.AggroRange) return;
                 boss.Aggro = true;
             }
+            if (boss.EntranceGrace)
+            {
+                if (double.IsNaN(emergeUntil))
+                {
+                    // BrineKingBody/rig.amd: the native Emerge clip lasts 3333 ms.
+                    emergeUntil = now + 3.333;
+                    await Basic(conn, "Emerge", now);
+                }
+                if (now < emergeUntil) return;
+                await State(conn, "rock_mode", 1);
+                boss.EntranceGrace = false;
+            }
             if (!boss.BossBarShown && boss.Variety is { BossHealthBar: true } && boss.States?.IndexOf("boss_life_bar") >= 0)
             {
                 lock (runner.Monsters) { boss.BossBarShown = true; conn.BossBarsSeen.Add(id); }
@@ -308,6 +320,7 @@ public static class BrineKing
                 }
                 if (now >= floodAt + 3 && floodStep == 1)
                 {
+                    await Basic(conn, "ChangeToStance2", now);
                     await WaveState((byte)(3 + 4 * Phases.Completed));
                     floodStep = 2;
                 }
@@ -320,6 +333,7 @@ public static class BrineKing
                     }
                     if (immunity is { } buff) await All(id, InstanceEntities.RemoveBuff(id, buff), monster: true);
                     immunity = null;
+                    await Basic(conn, "ChangeToStance1", now);
                     lock (conn.Monsters) Phases.Finish();
                     floodAt = double.NaN;
                     nextSlam = now + 1; nextRush = now + 8;
@@ -410,6 +424,16 @@ public static class BrineKing
                 boss.Walk.Order(target.X, target.Y, conn.Clock.Elapsed.TotalSeconds);
                 return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, 0x2909, conn.NextActionSequence(), 0x0408);
             }, "[Brine King] move");
+        }
+
+        async Task Basic(ClientState conn, string action, double now, ClientState? viewer = null)
+        {
+            if (Game.SkillsFor(conn).ActionSkillId(action) is not { } skill) return;
+            var at = boss.Walk.Position(now);
+            var record = InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, skill, conn.NextActionSequence(), 0x0800, id);
+            if (viewer is null) await All(id, record, monster: true);
+            else await SendWorldRecord(viewer.Wire.Remote, viewer.Wire.Stream, viewer.Wire.Ciphers, viewer, id, record,
+                "[Brine King] restore defensive stance");
         }
 
         async Task State(ClientState conn, string name, int value)

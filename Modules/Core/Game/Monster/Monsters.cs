@@ -268,7 +268,7 @@ public static partial class Game
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? BrineKing.StartStates(variety) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
+        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skills, stats)
         {
@@ -361,7 +361,7 @@ public static partial class Game
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
                 // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
                 LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
-                EntranceGrace = !friendly && (Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
+                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
             if (friendly) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
