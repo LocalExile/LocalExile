@@ -283,6 +283,49 @@ public static partial class Game
         }
     }
 
+    // An attack gem used at the ground out of the weapon's reach (an attack-move): the client's action walks up to the
+    // weapon's range less one of the aim and swings there by itself, with no word to the server (07 §5: an aim 17 cells
+    // off with range 10 walked 8 and 5 cells, then swung, near a monster and on empty ground). Without this the server
+    // only walked, and that swing hit nothing. On the estimate's arrival, if no other action replaced the walk, the server
+    // swings at the aim as CastOn does after its walk-up: it pays, echoes the swing from where it stands and runs the skill.
+    public static async Task SwingAtGroundOnArrival(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceProtocol.UseSkillAtLocation use, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        int action, double arrive)
+    {
+        try
+        {
+            while (true)
+            {
+                if (conn.Closed || conn.LeavingArea || !PlayerActionCurrent(conn, action)) return;
+                if (!conn.Paused && conn.Clock.Elapsed.TotalSeconds >= arrive) break;
+                await Task.Delay(16);
+            }
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _)) return;
+            (int X, int Y) aim = (use.X, use.Y);
+            (int X, int Y) stop = default;
+            // Not in reach of the aim (no path, an aim off the map, a body in the way): the client's action ends without
+            // a swing, so nothing is paid or echoed, as CastOn's SwingInReach refuses it for a monster. The reach is the
+            // weapon's range plus the same 2 cells of slack CastOn and Attack give; a normal arrival stops at range - 1.
+            if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect, CooldownForSkill(conn, use.SkillId), false,
+                () => stop = conn.Walk.Position(ProjectileWorldTime(conn)), out var cooldownUse, actionToken: action,
+                admit: () => !GroundAttackWalks(conn.Walk.Position(ProjectileWorldTime(conn)), aim, WeaponFor(conn).Range + 2)))
+                return;
+            bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+            if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+            bool acknowledged = false;
+            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y,
+                aim.X, aim.Y, use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(PlayerId)],
+                $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} at ({aim.X}, {aim.Y}) from ({stop.X}, {stop.Y}) after its walk-up (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
+                still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                    () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+            if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+            if (!projectileRuntime && acknowledged) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
     // The player uses a skill on a monster (C→S 0x24, e.g. the default attack on a left click). The client walks into range
     // first, so the server walks its estimate too (WalkUpToSwing, reach = the weapon's MaxAttackDistance in cells less one,
     // centre to centre) and only then starts the swing: it echoes the action aimed at the monster (0x1ab, flags | 0x80 +
@@ -631,11 +674,12 @@ public static partial class Game
             // The swing's hold was set when it began (LockstepAttackSwings); its timer, hit and release count from then
             // too, as the default attack's do.
             LockstepAttackOver(conn, action);
-            double? swingAt = started ? begun : null;
+            double? swingAt = started ? begun : now;
             bool acknowledged = false;
             bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
-            if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
-                use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
+            Task<bool>? attackTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target,
+                use.TargetId, sequence: use.Sequence, actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt) : null;
+            if (attackTask is { IsCompletedSuccessfully: true, Result: false }) return;
             if (started)
                 acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action));
@@ -647,6 +691,13 @@ public static partial class Game
             if (!projectileRuntime && !acknowledged) return;
             if (!projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target, use.TargetId, sequence: use.Sequence,
                 actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
+            return;
+        }
+        bool immediateAttack = gem.Name is not null && !IsTotemSkill(conn, use.SkillId)
+            && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect);
+        if (immediateAttack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds))
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {immediateAttackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             return;
         }
         double castAt = conn.Clock.Elapsed.TotalSeconds;
@@ -699,8 +750,10 @@ public static partial class Game
             use.SkillId, use.Sequence, spellUse?.ActionToken ?? castAction, spellUse);
         bool spellAcknowledged = false;
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
-        if (spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
-            use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
+        double? immediateSwingAt = immediateAttack ? castAt : null;
+        Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
+            use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt) : null;
+        if (spellTask is { IsCompletedSuccessfully: true, Result: false }) return;
         await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
@@ -716,7 +769,7 @@ public static partial class Game
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
-            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
+            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt);
     }
 
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
@@ -1206,6 +1259,13 @@ public static partial class Game
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
+        // Overheat Support: "consume all Fortification on use" - once for the use, before its hit or any projectile it
+        // releases, so every ailment this use inflicts gets the more damage the consumed stacks paid for.
+        var overheatStats = SupportedSkill(conn, skillId).Stats;
+        lock (conn.Monsters)
+            OverheatConsumeLocked(conn, skillId,
+                name => Stats.Key(name) is uint key ? overheatStats.GetValueOrDefault(key) : 0,
+                conn.Clock.Elapsed.TotalSeconds);
         if (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)))
         {
             var rainCritical = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
@@ -1229,6 +1289,9 @@ public static partial class Game
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
+        if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)))
+            return ScheduleMoltenStrike(remote, stream, ciphers, conn, skillId, gem, from, to, recoveryGeneration,
+                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt);
         if (IsLightningStrike(gem.Effect))
             return ScheduleLightningStrike(remote, stream, ciphers, conn, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
@@ -1364,6 +1427,10 @@ public static partial class Game
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
+            // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
+            const string overheatStat = "support_overheat_ailment_damage_+%_final_per_3_fortification_consumed";
+            int overheatPerThree = Stats.Key(overheatStat) is uint overheatKey
+                ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(overheatKey) : 0;
             while (true)
             {
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
@@ -1390,8 +1457,15 @@ public static partial class Game
                     // Payment and admission share the channel's generation check.
                     if (!PayMana(conn, skillId, out cost, out lifeCost))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
-                    else conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-                        ? new(skillId, gem.Effect, action, generation, rules) : null;
+                    else
+                    {
+                        conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                            ? new(skillId, gem.Effect, action, generation, rules) : null;
+                        // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
+                        // last one; the first tick's use already consumed in LaunchProjectile.
+                        if (overheatPerThree > 0)
+                            OverheatConsumeLocked(conn, skillId, name => name == overheatStat ? overheatPerThree : 0, now);
+                    }
                 }
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
@@ -1859,10 +1933,14 @@ public static partial class Game
                 // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                 var rampagePlayer = freshPlayer ? player : null;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
+                uint lifeBefore = m.Life;
                 applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    // Cruelty: a hit of a Cruelty-supported skill grants its buff, scaled by the damage the hit dealt
+                    // relative to the monster's maximum life (never more than the life it could remove).
+                    CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                     if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                         criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                     else ArcaneSurgeOnSpellHitLocked(conn, player, m);
@@ -1959,7 +2037,7 @@ public static partial class Game
         // the client centres them (its controller's +0x35c is the owner's cell).
         if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
             _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, from, to, radius,
-                hammerTargets, damageMore, sequence, repeat);
+                hammerTargets, damageMore, sequence, repeat, criticalRoll);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
@@ -1993,11 +2071,11 @@ public static partial class Game
     // the use's sequence, in the client's grid order (ClientEntityGrid). They outlive the swing (a later action does not
     // stop them); a death, an area change or a closed connection does. The hammer hits send no 0x1af: the client draws
     // its own hammers (11-skills.md §9a). Its Holy Sweep candidates are the enemies its own hit roll accepted, which can
-    // differ from the server's struck ones.
+    // differ from the server's struck ones. The hammers are hits of the sweep's use, so they share its critical roll.
     static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, HolySweepHammers.Settings hammers,
         IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, (int X, int Y) facing, int sweepRadius,
-        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat)
+        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat, SkillCriticalRoll? criticalRoll)
     {
         try
         {
@@ -2025,8 +2103,11 @@ public static partial class Game
             {
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
                 double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
-                // The rate the client's controller holds (the combined_main_hand_attack_speed_+% the skill's stats carry).
-                int attackSpeed = SupportedMainHandAttackSpeedPct(conn, skillId);
+                // The rate the client's controller holds: the combined_main_hand_attack_speed_+% of the skill list it last
+                // received, not the character's attack speed now (a Rage or charge change since is not in it until the
+                // list goes out again).
+                int attackSpeed = SentSkillStat(conn, skillId, "combined_main_hand_attack_speed_+%")
+                    ?? SupportedMainHandAttackSpeedPct(conn, skillId);
                 double every = HolySweepHammers.WaveSeconds(hammers.RateSeconds, attackSpeed);
                 var times = HolySweepHammers.WaveTimes(every, duration);
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
@@ -2056,7 +2137,8 @@ public static partial class Game
                     if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;
                     foreach (var (_, point) in wave)
                         await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                            melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                            melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                            radiusOverride: radius, hammer: hammers);
                 }
                 return;
             }
@@ -2065,7 +2147,8 @@ public static partial class Game
                 if (!await WaitProjectileTime(conn, start + at, epoch)) return;
                 foreach (var point in points)
                     await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                        melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                        melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                        radiusOverride: radius, hammer: hammers);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

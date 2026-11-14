@@ -16,6 +16,7 @@ public sealed class CosmeticsModule : IModule
         {
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
+        GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => CosmeticsFeature.StepPetFollow(conn));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
@@ -171,6 +172,25 @@ public static class CosmeticsFeature
     {
         (int X, int Y) spot = (player.X + side * PetDistance, player.Y + PetDistance / 2);
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
+    }
+
+    internal static async Task FollowThroughGate(ClientState conn)
+    {
+        uint[] ids;
+        lock (conn.Pets) ids = [.. conn.Pets.Keys];
+        foreach (var id in ids)
+            await global::Game.SendWorldRecord(conn, id, () =>
+            {
+                lock (conn.Pets)
+                {
+                    if (conn.Closed || conn.LeavingArea || !conn.Pets.TryGetValue(id, out var pet)) return null;
+                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    var to = PetSpot(conn, conn.Walk.Position(now), pet.Side);
+                    pet.Walk.Teleport(to.X, to.Y, now);
+                    pet.Target = to;
+                    return InstanceProtocol.Teleport(id, to.X, to.Y);
+                }
+            }, "pet follows owner through local gate");
     }
 
     // One finite walk. Ordinary following resumes after arrival, including when the caller has gone away.

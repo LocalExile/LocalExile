@@ -1,5 +1,5 @@
-/// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, and Inspiration's charges. Guarded by the
-/// connection's Monsters lock.</summary>
+/// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, Inspiration's charges, Cruelty's buff values
+/// and Overheat's per-use ailment more. Guarded by the connection's Monsters lock.</summary>
 public sealed class SupportGemState
 {
     /// <summary>When the Arcane Surge buff ends (Clock seconds); 0 means it is not running.</summary>
@@ -21,10 +21,28 @@ public sealed class SupportGemState
     public double InspirationUntil;
     public long InspirationSpent;
 
+    /// <summary>When each Cruelty-supported skill's buff ends (Clock seconds; absent means not running) and the more
+    /// damage over time that hit granted it (0-40 percent). The client shows the strongest running one.</summary>
+    public readonly Dictionary<ushort, double> CrueltyUntil = [];
+    public readonly Dictionary<ushort, int> CrueltyPct = [];
+
+    /// <summary>The one Cruelty buff instance shown to the client, the value and deadline it was last shown with, and
+    /// whether the last gain or refresh changed something the client must be told about.</summary>
+    public ushort CrueltyBuff, PresentedCruelty;
+    public int PresentedCrueltyPct;
+    public double CrueltyShownUntil;
+    public bool CrueltyRefresh;
+
+    /// <summary>Each skill's more ailment damage from Overheat's last use (1 when its use consumed no Fortification).</summary>
+    public readonly Dictionary<ushort, double> OverheatMore = [];
+
     /// <summary>Client instances for the two buffs and the counts last shown for Inspiration.</summary>
     public ushort ArcaneSurgeBuff, PresentedArcaneSurge, InspirationBuff, PresentedInspiration;
     public int PresentedInspirationCharges;
     public bool ArcaneSurgeRefresh, InspirationRefresh, PendingStats;
 
     public bool ArcaneSurgeActiveAt(double now) => ArcaneSurgeUntil > now;
+
+    public int CrueltyActiveAt(ushort skillId, double now) =>
+        CrueltyUntil.GetValueOrDefault(skillId) > now ? CrueltyPct.GetValueOrDefault(skillId) : 0;
 }

@@ -29,11 +29,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency, gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: currency, gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
 
+- NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
+  cards; random selection uses local weights, the official exchange probabilities are unknown.
+  Docs: [17](../docs/protocol/17-npcs.md).
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 

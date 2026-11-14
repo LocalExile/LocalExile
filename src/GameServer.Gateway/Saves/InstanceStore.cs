@@ -44,6 +44,9 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 
 public sealed partial class InstanceState
 {
+    /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
+    public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();
@@ -73,6 +76,19 @@ public sealed partial class InstanceState
     public bool IsStartWeapon(string character, uint id)
     {
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
+    }
+
+    readonly Dictionary<string, (int X, int Y)> _positions = new(StringComparer.Ordinal);
+
+    /// <summary>Remembers a rule's first position in this instance, including across connection and module reloads.</summary>
+    public void RememberPosition(string key, (int X, int Y) position)
+    {
+        lock (_positions) _positions.TryAdd(key, position);
+    }
+
+    public (int X, int Y)? RememberedPosition(string key)
+    {
+        lock (_positions) return _positions.TryGetValue(key, out var position) ? position : null;
     }
 
     readonly HashSet<string> _states = new(StringComparer.Ordinal);

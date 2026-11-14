@@ -66,6 +66,7 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
+  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
@@ -82,6 +83,8 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+  Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
+  Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,

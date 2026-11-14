@@ -49,6 +49,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
   off-hand alternation, conditional damage and support/modifier scope; check equipment UI refresh live.
+  Attack base/added coefficients are separate; remaining skill-specific added inputs and native checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
@@ -109,7 +110,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Start:**
   - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging and alternative ailments on
     monsters beyond ignites and bleeds, and further added-damage/support effects.
-  - Weapon-local "with this Weapon per 10 <attribute>" and spell per-Intelligence added damage.
+  - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
@@ -141,7 +142,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 
 - Native composition with supported projectiles, area sweeps, equipment sources, notification delays and slow
   destination loading; queued refreshes across expiry and decay-speed modifiers.
-  Measure official capped-attempt refresh and area-loading timer parity before replacing policy v1.
+  Capped regeneration now refreshes activity at any advance cadence (policy v2); measure
+  official capped-attempt refresh for discrete gains and area-loading timer parity before replacing policy v2.
   See [26-rage.md](../docs/protocol/26-rage.md).
 
 ### Vaal execution and remaining soul checks

@@ -199,6 +199,16 @@ u8 = the chosen NPCTalk row's index among the NPC's rows (column 1). The client 
 | RespecPassivePointsForGold | S→C 0x7b kind 0x5f with 1: the character's passive tree (UI +0x650, listener 0x140dc5fe0; a non-zero u32 shows it in mode 2, `0x1409df890`), the script's `SendOpenScreen( CharacterPassiveTreeScreen, 1 )`. Not kind 0x11 (Atlas tree, UI +0x668) or 0x45 (UI +0x678). "Apply refunds" (C→S 0x36 per node) and "Refund All" (0x37) are paid in gold ([15](15-progression.md) §2) |
 | IdentifyItems | script `triggerer.IdentifyItems()`: every unidentified item with mods in the main inventory becomes identified, free (0xbf removes and re-adds the same ids), then a chat line "{0} Items identified" / "{0} Item identified" (ClientStrings `IdentifyItemsChatMessage(Single)`, S→C 0x17, [10](10-chat-and-commands.md) §2) and 0x84 0xff to list the options again (verified 2026-10-20). The client grays the option itself (`0x141e7bb90` case 0x3b: no unidentified item in the inventory → ClientStrings id 0x1f07 "No items in your inventory can be identified", drawn gray by `0x14071ff10`), but only when the options are listed. The real game probably charges Scrolls of Wisdom (ClientStrings `IdentifyItemsNotEnoughScrollsOfWisdom`); ours is free. The IdentifyAll sound effect is not sent |
 
+Divination cards still use NPC dialogue in 3.29.3d: NPCTalk rows 616/1310 (Tasuni) and 2801 (hideout Lilly)
+have category `TradeDivinationCards` (36).
+S→C 0x7b kind 0x0c opens `DivinationWindow`; its first u32 selects a `DivinationWindowVisuals` row.
+The window uses player inventory row 27 (`DivinationCardTrade`), already registered with the player inventories.
+C→S 0xea (8 bytes, sender `0x14216e8d0`, writer `0x141f993f0`) is u32 BE item id, u8 expanded-inventory boolean, u8 into-window boolean.
+The Ctrl-click branch at `0x14030faa4` arms a client flag; the slot listener `0x140bb3210` calls `0x140bb41f0`, which submits the ordinary `0x19a` exchange for a complete set.
+Its exchange button (`0x140bb2980`) sends C→S 0x19a with no fields only when the slot holds one complete set.
+Its close handler (`0x140bb2f00`) sends C→S 0x85.
+An ordinary card pickup remains C→S 0x28; it is not an exchange request.
+
 C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
 otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).

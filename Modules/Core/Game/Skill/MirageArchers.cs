@@ -1,6 +1,5 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
-using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
@@ -35,7 +34,6 @@ public static partial class Game
             public readonly ushort Skill = skill;
             public readonly SupportedGem Source = source;
             public long Expires, NextAttack;
-            public ushort VisualBuff;
         }
         Archer? archer;
 
@@ -56,23 +54,14 @@ public static partial class Game
                 * Math.Max(0, 1 + (Player("mirage_archer_duration_+%") + Own("mirage_archer_duration_+%")) / 100d);
             if (seconds <= 0) return;
             long end = Runtime.Now + ProjectileRuntime.Time(seconds);
-            void Show(Archer active)
-            {
-                if (active.VisualBuff != 0) World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, active.VisualBuff));
-                active.VisualBuff = Conn.NextBuff++;
-                // Owner-attached EPK. A finite lifetime also retires it if the session is replaced.
-                World(PlayerId, InstanceEntities.AddBuff(PlayerId, active.VisualBuff, 1017, PlayerId, active.Skill,
-                    u68: BitConverter.SingleToUInt32Bits((float)seconds), visual: 802), "mirage archer owner visual on");
-            }
+            // The owner's 3.29.3c actor can render the appear/disappear effects. Applying
+            // mirage_archer_visual_buff to that actor crashes the client on the first supported hit.
             if (archer is { } old && old.Skill == shot.SourceSkill && SameTriggerSource(old.Source, source))
             {
                 old.Expires = end;
-                Show(old);
                 return;
             }
-            if (archer is { } replaced) World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, replaced.VisualBuff));
             var current = archer = new Archer(shot.SourceSkill, source) { Expires = end };
-            Show(current);
             MirageEffect("appear");
             double factor = Math.Max(.01, 1 + Own("support_mirage_archer_attack_speed_+%_final") / 100d);
             long Interval() => Math.Max(ProjectileRuntime.TickQuanta, ProjectileRuntime.Time(SupportedAttackSeconds(Conn, current.Skill) / factor));
@@ -83,7 +72,6 @@ public static partial class Game
                 if (Runtime.Now >= current.Expires || Conn.PlayerLife == 0 || !WeaponProfileFor(Conn, activeSet: true).Bow
                     || !SameTriggerSource(current.Source, SupportedSkill(Conn, current.Skill)))
                 {
-                    World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, current.VisualBuff), "mirage archer owner visual off");
                     archer = null;
                     MirageEffect("disappear");
                     return;

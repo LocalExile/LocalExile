@@ -595,6 +595,35 @@ Before serializing the player, PrepareHideoutWaypoint restores the character's s
 It sets the hideout spawn and movement origin to that exact cell, rather than a nearby cell or old template spawn.
 This applies to login, waypoint travel and returns from other areas; moving the waypoint changes later arrivals.
 
+### Selected encounter inputs: Simulacrum
+
+C→S `0xd8`'s target is the selected `AtlasNode.HASH16`; Simulacrum is `0xb3a2`, node row 161.
+The native encounter panel shows its recipe input independently of other items left in the device.
+Live activation with a Simulacrum and three Winged Sulphite Scarabs consumed only the Simulacrum and opened six portals.
+The scarabs neither modify the encounter nor need to be removed.
+
+`MapDeviceRecipes` row 34 resolves to the abstract `AnyAfflictionEndgameArea`, which cannot be used as the actual arena.
+The concrete areas are `AfflictionTown6`, `AfflictionTown4`, `AfflictionTown7`, `AfflictionTown8` and `AfflictionTown10`.
+Hysteriagate loaded with native walkability and a return portal in the current client.
+The initiator is the arena's `AfflictionatorActN`, inheriting
+`Metadata/Terrain/Leagues/Affliction/Objects/Afflictionator.ot`, not the monster `TangmazuWild`.
+Its wire components are Positioned, Animated, StateMachine, MinimapIcon, Stats, ObjectMagicProperties, InteractionAction.
+The five shared states are `active`, `wave`, `hello`, `goodbye`, `play_interlude`; the local
+`affliction_endgame_initiator` state selects the client's Simulacrum prompt and is not sent.
+The prompt displays `wave + 1` out of 15 and reads the next wave's affixes from ObjectMagicProperties.
+`active=1` hides targeting and triggers native wave speech; `goodbye=1` / `play_interlude=1` provide the farewell / resolve music.
+The arena's authored initiator placement supplies the position where available.
+
+The module now sends these native object states and a stable affix preview; shared boss skill kits supply combat.
+Live Hysteriagate shows the familiar entity, native Wave 1/15 prompt and the rolled affixes.
+`AfflictionMinionBase.ot` independently hides its models in `create_state_visible_0` / `on_state_visible_0`;
+live waves were attacking and dying while their health bars floated over invisible bodies.
+The `visible` shared state is 1 (server override), including the shared monster origin used for re-entry.
+Updating an already-created monster from 0 to 1 also runs its native spawn effect.
+The separate in-combat reward HUD, fog, specialised boss behaviours and the full fifteen-wave clear remain incomplete or unverified.
+GGG's [3.25 notes](https://www.pathofexile.com/forum/view-thread/3531661) establish the fifteen-wave version;
+exact population, reward-tier and exclusive drop weights are server policy, not published GGG probabilities.
+
 ## Delve: sulphite and the Crawler (live 2026-10-29)
 
 S→C `0x226` carries two BE u16 values: previous and current sulphite.

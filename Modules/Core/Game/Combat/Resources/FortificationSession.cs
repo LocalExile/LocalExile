@@ -125,6 +125,20 @@ public sealed class FortificationSession
         if (changed) Revision++;
     }
 
+    /// <summary>Overheat Support: removes every effective stack and returns how many there were (the capped current
+    /// value). The stacks' accumulated regeneration is settled first, so the life recovery already earned is kept.</summary>
+    public int ConsumeAll(double now)
+    {
+        Read(now);
+        int consumed = Value.Current;
+        if (consumed == 0) return 0;
+        State.Clear();
+        Value = new(0, 0, FortificationState.Maximum(AddedMaximum), null);
+        accountedStackSeconds = 0;
+        Revision++;
+        return consumed;
+    }
+
     public void Restore(FortificationState.Transfer transfer, double now)
     {
         Clear();

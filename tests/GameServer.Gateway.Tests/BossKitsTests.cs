@@ -66,6 +66,39 @@ public sealed class BossKitsTests
             Assert.NotNull(corpse);
             Assert.False(BossKits.IsCampaignBoss(corpse));
             Assert.Empty(BossKits.Kit(conn, corpse, 1, 406));
+
+            // Arakaali's arena-laser activators need the encounter's turret objects. Generic AI has none; calling
+            // the activator with an empty turret list crashes the native client, even while the boss is at full life.
+            var arakaali = Assert.IsType<MonsterCatalog.Variety>(
+                Game.Monsters.Find("Metadata/Monsters/VaalSpiderGod/Arakaali"));
+            var catalog = Game.SkillsFor(conn);
+            int[] laserDrivers = [6879, 7802, 7805];
+            Assert.All(laserDrivers, effect => Assert.Contains(effect, arakaali.GrantedEffects!));
+            var arakaaliKit = BossKits.Kit(conn, arakaali, 55, Game.MavenNucleus.CombatEffect(catalog, arakaali));
+            Assert.DoesNotContain(arakaaliKit, entry => laserDrivers.Contains(entry.Effect));
+            // Standalone mortar and melee attacks remain playable; this does not disable the encounter or its actor.
+            Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
+            Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
+
+            // Yugul starts natively untargetable. He must finish his entrance before generic AI can attack; a rebind
+            // already recreates a risen monster in state 2, so first entry must reach the same targetable state.
+            var yugul = Assert.IsType<MonsterCatalog.Variety>(
+                Game.Monsters.Find("Metadata/Monsters/Frog/FrogGod/SilverFrog"));
+            var emerge = new MonsterEmerge();
+            var kind = emerge.Kind(yugul, GameServer.Core.Protocol.Instance.MonsterRarity.Unique);
+            Assert.Equal(EmergeKind.Buried, kind);
+            Assert.Equal(EmergeKind.None, emerge.Kind(brutus,
+                GameServer.Core.Protocol.Instance.MonsterRarity.Unique));
+            var waiting = new SpawnedMonster("Yugul", new(20, 20, 1), 60, 2, maxLife: 100) { Variety = yugul };
+            Assert.True(MonsterEmerge.AddLocked(conn, 0x3050, waiting, kind, unrisen: true));
+            Assert.DoesNotContain(0x3050u, conn.Monsters.Keys);
+            Assert.Equal(1, MonsterEmerge.CreateState(yugul, kind, unrisen: true));
+            var risen = Assert.Single(emerge.RiseLocked(conn, (20, 20), 10, out bool watching));
+            Assert.Same(waiting, risen.Monster);
+            Assert.False(watching);
+            Assert.Same(waiting, conn.Monsters[0x3050]);
+            Assert.True(waiting.BusyUntil > 10);
+            Assert.Equal(2, MonsterEmerge.CreateState(yugul, kind, unrisen: false));
         });
     }
 

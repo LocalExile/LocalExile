@@ -502,6 +502,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
     public readonly PacketHistory Packets = new();
     public volatile string? CloseReason;
+    /// <summary>Completes once the connection has ended and everything it saves is written (Program.EndAsync waits for it,
+    /// so a connection that takes over the character loads what this one saved, never an older copy).</summary>
+    public readonly TaskCompletionSource Ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
@@ -905,6 +908,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
+    /// <summary>Per-skill attack count (0..4) and active BuffDefinitions 2353 instance for Molten Strike of the Zenith.
+    /// Guarded by the Monsters lock.</summary>
+    public readonly Dictionary<ushort, int> MoltenStrikeAttackCounts = [];
+    public readonly Dictionary<ushort, ushort> MoltenStrikeFifthBuffs = [];
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
     /// lock.</summary>
     public SpiritChieftains SpiritChieftains { get; } = new();
@@ -956,6 +963,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                    MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                     Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;
@@ -1146,9 +1154,26 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     readonly EmergeGround ownEmergeGround = new();
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
-    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
-        Monsters.Concat(DormantMonsters.Where(pair => Instance is null || MonsterViews.ContainsKey(pair.Key)))
-            .OrderBy(pair => pair.Key);
+    // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Monsters, DormantMonsters);
+
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> Merged(SortedDictionary<uint, SpawnedMonster> awake, SortedDictionary<uint, SpawnedMonster> dormant)
+    {
+        using var others = dormant.GetEnumerator();
+        bool NextBody()
+        {
+            while (others.MoveNext())
+                if (Instance is null || MonsterViews.ContainsKey(others.Current.Key)) return true;
+            return false;
+        }
+        bool more = NextBody();
+        foreach (var pair in awake)
+        {
+            for (; more && others.Current.Key < pair.Key; more = NextBody()) yield return others.Current;
+            yield return pair;
+        }
+        for (; more; more = NextBody()) yield return others.Current;
+    }
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;

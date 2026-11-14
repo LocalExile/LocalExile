@@ -225,6 +225,13 @@ public static partial class Game
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
+        if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == pick.ItemId) is { } source
+            && ShapeOf(source.Item) is { } shape && source.Item.StackSize > Math.Max(1, (int)shape.MaxStack))
+        {
+            await SplitStack(remote, stream, ciphers, conn,
+                new(stash.InventoryOf(tab), pick.ItemId, (uint)Math.Max(1, (int)shape.MaxStack), 0), "");
+            return;
+        }
         if (ItemMoves.StashToCursor(stash, items, tab, pick.ItemId) is not { } held)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick} from stash tab {tab}: refused");

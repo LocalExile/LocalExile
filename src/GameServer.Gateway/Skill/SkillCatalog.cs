@@ -139,6 +139,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
+        // An Energy Shield cost (CostTypes 2: Energy Blade, Wild Strike of Extremes).
+        if (gepl >= 0 && t.EsCost[gepl] > 0) { Put("base_es_cost", t.EsCost[gepl]); Put("es_cost", t.EsCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -270,6 +272,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
         int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
         return row >= 0 && row < t.Effectiveness.Count ? Math.Max(0, t.Effectiveness[row]) : 0;
+    }
+
+    /// <summary>The two independent GESSPL coefficients in permyriad. Missing metadata is identity;
+    /// an explicit -10000 offset resolves to zero, not the missing-data fallback.</summary>
+    public (int Base, int Added) DamageCoefficients(int effectRow, int level)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return (10000, 10000);
+        int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
+        return row >= 0 && row < t.DamageCoefficients.Count ? t.DamageCoefficients[row] : (10000, 10000);
     }
 
     /// <summary>The inherent weapon attack-rate multiplier at the selected GEPL level, in percent.
@@ -765,6 +776,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // name: ActiveSkills splitting_steel (+ its two transfigured variants) draws ImpactingSteelSkill.dds, and the gem's
     // ItemVisualIdentity SkillGemSplittingSteel is Art/2DItems/Gems/ImpactingSteelGem.dds (the archive has no
     // SplittingSteel art at all). Without it every use was refused (live 2026-11-09).
+    // Molten Strike fires Metadata/Projectiles/MoltenStrikeChunk (Projectiles row 107; Speed 750, 633 ms flight clip).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -803,6 +815,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["MoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltX"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltY"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["VaalMoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -1117,7 +1133,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
         public DamagePacket? LocalDamage { get; init; }
-        /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
+        /// <summary>Raw item-local and weapon-scoped modifiers captured with this weapon, including penetration and impale chance.</summary>
         public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 
@@ -1304,8 +1320,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // StatSetBase: per GrantedEffectStatSets row its ImplicitStats and (ConstantStats, ConstantStatsValues).
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
     // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
-    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7,
-    // ManaPercentPerMinute of CostTypes 9.
+    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; LifeCost of CostTypes 1, EsCost of
+    // CostTypes 2, ManaPerMinute of CostTypes 7, ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
     // Cooldowns: per GEPL row its Cooldown (ms), StoredUses and CooldownBypassType, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
@@ -1316,7 +1332,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
-        List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
+        List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
+        List<int> EsCost)
     {
         public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
             .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
@@ -1370,6 +1387,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
             var life = new List<int>();
+            var es = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
@@ -1387,6 +1405,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 int lifeIndex = Array.IndexOf(types, 1);
                 life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
+                int esIndex = Array.IndexOf(types, 2);
+                es.Add(esIndex >= 0 && esIndex < amounts.Length ? amounts[esIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
@@ -1409,6 +1429,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var setLevels = new List<(int, int)>();
             var effectiveness = new List<int>();
+            var damageCoefficients = new List<(int Base, int Added)>();
             var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
@@ -1418,6 +1439,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
                 effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
                     ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
+                damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
@@ -1426,7 +1448,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
-                manaPercentPerMinute);
+                manaPercentPerMinute, damageCoefficients, es);
+
+            static int Coefficient(int? offset) => offset is int value
+                ? (int)Math.Clamp(10_000L + value, 0, int.MaxValue) : 10_000;
         }
     }
 }

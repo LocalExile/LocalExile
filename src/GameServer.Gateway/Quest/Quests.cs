@@ -129,7 +129,7 @@ public static partial class Quests
     /// scripts spawn them, no room places them. Until <see cref="GoneWith"/> (null: it stays for the instance); with
     /// GoneWith set it also stands beside the boss on a later visit while the boss's kill flags are set and GoneWith is not
     /// (SinInnocence gives a5q6 only there).</summary>
-    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith) : Rule;
+    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith, bool StayAfterReward = false) : Rule;
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
     /// Bust carried: a3q11-DeliveredBust1–3 have no NPCTalk setter).</summary>
@@ -149,6 +149,10 @@ public static partial class Quests
     /// beside itself; Sin's EpiloguePortal back to the docks). Gate it with an <see cref="ExitRule"/>: hidden until the flag,
     /// as its Transitionable is untargetable until then.</summary>
     public sealed record PortalRule(string Area, string AtObject, string To, string Type) : Rule;
+    /// <summary>A model-less exit at a named entrance stands in for this quest portal.</summary>
+    public sealed record PointPortalRule(string Area, string To, string Type) : Rule;
+    /// <summary>A door opened individually by use, or by the death of the monster in its named room.</summary>
+    public sealed record PlacedDoorRule(string Area, string Type, string? Room = null, string? Monster = null, string? Entrance = null) : Rule;
     /// <summary>A room or tile quest object the engine creates where the area places it (<see cref="QuestObjectTypes"/>): a
     /// seal, a lever, a door, an altar. Its Transitionable shows <see cref="TransitionedBy"/>: state 1 without the flag, its
     /// last state with it (the client plays the transition when the flag comes), and its TriggerableBlockage blocks until
@@ -158,6 +162,7 @@ public static partial class Quests
         /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e65ae0) stops at
         /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
         public bool GoneWhenTransitioned { get; init; }
+        public bool OpensOnUse { get; init; }
     }
     /// <summary>Using the quest object (its <see cref="UsedRule"/> taking effect) brings the monster where the object stands
     /// (the Apex on the Dark Altar: the Vaal Oversoul). The area's population leaves it out.</summary>
@@ -218,7 +223,8 @@ public static partial class Quests
             new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject };
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
-        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null) => new AppearsRule(area, variety, npcType, goneWith);
+        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward);
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);
@@ -379,6 +385,7 @@ public static partial class Quests
 
         /// <summary>The area's quest portals (<see cref="PortalRule"/>).</summary>
         public IReadOnlyList<PortalRule> Portals(string areaId) => In<PortalRule>(areaId);
+        public IReadOnlyList<PointPortalRule> PointPortals(string areaId) => In<PointPortalRule>(areaId);
 
         /// <summary>The flags a dialogue row sets beyond its own columns (<see cref="TalkRowRule"/>).</summary>
         public IReadOnlyList<string> OnTalkRow(int row) => [.. Of<TalkRowRule>().Where(r => r.Row == row).SelectMany(r => r.Flags).Distinct()];
@@ -520,6 +527,7 @@ public static partial class Quests
         public IReadOnlyList<TurnsIntoRule> TurnsInto(string areaId) => In<TurnsIntoRule>(areaId);
         public string? SecondForm(string areaId, string varietyId) =>
             In<SecondFormRule>(areaId).FirstOrDefault(r => r.Variety == varietyId)?.Next;
+        public IReadOnlyList<PlacedDoorRule> Doors(string area) => In<PlacedDoorRule>(area);
         public IReadOnlyList<BlockerRule> Blockers(string areaId) => In<BlockerRule>(areaId);
 
         /// <summary>Flags only an event sets (a kill, a cleared area): a dialogue row does not set them, even when its QuestFlag4

@@ -11,6 +11,21 @@ namespace GameServer.Gateway.Tests;
 public sealed class Act6EncounterTests
 {
     [Fact]
+    public async Task A_pet_on_a_finite_walk_rejoins_immediately_after_an_intra_area_gate()
+    {
+        using var runtime = new Runtime();
+        using var wire = new Wire();
+        var conn = runtime.Connection("GatePet", new InstanceState(), 300, 200, wire);
+        const uint id = 0x04000000;
+        var pet = new SpawnedPet(conn.NewWalk(10, 10, 10), 1);
+        conn.Pets[id] = pet;
+        pet.Walk.Order(90, 10, 0);
+        await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.FollowThroughGate(conn);
+        Assert.Equal((306, 203), pet.Walk.Destination);
+        Assert.Equal(pet.Walk.Destination, pet.Target);
+    }
+
+    [Fact]
     public void Fuel_cart_uses_the_visible_radius_and_checks_the_position_sent_to_the_client()
     {
         var rail = new RailEscort([(0, 0), (65, 0), (65, 26)], 13);
@@ -26,8 +41,11 @@ public sealed class Act6EncounterTests
         cart.Update(2, [(38, 0)]);
         Assert.Equal((26d, 0d), rail.Position);
         Assert.True(cart.Moving);
-        // A delayed update can finish this leg only. The client still needs the command for the turn.
+        // The last order can travel only to the edge of the escort's circle, even if a tick is late.
+        Assert.Equal((61, 0), cart.CommandTarget);
         cart.Update(10, [(65, 15)]);
+        Assert.Equal((61d, 0d), rail.Position);
+        cart.Update(1, [(65, 15)]);
         Assert.Equal((65d, 0d), rail.Position);
         Assert.True(cart.Moving);
         cart.Update(1, []);
@@ -106,7 +124,7 @@ public sealed class Act6EncounterTests
         var boss = new SpawnedMonster("Brine King", new PlayerWalk(100, 100, 30), 60, 8, 1000)
         {
             Variety = variety, Level = 49, Rarity = MonsterRarity.Unique,
-            States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
+            EntranceGrace = true, States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
             Attack = new(0x4005, 1, 8, DamagePacket.Empty) { Scripted = true },
         };
         instance.World.Monsters[id] = boss;
@@ -115,7 +133,14 @@ public sealed class Act6EncounterTests
         var fight = new BrineKing.Fight(id, boss, host);
         await fight.Bind(host);
         await fight.Bind(peer);
-        double now = 1;
+        Assert.Equal(0, boss.States!.SharedStates[boss.States.IndexOf("rock_mode")]);
+        await fight.Step(host, 1);
+        await fight.Step(host, 4.2);
+        Assert.True(boss.Invulnerable);
+        await fight.Step(host, 4.4);
+        Assert.False(boss.Invulnerable);
+        Assert.Equal(1, boss.States.SharedStates[boss.States.IndexOf("rock_mode")]);
+        double now = 5;
         for (int stage = 0; stage < 3; stage++, now += 14)
         {
             boss.Life = boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue);

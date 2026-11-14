@@ -16,11 +16,12 @@ public static class CooldownBypass
     public const string FlickerVigilantPowerOverride = "vigilant_and_flicker_strike_active_skill_cooldown_bypass_type_override_to_power_charge";
 
     /// <summary>Whether <see cref="FlickerVigilantPowerOverride"/> turns this skill's bypass into a Power Charge: Flicker
-    /// Strike, Vigilant Strike and their transfigured gems, whose bypass is Endurance or Frenzy (not Vaal Flicker Strike
-    /// nor the variants without one).</summary>
+    /// Strike, Vigilant Strike and their transfigured gems (<c>AltX</c>, <c>AltY</c>), whose bypass is Endurance or Frenzy;
+    /// not Vaal Flicker Strike, nor the mercenaries' and the prophecy's effects (<c>FlickerStrikeMercenary</c>,
+    /// <c>VigilantStrikeMercenary</c>, <c>FlickerStrikeProphecy</c>).</summary>
     public static bool FlickerVigilantOverride(string? effectId, int bypassType) =>
-        bypassType is 1 or 2 && effectId is not null
-        && (effectId.StartsWith("FlickerStrike", StringComparison.Ordinal) || effectId.StartsWith("VigilantStrike", StringComparison.Ordinal));
+        bypassType is 1 or 2 && effectId is "FlickerStrike" or "FlickerStrikeAltX" or "FlickerStrikeAltY"
+            or "VigilantStrike" or "VigilantStrikeAltX" or "VigilantStrikeAltY";
 
     public static ChargeType? Charge(int bypassType, bool overrideToPower) =>
         overrideToPower ? ChargeType.Power : bypassType switch
