@@ -63,6 +63,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
   Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
   0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
+  A member's row shows the area that member is in, from 0xa7 `+0xa8` as a `WorldAreas` HASH16, and its travel button
+  (C→S 0x92) sends the player to that area, in the member's own instance of it when there is one (2026-11-14, the panel
+  with a party bot left behind in a town).
   Decline and disconnects are open.
   Decline and human-only disconnect cleanup remain open.
   See [28](../docs/protocol/28-player-trade.md) §5.

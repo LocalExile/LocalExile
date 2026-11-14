@@ -124,8 +124,11 @@ public static class PartyRoster
     // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
     static Task Send(ClientState c, byte[] packet) => !c.Closed && c.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
+    // The third field is the player's own area as a WorldAreas HASH16 (0xa7 +0xa8), not their level: the party panel's row
+    // resolves it for the member's area name and offers the travel button only for an area, so a level shows
+    // "Travelling..." with the button disabled (#715).
     static byte[] Known(ClientState c) => InstanceSocial.KnownPlayer(c.Account ?? CharacterName(c), CharacterName(c),
-        c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c));
+        c.Layout.Hash, PackedClass(c), c.PortraitFrame, WornPortrait(c));
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
     public static async Task Publish(uint party)
