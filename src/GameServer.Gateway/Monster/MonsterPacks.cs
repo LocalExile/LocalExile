@@ -400,11 +400,10 @@ public static class AreaPopulation
                 $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
         double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(packCells / (double)CellsPerPack
-            * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density)
-            + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
-        // The layout's own pack points already stand their packs: they count against the budget, so an area whose rooms
-        // name their packs does not also get a full scattered set on top of them.
-        wanted -= roomPlaced;
+            * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density);
+        // Room packs consume only the ordinary budget. Explicit additional packs still stand even when the rooms
+        // already exceed that budget.
+        wanted = Math.Max(0, wanted - roomPlaced) + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
         Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
@@ -422,12 +421,14 @@ public static class AreaPopulation
             rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
         Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
         Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
+        bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
+            && (reach is null || reach[y * w + x]) && walkable(x, y);
         int scatteredStart = spawns.Count;
         int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
         int placedPacks = 0;
         for (int i = 0; i < plans.Count && spawns.Count - scatteredStart < memberBudget; i++)
         {
-            AddPack(spawns, taken, walkable, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
+            AddPack(spawns, taken, ReachableMember, plans[i].At, plans[i].Pack, rarities[i], true, rng, spawnable, packSize: size,
                 memberLimit: memberBudget - (spawns.Count - scatteredStart));
             placedPacks++;
         }

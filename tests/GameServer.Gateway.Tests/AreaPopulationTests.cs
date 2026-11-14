@@ -23,5 +23,22 @@ public class AreaPopulationTests
         Assert.NotEmpty(spawns);
         Assert.All(spawns, s => Assert.False(s.X >= 280, $"a pack stands beyond the wall at ({s.X}, {s.Y})"));
         Assert.Contains(notes, n => n.Contains("cannot walk", StringComparison.Ordinal));
+
+        // Pack members can scatter nine cells from the centre. A thin wall must constrain them too.
+        bool ThinWall(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595 && x != 280;
+        for (int seed = 1; seed <= 8; seed++)
+        {
+            var thin = AreaPopulation.Plan(Area(), 600, 600, ThinWall, (50, 50), [], [], seed, _ => true, []);
+            Assert.NotEmpty(thin);
+            Assert.All(thin, s => Assert.True(s.X < 280));
+        }
+
+        // Room packs may exceed the ordinary density budget, but cannot consume explicit extra map packs.
+        bool Field(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595;
+        AreaPopulation.RoomPoint[] rooms = [new("normal", 100, 100), new("normal", 200, 100),
+            new("normal", 300, 100), new("normal", 400, 100)];
+        var extras = AreaPopulation.Plan(Area() with { Density = 0 }, 600, 600, Field, (50, 50), [], [],
+            23, _ => true, [], scale: new(ExtraNormal: 3), roomPacks: rooms);
+        Assert.True(extras.Count > rooms.Length * Pack.MaxCount, "The three extra packs were absorbed by the room budget.");
     }
 }
