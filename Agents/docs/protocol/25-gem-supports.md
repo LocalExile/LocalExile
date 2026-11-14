@@ -97,8 +97,8 @@ Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignite
 Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
 (`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
 Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
-(`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
-bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
+(`MonsterRuptures`, `BleedTaken`); a bleed applied while Ruptures are present expires 25% more quickly per Rupture, using
+the Ruptures already on the target (the Rupture from the same hit affects later bleeds). Close Combat's supported melee hit grants Combat Rush for its listed
 duration, and a travel skill the support does not support then takes
 `support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed.
 A successfully paid travel use consumes the buff.
