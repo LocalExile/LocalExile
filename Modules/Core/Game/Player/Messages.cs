@@ -162,7 +162,8 @@ public static partial class Game
                 // player, since the projectile is launched by the cast below (live 2026-10-25).
                 bool attack = cast && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect);
                 if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(conn).IsMovement(gem.Effect)
-                    && !SkillsFor(conn).IsProjectile(gem.Effect) && WeaponProfileFor(conn).Melee)
+                    && (!SkillsFor(conn).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)))
+                    && WeaponProfileFor(conn).Melee)
                 {
                     var here = conn.Walk.Position(at);
                     if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(conn).Range))
@@ -276,8 +277,11 @@ public static partial class Game
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 Mark("charge");
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
-                if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
-                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                double? swingAt = attack ? at : null;
+                Task<bool>? castTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
+                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
+                    swingAt: swingAt) : null;
+                if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
                 Func<Task> echo = async () =>
@@ -305,7 +309,7 @@ public static partial class Game
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
-                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);

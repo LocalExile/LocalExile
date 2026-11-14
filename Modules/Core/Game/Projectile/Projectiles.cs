@@ -106,18 +106,22 @@ public static partial class Game
                     Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
                     {
                         if (!Active || !valid()) return;
-                        try
-                        {
-                            var use = release() with { Seed = ++seed };
-                            long useId = Runtime.Release(use);
-                            if (ServerTrace.Projectiles && !Quiet(use.Payload))
-                                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
-                                    + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
-                                    + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
-                        }
+                        try { ReleaseNow(release()); }
                         catch (InvalidOperationException ex)
                         { Console.WriteLine($"[gateway] {remote} projectile path unavailable: {ex.Message}"); }
                     });
+        }
+
+        /// <summary>Releases a resolved use at the runtime's current instant. Call under the Monsters lock.</summary>
+        public long ReleaseNow(ProjectileUse use)
+        {
+            var seeded = use with { Seed = ++seed };
+            long useId = Runtime.Release(seeded);
+            if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
+                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
+                    + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
+                    + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
+            return useId;
         }
 
         public double NowTicks => Runtime.Now;

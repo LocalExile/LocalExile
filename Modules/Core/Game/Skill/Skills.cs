@@ -650,6 +650,21 @@ public static partial class Game
                 if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
                 Console.WriteLine($"[gateway] Cyclone area: base {baseRadius}, radius {radius}, increased area {increased}%, radius scale {radiusPercent}%");
             }
+            // Molten Strike's client ballistic/explosion builders read 0x1591 (0x14193efd0) for both scatter range and
+            // explosion radius; its StatSet omits active_skill_base_area_of_effect_radius, whose base is 9 (0x141b6baa0).
+            else if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(effect)))
+            {
+                int AreaGet(string name) => name == SkillArea.BaseIncreased
+                    ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + Get("molten_strike_radius_+%")
+                    : Get(name);
+                int baseRadius = Get("active_skill_base_area_of_effect_radius") is > 0 and var br ? br : 9;
+                int increased = SkillArea.Increased(AreaGet, spell: false);
+                int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
+                int radius = SkillArea.Radius(baseRadius, AreaGet, spell: false);
+                if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) stats[radiusKey] = radius;
+                if (Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint scaleKey) stats[scaleKey] = radiusPercent;
+                if (Stats.Key("skill_area_of_effect_+%") is uint areaKey) stats[areaKey] = increased;
+            }
             // Other area skills: the client's effect builders read the final radius (0x4876) too; without it Ice Nova drew
             // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
             else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stats.Key("active_skill_area_of_effect_radius") is uint finalRadius)

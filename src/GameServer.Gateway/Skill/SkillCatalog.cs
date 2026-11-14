@@ -776,6 +776,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // name: ActiveSkills splitting_steel (+ its two transfigured variants) draws ImpactingSteelSkill.dds, and the gem's
     // ItemVisualIdentity SkillGemSplittingSteel is Art/2DItems/Gems/ImpactingSteelGem.dds (the archive has no
     // SplittingSteel art at all). Without it every use was refused (live 2026-11-09).
+    // Molten Strike fires Metadata/Projectiles/MoltenStrikeChunk (Projectiles row 107; Speed 750, 633 ms flight clip).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -814,6 +815,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["MoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltX"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltY"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["VaalMoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
