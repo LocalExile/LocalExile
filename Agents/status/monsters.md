@@ -164,6 +164,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's arena-laser activators stay out until an encounter supplies their required turret objects; calling them
   without those objects crashes the client. Her stance/phase controller remains missing.
+  Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
+  his dive/mirror phases remain missing.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
