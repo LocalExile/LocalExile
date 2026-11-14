@@ -4,10 +4,14 @@ namespace GameServer.Gateway.Tests;
 
 public class RyslathaEncounterTests
 {
-    [Theory]
-    [InlineData(1u)]
-    [InlineData(2u)]
-    public void The_nests_use_the_three_room_markers_and_the_boss_uses_her_own(uint seed)
+    // The Wetlands layout and its room points come from the extracted game files, so a checkout without them skips.
+    [GameFilesFact]
+    public void The_nests_use_the_three_room_markers_and_the_boss_uses_her_own()
+    {
+        foreach (uint seed in new uint[] { 1, 2 }) Seed(seed);
+    }
+
+    static void Seed(uint seed)
     {
         const string area = RyslathaEncounter.Area;
         using var registration = Quests.Register("nest-sequence", QuestObjectsModule.Acts());
