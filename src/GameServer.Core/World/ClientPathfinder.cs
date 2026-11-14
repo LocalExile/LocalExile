@@ -342,9 +342,11 @@ public static class ClientPathfinder
                     if (n.Gen == gen && (n.Flags & Closed) != 0) continue;
                     var np = Pos(nc);
                     if (Math.Abs(np.X - target.X) >= Half || Math.Abs(np.Y - target.Y) >= Half) continue;
-                    if (LineBlocked(p, np, walkable)) continue;
+                    // The cost before the line: a neighbour already reached as cheaply is passed over either way, and the
+                    // line test only reads the terrain, so it is not walked for one.
                     float g = node.G + (d < 4 ? 11.5f : 16.2634f);
                     if (n.Gen == gen && !(g < n.G)) continue;
+                    if (LineBlocked(p, np, walkable)) continue;
                     float h = Heuristic(np.X, np.Y);
                     if (n.Gen != gen) { n.Gen = gen; n.Flags = 0; }
                     n.G = g;
@@ -390,24 +392,44 @@ public static class ClientPathfinder
     /// (the Bresenham of 0x141d8a7f0, and of a walk segment, 0x141e50880 / 0x141e50a90).</summary>
     public static IEnumerable<(int X, int Y)> Line((int X, int Y) a, (int X, int Y) b)
     {
-        bool steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
-        int major = steep ? a.Y : a.X, majorEnd = steep ? b.Y : b.X, minor = steep ? a.X : a.Y, minorEnd = steep ? b.X : b.Y;
-        int majorLen = Math.Abs(majorEnd - major), minorLen = Math.Abs(minorEnd - minor);
-        int majorStep = major < majorEnd ? 1 : -1, minorStep = minor < minorEnd ? 1 : minor == minorEnd ? 0 : -1;
-        int err = -(majorLen / 2);
-        while (major != majorEnd + majorStep)
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y)) yield return (x, y);
+    }
+
+    // The cells of Line one at a time, with no iterator object: a search's line tests walk thousands of short lines
+    // (the coarse pass alone up to 2400 of a dozen cells each).
+    struct LineCells
+    {
+        readonly bool steep;
+        readonly int majorEnd, majorLen, minorLen, majorStep, minorStep;
+        int major, minor, err;
+
+        public LineCells((int X, int Y) a, (int X, int Y) b)
         {
-            yield return steep ? (minor, major) : (major, minor);
+            steep = Math.Abs(b.X - a.X) < Math.Abs(b.Y - a.Y);
+            major = steep ? a.Y : a.X; majorEnd = steep ? b.Y : b.X; minor = steep ? a.X : a.Y;
+            int minorEnd = steep ? b.X : b.Y;
+            majorLen = Math.Abs(majorEnd - major); minorLen = Math.Abs(minorEnd - minor);
+            majorStep = major < majorEnd ? 1 : -1; minorStep = minor < minorEnd ? 1 : minor == minorEnd ? 0 : -1;
+            err = -(majorLen / 2);
+        }
+
+        public bool Next(out int x, out int y)
+        {
+            if (major == majorEnd + majorStep) { x = y = 0; return false; }
+            (x, y) = steep ? (minor, major) : (major, minor);
             int e = minorLen + err;
             major += majorStep;
             if (e < 1) err = e;
             else { err = e - majorLen; minor += minorStep; }
+            return true;
         }
     }
 
     static bool LineBlocked((int X, int Y) a, (int X, int Y) b, Func<int, int, bool> free)
     {
-        foreach (var (x, y) in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
             if (!free(x, y)) return true;
         return false;
     }
@@ -424,10 +446,11 @@ public static class ClientPathfinder
     {
         last = a;
         if (threshold < 0) return false;
-        foreach (var cell in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
         {
-            if (value(cell.X, cell.Y) < threshold) return true;
-            last = cell;
+            if (value(x, y) < threshold) return true;
+            last = (x, y);
         }
         return false;
     }
@@ -435,7 +458,8 @@ public static class ClientPathfinder
     // The object line check (0x141e65c40): blocked when any cell of the line is inside an object.
     static bool LineInObject((int X, int Y) a, (int X, int Y) b, Func<int, int, bool> inObject)
     {
-        foreach (var (x, y) in Line(a, b))
+        var cells = new LineCells(a, b);
+        while (cells.Next(out int x, out int y))
             if (inObject(x, y)) return true;
         return false;
     }
