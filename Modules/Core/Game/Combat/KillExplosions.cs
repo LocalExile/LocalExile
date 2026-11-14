@@ -32,7 +32,8 @@ public static partial class Game
         int generic = Get("enemies_explode_for_%_life_as_physical_damage");
         int bleedingPercent = Get("bleeding_enemies_explode_for_%_life_as_physical_damage");
         bool bleeding;
-        lock (conn.Monsters) bleeding = corpse.Bleeds.Burning;
+        // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
+        lock (conn.Monsters) bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
         int percent = generic + (bleeding ? bleedingPercent : 0);
