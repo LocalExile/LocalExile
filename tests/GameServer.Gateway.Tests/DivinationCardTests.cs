@@ -39,9 +39,10 @@ public sealed class DivinationCardTests
         var implicits = amulet.Mods.Where(m => m.Section == ModSection.Implicit).ToArray();
         Assert.Equal(2, implicits.Length);
         Assert.All(implicits, m => Assert.Equal(5, items.Mods.ByHash(m.Hash)!.GenerationType));
-        var singleImplicit = DivinationRewards.Create(doubleImplicit with { TwoImplicit = false }, items, uniques, rolls, new Random(1))!;
-        var corruption = Assert.Single(singleImplicit.Mods, m => m.Section == ModSection.Implicit);
-        Assert.Equal(5, items.Mods.ByHash(corruption.Hash)!.GenerationType);
+        // A plain "Corrupted" reward is corrupted without a corruption implicit: the unique keeps its own implicits.
+        var plain = DivinationRewards.Create(doubleImplicit with { TwoImplicit = false }, items, uniques, rolls, new Random(1))!;
+        Assert.True(plain.Corrupted);
+        Assert.DoesNotContain(plain.Mods, m => m.Section == ModSection.Implicit && items.Mods.ByHash(m.Hash)!.GenerationType == 5);
         var humble = DivinationRewards.Find(items.Find("Humility")!.Id)!;
         var robe = DivinationRewards.Create(humble, items, uniques, rolls, new Random(1))!;
         Assert.Equal(6, robe.Sockets.Count);
@@ -307,6 +308,16 @@ public sealed class DivinationCardTests
             await DivinationFeature.Open(conn);
             Assert.False(DivinationFeature.Current(conn));
             Assert.Empty(DivinationFeature.Move(conn, new(blocked.Id, false, true)));
+            // A reward's Vestigial flag (Matryoshka) and blueprint state (Something Dark) are written to the save tables,
+            // not only kept in memory: they come back after the inventories are read again.
+            items.Remove(27, retained.Id);
+            var state = new HeistBlueprintState(7, 83, 1, true, [new HeistWing(true, [], [1], [])]);
+            var kept = items.Add(27, 0, 0, retained.Item with { Vestigial = true, HeistBlueprint = state });
+            PlayerInventories.Forget(conn.Character!);
+            var reloaded = Assert.Single(Game.ItemsOf(conn).Items(27)).Item;
+            Assert.True(reloaded.Vestigial);
+            Assert.Equal(83, reloaded.HeistBlueprint!.AreaLevel);
+            Assert.Equal(kept.Item.Payload(), reloaded.Payload());
         }
         finally
         {
