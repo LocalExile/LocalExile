@@ -78,6 +78,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Party options synchronize; gameplay and native checks remain open ([28](../docs/protocol/28-player-trade.md)).
+
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
