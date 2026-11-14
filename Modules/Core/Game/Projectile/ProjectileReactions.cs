@@ -168,6 +168,9 @@ public static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
+        // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
+        // Game.MonsterKilled (MonsterRemaining.cs).
+        session.Enqueue(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
         // output task runs after it.

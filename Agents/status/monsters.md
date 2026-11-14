@@ -282,6 +282,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
   Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Modules/Core/Game/Monster/Monsters.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
+- The map overlay's "X monsters remain" line: S→C 0x1a0 carries the area's living monsters, sent on entry once the
+  packs are placed and again when a monster dies, joins, rises or leaves. The byte and its 1 / 0..50 / 51..255
+  thresholds were verified live with `/raw`; the count, its refresh and the line the client shows are not played yet.
+  Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §2.
 
 ## Not working yet
 

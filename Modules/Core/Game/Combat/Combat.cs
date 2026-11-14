@@ -2590,7 +2590,12 @@ public static partial class Game
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     public static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         bool byMinion = false)
-        => await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion);
+    {
+        await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion);
+        // The map overlay's "X monsters remain" (S→C 0x1a0): one fewer of the area's monsters is alive. Its corpse stays
+        // in the roster, so the count is the living ones (MonsterRemaining.cs).
+        await SendRemainingMonsters(remote, stream, ciphers, conn);
+    }
 
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill)

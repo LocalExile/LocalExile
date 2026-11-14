@@ -741,6 +741,10 @@ public static partial class Game
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
+                    // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
+                    // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
+                    // reads "More than 50 monsters remain" everywhere (InstanceProtocol.MonstersRemaining).
+                    await SendRemainingMonsters(remote, stream, ciphers, conn, force: true);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);

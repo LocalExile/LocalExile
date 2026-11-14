@@ -180,6 +180,9 @@ public static partial class Game
                     notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
+                // A minion's kill is committed here, not through Game.MonsterKilled: the overlay's count (S→C 0x1a0) is one
+                // monster smaller too.
+                await SendRemainingMonsters(remote, stream, ciphers, conn);
                 continue;
             }
             if (output.Kind == PlayerMinions.OutputKind.GroundItem)
