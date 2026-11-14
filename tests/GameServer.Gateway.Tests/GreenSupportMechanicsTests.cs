@@ -126,10 +126,10 @@ public sealed class GreenSupportMechanicsTests
             "main_hand", Stats(("support_faster_ailments_ailment_duration_+%_final", -70))).Seconds, 6);
         Assert.Equal(4, MonsterIgnites.Settings.From([], "main_hand", Stats()).Seconds, 6);
 
-        // Greater Chain: "50% more times" on the chain count, one chain including its own.
+        // Greater Chain: "50% more times" on the chain count; PoB keeps the fraction, so one chain no longer gains one.
         static ProjectileProfile Resolve(Func<string, int> get) =>
             GatewayProjectileModifiers.Resolve(new ProjectileProfile("test"), get, attack: true);
-        Assert.Equal(2, Resolve(Stats(("number_of_chains", 1), ("support_chain_count_+%_final", 50))).Chain);
+        Assert.Equal(1, Resolve(Stats(("number_of_chains", 1), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(3, Resolve(Stats(("number_of_chains", 2), ("support_chain_count_+%_final", 50))).Chain);
         Assert.Equal(2, Resolve(Stats(("number_of_chains", 2))).Chain);
 
