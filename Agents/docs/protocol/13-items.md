@@ -62,13 +62,13 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | Armour | `0x143645930` | `0x1424b6a90` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
 | MapKey | `0x1436457f8` | `0x1424b5290` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
 | HeistBlueprint | — | `0x1424afe90` | u32 seed, u8 area level (+0x1c), u8 format (native constructor default 1), u8 wing count << 1 / confirmed bit0; wing records below |
+| LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
 
 The blueprint wing reader `0x1424c1bb0` takes a u8 job count << 1 / revealed bit0, then (u8 HeistJobs row, u8 level)
 per job, u8 crew count and one HeistNPCs row per crew slot (0xff: unassigned), then u8 room count and one packed
 u8 HeistChestRewardTypes row << 1 / revealed bit0 per room.
 Escape routes are room row 0 and carry the same reveal bit.
 The native writer `0x1424c2140` reproduces this layout; each in-memory wing is 0x50 bytes.
-| LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
