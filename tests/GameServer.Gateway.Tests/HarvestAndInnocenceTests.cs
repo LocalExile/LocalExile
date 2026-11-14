@@ -5,6 +5,17 @@ namespace GameServer.Gateway.Tests;
 public class HarvestAndInnocenceTests
 {
     [Fact]
+    public void Abberath_waits_in_his_own_final_arena_after_the_first_fight()
+    {
+        using var registration = Quests.Register("abberath-arena-test", QuestObjectsModule.Acts());
+        var rules = Quests.For(new HashSet<string> { "abberath-arena-test" });
+        const string area = Act6Areas.PrisonersGateAct6;
+        var form = Assert.Single(rules.FormsAfter(area, Act6Monsters.Abberath));
+        Assert.Equal(Act6Monsters.Abberath2, form.Next);
+        Assert.Null(rules.SecondForm(area, Act6Monsters.Abberath));
+    }
+
+    [Fact]
     public void The_three_organs_open_the_core_and_Malachai_forms_in_the_instances_second_arena()
     {
         using var registration = Quests.Register("campaign-room-test", QuestObjectsModule.Acts());
