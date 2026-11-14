@@ -78,7 +78,7 @@ Nothing yet.
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
   Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
-  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up eligible travel skills
+  fork; Rupture's stacks raise bleeding damage taken and shorten a bleed's duration by 25% per Rupture; Close Combat's Combat Rush speeds up eligible travel skills
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,

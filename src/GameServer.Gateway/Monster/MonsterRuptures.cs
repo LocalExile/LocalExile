@@ -1,8 +1,8 @@
 /// <summary>
 /// The Ruptures a player's critical bleeding hits have put on one monster (Rupture Support): up to four, each lasting
-/// three seconds, and each raising the damage the monster takes from bleeding by the support's share. The support's
-/// "bleeding expires more quickly per Rupture" is not modelled: a bleed's duration is captured when it is applied.
-/// Guarded by the connection's Monsters lock; times are projectile-world seconds.
+/// three seconds, and each raising the damage the monster takes from bleeding by the support's share. A bleed applied
+/// while Ruptures are present expires 25% more quickly per Rupture (poewiki Rupture); the Rupture inflicted by the
+/// same hit affects later bleeds. Guarded by the connection's Monsters lock; times are projectile-world seconds.
 /// </summary>
 public sealed class MonsterRuptures
 {
