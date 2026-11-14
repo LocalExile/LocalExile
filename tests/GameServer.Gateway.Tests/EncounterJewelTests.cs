@@ -55,17 +55,18 @@ public class EncounterJewelTests
             var drops = new ItemDrops(Program.Items, uniques: new UniqueCatalog(Program.Items));
             const string elder = "Metadata/Monsters/AtlasBosses/TheElder/TheElder";
             const string eye = "Watcher's Eye";
-            void Configure(double chance)
+            const string uber = elder + "Uber";
+            void Configure(double chance, string boss = elder)
             {
                 using var command = db.CreateCommand();
                 command.CommandText = "INSERT OR REPLACE INTO encounter_jewel_drop_overrides VALUES ($boss, $item, $chance)";
-                command.Parameters.AddWithValue("$boss", elder);
+                command.Parameters.AddWithValue("$boss", boss);
                 command.Parameters.AddWithValue("$item", eye);
                 command.Parameters.AddWithValue("$chance", chance);
                 command.ExecuteNonQuery();
                 provider.Replace(store);
-                Assert.Null(provider.Current.BossItems[(elder, eye)].Chance);
-                Assert.Equal(chance, provider.Current.BossItems[(elder, eye)].OverrideChance);
+                Assert.Null(provider.Current.BossItems[(boss, eye)].Chance);
+                Assert.Equal(chance, provider.Current.BossItems[(boss, eye)].OverrideChance);
             }
             provider.Replace(store);
             Assert.Null(provider.Current.BossItems[(elder, eye)].OverrideChance);
@@ -75,9 +76,21 @@ public class EncounterJewelTests
             Configure(1);
             var reward = Assert.Single(drops.EncounterJewels(elder, 83, random, provider.Current));
             Assert.False(reward.Item.Identified);
-            Assert.Equal(83 + ItemDrops.ItemLevelBonus(MonsterRarity.Unique), (int)reward.Item.ItemLevel);
+            Assert.Equal(85, reward.Item.ItemLevel);
             Assert.Equal(5, reward.Item.Mods.Count);
+            Assert.Empty(drops.EncounterJewels(uber, 84, random, provider.Current));
+            Configure(1, uber);
+            var highLevel = Assert.Single(drops.EncounterJewels(uber, 84, random, provider.Current));
+            Assert.Equal(86, highLevel.Item.ItemLevel);
+            Assert.Equal(6, highLevel.Item.Mods.Count);
             Assert.Empty(drops.EncounterJewels("unrelated monster", 83, random, provider.Current));
+            using var custom = db.CreateCommand();
+            custom.CommandText = "INSERT INTO encounter_jewel_drop_overrides VALUES ($boss, 'Megalomaniac', 1)";
+            custom.Parameters.AddWithValue("$boss", elder);
+            custom.ExecuteNonQuery();
+            provider.Replace(store);
+            Assert.Null(provider.Current.BossItems[(elder, "Megalomaniac")].Chance);
+            Assert.Equal(2, drops.EncounterJewels(elder, 83, random, provider.Current).Count);
         }
         finally { Directory.Delete(folder, recursive: true); }
     }

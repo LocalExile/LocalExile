@@ -92,6 +92,9 @@ public sealed class ItemCatalog
         /// <summary>BaseItemTypes ModDomain: the Mods.dat Domain its affixes come from (1 items, 2 flasks, …).</summary>
         public int ModDomain { get; init; } = 1;
 
+        /// <summary>What makes this base a cluster jewel (its size, passive counts, enchantments and themes), or null.</summary>
+        public ClusterJewels.Base? Cluster { get; init; }
+
         /// <summary>Its ItemClasses row (-1 unknown): the worn item's weapon type the client checks skills against is this
         /// row + 1 (11-skills.md "Weapon restrictions").</summary>
         public int ClassRow { get; init; } = -1;
@@ -587,6 +590,40 @@ public sealed class ItemCatalog
                  new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
 
+    // Relative weights for natural equipment drops. The class and item level bound the roll.
+    static readonly (int Level, int Weight, int FourSocketWeight)[] DropSocketCounts =
+        [(1, 50, 100), (1, 120, 90), (2, 100, 80), (25, 30, 30), (35, 5, 0), (50, 1, 0)];
+
+    public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
+    {
+        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise)
+            return DefaultSockets(type, level, random: random);
+        int capacity = Math.Min(SystemSettings.Default.SocketMax(type.Class), DropSocketCounts.Length);
+        int total = 0, maximum = 0;
+        while (maximum < capacity && DropSocketCounts[maximum].Level <= level)
+        {
+            var entry = DropSocketCounts[maximum++];
+            total += capacity == 4 ? entry.FourSocketWeight : entry.Weight;
+        }
+        if (total == 0) return ([], null);
+        int roll = random.Next(total), count = 0;
+        do
+        {
+            var entry = DropSocketCounts[count++];
+            roll -= capacity == 4 ? entry.FourSocketWeight : entry.Weight;
+        } while (roll >= 0);
+        var sockets = new List<ItemSocket>(count);
+        var links = new List<byte>();
+        var requirements = Requirements(type);
+        for (int i = 0; i < count; i++)
+        {
+            sockets.Add(new(SocketColours.Roll(requirements, level, 0, random)));
+            if (i == 0 || random.Next(2) != 0) links.Add(1);
+            else links[^1]++;
+        }
+        return (sockets, links);
+    }
+
     private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;
 
     /// <summary>The base's attribute requirements (ComponentAttributeRequirements), zero when it has none.</summary>
@@ -603,7 +640,8 @@ public sealed class ItemCatalog
         return result;
     }
 
-    /// <summary>A new item: item level 1, normal, flasks full, implicits and an ordinary armour base roll.
+    /// <summary>A new item: item level 1, normal, flasks full, implicits and an ordinary armour base roll. A cluster jewel
+    /// gets the enchantments it is nothing without: a theme, a passive count and its jewel sockets (ClusterJewels).
     /// An explicit defence roll is used by save restoration and deterministic fixtures, without drawing a new roll.</summary>
     public static Item Create(BaseType t, IReadOnlyList<ItemSocket>? sockets = null, IReadOnlyList<byte>? links = null,
         Random? random = null, byte? defenceBaseRoll = null)
@@ -616,7 +654,8 @@ public sealed class ItemCatalog
             Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
                 : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
             Links = ResonatorSockets(t) > 0 ? null : links,
-            Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
+            Mods = t.Components.Contains("Mods")
+                ? [.. t.Cluster?.Roll(random) ?? [], .. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
     }
 
@@ -692,6 +731,7 @@ public sealed class ItemCatalog
             tagIds = [.. tagsTable.Select(r => r.Text("Id") ?? "")];
         }
         var rows = new List<BaseType>();
+        var clusters = ClusterJewels.Load(mods);
         var baseItemTypesTable = ClientTables.Table("BaseItemTypes");
         {
             foreach (var r in baseItemTypesTable)
@@ -716,6 +756,7 @@ public sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.Ints("TagsKeys").Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.Int("ModDomain"),
+                    Cluster = clusters.GetValueOrDefault(rows.Count),
                     GroundSize = r.IntOrNull("SizeOnGround") is int ground ? (byte)ground : (byte)1,
                     Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.IntOrNull("ItemClassesKey") is int cr ? cr : -1,

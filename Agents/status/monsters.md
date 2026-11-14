@@ -26,6 +26,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Named packs bring their boss (Pikerivet, The Burning Man); The Quay's Tolman stands at his spawner.
   The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
   A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
+  A generated layout's rooms place a pack at each of their `magic`, `rare` and `normal` points (The Chamber of
+  Innocence: twelve magic packs, live 2026-11-12 with a headless client: created, magic, and they attack).
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
@@ -88,7 +90,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   two steps past the cadence ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
-  live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.
+  live 2026-10-29: Spitters came in close). A straight projectile shooter inside range approaches instead when the
+  projectile grid blocks its shot. `MinimumAttackDistance` is not read yet.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
@@ -104,12 +107,43 @@ Part of [Status](../Status.md); what to build next in this area is in
   `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
-  level damage; they swing (animated) when in reach and the player's life goes down after evasion, armour and block;
+  level damage. Leap goats use their melee swing when their first attack is the leap damage payload.
+  Monsters swing when in reach and the player's life goes down after evasion, armour and block;
+  level damage (a campaign boss's kit replaces that one attack with its whole list, below); they swing (animated) when
+  in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
   walking away dodges; death plays and blocks moving; the death screen (S→C 0x55) shows "Resurrect in Town" /
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
   Code: `MonsterAttack`, `Resurrect`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §6–7.
+- The Shaper (`MapWorldsShapersRealm`, TheShaperBoss; `TheShaperBossUberElder` in the Uber Elder arena), the Elder
+  (`MapWorldsElderArena`, TheElder; TheElderUber) and Sirus (`AtlasExilesBoss5` "Eye of the Storm", AtlasExile5;
+  the Gauntlet and standalone rows fight the same way) fight with their own kits instead of one granted effect as a plain
+  swing. All are scripted (the ordinary AI skips them), own their whole effect list on the actor under ids 0x4000-0x4005
+  (Shaper), 0x4010-0x4015 (Elder) and 0x4020-0x402c (Sirus) — never a gem id — and play it from one controller per
+  monster: the Shaper's melee (481), Celestial Beam (6093, a three-second degen whose fire/cold/lightning come from its
+  per-minute stats), accelerating projectiles (6106), flicker slam (6091), retreat (6089) and the bullet-hell ring (6111,
+  twelve in a circle) behind `immune_shield.ao` at 75/50/25%; the Elder's melee (406), siphon (9058, a physical degen
+  that heals him a quarter of what it takes), slamming tentacles (9062, five portals around the player), expanding nova
+  (9066), doom projectile (9351) and three-shot spellcast (9330) behind `eldershield` at the same thresholds; Sirus'
+  beam blast (7008, his record's own skill — he never swings a weapon), corridor "Die" beam (10948, a five-unit corridor
+  that hits 1.1 s into the cast), meteor arena (10141, eight circles then the desolation 10945 burning for four seconds),
+  circle-maze sweep (10949-10953, five blasts of a turn each), multi-beam barrage (8098/8099 with the clone beam 7031)
+  and beam bomb (10973) behind `atlas_orion_immunity` (row 1464) at the same thresholds, blinking out of a player's face
+  and back into reach (the teleport clips are art, not actions: an action would land its contact too). The arena is a
+  phased one (`MapBossFights`): WorldAreas lists the throne row first and the walking row as the held-back last boss, so
+  a fresh arena holds only `AtlasExile5Throne` — Sirus seated, no granted effects of its own — and killing him is what
+  forms the walking Sirus and his four storms. Both are Sirus and both fight; the seated one casts without leaving the
+  throne. Damage comes from
+  each effect's own stat set at the area's level, pacing from its clip's cast time; a timed hit lands on every player
+  standing in it, not only on the connection that owns the fight, and an intermission returns the boss to the arena's
+  own `ArenaMiddle` marker (the layout's spawn is the map entrance, which put the Shaper at the door). Sirus' rows carry it as a fraction of
+  the variety's damage (0.8-2.4, read as a multiplier, not as the flat hit the rounded row would suggest); every `.ao`
+  path is checked against the client's metadata. Not yet: the Shaper's fragment summon (3429 names a GameObject, not a
+  monster variety), his teleport-the-player (6092) and portal warp (6090), the uber phase variants (6112-6114, 7905), the
+  Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
+  the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
+  `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
@@ -117,6 +151,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
+
+- Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
+- Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
+  (`WorldAreas` `Bosses_MonsterVarietiesKeys`, bar or not) or one with a bar of its own that no encounter controller
+  drives acts with every granted effect the client can play as a hit — 463 varieties, 2307 actions — each with the
+  damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
+  in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
+  Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
+  Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
+  `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
+  and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
+  bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; AI provisional ([Act 10](../docs/game/campaign/act10.md)).
@@ -124,6 +171,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
+- Act bosses' own row mods (not yet played against the real client): `ImmuneToKnockback` stops knockback;
+  `MonsterNoDropsOrExperience` and `MonsterNoDrops` take a stage's rewards on the player's own melee and area kills,
+  not yet on projectile or party-share kills; `StunRepeatImmunity*` sets the repeat-stun immunity (2 s for act
+  bosses); `CannotBeSlowedBelowValueBosses` floors Temporal Chains at half speed. `BossHealOnPlayerDeath` is not
+  read. Code: `BossMods.cs`.
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
@@ -234,12 +286,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
+  a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
+  campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
+  entry;
+  a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
   the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
   other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
-  a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
+  a layout that gives an area no boss room point stands its unique boss at the walk map's deepest cell from the
+  entrance, so a new (area, seed) has its boss; the room points themselves are still what `-Walkmaps` captures
+  ([14](../docs/protocol/14-monster-packs.md) §4).
   Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
+  A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
+  (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).
+  Marceus the Defaced (a tile's statue spawner) and Thistlesage (no room names his pack) have no boss room point of
+  their own: the deepest-cell fallback above is where they stand, not at the statue or the pack room
+  ([14](../docs/protocol/14-monster-packs.md) §3).
   A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
   that does not create it yet.

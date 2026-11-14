@@ -42,7 +42,7 @@ public static class SaveRows
         "refund_points", "portal_cosmetic", "active_auras", "petrified_blood", "selected_hideout", "life", "mana",
         "vitals_character", "vitals_session", "vitals_retired", "cluster_passives", "sulphite", "atlas_passive_presets",
         "atlas_passive_points", "selected_atlas_layout", "quest_refunds_credited", "pantheon_major", "pantheon_minor",
-        "attack_in_place_slots", "skill_bar_mask52", "stance", "unknown",
+        "attack_in_place_slots", "skill_bar_mask52", "stance", "descendancy", "descendancy_nodes", "unknown",
     ];
 
     static readonly string[] CharacterChildren =
@@ -61,7 +61,7 @@ public static class SaveRows
             s.SelectedHideout, s.Life, s.Mana, s.VitalsOwner?.CharacterId.ToString(), s.VitalsOwner?.SessionId.ToString(),
             s.VitalsOwner?.Retired, JsonOf(s.ClusterPassives), s.Sulphite, JsonOf(s.AtlasPassivePresets), s.AtlasPassivePoints,
             s.SelectedAtlasLayout, JsonOf(s.QuestRefundsCredited), s.PantheonMajor, s.PantheonMinor, s.AttackInPlaceSlots,
-            s.SkillBarMask52, s.Stance, JsonOf(s.Unknown),
+            s.SkillBarMask52, s.Stance, s.Descendancy, JsonOf(s.DescendancyNodes), JsonOf(s.Unknown),
         ];
         using (var update = db.Command($"UPDATE character_saves SET {string.Join(", ", CharacterColumns.Select((c, i) => $"{c} = $p{i}"))} WHERE id = $id",
                    [("$id", id), .. values.Select((v, i) => ($"$p{i}", Value(v)))]))
@@ -165,6 +165,7 @@ public static class SaveRows
             NullIfEmpty(Rows(db, "SELECT * FROM character_skill_cosmetics WHERE save = $s ORDER BY skill", id)
                 .ToDictionary(x => x.Text("skill")!, Cosmetic)),
             row.Json<List<string>>("active_auras"), row.Bool("petrified_blood"), row.Text("selected_hideout"), tutorial, ascendancy,
+            (byte?)row.Long("descendancy"), row.Json<List<ushort>>("descendancy_nodes"),
             NullIfEmpty(hideouts), NullIfEmpty(statues), (uint?)row.Long("life"), (uint?)row.Long("mana"),
             row.Text("vitals_character") is { } owner ? new VitalsSession(Guid.Parse(owner), Guid.Parse(row.Text("vitals_session")!),
                 row.Bool("vitals_retired") == true) : null,
@@ -459,15 +460,43 @@ public static class SaveRows
     }
 
     /// <summary>Throws unless <paramref name="back"/> is the save of <paramref name="json"/>: the same JSON once object keys
-    /// are in order and a property that is null or an empty object is left out (an absent map and an empty one are the
-    /// same save).</summary>
+    /// are in order, known fields use current defaults and scalar forms, and null or empty objects are left out.
+    /// Unknown input fields remain part of the comparison.</summary>
     static void Same(string json, object? back, string what)
     {
-        string want = Canonical(JsonNode.Parse(json)), got = Canonical(back is null ? null : JsonSerializer.SerializeToNode(back, back.GetType(), Json));
+        var original = JsonNode.Parse(json);
+        if (back is not null)
+        {
+            var parsed = JsonSerializer.Deserialize(json, back.GetType(), Json);
+            original = WithDefaults(original, JsonSerializer.SerializeToNode(parsed, back.GetType(), Json));
+        }
+        string want = Canonical(original), got = Canonical(back is null ? null : JsonSerializer.SerializeToNode(back, back.GetType(), Json));
         if (want != got)
             throw new InvalidDataException($"{what} does not come back the same from the save tables; nothing was moved. " +
                 $"Saved: {Shorten(want)} Read: {Shorten(got)}");
         static string Shorten(string s) => s.Length > 400 ? s[..400] + "..." : s;
+    }
+
+    // Known fields use the current record's defaults and scalar forms; unknown input fields stay in the loss guard.
+    static JsonNode? WithDefaults(JsonNode? original, JsonNode? parsed)
+    {
+        if (original is JsonObject target && parsed is JsonObject model)
+        {
+            foreach (var field in model)
+                if (!target.ContainsKey(field.Key)) target[field.Key] = field.Value?.DeepClone();
+                else
+                {
+                    var normalized = WithDefaults(target[field.Key], field.Value);
+                    if (!ReferenceEquals(normalized, target[field.Key])) target[field.Key] = normalized;
+                }
+        }
+        else if (original is JsonArray targetArray && parsed is JsonArray modelArray)
+            for (int i = 0; i < Math.Min(targetArray.Count, modelArray.Count); i++)
+            {
+                var normalized = WithDefaults(targetArray[i], modelArray[i]);
+                if (!ReferenceEquals(normalized, targetArray[i])) targetArray[i] = normalized;
+            }
+        return original is JsonValue && parsed is JsonValue ? parsed.DeepClone() : original;
     }
 
     static string Canonical(JsonNode? node) => Normalize(node)?.ToJsonString() ?? "null";

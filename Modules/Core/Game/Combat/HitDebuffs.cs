@@ -20,6 +20,12 @@ public static partial class Game
     public const ushort MaimedBuffRow = 513;
     public const double MaimSeconds = 4;
     public const int MaimedPhysicalTakenPct = 10;
+    // Hinder ("X% chance to Hinder Enemies on Hit with Spells"; ReminderTextHinder: 4 seconds, 30% reduced Movement
+    // Speed): the client's own BuffDefinitions row (505) and the walk factor MonsterAilments applies while it runs.
+    internal const ushort HinderedBuffRow = 505;
+    internal const double HinderSeconds = 4;
+    internal const double HinderWalkReduction = 0.3;
+    internal const double MaimWalkReduction = 0.3;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -58,6 +64,21 @@ public static partial class Game
         }
         if (BlindRoll(get, spell, critical, Random.Shared))
             m.BlindedUntil = Math.Max(m.BlindedUntil, now + BlindSeconds(get));
+        // Hinder rolls on spell hits only ("on Hit with Spells").
+        if (spell && RandomRolls.Chance(get("spells_chance_to_hinder_on_hit_%"), 100, Random.Shared))
+            m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds);
+    }
+
+    /// <summary>Whether a timed movement debuff is running, so an otherwise idle monster still needs its walk factor
+    /// recomputed (the ailment-idle skip must not starve Maim or Hinder).</summary>
+    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now;
+
+    /// <summary>Maim and Hinder are both "reduced movement speed": their reductions add (0.4 together), rather than
+    /// multiplying (0.49).</summary>
+    internal static double TimedDebuffWalkFactor(SpawnedMonster m, double now, double walk)
+    {
+        double reduced = (m.MaimedUntil > now ? MaimWalkReduction : 0) + (m.HinderedUntil > now ? HinderWalkReduction : 0);
+        return walk * Math.Max(0, 1 - reduced);
     }
 
     /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
@@ -192,5 +213,6 @@ public static partial class Game
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's
     /// on a spell.</summary>
     public static int HitDebuffTaken(SpawnedMonster m, bool spell, double now) =>
-        (spell ? m.UnnervedUntil : m.IntimidatedUntil) > now ? HitDebuffTakenPct : 0;
+        (spell ? m.UnnervedUntil > now : m.IntimidatedUntil > now
+            || m.PlayerAuras.Keys.Any(key => key.Definition == IntimidatedBuffRow)) ? HitDebuffTakenPct : 0;
 }

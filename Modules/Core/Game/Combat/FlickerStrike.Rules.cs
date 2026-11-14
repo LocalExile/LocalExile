@@ -22,8 +22,8 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
-            first = conn.NextObjectId++;
-            second = conn.NextObjectId++;
+            first = conn.TakeObjectId();
+            second = conn.TakeObjectId();
         }
         await Send(remote, stream, ciphers,
             [.. InstanceEntities.CreateObject(first, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(from.X, from.Y, departure).Blob()),
@@ -39,7 +39,7 @@ public static partial class Game
     }
 
     /// <summary>Where Flicker Strike takes the player: the monster the client's action picks (FlickerStrike) and the
-    /// landing next to it. Null when no monster is in range: the client then strikes where the player stands.</summary>
+    /// landing next to it. Null when no monster is in range: the use is then refused (FlickerRefused).</summary>
     public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
         ushort skillId, (int X, int Y) player, (int X, int Y) aim, uint clicked, double now)
     {
@@ -58,13 +58,22 @@ public static partial class Game
         return (pick.Id, pick.At, MovementLanding(conn, effect, player, pick.At));
     }
 
+    // A Flicker Strike use refused for want of a monster in range (the client sent it for one it had not yet seen die):
+    // nothing is paid, so the mana the client spent when it started the use is given back, as for an attack-move.
+    public static Task FlickerRefused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        string skill)
+    {
+        Console.WriteLine($"[gateway] {remote} {skill}: refused, no monster in range");
+        return SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} ({skill} refused, cost back)");
+    }
+
     // Flicker Strike's buff, BuffDefinitions 1344 flicker_strike_speed_boost ("You have increased Movement Speed",
     // StatsKeys base_movement_velocity_+%): each use gives it again for the skill's duration, with the gem's
     // flicker_strike_buff_movement_speed_+%. Network stats run no calculators, so the bonus goes into the movement speed
     // the server sends (the pools, FlickerMovementPct) while the buff lasts, as Shield Charge's does.
     const ushort FlickerSpeedBuffRow = 1344;
     sealed class FlickerSpeed { public int Percent, Token; public ushort Buff; }
-    static readonly ConditionalWeakTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
+    static readonly RuleTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
 
     // The running buff's movement bonus, for the pools (PoolsFor); 0 when none runs.
     public static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;

@@ -164,6 +164,7 @@ public sealed partial class AccountStash
                 stash.Persist([.. repaired]);
             // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
             stash.EnsureMapChildren();
+            stash.EnsureUniqueChildren();
             return stash;
         });
 
@@ -199,6 +200,42 @@ public sealed partial class AccountStash
     });
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
+
+    /// <summary>The tabs the player sees: the roots only. A map tab's 191 hidden pages are children with a unique
+    /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
+    public int VisibleCount
+    {
+        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0); }
+    }
+
+    /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
+    /// tab row is written). What a tab is called and its colour are the caller's: the stash appends what it is given and
+    /// makes the names unique. The client's tab list (0x21, sent on entering an area) shows them next time.</summary>
+    public IReadOnlyList<int> AddTabs(byte type, int count, string namePrefix, byte r, byte g, byte b)
+    {
+        if (!Types.ContainsKey(type)) throw new ArgumentOutOfRangeException(nameof(type), $"no stash type {type}");
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), "at least one tab");
+        if (string.IsNullOrWhiteSpace(namePrefix)) throw new ArgumentException("a tab name prefix", nameof(namePrefix));
+        List<int> added;
+        lock (_lock)
+        {
+            if (_stale) throw new InvalidOperationException($"stash of {_account}: changed on a copy dropped after a failed save");
+            if (_tabs.Count + count > ushort.MaxValue) throw new InvalidOperationException("the tab list is full");
+            string prefix = namePrefix.Trim();
+            var names = _tabs.Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            added = new List<int>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int n = 1;
+                string name;
+                do name = $"{prefix} {n++}"; while (!names.Add(name));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                added.Add(_tabs.Count - 1);
+            }
+        }
+        Persist();
+        return added;
+    }
 
     /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }

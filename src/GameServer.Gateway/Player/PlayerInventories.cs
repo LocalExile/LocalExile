@@ -12,7 +12,7 @@ public sealed class PlayerInventories
 {
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
         Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
-        PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43, Cursor = InstanceInventories.CursorRow;
+        PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43, ExpandedInventory = 84, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -21,7 +21,7 @@ public sealed class PlayerInventories
     public static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
     public static Item PreserveGemIdentity(Item before, Item after)
     {
-        if (!ReferenceEquals(before, after)) GemIdentities.Add(after, GemIdentity(before));
+        if (!ReferenceEquals(before, after)) GemIdentities.AddOrUpdate(after, GemIdentity(before));
         return after;
     }
 
@@ -149,9 +149,10 @@ public sealed class PlayerInventories
     /// </summary>
     /// <remarks>With <paramref name="one"/> (Shift + click, 0x2a's first flag) only one of a held stack goes: into an
     /// empty cell as a new item, or onto a stack of its type with room; the rest stays held.</remarks>
-    public Placement? Place(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    public Placement? Place(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        bool expandedAllowed = false)
     {
-        var result = PlaceCore(row, x, y, shapeOf, out why, one);
+        var result = PlaceCore(row, x, y, shapeOf, out why, one, expandedAllowed);
         if (result is not null) Persist();
         return result;
     }
@@ -160,12 +161,14 @@ public sealed class PlayerInventories
     public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
         PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
 
-    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
         InventoryItem? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
+            if (row == ExpandedInventory && !expandedAllowed)
+            { why = "extra backpack is disabled; existing items can still be removed"; return null; }
             if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) { why = "not an inventory to place into"; return null; }
             var cursor = ItemsIn(Cursor);
             if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
@@ -235,7 +238,8 @@ public sealed class PlayerInventories
     /// that item's cell. A stack of the same type with room takes what fits (with <paramref name="one"/>, one) and the
     /// rest stays held; anything else is swapped (refused with <paramref name="one"/>). Null with the reason; nothing changes.
     /// </summary>
-    public Placement? MergeOnto(byte row, uint itemId, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    public Placement? MergeOnto(byte row, uint itemId, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        bool expandedAllowed = false)
     {
         Placement? result;
         lock (_lock)
@@ -244,7 +248,7 @@ public sealed class PlayerInventories
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
             if (ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } target) { why = "no such item"; return null; }
-            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1);
+            result = PlaceCore(row, target.X, target.Y, shapeOf, out why, one && held.Item.StackSize > 1, expandedAllowed);
         }
         if (result is not null) Persist();
         return result;

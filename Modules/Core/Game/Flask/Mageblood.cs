@@ -6,7 +6,7 @@ public static partial class Game
 {
     // Mageblood (UniqueCatalog): the belt's unique word and the mod that says how many magic utility flasks always apply.
     // The client shows the item and enforces "cannot be used" itself (the mod); the server is the backstop here.
-    // The flask buffs are kept in step by RunUniqueBeltEffects (Modules/Core/Item/UniqueBelts/UniqueBeltsFeature.cs). Not modelled yet: the "effects
+    // The flask buffs are kept in step by StepUniqueBeltEffects (Modules/Core/Item/UniqueBelts/UniqueBeltsFeature.cs). Not modelled yet: the "effects
     // cannot be removed" backstop (nothing here removes a flask's effect) and the Foulborn rightmost variant.
     public const uint MagebloodWord = 3562871479;
     public const string MagebloodFlasksMod = "MagicUtilityFlasksAlwaysApplyUnique__1";

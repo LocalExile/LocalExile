@@ -103,6 +103,13 @@ public static class InstanceWaypoints
     /// <summary>C→S 0x39 (3 bytes, writer 0x140e27920, sent by the selector's Ascend, <c>0x140b6f890</c>): u8 the chosen
     /// Ascendancy.dat row. 0x3a (<c>0x140b6fa70</c>) is the same for a Descendancy row.</summary>
     public const ushort AscendancyChosenId = 0x39, AscendancyChosenLength = 3;
+    /// <summary>C→S 0x3a: the Descendancy selector's Accept (client writer <c>0x140b6fa70</c>), u8 the chosen
+    /// <c>Descendancy.dat</c> row; 0 keeps none.</summary>
+    public const ushort DescendancyChosenId = 0x3a, DescendancyChosenLength = 3;
+    /// <summary>S→C 0x7b kind 0x4c: the Bloodline/Wildwood class selector (<c>DescendancyClassSelectorWindow</c>). Its
+    /// first u32 is the 0-based <c>Descendancy.dat</c> row the client previews (0 = None); the handler
+    /// <c>0x142169dd0</c> reads the row and notifies the listeners at instance +0x1af8. Accept sends 0x3a.</summary>
+    public const byte DescendancySelectUi = 0x4c;
 
     /// <summary>
     /// S→C 0x4c (class 0x1435e76c0, read 0x1421a5dd0; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the

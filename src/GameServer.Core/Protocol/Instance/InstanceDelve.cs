@@ -57,10 +57,16 @@ public static class InstanceDelve
     /// (WorldAreas type 27) only in the Subterranean Chart window (0x7b kind 0x1c), which sets its flag +0x2f1.
     /// </summary>
     public static byte[] DelveData(ushort sulphite, uint azurite = 0, byte flares = 0, byte dynamite = 0,
-        IReadOnlyList<byte>? upgrades = null)
+        IReadOnlyList<byte>? upgrades = null) => DelveData(sulphite, azurite, flares, dynamite, upgrades, 0, 0);
+
+    /// <summary>The resource snapshot with the account's saved chart focus (native i16 X / u16 Y).</summary>
+    public static byte[] DelveData(ushort sulphite, uint azurite, byte flares, byte dynamite,
+        IReadOnlyList<byte>? upgrades, short chartX, ushort chartY)
     {
         var raw20 = new byte[20];
         var raw14 = new byte[14];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(raw14.AsSpan(4), chartY);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(raw14.AsSpan(6), chartX);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(raw20, azurite);
         if (upgrades is { Count: > 10 }) throw new ArgumentOutOfRangeException(nameof(upgrades));
         for (int i = 0; i < (upgrades?.Count ?? 0); i++) raw20[6 + i] = upgrades![i];

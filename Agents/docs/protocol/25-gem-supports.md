@@ -146,13 +146,19 @@ monster takes its `support_maimed_enemies_physical_damage_taken_+%` extra physic
 factors; Power Charge on Critical adds its more damage per power charge; Volatility scales the attack's minimum and
 maximum damage (`Volatility.cs`); Combustion's `ignites_apply_fire_resistance_+` rides on the ignite as a fire Exposure
 for its duration; Item Quantity's `base_killed_monster_dropped_item_quantity_+%` multiplies the loot of the last hit's
-kill (`ItemQuantityFactor`, a damage-over-time kill keeps no skill attribution); Iron Grip's `keystone_strong_bowman`
+kill (`ItemQuantityFactor`) and Item Rarity's `base_killed_monster_dropped_item_rarity_+%` raises that kill's rarity
+chances (`IncreasedItemRarity`); both also fill the selected skill's panel rows
+(`display_skill_increased_item_quantity_+%`/`..._rarity_+%`); a damage-over-time kill keeps no skill attribution; Iron Grip's `keystone_strong_bowman`
 adds Strength's damage bonus to projectile attack physical damage and Iron Will's `strong_casting` to spell damage
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
 maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
 shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
-Devour recovers its life/mana on a killing blow (the corpse is not removed); Sacrifice pays its share of current life
-for added chaos; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
+the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
+Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
+unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;
+area poison uses the same added chaos base. Source identity survives gem experience/level-lock edits, not replacement.
+Proxy/trigger executors must supply their own actual caster and never reuse the player payment; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.
 

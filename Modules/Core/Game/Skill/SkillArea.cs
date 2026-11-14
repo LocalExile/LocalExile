@@ -18,9 +18,9 @@ public static class SkillArea
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<string, int> get) =>
         get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius
-            : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+            : effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect == "StormCall" ? 20 : 12;
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20 : 12;
 
     static readonly string[] MoreArea =
     [

@@ -24,6 +24,10 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
+/// tables make it wait between two uses (0: the plain attack every monster has).</summary>
+public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     public bool Ranged { get; init; }
@@ -43,6 +47,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
+    /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
+    public bool DualWielding { get; init; }
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
@@ -51,7 +58,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
         int ms = (int)Math.Round(Seconds * 1000);
         var physical = Damage[DamageType.Physical];
         int min = (int)Math.Floor(physical.Min), max = (int)Math.Floor(physical.Max);
-        return
+        List<(uint, int)> stats =
         [
             (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
             (StatKeys.MainHandMinTotal, min), (StatKeys.MainHandMaxTotal, max),
@@ -59,6 +66,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
             (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
             (StatKeys.MainHandBaseMaxAttackDistance, (int)Range), (StatKeys.MainHandMaxAttackDistance, (int)Range),
         ];
+        if (DualWielding)
+            stats.AddRange(
+            [
+                (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
+                (StatKeys.OffHandMinTotal, min), (StatKeys.OffHandMaxTotal, max),
+                (StatKeys.OffHandAttackDurationMs, ms), (StatKeys.OffHandTotalAttackDurationMs, ms),
+                (StatKeys.OffHandBaseMaxAttackDistance, (int)Range), (StatKeys.OffHandMaxAttackDistance, (int)Range),
+            ]);
+        return stats;
     }
 
     /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
@@ -123,15 +139,46 @@ public sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, Invento
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
+/// <summary>How a monster moves and closes in where its variety's row does not say: what an encounter that spawns it knows of its
+/// object type and skills (SpawnMonster's <c>movement</c>). The default is the row's.</summary>
+public sealed record MonsterMovement
+{
+    public static readonly MonsterMovement Default = new();
+
+    /// <summary>Its reach as a share of the variety's attack distance, in place of the aggro range a ranged spell keeps (a
+    /// skill's <c>spell_maximum_action_distance_+%</c>: -60 is 0.4), so it walks up before it casts; null keeps the row's.</summary>
+    public double? Reach { get; init; }
+
+    /// <summary>What its object type adds to its walk speed by itself, which the client applies on its own (an .ot's
+    /// <c>base_movement_velocity_+%</c>): it scales only the server's walk estimate and is never sent.</summary>
+    public double SpeedFactor { get; init; } = 1;
+
+    /// <summary>Its walk goes through living bodies (a monster that walks through its own minions).</summary>
+    public bool ThroughBodies { get; init; }
+
+    /// <summary>While it walks up to a melee target it is ordered again at most this often, and only with its attack (an
+    /// order restarts its walk clip, so a frequent one makes it walk in steps); null is the ordinary cadence.</summary>
+    public double? ReorderSeconds { get; init; }
+}
+
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    /// <summary>How it moves where its variety's row does not say (SpawnMonster's <c>movement</c>).</summary>
+    public MonsterMovement Movement { get; init; } = MonsterMovement.Default;
     public double ReceivedActionFactor = 1;
     public double ReceivedActionUntil;
     public bool ReceivedActionFloor;
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
-    public MonsterAttack? Attack { get; init; }
+    /// <summary>The action it takes now. A boss with a kit of its own swaps this for the chosen skill of that kit each
+    /// AI pass (BossKits.Choose); everything downstream — the walk-up, the swing's clip, its hit — reads this one.</summary>
+    public MonsterAttack? Attack { get; set; }
+    /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
+    /// Empty for every monster that swings one attack.</summary>
+    public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
+    public readonly Dictionary<int, double> KitReadyAt = [];
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
@@ -199,6 +246,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
+    public readonly MonsterContagion Contagion = new();
+    // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
+    public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
     public readonly MonsterRuptures Ruptures = new();
     // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
@@ -237,6 +288,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
+    // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
+    public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
@@ -246,6 +301,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double ExcommunicatedUntil = double.NegativeInfinity;
     // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
     public int KilledWithItemQuantityPct;
+    // The same kill's increased rarity of dropped items from the skill of the last player hit (Item Rarity Support).
+    public int KilledWithItemRarityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
@@ -287,8 +344,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public ClientState? Target;
     /// <summary>The player whose hit landed on it last: an ignite, bleed or poison that kills it is theirs (SharedKills.cs).</summary>
     public ClientState? LastHitBy;
-    // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
+    // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
+    // removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
+    // A warcry's Howl of the Wolf already rerolled this corpse's loot: one reroll per corpse, like another use of it.
+    // Guarded by the Monsters lock.
+    public bool CorpseLooted;
+    // A Devour-supported killing blow recovered its life/mana: the kill consumes the corpse and removes its object.
+    // Set by the hit, read by the kill.
+    public bool DevourCorpse;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
@@ -643,9 +707,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// A key lives only while its full target remains present; retired keys are never reassigned on this connection.</summary>
     public Dictionary<uint, InstanceMicrotransactions.SkillSlot> SkillSlots = [];
     public uint NextSkillCosmeticKey = InstanceMicrotransactions.SlotCount;
-    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; RunPetFollow walks them.</summary>
+    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; StepPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
-    public bool PetFollowRunning;
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
     /// which rebuilds the portals that already stand.</summary>
     public float PortalRotationDegrees;
@@ -667,6 +730,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         set { if (Instance is { } i) i.World.NextObjectId = value; else ownNextObjectId = value; }
     }
     uint ownNextObjectId = 0x3000;
+    public uint TakeObjectId() => Instance is { } instance ? instance.World.TakeObjectId() : Interlocked.Increment(ref ownNextObjectId) - 1;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
     // without a current action and crashed StartChannelling (0xc0000005 at 0x19e37bf, live 2026-10-31).
@@ -790,6 +854,15 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// </summary>
     public HashSet<ushort> ClusterPassives = [];
     public AscendancyProgress MainAscendancy = new();
+    // The Descendancy.dat specialisation row the client shows as a second ascendancy layer (0: none). 0x33 carries it in
+    // its spare byte; Affliction's Wildwood classes and the 3.29 Bloodline classes are rows of that table.
+    public byte DescendancyRow;
+    // The descendancy layer's allocated nodes (PassiveSkills rows with that DescendancyKey); sent in 0x33 with the rest.
+    public HashSet<ushort> DescendancyNodes = [];
+    // The Descendancy row the server last offered with 0x7b kind 0x4c, and the area it offered it in. C->S 0x3a is
+    // accepted only for that row in that area, so a client cannot pick a row the server did not present.
+    public byte OfferedDescendancyRow;
+    public ushort OfferedDescendancyArea;
     public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];
@@ -820,7 +893,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
     public StolenMods StolenMods { get; } = new();
     /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
-    public ushort StolenModsBuff;
+    public ushort StolenModsBuff, InspiredLearningBuff;
     /// <summary>The flask buffs Mageblood has on the client, by flask item id (Program.StepMagebloodBuffs; Monsters lock).</summary>
     public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra)> MagebloodBuffs { get; } = [];
     /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>
@@ -899,6 +972,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
+    // Low Life reached): Game.LoyaltyResourceStateLocked.
+    public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
     // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
     public double TrapDegenPerSecond;
@@ -973,7 +1049,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public readonly HashSet<string> KilledVarieties = new(StringComparer.Ordinal);
     // Where the later forms the area leaves out would stand (AreaPopulation.LaterFormPoints), by MonsterVarieties Id, for a
     // quest that forms one (Quests.FormsRule); under Monsters' lock.
-    public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
+    public Dictionary<string, (int X, int Y)> LaterFormPoints => Instance?.World.LaterFormPoints ?? ownLaterFormPoints;
+    readonly Dictionary<string, (int X, int Y)> ownLaterFormPoints = new(StringComparer.Ordinal);
     // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
     // (Game.TransitionShown).
     public HashSet<uint> ShownTransitions = [];
@@ -1040,8 +1117,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// (cyclone_movement_speed_+%_final): the walk goes at it while <see cref="ChannelSkill"/> is that skill.</summary>
     public (ushort Skill, int Percent) ChannelMovement;
     public int ChannelGeneration;
-    /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
-    public volatile object? StatSourcesCacheState;
     /// <summary>The channelled skill's action sequence, so its 0x1af hit result names the action it belongs to.</summary>
     public ushort ChannelSkillSequence;
     public double NextChannelHitAt;
@@ -1065,6 +1140,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownDormantMonsters = [];
+    /// <summary>The instance's lurking monsters and emerge watch (InstanceWorld.EmergeGround); a connection outside an
+    /// instance (a test's) keeps its own.</summary>
+    public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
+    readonly EmergeGround ownEmergeGround = new();
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
@@ -1186,7 +1265,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     }
 }
 
-/// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
+/// <summary>A worn pet the server walks after the player (StepPetFollow): its walk estimate, which side of the player it
 /// keeps (+1 or −1) and where it was last sent.</summary>
 public sealed class SpawnedPet(WalkEstimator walk, int side)
 {

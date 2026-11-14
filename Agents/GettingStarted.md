@@ -21,8 +21,9 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 5. **Run `live.ps1` directly** (`.\scripts\dev\live.ps1` in a PowerShell session). Do not wrap it in a pipe or
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
-6. **The client must be version 3.29.3c.** The login patch and several protocol constants are specific to that build.
-   Any other version fails at step 4 or 5, with a clear error.
+6. **The client must be an allowed build: 3.29.3c or 3.29.3d.** `src/GameServer.Core/Protocol/ClientBuilds.cs` lists
+   them by the hash of the executable; the login patch and several protocol constants are specific to them.
+   Any other version fails at step 4 or 5, with an error that names the builds that are allowed.
 
 ## What you need
 
@@ -31,18 +32,20 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Windows 10/11 x64, or Linux ([below](#linux)) | the steps below are written for Windows | |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --version` prints `10.x` |
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
-| Path of Exile **3.29.3c**, standalone or Steam install | the client you play with | standalone: a folder with `PathOfExile.exe` and `Content.ggpk`; Steam: `PathOfExileSteam.exe` and `Bundles2\` |
+| Path of Exile **3.29.3c** or **3.29.3d**, standalone or Steam install | the client you play with | standalone: a folder with `PathOfExile.exe` and `Content.ggpk`; Steam: `PathOfExileSteam.exe` and `Bundles2\` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
 | Python 3.9+ | the full data extraction (maintainers, step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
 
-**Steam installs:** only Steam's 3.29.3c (the 2026-11-09 hotfix, 3.29.3.5) works; LocalExile checks its
-`Bundles2\_.index.bin`. The Steam layout keeps the game files loose in `Bundles2\` instead of a `Content.ggpk`, and
+**Steam installs:** Steam's 3.29.3c (the release it served from 2026-11-06, and the 3.29.3.5 hotfix of 2026-11-09) and
+Steam's 3.29.3d work; LocalExile checks
+the install's `Bundles2\_.index.bin`. The Steam layout keeps the game files loose in `Bundles2\` instead of a `Content.ggpk`, and
 `PathOfExileSteam.exe` is the same executable as the standalone `PathOfExile.exe`. The client still runs in standalone
 mode: step 5 patches it to read the loose files, and Steam is never started or needed.
 
-**Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
-version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy.
+**Getting the client:** this repository cannot provide it. The official launcher and Steam always update to the newest
+version, so a fresh install works only while that version is an allowed build (3.29.3d on 2026-11-11). Otherwise you
+need a copy that is still at one. Never let a launcher touch your copy.
 
 ### Linux
 
@@ -64,7 +67,11 @@ runs under Proton, through [umu-launcher](https://github.com/Open-Wine-Component
   `GAMEID` (default `umu-238960`), `Game_CLIENT_RUNNER` (default `umu-run`), and anything else in the shell. On a laptop
   with two GPUs, `__NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia` picks
   an NVIDIA GPU.
-- Not on Linux yet: `-Walkmaps`, and named `-Session`, `-Nullifier` and `-Agent` clients. They stop with a message;
+- `-Walkmaps` on Linux x86_64 needs `g++` on its first run. It downloads the pinned official Frida GumJS development
+  kit (SHA-256 checked) and builds a helper in ignored `Tools/frida/`. No Python Frida package is needed on Linux.
+  Recording must start with the client; to enable it for an existing client, use `-Stop -ClientOnly`, then
+  `-ClientOnly -Walkmaps`. Restart the Gateway with `-Only Gateway -Walkmaps` if it was started without recording.
+- Not on Linux yet: named `-Session`, `-Nullifier` and `-Agent` clients. They stop with a message;
   with `-NoClient` the servers start as usual.
 
 ### Third-party tools (only to extend the server)
@@ -174,7 +181,8 @@ it.
 | Problem | Meaning |
 |---|---|
 | `data/login-keys.json exists` | keys already made; keep them (the patched client from step 5 trusts exactly these keys) |
-| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3c `PathOfExile.exe` |
+| `this is not a Path of Exile executable LocalExile runs` | `Client\Game.exe` is another build, or a patched copy; the message names its hash and the allowed builds |
+| `login verify key not found in client image` | `Client\Game.exe` is not a Path of Exile `PathOfExile.exe` |
 
 ## 5. Patch the client to trust your keys
 
@@ -244,7 +252,7 @@ is in `logs\extract-<name>.log`. It builds each .NET tool once (`logs\extract-bu
 |---|---|
 | `setup incomplete: Node.js not found` / `Tools\ooz\node_modules missing` | install Node, then `cd Tools\ooz; npm install` |
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
-| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3c |
+| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` for an allowed client build |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
 
 ### The databases
@@ -438,7 +446,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
-| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3c | use the right client version |
+| `HNC mask not found` in `live-gateway.err` | the extracted client constants are not an allowed build's | use an allowed client build (rule 6) and let `live.ps1` extract again |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | The client closes or crashes by itself | usually a message the server sent wrong or left out | read the `DISCONNECT` line and the `last … packet(s)` block above it in `live-gateway.log`; attach `scripts/re/frida/trace-crash.js` and reproduce; report it with `scripts\dev\bugreport.ps1` ([debugging](docs/dev/debugging.md)) |

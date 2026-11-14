@@ -11,8 +11,8 @@ static partial class KitavaActTen
         Heart = Root + "KitavaFinalHeart", Sin = Root + "InnocenceSin/Sin", Innocence = Root + "InnocenceSin/Innocence";
     const string PreSin = "Metadata/NPC/Act10/SinTrough", PreInnocence = "Metadata/NPC/Act10/InnocenceTrough";
     internal const string Started = "SinPreKitavaTalk", Talked = "SinOnKitavaDead";
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<AreaLayout, Anchor> Anchors = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
     internal sealed record Anchor(int X, int Y, float Rotation);
     internal static bool IsBody(MonsterCatalog.Variety? v) => v?.Id == Body;
     internal static bool IsActor(MonsterCatalog.Variety? v) => v?.Id is Body or Heart or Sin or Innocence;

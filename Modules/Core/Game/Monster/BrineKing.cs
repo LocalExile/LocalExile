@@ -12,8 +12,8 @@ public static class BrineKing
     const string Art = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/";
     public const int MeleeEffect = 406;
     static readonly int[] Effects = [6354, 6359, 6670, 6668, 6361, MeleeEffect, 4365, 6759, 6761, 6360, 6355];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, Tide> Tides = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, Tide> Tides = new();
     // Row 856 is not IsRecovery: its GrantedStats do not travel in 0x1c1 (11-skills.md §12).
     public static byte[] TideBuff(uint player, ushort instance) => InstanceEntities.AddBuff(player, instance, 856);
     sealed class Tide
@@ -427,7 +427,7 @@ public static class BrineKing
             if (waveId == 0)
             {
                 var conn = players[0];
-                lock (conn.Monsters) waveId = conn.NextObjectId++;
+                lock (conn.Monsters) waveId = conn.TakeObjectId();
                 foreach (var player in players) { await CreateWave(player); waveViews.Add(player); }
             }
             else await All(waveId, InstanceEntities.TransitionableUpdate(waveId, 3, state));
@@ -564,7 +564,7 @@ public static class BrineKing
         async Task<uint> Effect(ClientState conn, (int X, int Y) at, string ao, double expires)
         {
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             var obj = new EffectObject(at.X, at.Y, ao);
             await All(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()), create: true);
             await All(effect, InstanceProtocol.EnterWakeZone(effect));

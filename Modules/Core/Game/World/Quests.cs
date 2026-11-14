@@ -150,6 +150,7 @@ public static partial class Game
         // once the corridor's gate is open.
         : transition.LayoutDisabled && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.Beaten
         : transition.SourceType == IzaroFights.ArenaTransition && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.GateOpen
+        : transition.LayoutDisabled && transition.TeleportTo.HasValue && QuestsOf(conn).DisabledTeleportFlag(conn.Layout.Id) is { } locked ? locked
         : AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
 
     // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the
@@ -195,6 +196,7 @@ public static partial class Game
     // they do not, so a league without them has the layout as generated.
     public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        if (Sirus.GateShown(conn, transition) is bool sirusShown) return sirusShown;
         if (DepravedTrinity.GateShown(conn, id, transition) is bool shown) return shown;
         if (KitavaActFive.GateShown(conn, transition) is bool kitavaShown) return kitavaShown;
         if (KitavaActTen.GateShown(conn, transition) is bool finalKitavaShown) return finalKitavaShown;
@@ -276,7 +278,7 @@ public static partial class Game
         public HashSet<string> Waypoints = [], Visited = [];
         public readonly HashSet<int> Rows = [];
     }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, WorldQuestFlagLookup> WorldQuestFlagLookups = new();
+    static readonly RuleTable<ClientState, WorldQuestFlagLookup> WorldQuestFlagLookups = new();
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
     // server (0x141e9b860). It plays getup in place; treating a target as a walk would move only the server's position estimate.

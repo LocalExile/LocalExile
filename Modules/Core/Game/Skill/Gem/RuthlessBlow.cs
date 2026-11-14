@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 // hits (the wiki), so the count is taken as the use starts.
 public static partial class Game
 {
-    static readonly ConditionalWeakTable<ClientState, Dictionary<ushort, int>> RuthlessCounts = new();
+    static readonly RuleTable<ClientState, Dictionary<ushort, int>> RuthlessCounts = new();
 
     // This use's more melee hit damage: 1 for a skill without Ruthless or a use that is not its count's last.
     public static double RuthlessBlowMore(Dictionary<ushort, int> counts, ushort skillId, Func<string, int> skill)

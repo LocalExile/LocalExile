@@ -558,6 +558,7 @@ class ClientControlCampaignTests(unittest.TestCase):
 
     def test_item_pickup_is_the_default_object_interaction(self):
         self.assertEqual(bytes(interact_packet(1027)), bytes.fromhex("0024" "00000403" "0266" "0000" "0408"))
+        self.assertEqual(bytes(interact_packet(1027, ctrl=True, alt=True))[-2:], bytes.fromhex("060c"))
         bridge = self.bridge()
         self.assertEqual(self.control.execute({"command": "item:pickup", "id": 1027}), {"submitted": True, "id": 1027})
         self.control.execute({"command": "object:interact", "id": 1027})

@@ -229,10 +229,19 @@ public static partial class Game
                 looks[hand] = VisibleItem.Empty(slot);
         // A bow is held in the left hand, and its model slot is not the main hand's: BowSetup holds the record the live server
         // sends (the bow's art in slot 1, an arrow in slot 0 with the weapon type and stance, the quiver on the back in 7).
-        if (HandType(conn, PlayerInventories.Weapon1) is { Class: "Bow" } bow)
+        var weapon = HandType(conn, PlayerInventories.Weapon1);
+        // The ItemClasses row of the item in each model slot (LookOf's type is the row + 1): a skin or a weapon effect is
+        // drawn only on an item of a class it lists.
+        var classes = looks.Where(l => l.VisualIdentity != 0).GroupBy(l => l.Slot).ToDictionary(g => g.Key, g => g.First().Type - 1);
+        if (weapon is { Class: "Bow" } bow)
         {
             int quiver = looks.FindIndex(l => l.Slot == 1 && l.VisualIdentity != 0);
             ushort quiverArt = quiver >= 0 ? looks[quiver].VisualIdentity : ItemsFor(conn).Visual("DefaultQuiver") ?? 0x328b;
+            // The bow moves to the left hand's entry and the worn quiver to the back; the default quiver is no item.
+            classes.Remove(0);
+            classes.Remove(7);
+            if (quiver >= 0) classes[7] = looks[quiver].Type - 1;
+            classes[1] = bow.ClassRow;
             looks.RemoveAll(l => l.Slot is 0 or 1 or 7);
             looks.AddRange(BowSetup.Entries(bow, ItemsFor(conn).Visual("DefaultArrow") ?? 0xb2f6, quiverArt));
         }
@@ -246,8 +255,12 @@ public static partial class Game
                     cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
                 continue;
             }
+            // With a bow the main hand's cosmetics dress the bow, which is the left hand's entry, and the off hand's dress
+            // the quiver on the back ("Changes the appearance of any equipped Quiver").
+            if (weapon is { Class: "Bow" } && model is 0 or 1) model = model == 0 ? (byte)1 : (byte)7;
             int at = looks.FindIndex(l => l.Slot == model);
             if (at < 0 || looks[at].VisualIdentity == 0) continue;   // nothing equipped there to dress
+            if (!classes.TryGetValue(model, out int itemClass) || !fx.Fits(itemClass)) continue;   // not an item it dresses
             if (slot.IsWeaponEffect && fx.WeaponEffect != 0)
                 looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash };
             else if (!slot.IsWeaponEffect && fx.Visual != 0)
@@ -259,11 +272,16 @@ public static partial class Game
     // The stats worn cosmetics give the character (footprints, apparitions, …), summed per stat. A pet is the stat the client
     // spawns it from: pet_slot1 for the first Pet slot (MicrotransactionSlot 18), pet_slot2 for the second (19).
     // Skill Gem Effect (slot 49) is left out: its skill_art_variation belongs to one skill's stats, not the character's.
-    public static IEnumerable<(uint Stat, int Value)> CosmeticStats(ClientState conn) =>
-        WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
+    // The stats the client reads in place of a cosmetic's own join them (CosmeticDerivedStats): it does not work out a
+    // derived stat for a player the server describes.
+    public static IEnumerable<(uint Stat, int Value)> CosmeticStats(ClientState conn)
+    {
+        var worn = WornCosmetics(conn).Where(w => w.Slot != 49).SelectMany(w => MtxEffects.Of(w.MtxTypeHash) is not { } fx ? [] :
                 fx.Pet != 0 && Stats.Key(w.Slot == 19 ? "pet_slot2" : "pet_slot1") is uint pet ? [.. fx.Stats, (pet, fx.Pet)] : fx.Stats)
-            .GroupBy(s => s.Stat, s => s.Value).Select(g => (g.Key,
-                ActorScale.IsInput(g.Key) ? ActorScale.Saturate(g.Sum(v => (long)v)) : g.Sum()));
+            .GroupBy(s => s.Stat, s => s.Value).Select(g => (Stat: g.Key,
+                Value: ActorScale.IsInput(g.Key) ? ActorScale.Saturate(g.Sum(v => (long)v)) : g.Sum())).ToList();
+        return [.. worn, .. CosmeticDerivedStats(conn, worn.ToDictionary(s => s.Stat, s => s.Value))];
+    }
 
     public static IEnumerable<(uint Stat, int Value)> CosmeticScaleSources(ClientState conn) =>
         CosmeticStats(conn).Where(s => ActorScale.IsInput(s.Stat));

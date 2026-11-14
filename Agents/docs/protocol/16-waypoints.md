@@ -42,7 +42,9 @@ sequenceDiagram
 | StateMachine | `01 00` (1 state, 0 timers), compact int "active" `00`, flags `00` |
 
 The place comes from the tile record the walk-map recorder captures (08 §7: `.transitions.json` keeps `Waypoint`
-records next to the area transitions); Lioneye's Watch has a built-in fallback (256, 169), 3π/2, z −357.52. "active"
+records next to the area transitions); a capture that keeps no `Waypoint` record does not mean the area has none —
+the Gateway falls back to the `Waypoint` object its own generated layout places, which is where 1_1_5, 1_5_5,
+2_8_2_2 and 2_10_4 get theirs. Lioneye's Watch has a built-in fallback (256, 169), 3π/2, z −357.52. "active"
 stays 0: its client handler only plays the `inert` animation. The look comes from 0x4c (§3).
 
 ## 3. Messages
@@ -66,6 +68,14 @@ four u32 BE. **Kind 0** notifies the listeners at instance +0xff8; the in-game U
 and sets its travel mode (`0x140aafe50` → `0x140aa2b10`, panel +0x522). The u32s are not used by kind 0; the Gateway
 sends the waypoint object id. The panel's Hideout button sends C→S 0x17a (character name, waypoint object id), which
 takes the player to the hideout ([21](21-hideouts.md) §3).
+
+**Kind 0x4c** opens the Bloodline/Wildwood class selector (`DescendancyClassSelectorWindow`, `0x140b6f610`; its row
+loader is `0x140b686f0`). The first u32 is the 0-based `Descendancy.dat` row to preview (0 = None); the handler reads
+that row and notifies instance +0x1af8. The selector's NEXT/Accept sends C→S 0x3a with the row. The tree keeps the row
+in its spare `0x33` byte, so the two layers share the ascendancy point pool. The server records the selector it opened
+and its area: 0x3a is accepted only while that selector is open in the same area, the chosen row's unlock gate must be
+met (the Wildwood Azmeri flag; the Bloodline rows carry no condition), and a layer with allocated nodes must be refunded
+before another is chosen. The `gm-commands` mod's `/descendancy` is the unrestricted development path.
 
 ### C→S 0x4d — travel (9 bytes)
 
@@ -157,9 +167,10 @@ the Submerged Passage blocker), which matches having been there.
 
 ## Open
 
-- A generated area's waypoint is only known from a `-Walkmaps` capture for the seed. Without one the player arrives at
-  the layout's spawn, and without a walk map at an arbitrary cell outside the map (The Submerged Passage, seed 1). The
-  Roadmap's "every area at seed 1" capture fixes it for the dev seed.
+- A generated area's waypoint is only known from a `-Walkmaps` capture for the seed, or from the layout the Gateway
+  generates for it. Without either the player arrives at the layout's spawn, and without a walk map at an arbitrary
+  cell outside the map — which is what every act area at seed 1 used to do, until they were all captured at seed 1
+  (The Submerged Passage was the example). Other seeds still need their own capture.
 - 0x4c's u32 and 0x4d's u32; the other 0x7b kinds (0x01..0x72 open other panels: stash, vendors, …).
 - Real quest progress should set and save the flags instead of deriving them from visits.
 

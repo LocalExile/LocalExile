@@ -2,12 +2,12 @@
 
 Ancestral Commander is the Marauder's Phrecia Juggernaut identity (`Juggernaut`, 3.29.3b), start node 17765.
 No node grants passive points.
-Every node but Spirit of Rakiata has a server consumer with Gateway coverage.
+Every node has a server consumer with Gateway coverage; a Marked Unique's critical strike is wired through the Mark curses (not live-verified).
 Deathrattle, Ancestral Reach, Ancestral Echo, four Spirits and Forest of Ancestors are partial: the Strike gems that
 are also Projectile skills get neither strike node, the chieftains fight with their first skill only, Kahuturoa's
 trigger needs a Unique that crits (server monsters crit only through a forced mod), only Rejuvenation Totem places a
 totem, and monsters do not attack totems.
-Spirit of Rakiata is open, as the checklist says.
+Spirit of Rakiata is wired through Mark curses; its trigger is not live-verified.
 Native acceptance is open: it needs the reviewed combined graph installed (see Admission below).
 
 ## Node checklist
@@ -32,7 +32,7 @@ Native acceptance is open: it needs the reviewed combined graph installed (see A
 | 59500 Spirit of Kahuturoa | Trigger level 20 Summon Spirit of Kahuturoa when you take a Critical Strike from a Unique | Partial: the trigger, the shared cooldown, Kahuturoa's Leadership (10% of Armour against elemental and chaos hits) and the chieftain fighting beside the player, with its first skill only. Server monsters have no base critical strike chance, so a Unique crits only with a forced `always_crit` mod (`/mob_mods`); in normal play the trigger never fires. See below. |
 | 17511 Spirit of Utula | Trigger on taking a Savage Hit from a Unique | Partial: the trigger, cooldown, Utula's Leadership buff and its fighting chieftain (first skill only); its 50% instant leech has nothing to act on (no leech). |
 | 16639 Spirit of Kiloava | Trigger when you Block Damage from a Unique | Partial: the trigger, cooldown, Kiloava's Leadership (5% of Life, Mana and Energy Shield on block) and its fighting chieftain (first skill only). |
-| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Not yet: the server has no Mark curses, so nothing can trigger it; its Leadership and chieftain rows are read and checked. |
+| 62534 Spirit of Rakiata | Trigger on Critical Strike against a Marked Unique | Wired: Marks are modelled by Curses, so a critical strike against a Marked Unique triggers it; its Leadership and chieftain rows are read and checked. Not live-verified. |
 | 17140 Spirit of Kaom | Trigger when a Totem dies while a Unique is in your Presence | Partial: the trigger, the shared cooldown, Kaom's Leadership (25% of each hit taken from the nearest totem, 45% with Forest of Ancestors) and its fighting chieftain (first skill only). See below. |
 | 48740 Call of the Ancestors | 200% increased Warcry Speed, 30% reduced Warcry Cooldown Recovery Rate | Warcry release time and one-use cooldown. |
 | 3245 Deathrattle | Nearby corpses explode for 12% of their Life as Physical when you Warcry; Warcries open Chests | Partial: Enduring Cry's release explodes the server's corpses, with the player's global damage and conversion, and opens quest chests; see below. |
@@ -163,7 +163,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   - Utula: the hit was a Savage Hit, one that removed at least 15% of maximum Life; Energy Shield, Ward and Mana do
     not count (wiki Savage hit, Module:Keyword).
   - Kiloava: the hit was blocked.
-  - Rakiata: a critical strike against a Marked Unique; the server has no Marks, so it is never triggered.
+  - Rakiata: a critical strike against a Marked Unique; Marks are modelled by Curses, so the path is wired (not live-verified).
   Kaom triggers on a totem's death instead: its Life reaches 0, its duration ends or a new totem replaces it, while a
   living hostile Unique monster is within the player's presence (Character.ot's fixed `base_presence_radius` 80
   cells, the wiki's 8 metres), and the player lives.
@@ -179,7 +179,7 @@ The defensive nodes fit in one build: `11217 37852 24701 23061 8455 848 26496 98
   whose stats takes the skill's value.
   Its `ancestral_buff_cooldown_does_not_tick` stops the cooldown while it lasts, so the next trigger is 32 s after the
   last (`SpiritChieftains`).
-  The tattoo scaling (`ancestral_embrace_effect_+%_per_*_tattoo`) stays 0: there are no tattoos.
+  The tattoo scaling (`ancestral_embrace_effect_+%_per_*_tattoo`) stays 0: the Loyalty tattoos grant the level 1 spirits, but none carries that stat.
   - Kahuturoa's Leadership: `armour_%_applies_to_fire_cold_lightning_damage` and `base_armour_%_applies_to_chaos_damage`
     10: a tenth of the armour rating reduces fire, cold, lightning and chaos hits after resistance, by the armour
     formula, added to the elemental damage reduction (PoB CalcDefence `percentOfArmourApplies`;

@@ -31,6 +31,17 @@ player's), 1 → `+0xca10`, 2 → `+0xcb90`, anything else null.
 
 ## 2. S→C 0xc0: add inventory
 
+The 3.29.3c client retains the 4×5 Wildwood grid (row 84, id 85), shown by
+`primalist_ascendancy_expanded_main_inventory` (Stats row 19295, wire key 19296).
+A stat Mod can enable it for any class without the removed Wildwood ascendancy system or client edits.
+On grant removal the server keeps occupied grids visible for withdrawal, rejects both 0x2a placement and 0x4a
+merge deposits, and clears the display flag when emptied. Saved contents alone never authorize a deposit.
+
+The Wildwood Primalist's three Charm Socket nodes are `PassiveJewelSlots` rows 57-59 (`__col6`); each row's `Slot`
+is the node. The pane cells hold an AnimalCharm (Ursine, Lupine or Corvine Charm), not a jewel. The server accepts a
+charm in a cell only while that node is allocated, applies its single Domain 35 modifier like a worn item's, and
+moves it to the inventory when the node is refunded (`PassiveTree.CharmNodeForSlot`, `Game.PassiveJewelRefusal`).
+
 Dispatcher case 0x35. Class `0x1431b4368` (0x30 bytes, ctor `0x140b17880`), write `0x140b178b0`, read `0x140b17970`.
 
 ```

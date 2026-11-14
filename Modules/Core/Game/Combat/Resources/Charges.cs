@@ -11,7 +11,7 @@ public static partial class Game
     // Endurance, Frenzy and Power charges (issue #237, 11-skills.md §15). Each connection has a ChargeSession: the combat
     // code enqueues what may grant charges (ChargesOnHit, ChargesOnKill, ChargesWhenHit) and RunCharges rolls, times,
     // expires and presents them. The charges held count in the character's stats through WithCharges.
-    public static readonly ConditionalWeakTable<ClientState, ChargeSession> ChargeSessions = new();
+    public static readonly RuleTable<ClientState, ChargeSession> ChargeSessions = new();
 
     // The charges an area change hands on, by the destination's ticket (Transfer): kept with the duration they had left.
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
@@ -151,7 +151,7 @@ public static partial class Game
     sealed record ChargeExpansion(Dictionary<uint, int> Stats, Dictionary<uint, int> Dev, int[] Held, bool[] Converted,
         Dictionary<string, int> Added);
     sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
-    static readonly ConditionalWeakTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
+    static readonly RuleTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
     public static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>

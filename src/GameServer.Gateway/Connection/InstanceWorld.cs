@@ -8,8 +8,14 @@ public sealed class InstanceWorld
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 
+    // Numbered boss-room points survive host handoff and a return to a kept instance.
+    public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
+
     /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
+
+    /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (ClientState.EmergeGround).</summary>
+    public readonly EmergeGround EmergeGround = new();
 
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
@@ -23,6 +29,7 @@ public sealed class InstanceWorld
     /// wake zone"), broke its object list and crashed it (live 2026-11-05). Above the player (0x1000), the lockstep tick
     /// order (ascending ids: LivingCollision.StepFrames) is kept.</summary>
     public uint NextObjectId = 0x04000000;
+    public uint TakeObjectId() => Interlocked.Increment(ref NextObjectId) - 1;
 
     /// <summary>Buff instances (S→C 0x1c1) of everyone in the instance (ClientState.NextBuff).</summary>
     public ushort NextBuff = 1;
@@ -42,4 +49,15 @@ public sealed class InstanceWorld
     /// <summary>The connection whose loops step the monsters (AI, collisions, wake zone) until the instance runs them itself:
     /// the first in, then whoever is still here.</summary>
     public ClientState? Runner;
+}
+
+/// <summary>Monsters lying in wait for a player to come near, besides the buried ones (DormantMonsters), and whether a
+/// connection's emerge watch looks for them. Under the Monsters lock. The instance's, so they outlast the player who placed
+/// them and a reload of the game's rules: the new rules' watch raises them.</summary>
+public sealed class EmergeGround
+{
+    /// <summary>Lurking monsters by object id: in the instance's monsters, busy until they rise.</summary>
+    public readonly HashSet<uint> Lurking = [];
+    /// <summary>Whether a connection's watch runs for them.</summary>
+    public bool Watching;
 }

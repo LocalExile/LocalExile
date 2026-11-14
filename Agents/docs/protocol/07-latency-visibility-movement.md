@@ -142,6 +142,9 @@ predicted player (sequence ≥ 0) the handler compares the position pair with wh
 confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays until a walk ends on its target. Live
 2026-10-31: an echo 13 cells off moved nothing. Clicks do not wait for the echo: the client sends them as they come.
 0x1ac ends an action, but is ignored for predicted local actions; it still counts for the resync request below.
+An echo with a negative sequence for the local player is not a confirmation: the client builds and runs that action
+itself, as for any other object's (live 2026-11-11: the bridge's 0x24 with sequence 0xfffe made it run Holy Sweep's
+hammer code, 11 §9a; with sequence 0 it never ran).
 
 The first version sent the target in the position pair: long clicks teleported the player, sometimes onto unwalkable
 cells past the town edge (toward The Coast), where the client could no longer path anywhere. The server therefore keeps
@@ -403,8 +406,12 @@ of its own length (`ShowFreeze`).
 
 **Movement skills.** The client limits the target itself before it sends the 0x25 (Flame Dash lands where the server
 does). A target past the walkable ground ends where the line to it does. Aimed at a monster it lands on the monster, by
-the 0x24 path. Whirling Blades and Dash do not stop at the target: they travel 40 and 33 cells along the aimed line and
-stop at the first cell they cannot walk (no stat carries either number). The client can still refuse a skill the server
+the 0x24 path. Whirling Blades travels 40 cells along the aimed line and stops at the first cell it cannot walk.
+Dash (3.29.3c, `0x141b41145`) scales 30 cells by `skill_travel_distance_+%`, truncates the range, normalizes the
+aim and rounds each component with `floor(v + .5)`. Action flag 1 reverses the offset. Its direct test
+(`0x141b41240`) needs a standable endpoint and layer 1 clearance of at least 1 along the line. The fallback
+(`0x141b43d90`) keeps the last standable cell until layer 1 clearance falls below 2 for a size-1 player.
+The client can still refuse a skill the server
 has landed (a Lightning Warp often), so a resync follows at the end of the action, and every other resync but a stun's
 waits for it: until then the server has the player landed and the client has it on its way. ActiveSkillType Movement also
 covers skills that leave the player where it stands when used (Mirror Arrow, Smoke Mine, Phase Run, Chain Hook, Withering
@@ -598,13 +605,13 @@ target. See [World message inputs](../re/projectiles/world-message-inputs.md) an
 Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
 "lockstep_lag_frames"). Without 0x2b7 nothing runs: the player is created but never drawn. A predictive client ignores
-0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunLockstepFrames`, 33 ms, `Game_FRAME_MS`):
+0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunWorldFrames`, 33 ms, `Game_FRAME_MS`):
 a lockstep client is then drawn and its world runs. Found with hardware watchpoints on those fields.
 On Windows a timer wait ends on the clock tick, 15.6 ms unless the
 process asks for less, and Windows 11 drops the request of a process without a window (every launcher starts the
 Gateway so) unless it opts out of that power throttling ([headless clients](../dev/headless-client.md) set the
 opposite). Without both, lockstep frame ends went out 0 to 16 ms late (31 and 47 ms apart). With them, while a player
-is in game (`WindowsTimerResolution`), and `RunLockstepFrames` woken at each frame end, 77 to 93 % went out under 2 ms
+is in game (`WindowsTimerResolution`), and `RunWorldFrames` woken at each frame end, 77 to 93 % went out under 2 ms
 late (on loopback, in town and The Mud Flats); its earlier poll every third of a frame sent them 22 and 44 ms apart.
 
 **Explicit output records.** Game producers retain each World packet boundary and its unsigned scheduling key/checkpoint.
@@ -818,7 +825,8 @@ reads none of them. The client reads:
   0x0100 has readers (`0x1419483b0`, `0x1419478b0`) whose effect is not traced.
 - 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ece040` and
   `0x14194c880`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011ecb0`), so an echo
-  of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200.
+  of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200: they are for the server
+  (the inventory panel is open, Ctrl is held, Alt is held on an NPC: [17](17-npcs.md) §3).
 
 GGG sets neither 0x0400 nor 0x0008 on any monster order (56 175 in four lockstep recordings): Moves 0 (13 768), skills
 aimed at an object 0x0080 (41 946), at the ground 0 (353), an emerge 0x0880 (102). The player's own orders echo his

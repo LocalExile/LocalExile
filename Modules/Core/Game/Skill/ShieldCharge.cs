@@ -11,7 +11,7 @@ public static partial class Game
     // movement_velocity_+% it sends (the pools) from the use until its own walk arrives, and walks its estimate to the aimed
     // cell at that speed instead of the generic movement skill's teleport. Without it the charge ran at walk speed.
     sealed class ShieldChargeRun { public int Percent, Token; public (int X, int Y) Start; public double MaxDistance; }
-    static readonly ConditionalWeakTable<ClientState, ShieldChargeRun> ShieldChargeRuns = new();
+    static readonly RuleTable<ClientState, ShieldChargeRun> ShieldChargeRuns = new();
 
     // The running charge's movement bonus, for the pools (PoolsFor); 0 when none runs.
     public static int ShieldChargeMovementPct(ClientState conn) => ShieldChargeRuns.TryGetValue(conn, out var run) ? run.Percent : 0;

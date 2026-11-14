@@ -17,7 +17,7 @@ exits; nothing starts. Lines that do not start with `{` are not part of it. Abou
 | `class` | `id` (ItemClasses Id, what a base's `class` names), `name` |
 | `pool` | `id`, `mods` (Mods.dat Ids) |
 | `mod` | `id`, `name` (the affix name: "Virile"), `generation` (Mods.dat GenerationType: 1 prefix, 2 suffix, 3 implicit, 5 corruption, 28/29 Eldritch …), `domain`, `level` (the item level it needs), `families`, `tags`, `stats` (`id`, `min`, `max`: the roll range) |
-| `base` | `id` (BaseItemTypes Id), `name`, `class`, `width`, `height`, `dropLevel`, `requirements` (str, dex, int), `sockets` (the most it can have, 0 for none), `quality` (has the Quality component), `implicits` (mod Ids), and pool ids: `pool` (prefixes and suffixes), `influence` (`shaper` … `warlord`: what each influence adds), `crafted` (the bench's mods for its class), `corrupted`, `eldritch` |
+| `base` | `id` (BaseItemTypes Id), `name`, `class`, `width`, `height`, `dropLevel`, `requirements` (str, dex, int), `sockets` (the most it can have, 0 for none), `quality` (has the Quality component), `implicits` (mod Ids), on a cluster jewel `enchants` and `cluster` (below), and pool ids: `pool` (prefixes and suffixes), `influence` (`shaper` … `warlord`: what each influence adds), `crafted` (the bench's mods for its class), `corrupted`, `eldritch` |
 | `desc` | `stats`, `variants`: `when` (one condition per stat), `text`, `handlers` (`[name, stat]`, stat 1-based) |
 | `word` | `list` (1 prefix, 2 suffix), `key` (Words.dat HASH32, what `/item_give` takes), `text` |
 
@@ -25,6 +25,26 @@ Bases are the modifiable ones with mods: equipment, flasks, jewels, maps; no gem
 `pool` is `ItemRolls.Pool` at item level 100, the rule drops and currency use (domain, prefix or suffix, a spawn weight
 above 0 for the base's tags, not essence-only); a tool compares each mod's `level` with the item level it shows. Bases
 with the same domain, class and tags share their pools.
+
+### Cluster jewels
+
+A cluster jewel is its enchantments ([cluster jewels](../game/cluster-jewels.md), "The theme"), which no implicit list
+or pool names, so its three bases carry two more fields.
+
+`enchants` are the enchantments of the jewel a tool starts with: `id`, `values` and `ranges` (`[min, max]` per value).
+A tool puts them on the item and sends them back with `"section": "enchant"`. They are the first theme of the size, its
+fewest passives and its sockets.
+
+`cluster` is what they can be changed to:
+
+- `passives`: the `mod` whose two values are the theme and the passive count, with the count's `min` and `max`.
+- `sockets`: the `mod` for each socket `count` (one or two on a large jewel, one on a medium one, none on a small one).
+  Swapping the mod changes the count.
+- `themes`: each theme a new jewel of the size can have. `value` is what the first value of the passives mod must be;
+  `name` and `stats` (`id`, `value`) say what each small passive grants, which the game words from the value alone as
+  "Added Small Passive Skills grant: …" (the `desc` lines cover these stats too); `tag` is the spawn tag it gives the
+  jewel; `pool` is the affix pool of a jewel with that theme, with its notables. The base's own `pool` is a jewel's
+  without a theme.
 
 ### Stat descriptions
 
@@ -63,6 +83,7 @@ launcher sends it through the [client control](client-control.md) bridge). It go
 - `sockets`: as `/sockets` takes them; `""` for none; without it, the sockets `/item` gives.
 - `mods`: every mod of the item, implicits included, in order. `section` (implicit, explicit, enchant, scourge, hidden)
   defaults to the mod's own list; missing `values` are rolled. Any mod goes on any base, values outside the roll range
-  too, as with `/item_mod`.
+  too, as with `/item_mod`. A cluster jewel whose mods do not name its passives mod keeps the enchantments of a new
+  jewel (a theme of its size, a passive count and its sockets), since it adds no passive without them.
 
 An unknown base, mod, rarity or state is refused with the reason in chat, and nothing is given.

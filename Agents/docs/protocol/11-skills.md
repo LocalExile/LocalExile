@@ -920,6 +920,20 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   which drops a server-driven monster's queued attack in the same frame (traced: created, queued, both checks passed,
   then neither current nor queued). The server walks the monster itself, so the skill is non-pathing. Only on the
   skill: on the monster's Stats component it also stops its Move action from pathing (the monsters stood still).
+- **A monster's skill art is on its record too.** GrantedEffects `__col23` is the effect's `skill_art_variation`
+  (SkillArtVariations' Variants of its skill: Izaro's Upheaval 5 `Ornaments`, his Leap Slam 5 `LabyrinthBoss`); without
+  it his Upheaval drew Glacial Cascade's ice (live). `SkillCatalog.ArtVariation`; only Izaro's records send it so far.
+- **A skill played in place leaves the walk running** on a predictive client too. A Move ends it, but the client refuses a
+  Move under 3 cells from the monster (`0x141949a20`), and then the walk goes on through the cast: measured up to 119
+  cells (`trace-sync.js`), and the next order puts the monster back on the server's cell. An Upheaval or a VollCharge aimed
+  at the player's object (flag 0x80) walks up to the player or dashes where the client's own player is; aimed at a cell, it
+  goes where the server says. VollCharge's dash is about 60 cells at 270 cells/s, from 1.6 s after the order.
+- **An `.ot`'s stats apply on the client:** LabyrinthBoss.ot's `base_movement_velocity_+%` 15 walks Izaro at 41 cells/s where
+  MonsterVarieties says 36 (measured). The catalog does not read `.ot` stats, so the encounter passes it to the estimate
+  (`MonsterMovement.SpeedFactor`, `IzaroFights.Movement`).
+- **Reordering restarts the walk clip.** A chase ordered every 200 ms showed Izaro's walk clip reset at each order on a
+  predictive client; he is ordered at most once a second while on his way (`MonsterMovement.ReorderSeconds`), the estimate
+  following the player between orders.
 - **A monster's spell skills carry cast-time stats, not the attack duration.** `MonsterAttack.Spell` sends
   `base_spell_cast_time_ms` (0x2a9), `virtual_base_spell_cast_time_ms` (0x24b9), `hundred_times_casts_per_second`
   (0x2aa) and `casting_spell` (0x1b6); only attacks send `main_hand_attack_duration_ms`. The client's cast-duration
@@ -1236,7 +1250,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Evidence: `logs/instant-location-live-default.json` in the integration validation checkout.
   Production ground Frostblink use during an active walk has not been measured;
   the walking evidence is manual native RE.
-  Departure/arrival damage, chilled ground, nearby-enemy cooldown recovery, shared Blink cooldown groups,
+  Departure/arrival damage, chilled ground, nearby-enemy cooldown recovery,
   other location instant skills and complete movement restriction/terrain searches remain unimplemented.
 - **Hit reaction.** A surviving monster receives S→C **0x1d1**, `ActorAnimation` type 5 (`TakeHit`), for recovery.
   A hit must pass the stun roll and needs a known TakeHit profile, no stun immunity and expiry of its previous recovery.
@@ -1382,9 +1396,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   (0.25 s with `skill_art_variation` 3) × `active_skill_area_of_effect_radius` (`0x141c02ec0`) and hits every target
   within it, so a victim at the edge is hit 0.2 s after one at the centre. `AreaSkillHit` sorts the victims by
   distance and waits for each (`IceNovaRing`); once released, the ring no longer depends on the player's action.
-  Not modelled: `spell_repeat_count` repeats (0.3 s apart in the same update, each with `ice_nova_radius_+%_per_repeat`;
-  the server sends Ice Nova no count, see Spell repeats)
-  and Frostbolt casting (`active_skill_area_of_effect_+%_final_when_cast_on_frostbolt`).
+  Ordinary Ice Nova with level-one Spell Echo starts one ring per animation replay. Three 3.29.3c casts
+  had two ring starts apiece, 542–546 ms apart, with the remaining repeat count falling from one to zero.
+  None incremented the internal ring counter. Frostbolt casting remains unverified.
 - **Cast speed (#192).** Genuine Spell/non-Attack skills keep the catalog milliseconds in both
   `base_spell_cast_time_ms` and `virtual_base_spell_cast_time_ms`. The native spell action already divides that
   virtual base by `1 + cast_speed_+% / 100`; pre-dividing it on the server applied cast speed twice.
@@ -1430,8 +1444,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   (`0x141bb3e30`: [sequence, +0x11c, +0x458, +0x2d0, owner]) and the return roll's fourth.
   `SpellRepeats` sends the count with the skill and the server repeats its releases (`ScheduleGemProjectile`) and
   area hits (`LaunchProjectile`) a cast time apart, with the use's one cost and critical roll; a new action cancels the
-  rest. Ice Nova's action (`0x141c02c10`) also reads 0x912 for rings 0.3 s apart (only while bytes +0x2b8 and +0x2b9
-  are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
+  rest. The ordinary Ice Nova replay uses the same timing; see “Ice Nova's ring” above.
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
   Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
@@ -1491,10 +1504,14 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
   Ordinary stored uses and Second Wind share the recovery state; spent uses recover one at a time.
   The first native queue entry retains progress, while later entries retain their full base-time budget.
-  Duplicate same-effect gems, other extra-use sources, flat/override and pause-while-active mechanics retain legacy
-  `SkillReadyAt` raw deadlines.
-  Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
-  outside this generic one-use implementation.
+  Same-effect gems retain shared recharge debt; recovery/capacity use the actual admitted socket instance.
+  Blink (GEPL group 9) and Guard (10) debit each available member once. Warcries (1) share only with
+  `warcry_skills_share_cooldowns`. Stances (11) and ordinary per-skill records (36) keep their own uses. The client reads
+  `skill_cooldown_group_override` before its GEPL group at `0x141ef27e0`. Without an override of 36 a second
+  independent warcry never sends its request. Peer progress is published only
+  after the admitted use acknowledgement. Equipping a new group member inherits outstanding recovery debt.
+  Unpayable ordinary uses are rejected before cooldown reservation and movement. Other extra-use sources,
+  flat/override, pause-while-active, bypass, conditional/enemy recovery and official tick equivalence remain partial.
   A zero recovery rate stalls a spent use.
   Extreme input sums are bounded to avoid signed native `percent + 100` overflow.
 
@@ -1695,6 +1712,45 @@ Where GGG lands the player beside the target is not on the client; the Gateway u
 Its buff (BuffDefinitions 1344 `flicker_strike_speed_boost`, `base_movement_velocity_+%`) is the server's too:
 each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends; increased buff
 effect does not scale it yet.
+
+A transfigured gem (`AltX`, `AltY`) swings its base gem's rig clip: Holy Sweep of Hammerfalls shares Sweep's
+Animation row 173 and `sweep_maul` (contact 350 of 1375 ms), so `GemAttackContactDelay` falls back to the base Id
+(`TransfiguredBase`); with `sweepaltx`, which no rig has, the hit fell to attack1's 0.69 (live 2026-11-09).
+
+**Holy Sweep's hammers** are the client's own actions. Their art (`sweep_hammer_fall`) scales to the skill's final
+`active_skill_secondary_area_of_effect_radius` over its base size (`0x1414f44b0`, `0x1414f50e0`): the client derives
+none, and until the Gateway sent it the hammers were drawn at scale 0 (live 2026-11-09).
+The client picks and places every hammer itself, with draws the server repeats (live 2026-11-11, Frida on a
+session client; every integer draw replayed with `AnimationVariantSelector.NativeRandom`):
+- **Order.** Both scans list their candidates in the entity grid's order: 23-cell tiles row by row (x fastest), and in
+  a tile the order the objects entered it (`0x141d7fb50` appends, `0x141d7fce0` keeps the rest in order, a tile change
+  from `0x141e32360` removes and appends, `0x141d878e0`). Monsters spawned across two tile rows came row by row, each
+  row in spawn order.
+- **Holy Sweep** (`0x141b18a90`, at the swing's `0xC078` event): the monsters within its radius that pass a grid line
+  test (`0x141d8a7f0`) and the client's own hit roll (`0x141940010` → `0x141ec38a0`, the target's attack entropy:
+  [local hit prediction](../re/projectiles/local-hit-prediction.md)); 3 of 6 passed where the server's sweep landed on
+  all 6. With more of them than `holy_sweep_number_of_holy_bolts_to_create` it draws indices over 0 … n (n counts as 0)
+  from a TinyMT keyed [sequence, 0, player id, repeats left, 0, 0, 0, 0] until that many are flagged (`0x1419c73c0`
+  reads 8 words; live: 13 candidates, 4 hammers, draws 10, 7, 6, 4). All are sorted by
+  angle = atan2(offset) − atan2(target) + π/4 in 0 … 2π (`0x141b21c10`); flagged ones drop in that order, the first at
+  contact and the rest as the swing passes their angle (0.22 s for angles 1.0 to 6.2 live; the per-frame rule is not
+  read), each on its monster's cell 0.25 s before it hits (`0x141b19250`, `DAT_1436adc54`). The server uses its own
+  landed hits as the candidates and drops all its hammers at contact.
+- **Repeats** (Multistrike): an attack action's `+0x2d0` is its repeats left (set to the repeat count by
+  `0x1419e5460`, lowered by each repeat in `0x1419e6370`, copied to its clones by `0x1419e5750`), and both keys carry it,
+  so each repeat draws anew. A detached child's `+0x11c` is its parent's `+0x2d0` + 1 + `+0x11c` (`0x141943240`).
+- **Hammerfalls** (`0x141b1a270` at the swing, a child action: `+0x11c` = repeats left + 1): waves every
+  `holy_sweep_hammerfall_rate_ms` / 1000 / (1 + `combined_main_hand_attack_speed_+%` / 100) (floats, `+0x350`) while
+  `skill_effect_duration` lasts, around the player's cell. Network stats run no calculator, so the client reads that
+  stat only from the skill's stats: unsent, 16% attack speed still gave 0.7 s; the Gateway sends it. A wave
+  (`0x141b19980`) takes the living monsters within `active_skill_area_of_effect_radius` plus their size (no hit roll),
+  shuffles them front to back from a TinyMT keyed [sequence, left + 1, player id, left, wave], then std::sorts them
+  by hammers taken (`0x141b22410`: insertion up to 32, else MSVC's introsort). Hammer h draws from [the same five, h]:
+  a 0-99 roll per free candidate against 100 halved per hammer taken, else up to 3 points at angle Range(0, 6.28318)
+  and distance Range(0, 1) × radius, (0, −d) turned and rounded half up (`0x1406654d0`), on walkable ground.
+  `+0x2b8` was 0. Each hammer hits 0.1 s later in its secondary radius (`0x141b1a610`).
+  A use the server forces on the player (an echo with a negative sequence, 07 §5) runs without its repeats, so the
+  repeat keys are read from the code, not seen live.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
@@ -1919,6 +1975,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
   record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
   `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
+  Lightning Strike's row is `Metadata/Projectiles/LightningSlash` (1600), not `LightningStrike`.
+  The 3.29.3c client creates its three bolts locally: a server create duplicates them.
+  A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
+  The native flights have different durations; their per-projectile speed variation is not yet mirrored.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
@@ -2593,9 +2653,11 @@ Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sou
 Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
 `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
+On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
-owner offensive stats and type prohibitions, with the owner's `spell_skills_deal_no_damage` removed (Ancestral Bond).
+owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
+`spell_skills_deal_no_damage` (5341, Gruthkul's Pelt); only the former's owner-only restriction is bypassed by proxies.
 The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
 transfer and module retirement stop pending releases.
 Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
@@ -2874,7 +2936,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **New skills go into empty slots only** (`SkillBarLayout`, `FillSkillBar`). A new character's bar gets the default
   attack on the left mouse button (slot 0) and its gem skill on the right one (slot 2). `SendSkills` runs it before it sends the saved bar
   again (#108), so a gem skill that is nowhere on the bar takes the first empty slot in this order: the right mouse button, Q W E R T (3–7), the
-  middle button, then the rest. An empty slot is one never set, cleared, or holding a skill whose gem left. Slots the
+  middle button, then the rest. Automatic placement skips manually cleared slots and skills removed from the bar. Slots the
   player set stay as they are, and a cleared left button stays cleared. Live 2026-10-20: a new Templar got the sword on
   the left button and Holy Strike on the right.
 
@@ -2922,7 +2984,12 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `using_flask` = 1: the client computes `soul_eater_from_stat` only when that flag is set (0x14282d9d0 in 3.29.3c,
   reading keys 0xea5, 0xf4e and 0xf52), so without it its native flask/Soul Eater visuals stay off. Each kill within 60
   cells is one soul; the player tick presents the changed count and, per soul, a **ServerBeamEffect** from the corpse to
-  the player. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`):
+  the player. Soul Ascension's `gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms` (500 ms in the 3.29.3c tables) adds
+  a second, kill-independent source: the player's own hit on a rare or unique enemy eats one soul, no more than once
+  per that cooldown, with no radius. That source sends no beam: the official server's object for a hit's soul has not
+  been captured, so only the counted buff and the stats it changes go out. Its stat build also does not send
+  `using_flask` (there is no flask), so the client's native soul computation stays off and the server's buffs and stats
+  carry the effect. The official 3.29.3c capture of that object's Beam component (`0x1416710c0`):
   19 bytes of object header + Positioned + Animated, then u16 MiscBeams row + 1 (1 = SoulEaterBeam, row 0), a 16-bit
   flag word `0x0C97` (A0|A1|A2|A4|A7|B2|B3) and a zero third byte, then start world x/y, start object id, 0, end world
   x/y, end object id, 0. The endpoints are **world units (ten per grid cell)**; the client follows the two object ids

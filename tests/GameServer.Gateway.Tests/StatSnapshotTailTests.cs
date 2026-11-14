@@ -19,14 +19,14 @@ public class StatSnapshotTailTests
         var equipment = Array.Empty<(byte Row, InventoryItem Item)>();
         void Resolve() => Game("EquipmentStatSources", conn, equipment, null, null);
         Resolve();
-        var cached = conn.StatSourcesCacheState;
+        var cached = conn.StatSourcesCache;
         Resolve();
-        Assert.Same(cached, conn.StatSourcesCacheState);
+        Assert.Same(cached, conn.StatSourcesCache);
 
         lock (conn.Monsters)
             conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Grace", "Grace", 1, 1, 0, 0);
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        Assert.NotSame(cached, conn.StatSourcesCache);
 
         // Exercise final combat and published evasion, not just the raw-source cache. A native Kintsugi check caught
         // the previous implementation updating that cache while leaving Pools.Evasion unchanged.
@@ -86,31 +86,30 @@ public class StatSnapshotTailTests
         Assert.True(phased > baseline);
         live.Phasing = false;
         Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
-        cached = conn.StatSourcesCacheState;
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
-        cached = conn.StatSourcesCacheState;
+        Assert.NotSame(cached, conn.StatSourcesCache);
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds + .1);
         Resolve();
-        Assert.Same(cached, conn.StatSourcesCacheState);
+        Assert.Same(cached, conn.StatSourcesCache);
         lock (conn.Monsters) conn.RecentEvents.Clear();
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
-        cached = conn.StatSourcesCacheState;
+        Assert.NotSame(cached, conn.StatSourcesCache);
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.Pools = conn.Pools with { Strength = conn.Pools.Strength + 1 };
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        Assert.NotSame(cached, conn.StatSourcesCache);
     }
 
     [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
         using var setup = new SnapshotSetup();
-        Assert.True((bool)Rules.GetField("VerifyStatSnapshotTail", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!);
         string character = "StatTail" + Guid.NewGuid().ToString("N");
         var conn = Connection(character);
         var items = (ItemCatalog)Game("ItemsFor", conn)!;

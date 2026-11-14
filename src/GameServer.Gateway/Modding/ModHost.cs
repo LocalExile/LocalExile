@@ -120,7 +120,12 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
         };
-        _watcher.Changed += (_, e) => Touched(e.FullPath);
+        _watcher.Changed += (_, e) =>
+        {
+            // Windows also reports the parent directory's timestamp when a module writes a new file.
+            // Creation, deletion and rename of directories still use their respective notifications.
+            if (!modules || leagues || !Directory.Exists(e.FullPath)) Touched(e.FullPath);
+        };
         _watcher.Created += (_, e) => Touched(e.FullPath);
         _watcher.Deleted += (_, e) => Touched(e.FullPath);
         _watcher.Renamed += (_, e) => { Touched(e.OldFullPath); Touched(e.FullPath); };
@@ -278,7 +283,27 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         if (leagues && parts is [_, "Binaries", ..]) return;
         if (modules && parts is [_, var part, ..]
             && (part == "obj" || (part != "bin" && part != Manifest && part != ModSettings.FileName && HasProject(DirOf(id) ?? "")))) return;
+        if (modules && !leagues && parts.Length > 1 && LoadedModule(id) is { } loaded
+            && !IsModuleInput(loaded.Folder, loaded.Manifest.Assembly, path)) return;
         Later(id, busy: 0);
+    }
+
+    // A published module can keep its own state beside its assembly. Watch the inputs ReadImages
+    // actually opens, including a renamed parent directory of the configured assembly.
+    internal static bool IsModuleInput(string folder, string assembly, string path)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string relative = Path.GetRelativePath(folder, path);
+        if (Path.GetDirectoryName(relative) is "" or null)
+        {
+            if (relative.Equals(ModuleManifestFile, comparison) || relative.Equals(ModSettings.FileName, comparison)
+                || Path.GetExtension(relative).Equals(".cs", comparison) || Path.GetExtension(relative).Equals(".csproj", comparison))
+                return true;
+        }
+        string dll = Path.GetFullPath(Path.Combine(folder, assembly));
+        string changed = Path.GetFullPath(path);
+        return dll.Equals(changed, comparison) || Path.ChangeExtension(dll, ".pdb").Equals(changed, comparison)
+            || dll.StartsWith(changed + Path.DirectorySeparatorChar, comparison);
     }
 
     // One reload for a burst of changes (a build writes the dll, the pdb and the manifest one after another).
@@ -473,7 +498,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
             Remove(mod);
             foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-            _unloads[id] = Collect(Unload(mod));
+            _unloads[id] = Collect(id, Unload(mod));
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
                 : ex is ModScripts.CompileException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
@@ -531,7 +556,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         Remove(mod);
         foreach (var disposable in mod.Entries.OfType<IDisposable>())
             Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-        _unloads[id] = Collect(Unload(mod));
+        _unloads[id] = Collect(id, Unload(mod));
         Tell($"{Tag} unloaded {id}");
     }
 
@@ -545,9 +570,9 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return (weak, mod.Context?.CopyDirectory ?? "");
     }
 
-    Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
-        () => log($"{Tag} an unloaded {Noun} is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
-        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy"));
+    Task<bool> Collect(string id, (WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
+        rounds => log($"{Tag} an unloaded {Noun} ({id}) is still in memory after {rounds} collections: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
+        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy ({id})"));
 
     void Remove(LoadedMod mod)
     {

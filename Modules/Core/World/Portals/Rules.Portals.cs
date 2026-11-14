@@ -29,7 +29,7 @@ static partial class PortalsRules
                 if (!Current()) return;
                 if (n++ > 0) await Task.Delay(MapPortalGapMs);
                 if (!Current()) return;
-                uint id = conn.NextObjectId++;
+                uint id = conn.TakeObjectId();
                 var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
                 var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
                     ? conn.Layout.Near(ring) : ring;
@@ -42,6 +42,11 @@ static partial class PortalsRules
                 if (!Current()) return;
                 await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
             }
+            // Every portal but the last was listed again with the next one; the last gets its second listing here
+            // (Game.ListPortal says why one listing can be lost).
+            if (n == 0) return;
+            await Task.Delay(MapPortalRelistMs);
+            if (Current()) await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
         });
         return Task.CompletedTask;
     }

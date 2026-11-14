@@ -361,5 +361,45 @@ displacement, because `.rdata` and `.data` moved by a few bytes (mostly -0x30, +
 message ids are unchanged; addresses of globals, vtables and strings are not, so a script that uses one needs the
 hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
-(`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`). Check a future hotfix the same way: if the `.pdata`
-tables are equal, only data addresses need the new values.
+(`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
+
+**3.29.3d needs no port either** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
+(`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
+offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
+the 132,753 files `game-pack pack` takes are identical.
+
+**A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
+LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
+Auth's `keygen` and `patch` and the constants extraction refuse any other. To add one:
+
+1. `python -I scripts/re/port/compare_builds.py <allowed exe> <new exe> <the allowed build's mask VA>` (needs capstone)
+   must end in "same code": equal sections and `.pdata` functions, and every changed instruction a reference to data
+   that moved. It prints the new build's mask address and lists whatever a person has to judge.
+2. Decode both clients' tables (`PoEDataExtractor decode`) and run `compare_tables.py`: no difference. Compare the
+   other files the servers read too (`game-pack pack` on each client), and look at each one that differs.
+3. `SteamIndexSha256` is the hash of `Bundles2/_.index.bin`. The standalone client holds the same file inside
+   `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 and 3.29.3d it is byte-identical to Steam's loose one, as
+   `PathOfExileSteam.exe` is to `PathOfExile.exe`. `SteamManifests` are the depots' manifests in Steam's
+   `steamapps\appmanifest_238960.acf` while that build is installed.
+   For a build Steam no longer installs, the ids come from the depots' manifest history. A depot's manifest lists
+   every file with its SHA-1, so two manifests compare file by file, and the executables manifest is the one whose
+   `PathOfExileSteam.exe` has the row's hash: two can appear seconds apart, as for the 3.29.3c release.
+4. Add the row, then play the live checklist on that build.
+
+5. Give the live scripts the build. Their data addresses are the 3.29.3c release's, and each of
+   `scripts/re/frida/common.js`, `check-components.js`, `trace-action-state.js`, `sniff-support-geometry.js` and
+   `scripts/walkmaps/walkmaps.js` lists in `MOVED` where they sit in every later build, told apart by the
+   executable's link time. `compare_builds.py <3.29.3c release exe> <new exe> --data-map <script>...` prints a
+   table's rows; for `common.js` pass the traces that have no `at()` of their own. `client-control.js` and
+   `nullifier.js` find their globals through the code that uses them (`globalAt`) and need nothing.
+   A table lists every data address its script uses, also the ones that stay, so a missing one is one nobody checked:
+   on a later build `at()` then sends a `notice` once and uses the address as written, and `va()` gives a data address
+   it cannot translate back with the build it was read on (`0x1436b0000@3.29.3d`). Neither stops the script. Run the
+   same command again after adding a data address to a script.
+
+The 3.29.3.5 hotfix moved 259 of the 365 data addresses those scripts use, and 3.29.3d moved 361. The linker also
+changes which of several identical functions a class table's entry names, so a class table is not always
+byte-equal between two builds with the same code.
+
+A moved function or a changed table is a port: the first list of this section.

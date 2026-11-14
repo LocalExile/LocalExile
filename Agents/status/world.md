@@ -34,7 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5.
 - Server frames (S→C 0x2b8 frame length, 0x2b7 frame end every 33 ms): what a lockstep client's world runs on;
   ignored by a predictive client.
-  Code: `Game.RunLockstepFrames`, Gateway `WindowsTimerResolution`.
+  Code: Gateway `RunWorldFrames` and `WindowsTimerResolution`; the rules at each frame end, `Game.LockstepFrameEnded`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
 - Area transitions in every area, with their destinations, models (the arch highlighted on hover), rotation and
   height.
@@ -67,7 +67,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceRegistry.cs`, `WorldAreaTowns.cs`.
   Docs: [09](../docs/protocol/09-area-change.md).
 - Walk maps and area transitions captured from the client on first visit (optional, `live.ps1 -Walkmaps`: without
-  it nothing is recorded); the Gateway uses them for the areas it does not generate itself.
+  it nothing is recorded); the Gateway uses them for the areas it does not generate itself, and a capture that names
+  no waypoint falls back to the one its generated layout places. A recording holds the walk grid, the projectile
+  grid, the cell heights, the area transitions, doodads, room placement and the generation trace; every act area is
+  captured at seed 1 (220 areas, 189 with every file, 62 naming a waypoint), and the captures stay in `data/`, so a
+  fresh clone records its own.
   Code: `scripts/walkmaps`, `live.ps1 -Walkmaps`.
   Docs: [GettingStarted](../GettingStarted.md) step 9, [08](../docs/protocol/08-area-transitions.md) §7.
 - Waypoints: the Waypoint object where the area's layout is captured (Lioneye's Watch built in), activated on entry
@@ -131,6 +135,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
   an attack follows its target to the swing; totems and the tutorial chest block paths.
+  Dash can cross visible gaps in either direction and continues walking from its landing on the far side.
   Melee hits land at the swing clip's contact keyframe.
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
@@ -197,7 +202,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   generation then apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet
   room, 2026-11-02). The day is the official one: the seed (the UTC day number, `Game_LAB_SEED`) and the room areas
   match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier] [yyyy-mm-dd]` lists a day.
-  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet.
+  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet. Izaro's three arenas
+  (`1_Labyrinth_boss_1`, `1_Labyrinth_boss_2`, `2_Labyrinth_boss_2_end`) are listed by hand in the world update's
+  area list: the level snapshot drops them, and without a row the room is never built (live, three seeds each: the
+  room generates and places its three Izaros). Their furniture is in the room data: `scripts/re/atlas room-points`
+  keeps a room that carries one of `Metadata/Terrain/Labyrinth/Objects/` (`RoomFile.IsLabyrinthObject`, a prefix
+  `IsQuestObject` does not name), so the file has 249 more rooms — the 30 boss rooms among them — with the arena
+  doors, boss markers and teleport markers an area places; `object-types` names those types and, by name from the
+  arena's tiles, `Elevator_Izaro` and `BossObjectiveMarker` (both entries go to version 10, with the client tables'
+  rows in `sql/updates/client/`). Checked by the build and the suites over the regenerated data; not yet with the
+  client.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
@@ -219,12 +233,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   Checked live 2026-11-07 (trial 1).
   Two arena mechanics, Toggle Statues and Gargoyles, with what they leave on him shown and active in the later
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
-  stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08: a whole run on 3.29.3c, the
-  gargoyles' beam on 3.29.3b.
-  Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08 on 3.29.3c.
+  A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
+  his arena reads, and the Goddess's Guardians come in circles. Checked live 2026-11-09.
+  He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
+  Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
+  2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
+  Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
+  leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
+  Coming into an arena the instance already holds retires the Izaro it had — dead, out of life, out of the
+  connection's monsters and the instance's origins — and sends 0x02bd for him to every player in the instance, so the
+  arena holds one fight rather than two. Checked by the build and the suites; not yet with the client.
+  The Goddess of Justice rides up on his back and turns with him, lobs her Spirit Mortars (five a volley), throws the
+  mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
+  flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
+  Not yet: his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
-  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`), `Act3.cs`, `Act8.cs`.
+  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
+  `Rules.IzaroChronos.cs`, `Rules.IzaroLieutenants.cs`), Game `IzaroIdols.cs`, `Act3.cs`, `Act8.cs`.
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest
@@ -292,6 +319,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
-  (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
+- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
+  waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other
+  seed does. Quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").

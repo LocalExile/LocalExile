@@ -109,9 +109,16 @@ public static partial class Game
     {
         var conn = session.Conn;
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
-        var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
+        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
+        // Devour consumes the killing blow's corpse: its object leaves before the kill's loot and quest work.
+        bool devoured;
+        lock (conn.Monsters) devoured = ConsumeDevouredCorpseLocked(conn, id, monster, now);
+        if (devoured)
+            session.Enqueue(() => SendWorldRemoval(session.remote, session.stream, session.ciphers, conn, id,
+                $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
@@ -123,7 +130,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
-            session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
+            session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
@@ -184,7 +191,7 @@ public static partial class Game
         {
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));

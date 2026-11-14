@@ -11,7 +11,7 @@ public static partial class Game
         public double NextAt = at + interval;
         public (int X, int Y) Aim = aim;
     }
-    static readonly ConditionalWeakTable<ClientState, ChannelTrigger> ChannelTriggers = new();
+    static readonly RuleTable<ClientState, ChannelTrigger> ChannelTriggers = new();
 
     public static void BeginChannelTriggers(ClientState conn, ProjectileSession session, ushort skill,
         int action, int generation, (int X, int Y) aim, double at)
@@ -29,7 +29,8 @@ public static partial class Game
 
     public static void AimChannelTriggers(ClientState conn, (int X, int Y) aim)
     {
-        if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
+        lock (conn.Monsters)
+            if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
     }
 
     // Runs on the existing projectile pump, independently of channel attack/cast speed and monster contact.

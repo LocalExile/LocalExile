@@ -91,17 +91,19 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
   - When the player picks a tab (a 0xc7 outside the first open's two requests), the Gateway unloads every other loaded
     tab with **S→C 0xc1** (u8 manager, u32 inventory id).
-  - It then sends the tab list (0x136) again with those tabs' loaded bit clear, so the panel asks for them (0xc7) when
-    they are shown again.
+  - It then sends the tab list (0x136) again with those tabs' loaded bit clear. The panel asks (0xc7) only for a tab it
+    has no page for: a page it built stays through the list (panel tab `+0x58`), and the tab-selected handler
+    (`0x140a86290`) shows it without a request. Live 2026-11-12: tab 0, tab 2, tab 0 again sent one 0xc7, for tab 2.
   - The tabs with shop currency stay (below).
   - During the first open, the panel's old tab is asked for after the forced one; unloading the shown tab then crashed
     the client on the next open, so nothing is unloaded in that window.
-  - A click can still name a tab that was just unloaded: the panel keeps showing it for a moment, and the client sends
-    0x28/0x2a (or the 0xe0/0xe3 path) for the tab it displays. A 0xbf for an inventory the client no longer has is fatal
-    ("Got an inventory set change for an inventory that isn't in the set", [#605](https://github.com/LocalExile/LocalExile/issues/605)),
+  - So the player can act on a tab the client no longer has the inventory of, by going back to it: a click (0x28/0x2a,
+    the 0xe0/0xe3 path), a split (0x7c), currency used from or on an item there (0x71/0x72). A 0xbf for an inventory
+    the client no longer has is fatal ("Got an inventory set change for an inventory that isn't in the set",
+    [#605](https://github.com/LocalExile/LocalExile/issues/605), [#710](https://github.com/LocalExile/LocalExile/issues/710)),
     and the panel has the tab marked not loaded, so it drops that tab's 0xbfs until a 0xc8 tells it the tab is loaded
-    again. The Gateway therefore re-sends 0xc0 and 0xc8 for that tab before the 0xbf, and answers with its own
-    inventory id rather than the one the client sent (`EnsureTabLoaded`).
+    again. Every 0xbf to a tab therefore goes through `Game.SendTabChange`, which re-sends 0xc0 and 0xc8 for an
+    unloaded tab first and names its own inventory id rather than the one the client sent.
   - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
 - **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
   tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
@@ -135,9 +137,10 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
   0x136 is what closes the window is not checked live yet.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
-  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bits 0, 1), u8 kind (page
-  +0x491), u16 token (raw, changes per request), u64 raw (0). The item's inventory is not sent. The Gateway moves the
-  item to the tab's first free cell (column by column) from whichever inventory holds it.
+  item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
+  bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
+  item's inventory is not sent. The Gateway moves the item to the tab's first free cell (column by column) from whichever
+  inventory holds it.
 - **0xe3** (12 bytes, vtable `0x1435caf38`, write `0x141f9e870`, built by `0x14216f7d0`): Ctrl + click on a tab item.
   u16 BE tab, u32 BE item id, u8 stash kind, u16 raw token (low byte first), u8 bulk.
   Live ordinary click suffix: `00 a7 cd 00`; the middle two bytes change per request.

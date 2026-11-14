@@ -37,6 +37,10 @@ public sealed partial class DelveModule : IModule
         public uint Generator;
         public bool GeneratorOpen;
         public DelveJourney? Journey;
+        public uint StartTrigger;
+        public bool GaugePending = true;
+        public uint DestinationLight;
+        public uint CompletionEffect;
         public bool ResetNeeded;
         public readonly List<uint> Trail = [];
         public DelveRailRoute? Rail;
@@ -67,25 +71,25 @@ public sealed partial class DelveModule : IModule
     static byte[] DelveData(IPlayerWorld world)
     {
         var equipment = Equipment(world.AccountData);
-        return InstanceDelve.DelveData(Sulphite(world.CharacterData), equipment.Azurite, equipment.Flares, equipment.Dynamite, equipment.Upgrades);
+        var current = DelveMine.Load(world.AccountData).Current;
+        return InstanceDelve.DelveData(Sulphite(world.CharacterData), equipment.Azurite, equipment.Flares, equipment.Dynamite, equipment.Upgrades,
+            (short)Math.Clamp(current.X, short.MinValue, short.MaxValue), (ushort)Math.Clamp(current.Y, 0, ushort.MaxValue));
     }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        DelveRailRoute.Warmup();
+        module.Lifetime.Own(DelveRailRoute.ForgetOnUnload());
         RegisterSulphite(module);
         RegisterTrips(module);
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.
-        // Two arrays: sending encrypts a message in place, so the same one cannot go twice.
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn =>
         {
             var player = PlayerOf(conn);
             if (!player.AreaId.StartsWith("Delve", StringComparison.Ordinal)) return [];
             var world = WorldOf(player);
-            ushort amount = Sulphite(world.CharacterData);
-            return [("0x0228 Delve resources and equipment", DelveData(world)),
-                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount)),
-                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount))];
+            return [("0x0228 Delve resources and equipment", DelveData(world))];
         });
         GameEvents.AreaHeader.Add(module.Manifest.Id, conn => PlayerOf(conn).AreaId switch
         {
@@ -99,9 +103,20 @@ public sealed partial class DelveModule : IModule
                 if (key >= 1 && key <= StatIds.Value.Length && StatIds.Value[key - 1] is { } id
                     && (id == "delve_sulphite_capacity" || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal))) sheet.Add(id, value);
         });
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        {
+            if (!conn.PlayerSent || conn.LeavingArea || conn.Closed || !conn.Layout.Id.StartsWith("Delve", StringComparison.Ordinal)) return;
+            var player = PlayerOf(conn);
+            var state = _states.GetOrCreateValue(player);
+            if (!state.GaugePending) return;
+            state.GaugePending = false;
+            try { await RefreshGauge(player, WorldOf(player)); }
+            catch { state.GaugePending = true; throw; }
+        });
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
             var player = PlayerOf(conn);
+            _states.GetOrCreateValue(player).GaugePending = true;
             await SpawnCrawler(module, player);
             await SpawnGenerator(module, player);
             await StartPendingTrip(module, player);
@@ -286,6 +301,7 @@ public sealed partial class DelveModule : IModule
         var (x, y) = world.AreaHash == Hub ? CrawlerAt : rails!.Points[savedDestination ? ^1 : 0];
         const uint id = 0x0d200000;
         state.Crawler = id;
+        await ResetPresentation(player, state);
         state.CrawlerCell = (x, y);
         bool mine = world.AreaHash == InstanceDelve.MineArea;
         float rotation = mine ? new DelveJourney(rails!.Points, 0).Heading(0) : CrawlerRotation;
@@ -304,6 +320,9 @@ public sealed partial class DelveModule : IModule
         }
         if (mine && Mine(module, player).Pending is null)
             await ResetScene(module, player, state);
+        // Recreate the waiting boundary even after a module reload cancelled the pending trip.
+        if (mine && !savedDestination)
+            await ShowStartBoundary(player, state, rails!.Points[0]);
     }
 
     static Task RemoveSceneObject(IPlayer player, uint id)
@@ -314,8 +333,8 @@ public sealed partial class DelveModule : IModule
 
     async Task OpenChart(IModuleContext module, IPlayer player)
     {
-        await player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "Open Delve chart");
         await PublishChart(module, player);
+        await player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "Open Delve chart at saved checkpoint");
     }
 
     async Task PublishChart(IModuleContext module, IPlayer player)

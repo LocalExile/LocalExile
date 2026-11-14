@@ -37,7 +37,9 @@ public sealed partial class DelveModule
             DelveMine.Plan? prepared = null;
             for (int retry = 0; retry < 12; retry++)
             {
-                var candidate = DelveTerrain.Procedural(mine, plan);
+                DelveMine.Plan candidate;
+                try { candidate = DelveTerrain.Procedural(mine, plan); }
+                catch (ArgumentException ex) { await player.Tell(ex.Message); return; }
                 if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
                 var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
                 if (rails is null || (mine.SeenTerrain ?? []).Contains(scene.TileHash))
@@ -93,6 +95,7 @@ public sealed partial class DelveModule
             state.Journey = trip;
         }
         await ResetScene(module, player, state);
+        await ShowStartBoundary(player, state, trip.At(0).At);
         // Moving blockers are removed before departure. The authored Crawler type itself is nonblocking.
         foreach (uint blocker in state.Blockers)
         {
@@ -104,8 +107,8 @@ public sealed partial class DelveModule
         state.CrawlerCell = start;
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 0), "Close chart for Delve departure");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.CableHeading(0), locked: false), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.CableHeading(0), locked: true), null);
         Console.WriteLine($"[gateway] {remote} Delve trip armed (smooth motion + trail): {rail.Points.Count} rail points, {trip.Length:0.0} cells, cost {cost}, monster level {level}");
         _ = RunTrip(module, player, state, trip, level, rail.Encounters, attempt);
     }
@@ -127,25 +130,46 @@ public sealed partial class DelveModule
                 .Where(p => p.Entries.Any(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToArray();
         double previous = conn.Clock.Elapsed.TotalSeconds;
         bool moving = false;
-        double nextLamp = 0;
+        double nextLamp = 30;
+        double lastLampAt = -1;
         uint previousLamp = 0;
         Task spawnWork = Task.CompletedTask;
         Task finalWaveWork = Task.CompletedTask;
         var spawnQueue = new Queue<DelveRailRoute.Encounter>();
-        float heading = trip.Heading(0);
+        float heading = float.NaN;
+        bool valid() => module.Lifetime.IsActive && !attempt.Cancelled && !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == epoch && ReferenceEquals(state.Journey, trip);
+        async Task PlaceLamp(double along)
+        {
+            var at = trip.At(along).At;
+            uint lamp;
+            if (along >= trip.Length - .001) { lamp = state.Crawler + 7; state.DestinationLight = lamp; }
+            else lock (conn.Monsters) lamp = conn.TakeObjectId();
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, lamp, InstanceEntities.CreateObject(lamp,
+                InstanceEntities.ObjectTypeHash(DelveTrailLightObject.MetadataPath),
+                new DelveTrailLightObject(at.X, at.Y, previousLamp).Blob()), $"Delve trail lamp {lamp} at {at}, link {previousLamp}", valid);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, lamp, InstanceProtocol.EnterWakeZone(lamp), null, valid);
+            state.Trail.Add(lamp); previousLamp = lamp; lastLampAt = along;
+        }
         try
         {
+            await PlaceLamp(0);
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
             while (await timer.WaitForNextTickAsync(module.Lifetime.Stopping))
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 double seconds = Math.Clamp(now - previous, 0, .25); previous = now;
-                bool valid() => module.Lifetime.IsActive && !attempt.Cancelled && !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == epoch && ReferenceEquals(state.Journey, trip);
+
                 if (!valid() || conn.PlayerLife == 0) return;
                 if (conn.Paused || seconds <= 0) continue;
                 double departed = trip.Travelled;
                 (int X, int Y) position;
                 lock (conn.Monsters) position = conn.Walk.Position(now);
+                if (!trip.Started)
+                {
+                    if (!trip.TryStart(position)) continue;
+                    await RemoveStartBoundary(player, state);
+                    module.Log($"Delve trip started: player left the {DelveJourney.StartRadius}-cell starting circle");
+                }
                 double step = trip.EscortStep(position, seconds, moving);
                 bool advance = step > .001;
                 if (moving != advance)
@@ -173,21 +197,19 @@ public sealed partial class DelveModule
                 if (before != after)
                     await Send(remote, stream, ciphers, InstanceDelve.SulphiteChanged(before, after),
                         $"Delve sulphite {before}->{after}; route {trip.Travelled:0.0}/{trip.Length:0.0}; Crawler {target}", valid);
-                // Positioned uses atan2(dx,-dy). Follow the current rail tangent without a delayed turn.
-                heading = trip.Heading(departed);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, heading, locked: true), null, valid);
+                float nextHeading = trip.CableHeading(departed);
+                if (!float.IsFinite(heading) || MathF.Abs(nextHeading - heading) > .001f)
+                {
+                    // SetOrientation ignores an already locked object; unlock first, then set and lock the new heading.
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, nextHeading, locked: false), null, valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, nextHeading, locked: true), null, valid);
+                    heading = nextHeading;
+                }
                 // Bone-attached parts follow the body; separate MoveTo packets can fight their attachment transform.
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.MoveTo(state.Crawler, target.X, target.Y, (float)seconds, 0x7fffffff), null, valid);
                 while (nextLamp <= trip.Travelled)
                 {
-                    var lampAt = trip.At(nextLamp).At;
-                    uint lamp;
-                    lock (conn.Monsters) lamp = conn.NextObjectId++;
-                    await global::Game.SendWorldCreate(remote, stream, ciphers, conn, lamp, InstanceEntities.CreateObject(lamp,
-                        InstanceEntities.ObjectTypeHash(DelveTrailLightObject.MetadataPath),
-                        new DelveTrailLightObject(lampAt.X, lampAt.Y, previousLamp).Blob()), $"Delve trail lamp {lamp} at {lampAt}, link {previousLamp}", valid);
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, lamp, InstanceProtocol.EnterWakeZone(lamp), null, valid);
-                    state.Trail.Add(lamp); previousLamp = lamp; nextLamp += 30;
+                    await PlaceLamp(nextLamp); nextLamp += 30;
                 }
                 // Reveal authored room spawn points as the Crawler lights them, once per journey.
                 for (int encounterIndex = 0; encounterIndex < encounters.Count; encounterIndex++)
@@ -239,6 +261,7 @@ public sealed partial class DelveModule
                 }
                 if (trip.Finished)
                 {
+                    if (lastLampAt < trip.Length - .001) await PlaceLamp(trip.Length);
                     await spawnWork;
                     await SpawnEncounters(spawnQueue);
                     await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
@@ -334,7 +357,9 @@ public sealed partial class DelveModule
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler + 4, InstanceEntities.TransitionableUpdate(state.Crawler + 4, 3, 2),
             "Activate completed Delve checkpoint", valid);
         // The roaming native type has no Targetable. Once parked, give the same cart its stationary chart interaction.
+        await EnsureDestinationLight(player, state, state.CrawlerCell);
         await CreateCrawlerBody(player, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
+        await PlayCompletionEffect(player, state, state.CrawlerCell);
         await PublishChart(module, player);
         foreach (var (id, ground) in groundItems)
         {

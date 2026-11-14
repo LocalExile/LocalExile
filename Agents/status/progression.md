@@ -12,7 +12,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets, percentage attribute mods and The Adorned (tree art check pending).
   Docs: [15](../docs/protocol/15-progression.md) §2a, [unique jewels](../docs/game/unique-jewels.md).
-- Cluster jewels: the single-keystone smalls' keystone stats, nesting, the client's layout and theme stats; keystones,
+- Cluster jewels: a new one has its theme, passive count and sockets, its small passives grant the theme and its
+  notables roll for it; the single-keystone smalls' keystone stats, nesting and the client's layout; keystones,
   radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
 - Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
   missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
@@ -24,6 +25,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional consumers are partial. Docs: [unique jewels](../docs/game/unique-jewels.md).
 - Ordinary ascendancy selection, point awards, allocations, paid refunds and saves.
   Docs: [ascendancies](../docs/game/ascendancies.md).
+- Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; Primal Wisps found waits for the
+  Wildwood Wisp system. Docs: [15](../docs/protocol/15-progression.md) §2, [16](../docs/protocol/16-waypoints.md) §3,
+  [05](../docs/protocol/05-inventories-and-ui.md).
 - Elementalist Shaper of Flames. Docs: [20](../docs/protocol/20-damage.md) §3.
 - Antiquarian. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Juggernaut. Docs: [Juggernaut](../docs/game/juggernaut.md).
@@ -48,5 +52,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
-- Tattoos: 75 rows work in the client; 22 rows (new consumers, Loyalty summons, Forbidden tattoos) are missing.
+- Tattoos: 91 rows work in the client and 7 are partial (the seven Forbidden ascendancy tattoos, whose client use
+  flow is untraced); two are inert. The vendor recipe works (three same-tribe tattoos for one weighted random tattoo
+  of that tribe; not live-checked).
   Docs: [tattoos](../docs/game/tattoos.md).

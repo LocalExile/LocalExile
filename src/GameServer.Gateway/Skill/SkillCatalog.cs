@@ -19,6 +19,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
     private readonly StatCatalog _stats = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
+
+    public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
+        _stats.Key("cast_on_death_%") is uint key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
@@ -133,6 +138,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -233,6 +239,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return max > 0 ? max : 1;
     }
 
+    /// <summary>The level of a monster's effect for the monster's level: the highest whose PlayerLevelReq it meets, else its
+    /// lowest (Izaro's Leap Slam: levels 1, 2, 3 at 33, 68, 75; his Spikes: 30 levels, 22-33 damage at 32).</summary>
+    public int MonsterEffectLevel(int effectRow, int monsterLevel)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 1;
+        var levels = t.LevelReqsOf(t.StatSets[effectRow]);
+        int met = levels.Where(l => l.PlayerLevelReq <= monsterLevel).Select(l => l.GemLevel).DefaultIfEmpty(0).Max();
+        return met > 0 ? met : levels.Select(l => l.GemLevel).DefaultIfEmpty(1).Min();
+    }
+
     /// <summary>The character level a gem needs at this level (GrantedEffectStatSetsPerLevel PlayerLevelReq): the
     /// highest requirement of its levels at or below it, 0 when the skill has none.</summary>
     public int PlayerLevelReq(int effectRow, int level)
@@ -318,6 +334,24 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
     /// </summary>
     public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    /// <summary>The effect's art (GrantedEffects <c>__col23</c>), the number the client takes as <c>skill_art_variation</c>:
+    /// SkillArtVariations' Variants of its skill (Izaro's Leap Slam 5 LabyrinthBoss, his Upheaval 5 Ornaments). Sent only on
+    /// the records that ask for it: without it the Upheaval drew Glacial Cascade's ice (live, Izaro).</summary>
+    public int ArtVariation(int effectRow) => _artVariations.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _artVariations = new(() =>
+    {
+        var result = new Dictionary<int, int>();
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        int row = 0;
+        foreach (var effect in ClientTables.Table("GrantedEffects"))
+        {
+            int index = row++;
+            if (effect.IntOrNull("__col23") is int value && value > 0) result[index] = value;
+        }
+        return result;
+    });
 
     private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
     {
@@ -439,6 +473,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A GrantedEffects row's GEPL CooldownBypassType at a level (<see cref="CooldownBypass"/>), 0 when none.</summary>
     public int CooldownBypassType(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
+
+    public int CooldownGroup(int effectRow, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Group : 36;
 
     public bool CooldownPausesWhileActive(int effectRow) =>
         _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
@@ -721,6 +758,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/internal variants share
     // the same ActionType and primary projectile row.
+    // Essence Drain keeps its old name's row, Siphon (Metadata/Effects/Spells/siphon), as do its transfigured versions.
+    // Splitting Steel's is ImpactingSteelProjectile: the skill's own row name is gone from 3.29 Projectiles.dat, whose only
+    // steel-family rows are this one, ImpactingSteelProjectileSecondary (its split shards), ShatteringSteelProjectile
+    // (Shattering Steel, still a separate effect and gem) and the Lancing Steel ones. The skill's own art still carries the
+    // name: ActiveSkills splitting_steel (+ its two transfigured variants) draws ImpactingSteelSkill.dds, and the gem's
+    // ItemVisualIdentity SkillGemSplittingSteel is Art/2DItems/Gems/ImpactingSteelGem.dds (the archive has no
+    // SplittingSteel art at all). Without it every use was refused (live 2026-11-09).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -741,12 +785,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
         ["SparkAltX"] = "Metadata/Projectiles/Spark",
         ["SparkAltY"] = "Metadata/Projectiles/Spark",
+        ["VaalFireball"] = "Metadata/Projectiles/Fireball",
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
+        ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
@@ -1263,8 +1312,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
-        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass)> Cooldowns,
+        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
+        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
@@ -1320,10 +1369,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
+            var life = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
-            var cooldowns = new List<(int, int, int)>();
+            var cooldowns = new List<(int, int, int, int)>();
             var vaalSouls = new List<int>();
             var vaalStoredUses = new List<int>();
             var soulPrevention = new List<int>();
@@ -1335,13 +1385,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
+                int lifeIndex = Array.IndexOf(types, 1);
+                life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
                 manaPercentPerMinute.Add(mp >= 0 && mp < amounts.Length ? amounts[mp] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
-                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType"))));
+                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType")), r.Has("CooldownGroup") ? Int(r, "CooldownGroup") : 36));
                 vaalSouls.Add(Int(r, "VaalSouls"));
                 vaalStoredUses.Add(Int(r, "VaalStoredUses"));
                 soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));
@@ -1372,7 +1424,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute);
         }

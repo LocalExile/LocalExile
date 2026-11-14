@@ -13,6 +13,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/18-stash.md.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
+  Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
   Real-client/Gateway logs confirm bulk 0 takes 40 from 218, leaving 178;
   bulk 1 takes 178 as four stacks of 40 and one of 18.
   Automated tests cover quantity limits, existing-stack top-ups, partial/full inventory, rollback and save reloads.
@@ -20,8 +21,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   of the character's league (normal, premium, quad, currency, essence, fragment, map, flask, gem) from the tab list in
   S→C 0x21; each tab's contents come on the client's request (C→S 0xc7 → 0xc0 row 26 + 0xc8);
   items go into and out of tabs by click (0x28 / 0x2a) and Ctrl + click (C→S 0xe0 in, 0xe3 out, stacks onto stacks);
-  a click on a tab that a tab switch just unloaded re-loads that tab's inventory (0xc0 + 0xc8) before the update, which
-  stopped the client aborting on `Got an inventory set change for an inventory that isn't in the set` (#605);
+  every change to a tab that a tab switch unloaded (a click, a split, currency used from or on an item there) re-loads
+  that tab's inventory (0xc0 + 0xc8) first, which stopped the client aborting on
+  `Got an inventory set change for an inventory that isn't in the set` (#605, #710);
   special tabs hold only their own items (the map tab on the hidden page of the map's kind), the currency, essence and fragment tabs each item
   in its own slot, from the game data's stash tables (18 §7);
   currency-tab limits come from `CurrencyItems.CurrencyTab_StackSize` (generally 10 000; lifeforce 50 000).
@@ -63,11 +65,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   map has one page of its own (group 1, keyed by its visual identity) and a conqueror's or elder guardian's map goes to
   its guardian's page (groups 2 and 3), found from the `MapConquerorContainsBossN`/`MapElderContainsBossN` modifiers first
   and the influence flags as the fallback; a page only takes maps that belong to it.
-  Unique collections use 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
+  New and existing Unique collections accept ordinary deposits through 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
   each available collection cell once, preserving existing items. Verified in the real client: 1309 items, including
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
   have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.
   Legacy items can make the native collected count exceed its current-league denominator.
+- `AccountStash.AddTabs` appends general tabs (normal, premium, quad) for a mod; they show in the next tab list
+  (0x21, on entering an area) or after a relog. Automated test: `StashAddTabsTests`.
 
 ## Partly working
 

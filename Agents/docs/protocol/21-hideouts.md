@@ -217,6 +217,14 @@ model and rendering, and the device runs `on_map_portal_opened` (index, object).
 is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. Seen live:
 - 0x008f in the same burst as the portals' 0x2bb reaches none of them (they are not created yet); on entering an area
   the objects also wait for the world to activate. The Gateway sends it 1 s after creating them (2 s on entry).
+- The client reads its socket once per update and handles 0x008f at once, while a create waits for its world frame: a
+  list that arrives in the same read as the create is handled first and lost, and the portal is never drawn, only its
+  minimap icon (live 2026-11-12, a Portal Scroll's portal in a background window in the lockstep mode: 0x008f handled
+  3 ms before the object was built, sent 100 ms after the create; the same list sent again later drew it). So every
+  portal is listed twice: `MapPortalListMs` after its create and `MapPortalRelistMs` (600 ms) later (`Game.ListPortal`;
+  the device's portals each ride on the next one's list and the last gets its own). A list sent again unchanged leaves
+  the portal as it is, and one sent again with another variation restyles it, so a pick restyles a Portal Scroll's
+  portal and the portal back as well as the device's.
 - Type 3 (map device) gets its nametag but no model: MultiplexPortal.ot enables its rendering only `on_transition`.
   Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,
@@ -614,6 +622,11 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   raw bytes. The handler builds a 34-byte record at instance `+0xd874`: the 14 bytes first, then the 20. It sets
   `+0xd896` = 0x101 and raises the event at `+0x2878`.
   - Record `+0x1e` (bytes 16..18 of the 20, little-endian) is the current Voltaxic Sulphite.
+  - Raw14 `+4` is u16 chart Y and `+6` is i16 chart X (little-endian). The native recenter routine
+    `0x14043ca50` reads instance `+0xd878/+0xd87a`; its initial focus comes from the preceding resource snapshot.
+    Inside a mine, `0x14043eda0` instead places the current-position arrow from the terrain header's i16 X/u16 Y
+    origin plus the player's native room-cell index (`0x141ea9aa0`); `0x14043ca50` uses that same path for centering.
+    Resource-snapshot focus cannot correct a mine window whose cells differ from the chart route.
   - Its capacity comes from bytes 0..16 (`0x142474e60`, the upgrade levels).
   - S→C 0x226 (u16 old, u16 new) changes the current value. 0x227 (u32) changes the record's `+0xe`.
   - `InstanceDelve.DelveData` writes it.
@@ -704,6 +717,7 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   `DelveOwner` (QuestFlags HASH32 0x52ac2d0a) is essential inside a mine: HUD handler 0x140ddc0f0
   chooses the full chart for its owner, otherwise the local terrain preview. The normal 19-byte 0x7b
   kind 0x1c opens it; 0x23f/0x240 then supplies the account's completed blocks.
+  Kind 0x1c opens the chart even with its first u32 set to 0; trip entry leaves this message out.
   Only the initial entrance uses seed 1. Later journeys send fresh Mines windows with a completed origin and an
   uncompleted destination; reusing the old directional seeds 12/13/14/15 also reused the client's explored minimap.
   Keep allocated scene seeds per account, including aborted trips. The native terrain header's depth is a separate
@@ -712,16 +726,27 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   N/E slot 1 joins S/W slot 2. Zero on both sides creates disconnected rooms despite reciprocal connection bits
   (native 0x141f2ff30). Mines generation injects the cell's DelveRooms ARM, adds boundary exits and degree-two bends,
   then stitches cell sleeves before the outer pass. Vertical seams repick the bottom tile before the top tile;
-  reversing this order changes the native RNG stream. Empty-cell and other-biome passes remain unported.
+  reversing this order changes the native RNG stream. Cells with no exits use `_delve_cell_empty.dgr`, even when
+  their feature byte is nonzero; ordinary-room injection there changes the RNG stream and can let the server
+  accept a seed the client rejects. Other-biome passes remain unported.
   A mine without connected authored rails returns to the real hub; its copied hub subarea must never become a
   fallback Crawler spawn. Rails come from authored DelvePathNode/DelvePathEndpoint/DelveNode links in
   `data/delve-paths.json`, transformed by generated room placements; sleeves join only over walkable ground.
   S→C 0x1ba moves the body using terrain height marker 0x7fffffff, with interpolation matched to the server step.
+  For facing, `0x141e35920` ignores an already locked orientation. The 0x1b9 handler calls it before changing
+  the lock bit (`0x141e34313`), so send unlock first, then the new angle with lock; repeating locked angles does nothing.
   Positioned component 0's 0x2bc update (mask 8, f32) sets the departing rail segment's facing without rounded-cell jitter.
   DelveTractor/rig.ast's inverse-bind front/rear axle Y values are -50.029/+8.061: the model's nose faces +Y,
   so its angle is atan2(dx,-dy) + pi, unlike the character. Native Wheels follow actual displacement; the lamp is bone-attached.
   Powered DelveLight lamps every 30 cells carry the preceding lamp id; the native client joins and lights
   their cable. Trails belong to the current visit, not the durable checkpoint graph.
+  The native `DelveRobotTrigger` uses `circles_of_virtue/aoe_circle.ao` at scale 43: its ~509-world-unit
+  mesh radius corresponds to 20 cells. The start marker uses that model through PermanentServerEffect;
+  the raw trigger's client scripts crashed during entry (3.29.3c, fault 0x141df0e19).
+  `DelveWaypointObject_paua.ao` plays `Audio/Sound Effects/Skills/DelveLeague/RobotCart/End` at time zero
+  of `Waypoint_rig` clip 0 (`activate`, 966 ms); the ordinary waypoint AO has no completion sound.
+  Replacing DelveRobot with the clickable DelveMapViewer removes the robot's own light. A powered static
+  DelveLight must survive that replacement; its -25% area modifier differs from the robot's +100%.
   Gradual distance-proportional sulphite payment, the custom 34→86 level curve, increasing pack/reward
   policy and whole-attempt rollback are LocalExile rules; they do not claim original-service parity.
   Biome-specific populations, encounter types, darkness and consumables remain unfinished.

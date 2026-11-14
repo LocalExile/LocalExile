@@ -16,6 +16,7 @@ public sealed class CosmeticsModule : IModule
         {
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => CosmeticsFeature.StepPetFollow(conn));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var asked = InstanceMicrotransactions.ReadRequest(bytes);
@@ -36,7 +37,7 @@ public sealed class CosmeticsModule : IModule
     }
 }
 
-static class CosmeticsFeature
+public static class CosmeticsFeature
 {
     // The Microtransactions panel, the store and the hideout picker ask for their lists with C→S 0x1f2 and show "Loading…"
     // until each one arrives (23-microtransactions.md). Every account owns every microtransaction; the hideout and guild
@@ -98,7 +99,11 @@ static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
-        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
+        var morph = WornMorph(conn);
+        // The Portal slot's two choices that are no cosmetic (Game.PortalVariation): record 0 with option 1 or 2.
+        bool randomPortals = record is null && pick.Slot == InstanceMicrotransactions.PortalSlot && pick.Option is 1 or 2;
+        CharacterSaves.SetCosmetic(character, pick.Slot, randomPortals ? new CharacterSaves.SavedCosmetic(0, pick.Option)
+            : record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
         {
@@ -111,6 +116,8 @@ static class CosmeticsFeature
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the pick");
         // The model and the stats: skins, attachments, character effects, footprints, apparitions.
         await SendEquipment(remote, stream, ciphers, conn, ItemsOf(conn));
+        // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
+        await SendMorph(remote, stream, ciphers, conn, morph);
         if (pick.Slot is 18 or 19) await SpawnPets(remote, stream, ciphers, conn);
         if (pick.Slot == PortraitSlot)
         {
@@ -131,7 +138,7 @@ static class CosmeticsFeature
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the
-    // old ones first. RunPetFollow walks them after the player.
+    // old ones first. StepPetFollow walks them after the player.
     internal static async Task SpawnPets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<uint> old;
@@ -149,14 +156,13 @@ static class CosmeticsFeature
                 continue;
             }
             var (x, y) = PetSpot(conn, (px, py), worn.Slot == 18 ? 1 : -1);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
                 $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }
-        if (!conn.PetFollowRunning) { conn.PetFollowRunning = true; _ = RunPetFollow(remote, stream, ciphers, conn); }
     }
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the
@@ -167,34 +173,59 @@ static class CosmeticsFeature
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
     }
 
-    // Pets follow the player: when one is farther than PetFollowRange from the player it walks (0x1ab Move, as monsters do)
-    // to its spot beside the player, which keeps it near but never on top of the player. Ends with the connection.
-    internal static async Task RunPetFollow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // One finite walk. Ordinary following resumes after arrival, including when the caller has gone away.
+    public static Task<bool> WalkPetTo(ClientState conn, uint id, (int X, int Y) to, Func<bool>? still = null) =>
+        global::Game.SendWorldRecord(conn, id, () =>
+        {
+            lock (conn.Pets)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.Paused || !conn.Pets.TryGetValue(id, out var pet)) return null;
+                pet.Target = null; // No owner-follow destination while this walk is running.
+                return PetMove(conn, id, pet, to, conn.Clock.Elapsed.TotalSeconds);
+            }
+        }, still: still);
+
+    internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
-        const ushort Move = 0x2909;
+        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
+        var from = pet.Walk.Order(to.X, to.Y, now);
+        // Local gates can put the owner in a separate walkable component. A finite loot walk must stop
+        // where its path ends, but a following pet rejoins its owner when that path falls short.
+        if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
+        {
+            pet.Walk.Teleport(to.X, to.Y, now);
+            return InstanceProtocol.Teleport(id, to.X, to.Y);
+        }
+        return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
+    }
+
+    // Pets follow the player, every player tick (GameEvents.Tick): when one is farther than PetFollowRange from the player
+    // it walks (0x1ab Move, as monsters do) to its spot beside the player, which keeps it near but never on top of the
+    // player. On the tick rather than a loop of the module's own, so a reload's new module walks them and the old one stops.
+    internal static async Task StepPetFollow(ClientState conn)
+    {
         try
         {
-            while (!conn.Closed)
-            {
-                await Task.Delay(PlayerTickMs);
-                if (conn.Paused) continue;
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                var player = conn.Walk.Position(now);
-                var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To)>();
-                lock (conn.Pets)
-                    foreach (var (id, pet) in conn.Pets)
-                    {
-                        var here = pet.Walk.Position(now);
-                        if (Dist(here, player) <= PetFollowRange) continue;
-                        var to = PetSpot(conn, player, pet.Side);
-                        if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
-                        pet.Target = to;
-                        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
-                        orders.Add((id, pet.Walk.Order(to.X, to.Y, now), to));
-                    }
-                foreach (var (id, from, to) in orders)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408), null);
-            }
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var player = conn.Walk.Position(now);
+            var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();
+            lock (conn.Pets)
+                foreach (var (id, pet) in conn.Pets)
+                {
+                    if (pet.Target is null && now <= pet.Walk.ArrivesAt + PlayerTickMs / 1000d) continue;
+                    var here = pet.Walk.Position(now);
+                    if (Dist(here, player) <= PetFollowRange) continue;
+                    var to = PetSpot(conn, player, pet.Side);
+                    if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
+                    pet.Target = to;
+                    orders.Add((id, to, PetMove(conn, id, pet, to, now, following: true)));
+                }
+            var (remote, stream, ciphers) = conn.Wire;
+            foreach (var (id, to, move) in orders)
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, [], null, atGate: () =>
+                {
+                    lock (conn.Pets) return conn.Pets.TryGetValue(id, out var pet) && pet.Target == to ? move : null;
+                });
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {

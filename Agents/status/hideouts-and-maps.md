@@ -33,13 +33,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion (the completed set still starts filled, see below, so the derivation is what a character sees). The Atlas
+  completion. A fresh save earns its first map point on its first completion. The Atlas
   graph itself is still the client's, so connectivity is left to it.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
-  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
   real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
@@ -48,7 +48,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
-  there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
+  the town side checks that Auth still has the destination instance; there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
   while the server runs, being tested 2026-10-23).
   Code: Gateway (`UsePortalScroll`, `UseMapReturnPortal`).
   Docs: [21](../docs/protocol/21-hideouts.md) §5.
@@ -145,7 +145,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
     Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
     guard placement and exact official combat tuning remain server approximations.
-    Full resource snapshots are followed by 0x226 gauge updates on entry and chart opening.
+    Entry sends a full snapshot without a zero-gain event; chart opening refreshes its gauge with 0x226.
     Two unchanged-value updates settle the paused chart and invalidate its label position; the number follows the fill edge.
     A third update suppresses the native invalidation. Both the fill and label were verified without client changes.
   - The native HUD gauge is permanent in mine areas (type 27). Niko maps now keep its transient display visible
@@ -178,15 +178,19 @@ Part of [Status](../Status.md); what to build next in this area is in
     Tunnel stragglers do not block completion; the next direction requires a new selection.
     Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
     The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
+    Departure uses the visible native circle boundary, with no travel debit while waiting.
+    Completion keeps a permanent endpoint light and plays the native checkpoint activation animation with its success sound.
     The Crawler's own forward axis leads each rail segment; rounded cells do not change its heading, and only clear
-    sleeve connections are smoothed. Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
+    sleeve connections are smoothed; each generated route stays on player-walkable cells. Lamps cover the exact start and finish.
+    Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
     Supported Weta/Spider packs
     scale with depth (up to 100 per authored pack); levels rise from 34 at depth 1 to 86 at depth 150, then stay 86.
     Kill rewards and 15–20 base completion items gain depth IIQ/IIR; the existing configurable item cap remains.
     Newly opened destinations receive one completion reward; revisiting opened points cannot farm free rewards.
     Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
-    Chart continuity inside the mine requires the now-sent DelveOwner flag.
+    DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
+    Mine windows follow chart-cell origins so the underground position arrow follows the occupied checkpoint.
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).

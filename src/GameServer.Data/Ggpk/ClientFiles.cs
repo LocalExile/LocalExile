@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using GameServer.Core.Protocol;
 using LibGGPK3;
 using LibGGPK3.Records;
 
@@ -23,10 +24,6 @@ public static class ClientFiles
     public const string Ggpk = "Content.ggpk";
     public const string Index = "Bundles2/_.index.bin";
 
-    /// <summary>SHA-256 of <c>Bundles2/_.index.bin</c> in Steam's 3.29.3c: 3.29.3.5, the hotfix of 2026-11-09 (app 238960,
-    /// depot 238961 manifest 2467965126630699088). The only Steam build LocalExile accepts.</summary>
-    public const string SteamIndexSha256 = "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0";
-
     /// <summary>The layout and the path to open: the GGPK file for a standalone install, the folder for a Steam one. Null
     /// when the location holds neither.</summary>
     public static (ClientLayout Layout, string Path)? Resolve(string location)
@@ -42,17 +39,21 @@ public static class ClientFiles
     static (ClientLayout Layout, string Path) Require(string location) => Resolve(location)
         ?? throw new FileNotFoundException($"{location} holds neither {Ggpk} (standalone) nor {Index} (Steam)", location);
 
-    /// <summary>Why the location's game files are not ones LocalExile runs, or null. A Steam install must be the 3.29.3c
-    /// build <see cref="SteamIndexSha256"/> names; a standalone one is checked by its executable.</summary>
-    public static string? Problem(string location)
+    /// <summary>Why the location's game files are not ones LocalExile runs, or null. A Steam install must be an allowed
+    /// build's (<see cref="ClientBuild.SteamIndexSha256"/>); a standalone one is checked by its executable alone.</summary>
+    /// <param name="steamIndex">The hash of a Steam install's <c>Bundles2/_.index.bin</c>, which its executable's build
+    /// must name too; null for a standalone install.</param>
+    public static string? Problem(string location, out string? steamIndex)
     {
+        steamIndex = null;
         if (Resolve(location) is not { } found)
             return $"{location} has neither {Ggpk} (the standalone client) nor {Index} (the Steam client)";
         if (found.Layout == ClientLayout.Standalone) return null;
         using var index = OpenShared(Loose(found.Path, Index));
-        string hash = Convert.ToHexString(SHA256.HashData(index)).ToLowerInvariant();
-        return hash == SteamIndexSha256 ? null
-            : $"{location} is a Steam install of another version; LocalExile needs Steam's 3.29.3c (the 2026-11-09 hotfix, 3.29.3.5)";
+        steamIndex = Convert.ToHexString(SHA256.HashData(index)).ToLowerInvariant();
+        if (ClientBuilds.WithSteamIndex(steamIndex).Any()) return null;
+        string known = ClientBuilds.Describe(ClientBuilds.Allowed.Where(b => b.SteamIndexSha256 is not null));
+        return $"{location} is a Steam install of another build; LocalExile runs Steam's {known}";
     }
 
     /// <summary>A file's bytes (a path inside the GGPK, or relative to the Steam folder), or null. Read-only and

@@ -439,7 +439,7 @@ per-node effect.
 |---|---|
 | 40 Strength | Divine Inferno, Overwhelming Odds, Rapid Expansion, Shattered Chains, The Vigil, Weight of the Empire, Wildfire, Winter Burial |
 | 40 Dexterity | Collateral Damage, Fight for Survival, Growing Agony, Might and Influence, Omen on the Winds, Ring of Blades, Spirit Guards, Steel Spirit, Volley Fire |
-| 40 Intelligence | Dead Reckoning, Endless Misery, First Snow, Frozen Trail, Hazardous Research, Inevitability, Rolling Flames, Spirited Response, Spreading Rot, The Long Winter, Unending Hunger, Violent Dead, Winter's Bounty |
+| 40 Intelligence | legacy Dead Reckoning, Endless Misery, First Snow, Frozen Trail, Hazardous Research, Inevitability, Rolling Flames, Spirited Response, Spreading Rot, The Long Winter, Unending Hunger, Violent Dead, Winter's Bounty |
 | 40 Strength + Intelligence | Combat Focus (Crimson) |
 | 40 Intelligence + Dexterity | Combat Focus (Cobalt) |
 | 40 Dexterity + Strength | Combat Focus (Viridian) |

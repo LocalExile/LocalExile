@@ -7,45 +7,13 @@ using GameServer.Core.Protocol.Login;
 // follows GGG; 07 §6 lists these.
 public static partial class Game
 {
-    // Differs from GGG: its server steps its world in frames, so a frame is a tick of the simulation. Ours walks on the
-    // clock, so frames are laid over it: frame n ends n × FrameMs after the first, and a frame missed by a late timer goes
-    // out at once instead of being lost, which keeps every frame start on the conn.Clock timeline the walks use (a free
-    // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
-    // Escape menu's pause, and so do the frames.
-    // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
-    // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
-    // predictive one ignores 0x2b7 (07 §6).
-    public static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // The server frames themselves (their pacing on the clock, and 0x2b8), where they differ from GGG's, are the
+    // framework's: Program.RunWorldFrames. What the rules do at each frame end is here.
+    public static async Task LockstepFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart)
     {
-        try
-        {
-            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
-            double frame = FrameMs / 1000d, first = await BeginWorldFrames(conn, FrameMs / 1000d);
-            long ended = 0;
-            while (!conn.Closed)
-            {
-                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later.
-                if (conn.Paused)
-                {
-                    await Task.Delay(Math.Max(1, FrameMs / 3));
-                    continue;
-                }
-                // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of
-                // a frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
-                double wait = first + (ended + 1) * frame - conn.Clock.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                if (now < first + (ended + 1) * frame) continue;
-                if (await EndWorldFramesThrough(conn, first, frame, ended, now) is not { } completed) return;
-                ended = completed;
-                await ProbeLockstepLatency(remote, stream, ciphers, conn);
-                SendLockstepDefaultAttack(remote, stream, ciphers, conn);
-                await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-        }
+        await ProbeLockstepLatency(remote, stream, ciphers, conn);
+        SendLockstepDefaultAttack(remote, stream, ciphers, conn);
+        await StartLockstepActions(remote, stream, ciphers, conn, nextFrameStart);
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the

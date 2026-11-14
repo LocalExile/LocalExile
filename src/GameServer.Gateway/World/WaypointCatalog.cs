@@ -71,24 +71,30 @@ public static class WaypointCatalog
     static WaypointObject? LoadCapture(string id, uint seed)
     {
         string file = $"{Folder}/{id}_seed{seed}.transitions.json";
+        if (!File.Exists(file)) return Generated(id, seed);
         try
         {
-            // No capture: the layout the Gateway generated itself.
-            if (!File.Exists(file))
-                return ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
-                    ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
             var data = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(file), Json);
-            var o = data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath);
-            return o is null ? null : new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z);
+            return FromCapture(data) ?? Generated(id, seed);
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
-            return null;
+            return Generated(id, seed);
         }
     }
 
+    /// <summary>The waypoint the tile objects of a capture name, or null when the capture holds none.</summary>
+    internal static WaypointObject? FromCapture(CaptureFileData? data) =>
+        data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath) is { } o
+            ? new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z) : null;
+
+    /// <summary>The waypoint the layout the Gateway generated itself places in the area, or null when it places none.</summary>
+    internal static WaypointObject? Generated(string id, uint seed) =>
+        ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
+            ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
+
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    sealed record CaptureFileData(List<CapturedObject>? Objects);
-    sealed record CapturedObject(string? ObjectType, string? Model, int X, int Y, float Rotation, float? Z);
+    internal sealed record CaptureFileData(List<CapturedObject>? Objects);
+    internal sealed record CapturedObject(string? ObjectType, string? Model, int X, int Y, float Rotation, float? Z);
 }
