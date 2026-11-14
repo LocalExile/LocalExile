@@ -207,18 +207,19 @@ public static partial class Game
             delay = MoltenStrikeContactDelay(conn, gem.Effect, attackSeconds, sequence,
                 out contactClip, out contactFraction, out earliestContact);
         double swung = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
-        double earliestAt = swung + earliestContact + repeatDelay;
+        // From here on the swing has connected for the client: a later use (accepted from 1 - EarlyAllowance of the
+        // attack time, AttackReady) or a queued Move no longer takes it back, as AreaSkillHit's holdsItsSwing and Lightning
+        // Strike keep theirs. No repeat delay: a Multistrike repeat belongs to a swing that already connected, so a held
+        // button's next use must not drop the repeats still to land.
+        double keptFrom = Math.Min(earliestContact,
+            Math.Max(0, attackSeconds * (1 - AttackTiming.EarlyAllowance) - AttackTiming.LandMargin));
+        double earliestAt = swung + keptFrom;
 
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         bool Replaced()
         {
             if (cannotCancel || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
-            double nowAt = conn.Clock.Elapsed.TotalSeconds;
-            bool moving;
-            lock (conn.Monsters) moving = conn.Walk.Moving(nowAt);
-            // After the stance pool's earliest contact frame (e.g. 01b), a Move order cancels backswing rather than windup.
-            if (nowAt >= earliestAt && PlayerStateAllowsAction(conn) && moving)
-                return false;
+            if (conn.Clock.Elapsed.TotalSeconds >= earliestAt && PlayerStateAllowsAction(conn)) return false;
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
                 + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
             return true;
@@ -379,9 +380,12 @@ public static partial class Game
                 var stun = OwnerStun(conn, m, damage, mitigated, melee: true, spell: false, critical, player, skillStats);
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, melee: true, player);
+                uint lifeBefore = m.Life;
                 var applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, player,
                     cull: Cull.Of(player, skillStats, critical, spell: false));
                 if (applied is not { } hit) continue;
+                // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
+                CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
@@ -405,9 +409,12 @@ public static partial class Game
                     CommitBossStage(remote, stream, ciphers, conn, id, m, now);
                     hit = hit with { StageStarts = false };
                 }
-                if (!fortificationGranted)
-                    fortificationGranted = FortificationOnHitLocked(conn, m,
-                        RawFortificationDamage(rolled, critical, multiplier), melee: true, player, skillStats);
+                // As AreaSkillHit's: the stun carries the hit's Fortification damage, so "Melee Hits which Stun have X%
+                // chance to Fortify" rolls for this skill too.
+                var fortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
+                bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(conn, m,
+                    fortificationDamage, melee: true, player, skillStats));
+                stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
                     rageGranted = RageOnHitLocked(conn, attack: true, melee: true, critical, skillStats, player: player);
                 InflictMonsterBlind(conn, id, m, now, BlindInputs(player, skillStats));
