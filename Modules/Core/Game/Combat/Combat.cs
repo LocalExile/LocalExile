@@ -1371,6 +1371,10 @@ public static partial class Game
         {
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
+            // Overheat's per-3 value, read once for the channel rather than a skill build on every tick.
+            const string overheatStat = "support_overheat_ailment_damage_+%_final_per_3_fortification_consumed";
+            int overheatPerThree = Stats.Key(overheatStat) is uint overheatKey
+                ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(overheatKey) : 0;
             while (true)
             {
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
@@ -1397,8 +1401,15 @@ public static partial class Game
                     // Payment and admission share the channel's generation check.
                     if (!PayMana(conn, skillId, out cost, out lifeCost))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
-                    else conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-                        ? new(skillId, gem.Effect, action, generation, rules) : null;
+                    else
+                    {
+                        conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+                            ? new(skillId, gem.Effect, action, generation, rules) : null;
+                        // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
+                        // last one; the first tick's use already consumed in LaunchProjectile.
+                        if (overheatPerThree > 0)
+                            OverheatConsumeLocked(conn, skillId, name => name == overheatStat ? overheatPerThree : 0, now);
+                    }
                 }
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
