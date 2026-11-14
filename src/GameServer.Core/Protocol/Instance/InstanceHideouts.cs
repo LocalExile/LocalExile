@@ -59,13 +59,30 @@ public static class InstanceMapDevice
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
-    /// <summary>C→S 0xe8: Ctrl + click with the Atlas map device open (0x14030e970 → 0x14216e750 when the window's
-    /// +0x10b8 check passes and the item's inventory kind is 0 or 0x0c). Writer 0x141f9f660: u32 BE item id, u8 flags,
-    /// u8 into (1 from the main inventory onto Map1, 0 back out), u8, u8 row (13 Map1), u8.</summary>
+    /// <summary>C→S 0xe8: Ctrl + click with the map device open, for an **Atlas Idol** (the ItemClasses row 94,
+    /// `AtlasRelic`, which the client's Ctrl + click handler tests first: `cmp eax,0x5f` at `0x140310f44`). Writer
+    /// `0x14216e750`, serializer `0x141f9f660`: u32 BE item id, then five single bytes, no byte swap — `+0x14`, `+0x15`,
+    /// `+0x16` and the low/high of the handler's u16 argument at `+0x17`/`+0x18`. The first of the five is 1 when the item
+    /// is in inventory row 84 (`ExpandedMainInventory1`, `0x14030ea5c`); there is no row-13 byte (the 0x0d the old note
+    /// remembered is 0xe7's). A **map** never sends this message: it sends <see cref="MoveIntoDeviceId"/> or
+    /// <see cref="MoveOutOfDeviceId"/>.</summary>
     public sealed record Move(uint ItemId, byte Flags, bool IntoDevice, byte Extra, byte Row);
 
     public static Move ReadMove(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7] != 0, m[8], m[9]);
+
+    /// <summary>C→S 0xe4 (into) and 0xe5 (out): Ctrl + click with the map device open, for the items that are not Atlas
+    /// Idols — a map goes this way. Writers `0x14216e300` (0xe4) and `0x14216e5d0` (0xe5), serializer `0x141f9eac0`:
+    /// u32 BE item id, u8 flags (bit 0 of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the
+    /// low 7 bits are +0x27), u16 BE the open map device object's +0x7b (0 when it has none). 12 bytes.</summary>
+    public const ushort MoveIntoDeviceId = 0x00e4, MoveOutOfDeviceId = 0x00e5;
+    public const int MoveItemLength = 12;
+
+    public sealed record ItemClick(uint ItemId, byte Flags, byte Flags2, byte Flags3, bool IntoDevice, ushort Device);
+
+    public static ItemClick ReadItemClick(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..6]), m[6], m[7], m[8], (m[9] & 0x80) != 0,
+            BinaryPrimitives.ReadUInt16BigEndian(m[10..12]));
 
     /// <summary>C→S 0xf6: a Voidstone clicked into (or out of) an Atlas socket with the map device open
     /// (0x1407bf070 → 0x14216eac0). Writer 0x141f993f0: u32 BE item id, u8, u8 (both 0 on the live

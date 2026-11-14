@@ -105,5 +105,20 @@ public sealed class PortalsModule : IModule
             await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
             return true;
         });
+        // Ctrl + click with the map device open, for the items that are not Atlas Idols: a map moves with one of these, and
+        // without them the click reached no one and the map had to be dragged in.
+        foreach (ushort clicked in new[] { InstanceMapDevice.MoveIntoDeviceId, InstanceMapDevice.MoveOutOfDeviceId })
+            GameEvents.Packet(clicked).Add(module.Manifest.Id, async (conn, bytes) =>
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                var click = InstanceMapDevice.ReadItemClick(bytes);
+                // Which way it goes is where the item is, so the message's own direction flag is not needed here
+                // (ItemMoves.MoveToMapDevice says so): a click in the inventory takes it in, one in the slots takes it out.
+                Console.WriteLine($"[gateway] {remote} <= 0x{clicked:x4} Ctrl + click item {click.ItemId} on the map device " +
+                    $"({(click.IntoDevice ? "into" : "out")}, device 0x{click.Device:x})");
+                await MoveToMapDevice(remote, stream, ciphers, conn,
+                    new InstanceMapDevice.Move(click.ItemId, click.Flags, click.IntoDevice, 0, 0));
+                return true;
+            });
     }
 }
