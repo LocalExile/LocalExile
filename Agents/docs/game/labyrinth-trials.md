@@ -672,6 +672,16 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   The Goddess's Guardians (`IzaroSummonSkeletonGhostflame`): six circles at random places every 20 s, two in each
   (`skill_repeat_count` 6, 20 s cooldown, two monsters). They die after 30 s (IzaroSkeleton.ot `time_until_death`), not
   by a cap; the casters' .ot has no such time. Ours removes them then, with no death clip (live), and the corpse of one killed sooner.
+  The Goddess of Justice (`GoddessOfJustice`, untargetable, cannot be damaged, immobile) rides on Izaro's
+  `jnt_back_spirit` in every trial (live: up the elevator, down with him). Her .ot creates her held at her `emerge` clip's
+  start, unseen until an action plays: her Emerge starts with his. The client takes an attached object's facing from
+  its bone alone, so she turns as his back does (live: as the original). Her `LabyrinthSpiritMortar` is the client's
+  `LbBossSpiritMortar` projectile action: with a count, `monster_projectile_variation` 0 and
+  `distribute_projectiles_over_contact_points` 1 on her record it plays `volly` and fires five mortars, one at each of
+  the clip's first five contacts (without the last stat each of its six contacts fired all five). The gargoyles'
+  awakening beam is her `AwakenGargoyle` action at the gargoyle (`skill_effect_duration` 10 s), from her hands (live),
+  and she casts nothing else while it runs. When Izaro dies she plays her `death` clip (rig clip 3, 17.3 s: she turns
+  slowly and flies up, live).
   `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
   give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
   server sends 1 and its idle clip.
@@ -715,6 +725,6 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
 
 ## Not built yet
 
-- The step-triggered spikes of Izaro's rooms, the Goddess of Justice, and the hot plates' Cruel and Merciless rooms.
+- The step-triggered spikes of Izaro's rooms and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

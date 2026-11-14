@@ -91,10 +91,11 @@ public static partial class Game
     // too, or a resync would teleport the client to the aimed cell.
     static readonly string[] MovementInPlace = ["MirrorArrow", "SmokeMine", "PhaseRun", "ChainHook", "WitheringStep", "Ambush"];
 
-    /// <summary>Whether a skill puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
+    /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(ClientState conn, int effect) =>
         SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
-        && !(SkillsFor(conn).EffectId(effect) is { } id && MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal)));
+        && !(SkillsFor(conn).EffectId(effect) is { } id && (id is "LightningWarp" or "BlinkArrow"
+            || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
     public static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim) =>
         MovementLanding(conn, effect, from, aim, 0, 0);

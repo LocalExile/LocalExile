@@ -142,6 +142,9 @@ predicted player (sequence ≥ 0) the handler compares the position pair with wh
 confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays until a walk ends on its target. Live
 2026-10-31: an echo 13 cells off moved nothing. Clicks do not wait for the echo: the client sends them as they come.
 0x1ac ends an action, but is ignored for predicted local actions; it still counts for the resync request below.
+An echo with a negative sequence for the local player is not a confirmation: the client builds and runs that action
+itself, as for any other object's (live 2026-11-11: the bridge's 0x24 with sequence 0xfffe made it run Holy Sweep's
+hammer code, 11 §9a; with sequence 0 it never ran).
 
 The first version sent the target in the position pair: long clicks teleported the player, sometimes onto unwalkable
 cells past the town edge (toward The Coast), where the client could no longer path anywhere. The server therefore keeps

@@ -10,8 +10,8 @@ using GameServer.Core;
 /// Normal) and leaves the first ones on the elevator at the next third; the last one he dies. The arena's doors
 /// (LabyrinthIzaroArenaDoor) shut as he rises and open again with its ways out (<see cref="Beaten"/>); the corridor's gate
 /// (LabyrinthIzaroDoor) in front of the way into the arena opens when used (<see cref="GateOpen"/>), and he speaks
-/// (S→C 0x1c7, <see cref="Speech"/>). The mechanics (the BossObjectiveMarkers' objects, LabyrinthSecretEffects), the
-/// Goddess of Justice and his chests are not built yet.
+/// (S→C 0x1c7, <see cref="Speech"/>). The arena's mechanics are IzaroEffects', the Goddess of Justice IzaroGoddess';
+/// his chests are not built yet.
 /// </summary>
 public static class IzaroFights
 {

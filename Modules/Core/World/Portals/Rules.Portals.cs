@@ -42,6 +42,11 @@ static partial class PortalsRules
                 if (!Current()) return;
                 await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
             }
+            // Every portal but the last was listed again with the next one; the last gets its second listing here
+            // (Game.ListPortal says why one listing can be lost).
+            if (n == 0) return;
+            await Task.Delay(MapPortalRelistMs);
+            if (Current()) await SendMapPortals(remote, stream, ciphers, conn, deviceId, open.Area.Hash16);
         });
         return Task.CompletedTask;
     }

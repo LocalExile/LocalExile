@@ -81,9 +81,69 @@ Cosmetics tab slot dresses: the item slots (Weapon1 0, Offhand1 1, BodyArmour1 2
 8, Ring2 9, Belt1 10, Amulet1 11) and slots only cosmetics use (armour attachment 3, character effect 12, footprints
 13, helmet attachments 14 and 15, hip 16); 17 is none. The Gateway puts a skin in the first reference of the item's
 entry, a weapon effect in the second, and sends the cosmetic-only slots as entries of their own (empty when nothing is
-worn there). A skin needs an item in its slot.
+worn there). A skin needs an item in its slot, of a class its ItemisedVisualEffect `ItemClasses` lists (empty: any):
+a sword skin is not drawn on a bow. A bow character's record has the bow in slot 1 and the quiver on the back in
+slot 7 ([13](13-items.md) "What the model wears"), so with a bow the main hand's cosmetics (MicrotransactionSlot 1 to 3)
+dress slot 1 and the off hand's (4 to 6) the worn quiver in slot 7: a quiver skin is an off-hand Weapon Skin with
+`ItemClasses` Quiver (seen live 2026-11-12, Dragon Hunter Quiver).
 
 **Stats.** The worn cosmetics' stats join the player's (0x1b3 and the player object).
+
+**Derived stats.** The client keeps a calculator for every derived stat but runs none for a player the server
+describes: it shows what it is sent ([04](04-player-entity.md) §4.1a). Of the 365 stats ItemisedVisualEffect rows give,
+the client's own code reads 80 as they are, 196 through data (art variation tables, object tasks) or not at all, and 89
+only inside a calculator: for those the server has to send the calculator's result, or the cosmetic does nothing. A
+calculator's inputs sit in a list in `.rdata` beside it, and a derived stat is read like any other
+(`mov edx, key`; a virtual call on the Stats). `CosmeticDerivedStats` sends the ones worked out so far:
+
+| Derived stat | From | Rule |
+|---|---|---|
+| `mtx_virtual_morph_art_variation_index` | `mtx_goblin_morph` and the other morph stats | below |
+| `virtual_endurance_charge_art_variation`, `virtual_frenzy_…`, `virtual_power_…` | `mtx_endurance_charge_art_variation` … (Alternate Charge Skins) | the skin's value, else a fixed 1000 to 1007 per other source, in the calculators' order (`0x1428ed890`, `0x1428edd70`, `0x1428ee4e0`) |
+| `actor_scale_+%` | `base_actor_scale_+%` | [04](04-player-entity.md) §4.1a |
+| choices of art (`DerivedArt`) | see below | the first input that is not 0 gives its number, else the fallback stat's value |
+
+The choices of art, on the character and on every skill (a skill's calculators see its own stats, which hold its worn
+Skill Gem Effect's, and the character's): `virtual_skill_surge_type_override` ← `skill_surge_type_override`;
+`virtual_damage_hit_effect_index` ← `damage_hit_effect_index`, and its main-hand and off-hand forms (Cold Iron Point
+66, the Cordycep bow 82); `virtual_ignite_visual_override` (the Demonic gloves 28, else `ignite_art_variation`), and
+the same shape for shock (11, 14, 15), chill (2, 4, 6, 7, 8), freeze (3, 5, 6, 7), poison (2, 3) and bleed (3);
+`virtual_mine_art_variation`, `virtual_ancestral_call_art_variation`, `virtual_triggered_summon_spider_variation`;
+the rings' `virtual_onslaught_…` (2, 1), `virtual_arcane_surge_…` and `virtual_fortify_art_variation`;
+`mtx_has_chest_effect`, `level_up_sound_disabled`, `virtual_has_item_drop_visual_replacement_stat`,
+`virtual_mtx_breach_art_variation`, `virtual_covered_in_ash_art_variation`, and `is_floating` ←
+`mtx_cosmic_armour_flying_player`. They are sent as the calculators give them; none was looked at on screen.
+
+**Charge skins.** The derived stat alone changes nothing: the charge buff's 0x1c1 names the BuffVisuals row
+(`BuffVisualsArtVariations` of `endurance_charge` / `frenzy_charge` / `power_charge` at that variation), as for every
+buff whose art follows a variation ([11](11-skills.md) §12). Seen live 2026-11-12: Stygian Crystalline Charges.
+
+**Morphs.** The Goblin Shaman Skin ("Transforms you into a Goblin Shaman when in a town or hideout") gives only
+`mtx_goblin_morph` 1 (the Witchdoctor 2). The calculator of `mtx_virtual_morph_art_variation_index` (around
+`0x1428d9cce`) gives 0 unless `is_in_town_or_hideout_or_heist_hub` is set, then the first of:
+`mtx_morph_art_variation_index_from_polymorph`, `…_from_primary_pet`, `…_from_secondary_pet`;
+`mtx_tencent_lunar_set_polymorph` 4 → 18 (19, 20 by `mtx_tencent_lunar_back_attachment` 1, 2);
+`tencent_wuzhiqi_set_polymorph` 10 → 27; `mtx_goblin_morph` 1 → 28, 2 → 29; `mtx_skeleton_body_paint` 1 → 30;
+`mtx_marionettes_revenge_skin_variation` 1 to 4 → 31 to 34. Nothing sets the in-town stat on the client and no
+message carries it, so the server applies the rule in towns, hideouts and the Rogue Harbour (`HeistHub`, which
+WorldAreas marks as neither). The forms are not meant for anywhere else: a transformation set has an idle, a run and
+`Emerge`, maps a hit, death and casts to the idle clip and has no attack. About thirty client functions read the
+result and every one only tests it for zero: a morphed character hides its weapons, flasks, footprints and stat-driven
+visuals (`0x141fea550`) and takes the stance "default" (`0x141e9da30`). No client table or file maps the number to a
+model: the model and the animation set arrive as paths. In the player's blob the Animated component's .ao
+(`0x141e5afd0`) and the Actor's leading .act (`0x1421993f0`); on a pick, 0x2bc to the Animated component
+(`0x141e5b9e0`) and **S→C 0x1b6** to the Actor (read `0x141fe4570`: object header, wstr .act path, u8 stance), then
+the Inventories again. 0x1b6 only stores the set: the animation that was playing stays, so the new model stands frozen
+in its bind pose until its next action (0x1b5, the stance, does not help; live 2026-11-12). The transformation sets
+define `Emerge` (their idle with the pets' summon effect), so the server plays it (0x1d1, Animation row 43) and the
+Actor idles on the new set afterwards. `WornMorph` knows the two goblins (28:
+`Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanPet_01.ao` with `GoblinShamanTransform1.act`, 29: `_02.ao` with
+`GoblinShamanTransform2.act`), the Skeleton Skin (30: `Metadata/Pet/SkeletonBodyPaint/SkeletonBodyPaint.ao` with
+`SkeletonBodyPaintTransform.act`), the Lunar set (18 to 20) and the Wuzhiqi Potion (27), by the client's own
+transformation rigs' names. Seen live 2026-11-12: the goblin on a pick in town and on entering town, the class's own
+model outside and when the skin comes off, the skeleton, the Wuzhiqi form and the Lunar form (its four armour pieces).
+A stat
+sent alone (0x4336 = 28) changes nothing.
 
 **Pets.** Pets have no ItemisedVisualEffect row; each `Pet.dat` row names its MtxTypeGameSpecific row and its object
 type (`Id`, e.g. `Metadata/Pet/Kiwi/Basic`). `pet_slot1` / `pet_slot2` (a Pet row + 1, `0x1401096e0` → `0x14010f890`)
@@ -179,6 +239,22 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
 
 - Pets, the portrait and skill effects are built as above and await live verification (skill picks: 0x1fa seen live,
   its handling not yet).
+- Derived stats (§3). An ailment's or a buff's art also needs its buff to name the BuffVisuals row, as the charges'
+  do: the ignite, poison and bleed the player causes (`AilmentArtVisual`, the art of the skill that last worked out its
+  ailments) and the player's Onslaught and Fortification (`BuffArtVisual`) do. Seen live 2026-11-12: a Mystic Burning
+  Arrow Effect's ignite burning teal on a monster; the others are sent the same way and were not looked at. The server
+  has no shock, chill, freeze or Arcane Surge buff of its own to restyle yet. Not sent: `show_phasing_visual` /
+  `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), and everything that needs state the server does not
+  count yet: the
+  `track_*` flags (kills, hits taken, blocks, skills used, Vaal souls), the kill-streak, hit-streak and kill-counter
+  stacks, the Druidic gloves' charge intensity, and floating at 25 kill-streak stacks.
+- Morphs without files: the Marionette's Revenge skins (31 to 34; no cosmetic gives their stat), the Ashbringer
+  Wyvern (35), the polymorph wands and the pet morphs, whose numbers come from stats the server does not set.
+- The Portal slot's two extra choices (`MicrotransactionSlotAdditionalDefaultOptions`: one random effect for every
+  portal, a random effect per portal) arrive as 0x1f9 with record 0 and option 1 or 2. The server keeps the choice,
+  lists the slot in 0x1f3 with record 0, hash 0 and the option (the client takes it; whether the panel then shows the
+  choice was not seen) and picks each portal's variation itself (`Game.PortalVariation`; seen live 2026-11-12: two
+  Portal Scroll portals with two effects). Sent by hand so far, not clicked in the panel.
 - Issue [#306](https://github.com/Wrathen/LocalExile/issues/306): after Spark is replaced by Kinetic Blast, the icon
   can show KB while opening Spark's picker.
   The retained log reports Spark `0x900d0738`, record 122, a clear (record 0), then KB `0x174ecd0c` on key 50.

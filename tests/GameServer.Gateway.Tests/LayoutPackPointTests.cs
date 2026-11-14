@@ -41,11 +41,14 @@ public sealed class LayoutPackPointTests
 
     // The Chamber of Innocence as the Gateway generates it: its rooms' twelve "magic" points all land on the floor, and
     // each has its magic pack. Needs the game files (data/game-files.zip).
-    [Fact]
+    [GameFilesFact]
     public void A_generated_areas_pack_points_stand_on_its_floor()
     {
         const string area = "1_5_5";
-        if (!File.Exists("data/game-files.zip") || ServerLevels.For(area, 2) is not { } level || new PackCatalog().For(area) is not { } packs) return;
+        var level = ServerLevels.For(area, 2);
+        var packs = new PackCatalog().For(area);
+        Assert.NotNull(level);
+        Assert.NotNull(packs);
         bool Walk(int x, int y) => x >= 0 && y >= 0 && x < level.Width && y < level.Height && level.Walk[y * level.Width + x] >= 2;
         var points = level.PackRooms.SelectMany(r => r.Points).ToList();
         Assert.Equal(12, points.Count);

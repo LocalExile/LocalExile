@@ -2,8 +2,10 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public class UniqueStashFillTests
+public class UniqueStashFillTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     static PlayerInventories.Shape? Shape(Item item) => Program.Items.ByHash(item.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
 
     [Fact]
@@ -31,7 +33,7 @@ public class UniqueStashFillTests
     [Fact]
     public void Fill_uses_native_categories_and_survives_reload_without_duplicate_items()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-unique-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("unique");
         var uniques = new UniqueCatalog(Program.Items);
         string account = "UniqueFill" + Guid.NewGuid().ToString("N");
         var stash = AccountStash.For(account, Program.Items);

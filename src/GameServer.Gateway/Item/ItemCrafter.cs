@@ -25,8 +25,9 @@ public static class ItemCrafter
 
     /// <summary>
     /// One JSON object per line: "class" (ItemClasses Id and name), "pool" (mod Ids), "mod" (every mod a pool or base
-    /// names), "base" (with its pools: affixes, per influence, crafted, corruption and Eldritch implicits), "desc" (the
-    /// stat descriptions of those mods' stats) and "word" (rare name words, lists 1 and 2). Affix pools are
+    /// names), "base" (with its pools: affixes, per influence, crafted, corruption and Eldritch implicits; a cluster
+    /// jewel also with its enchantments and its themes, <see cref="Cluster"/>), "desc" (the stat descriptions of those
+    /// mods' stats and of what the themes grant) and "word" (rare name words, lists 1 and 2). Affix pools are
     /// <see cref="ItemRolls.Pool(ItemCatalog.BaseType, int, ItemInfluence)"/> at item level 100: a tool hides what
     /// needs a higher item level by each mod's "level".
     /// </summary>
@@ -50,6 +51,8 @@ public static class ItemCrafter
 
         var crafted = bench.All.Where(r => r.Mod is { Domain: 9 }).ToList();
         var implicitMods = items.Mods.All.Where(m => m.GenerationType is CorruptedImplicit or ItemRolls.ExarchImplicit or ItemRolls.EaterImplicit).ToList();
+        // Stats no mod has but a tool words too: what a cluster jewel's themes grant.
+        var themeStats = new List<string>();
         // Bases with the same domain, class and tags have the same pools.
         var byShape = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         var baseLines = new List<JsonObject>();
@@ -92,6 +95,12 @@ public static class ItemCrafter
                 ["implicits"] = new JsonArray([.. (t.Implicits ?? []).Select(m => { mods.TryAdd(m.Id, m); return JsonValue.Create(m.Id); })]),
             };
             foreach (var (key, value) in shared) line[key] = value?.DeepClone();
+            if (t.Cluster is { } cluster)
+            {
+                foreach (var mod in cluster.Sockets.Values.Prepend(cluster.Passives)) mods.TryAdd(mod.Id, mod);
+                themeStats.AddRange(cluster.Offered.SelectMany(theme => theme.Stats).Select(s => s.Id));
+                (line["enchants"], line["cluster"]) = Cluster(cluster, theme => Pool(rolls.Pool(t, 100, ItemInfluence.None, theme.Tag).Select(p => p.Mod)));
+            }
             baseLines.Add(line);
         }
 
@@ -116,7 +125,7 @@ public static class ItemCrafter
             };
         foreach (var b in baseLines) yield return b;
         var described = new HashSet<StatDescriptions.Description>(ReferenceEqualityComparer.Instance);
-        foreach (var stat in mods.Values.SelectMany(m => m.Stats).Select(s => s.Id).Distinct(StringComparer.Ordinal))
+        foreach (var stat in mods.Values.SelectMany(m => m.Stats).Select(s => s.Id).Concat(themeStats).Distinct(StringComparer.Ordinal))
             if (descriptions.For(stat) is { } d && described.Add(d))
                 yield return new JsonObject
                 {
@@ -131,6 +140,49 @@ public static class ItemCrafter
                 };
         foreach (var w in rolls.Words.Where(w => w.List is 1 or 2))
             yield return new JsonObject { ["type"] = "word", ["list"] = w.List, ["key"] = w.Key, ["text"] = w.Text };
+    }
+
+    /// <summary>
+    /// What a cluster jewel base adds to its line. "enchants": the enchantments a jewel a tool starts has, each with its
+    /// mod Id, its values and the range of each value (its first theme, its fewest passives, the size's sockets); a
+    /// tool sends them back with "section": "enchant". "cluster": what it can be changed to. "passives" names the mod
+    /// whose values are the theme and the count, with the count's range; "sockets" the mod for each socket count;
+    /// "themes" each theme a new jewel can have, with the value that names it, its name, what a small passive grants
+    /// (the game words it "Added Small Passive Skills grant: …" from the value alone) and the affix pool of a jewel
+    /// with that theme, which holds its notables: the base's own "pool" is a jewel's without a theme.
+    /// </summary>
+    static (JsonArray Enchants, JsonObject Cluster) Cluster(ClusterJewels.Base cluster, Func<ClusterJewels.Theme, int> pool)
+    {
+        var themes = cluster.Offered.ToList();
+        var enchants = new JsonArray();
+        foreach (var enchant in cluster.Enchants(themes.FirstOrDefault(), cluster.MinNodes, cluster.DefaultSockets))
+        {
+            bool passives = enchant.Hash == cluster.Passives.Hash;
+            var mod = passives ? cluster.Passives : cluster.Sockets.Values.First(s => s.Hash == enchant.Hash);
+            enchants.Add(new JsonObject
+            {
+                ["id"] = mod.Id,
+                ["values"] = new JsonArray([.. enchant.Values.Select(v => JsonValue.Create(v))]),
+                ["ranges"] = new JsonArray([.. mod.Stats.Select((s, i) => (JsonNode)(
+                    passives && s.Id == ClusterJewels.ThemeStat && themes.Count > 0 ? new JsonArray(themes.Min(t => t.Value), themes.Max(t => t.Value))
+                    : passives && s.Id == ClusterJewels.CountStat ? new JsonArray(cluster.MinNodes, cluster.MaxNodes)
+                    : new JsonArray(mod.RangeAt(i).Min, mod.RangeAt(i).Max)))]),
+            });
+        }
+        return (enchants, new JsonObject
+        {
+            ["size"] = cluster.Size,
+            ["passives"] = new JsonObject { ["mod"] = cluster.Passives.Id, ["min"] = cluster.MinNodes, ["max"] = cluster.MaxNodes },
+            ["sockets"] = new JsonArray([.. cluster.Sockets.OrderBy(s => s.Key).Select(s => (JsonNode)new JsonObject { ["count"] = s.Key, ["mod"] = s.Value.Id })]),
+            ["themes"] = new JsonArray([.. themes.Select(theme => (JsonNode)new JsonObject
+            {
+                ["value"] = theme.Value,
+                ["name"] = theme.Name,
+                ["tag"] = theme.Tag,
+                ["stats"] = new JsonArray([.. theme.Stats.Select(s => (JsonNode)new JsonObject { ["id"] = s.Id, ["value"] = s.Value })]),
+                ["pool"] = pool(theme),
+            })]),
+        });
     }
 
     static Dictionary<string, string> LoadClassNames(string folder)
@@ -157,6 +209,8 @@ public static class ItemCrafter
     /// The item a spec describes, or null with the reason. Mods are taken as given (any mod on any base, values outside
     /// the roll range too): this is a dev tool, as /item_mod is. Missing values are rolled, a rare without a name gets
     /// one, sockets default as for /item ("" for none), and the item level defaults to <paramref name="level"/>.
+    /// A cluster jewel whose mods do not say how many passives it adds keeps the enchantments a new one has, since it
+    /// is nothing without them.
     /// </summary>
     public static Item? Build(ItemCatalog items, ItemRolls rolls, string json, int level, Random random, out string? error)
     {
@@ -185,6 +239,8 @@ public static class ItemCrafter
             if (m.Section is { } s && !Enum.TryParse(s, true, out section)) { error = $"no mod list {s}"; return null; }
             mods.Add(mod.With(section, m.Values ?? [], random));
         }
+        if (type.Cluster is { } cluster && !mods.Any(m => m.Hash == cluster.Passives.Hash))
+            mods.InsertRange(0, item.Mods.Where(m => m.Section == ModSection.Enchant));
         item = item with
         {
             Mods = mods,

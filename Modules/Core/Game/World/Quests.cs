@@ -150,6 +150,7 @@ public static partial class Game
         // once the corridor's gate is open.
         : transition.LayoutDisabled && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.Beaten
         : transition.SourceType == IzaroFights.ArenaTransition && LabyrinthDay.IzaroRoom(conn.Layout.Id, conn.Seed) is not null ? IzaroFights.GateOpen
+        : transition.LayoutDisabled && transition.TeleportTo.HasValue && QuestsOf(conn).DisabledTeleportFlag(conn.Layout.Id) is { } locked ? locked
         : AreaTransitionCatalog.IdOf(transition.DestinationHash16) is { } dest ? QuestsOf(conn).FlagToEnter(conn.Layout.Id, dest) : null;
 
     // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the

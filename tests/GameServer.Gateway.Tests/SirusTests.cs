@@ -9,7 +9,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SirusTests
 {
-    [Fact]
+    [GameFilesFact]
     public async Task Normal_encounter_uses_native_actors_and_four_guarded_phases_and_pays_once_after_the_body_dies()
     {
         using var runtime = new Runtime(); using var wire = new Wire();

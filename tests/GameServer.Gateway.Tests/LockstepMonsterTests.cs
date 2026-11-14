@@ -33,6 +33,28 @@ public class LockstepMonsterTests : IDisposable
         Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep, Character = character,
     };
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_straight_projectile_monster_approaches_a_wall_and_fires_through_an_opening(bool lockstep)
+    {
+        bool open = false;
+        var layout = new AreaLayout(1, "chase", 300, 300, 100, 100, (_, _) => true, [])
+            { Sight = (x, y) => x == 110 && y == 100 && !open ? 0 : 1 };
+        var conn = new ClientState(layout, 1, 1) { Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep };
+        var shooter = new SpawnedMonster("archer", new PlayerWalk(120, 100, 8), 60, 2, 10)
+        {
+            Attack = new(1, 1, 30, DamagePacket.Empty) { Ranged = true, Projectile = new("arrow", 75, false, 1) },
+        };
+        conn.Monsters[0x3004] = shooter;
+        var cadence = new MonsterAiCadence();
+        var blocked = Game.PlanMonsterAi(conn, cadence, 1);
+        Assert.Empty(blocked.Swings);
+        Assert.NotEmpty(blocked.MoveLegs);
+        open = true;
+        Assert.Single(Game.PlanMonsterAi(conn, cadence, 1.25).Swings);
+    }
+
     static SpawnedMonster Drowned(PlayerWalk walk) => new("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23)
     {
         Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, LastTarget = (100, 100),
@@ -332,6 +354,26 @@ public class LockstepMonsterTests : IDisposable
     // A melee chase farther than a leg past the reach goes as a Move to the cell a leg along its walk-up, placed by the
     // plan (the client's one search budget per frame, 07 §5); within a leg of the reach the attack aimed at the player
     // walks up as before.
+    [Fact]
+    public void A_boss_can_acquire_a_nearby_golem_before_its_owner_enters_aggro_range()
+    {
+        var conn = Connection(lockstep: false);
+        var boss = Drowned(new PlayerWalk(200, 100, 8));
+        boss.Aggro = false;
+        var guard = Drowned(new PlayerWalk(202, 100, 8));
+        var definition = Assert.IsType<GolemCatalog.Definition>(new GolemCatalog().Find("SummonStoneGolem"));
+        var golem = new GolemState.Golem(0x3010, guard, definition, 1);
+        conn.Golems.All[golem.Id] = golem;
+        conn.Monsters[0x3000] = boss;
+        Game.PlanMonsterAi(conn, new MonsterAiCadence(), 1);
+        Assert.Same(golem, Assert.Single(conn.Golems.IncomingHits).Target);
+        Assert.Same(conn, boss.Target);
+
+        guard.Life = 0;
+        boss.Target = null;
+        Assert.False(Game.MonsterTargetsLocked(conn, 0x3000, boss, (200, 100), 100, 2));
+    }
+
     [Fact]
     public void A_far_melee_chase_goes_in_legs_and_a_near_one_as_the_attack_walk_up()
     {
@@ -797,6 +839,29 @@ public class LockstepMonsterTests : IDisposable
             runtime.AdvanceTo(ProjectileRuntime.Time(1));
             Assert.Equal(dodge ? 0 : 1, world.Hits);
         }
+    }
+
+    [Fact]
+    public void A_queued_boss_bar_cannot_reshow_a_corpse_a_hidden_phase_or_a_replaced_actor()
+    {
+        var conn = Connection(lockstep: true);
+        var boss = new SpawnedMonster("Boss", new PlayerWalk(102, 100, 8), 60, 2, 10)
+            { Variety = new(1, "boss", "Boss", "Monster", null, ["Positioned", "StateMachine"]) };
+        boss.States = new([0, 0], 0, ["boss_life_bar", "aggro"]);
+        boss.BossBarShown = true;
+        const uint id = 0x3000;
+        conn.Monsters[id] = boss;
+        Assert.NotNull(Game.BossLifeBarRecord(conn, id, boss));
+        boss.States = boss.States.Set("boss_life_bar", 0);
+        boss.Life = 0;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        Assert.Equal(0, boss.States.SharedStates[0]);
+        boss.Life = 10;
+        boss.BossBarShown = false;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        boss.BossBarShown = true;
+        conn.Monsters.Remove(id);
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
     }
 
     [Fact]

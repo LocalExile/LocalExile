@@ -217,6 +217,14 @@ model and rendering, and the device runs `on_map_portal_opened` (index, object).
 is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. Seen live:
 - 0x008f in the same burst as the portals' 0x2bb reaches none of them (they are not created yet); on entering an area
   the objects also wait for the world to activate. The Gateway sends it 1 s after creating them (2 s on entry).
+- The client reads its socket once per update and handles 0x008f at once, while a create waits for its world frame: a
+  list that arrives in the same read as the create is handled first and lost, and the portal is never drawn, only its
+  minimap icon (live 2026-11-12, a Portal Scroll's portal in a background window in the lockstep mode: 0x008f handled
+  3 ms before the object was built, sent 100 ms after the create; the same list sent again later drew it). So every
+  portal is listed twice: `MapPortalListMs` after its create and `MapPortalRelistMs` (600 ms) later (`Game.ListPortal`;
+  the device's portals each ride on the next one's list and the last gets its own). A list sent again unchanged leaves
+  the portal as it is, and one sent again with another variation restyles it, so a pick restyles a Portal Scroll's
+  portal and the portal back as well as the device's.
 - Type 3 (map device) gets its nametag but no model: MultiplexPortal.ot enables its rendering only `on_transition`.
   Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,

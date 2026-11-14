@@ -26,16 +26,22 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
     public IReadOnlyList<Word> Words => _words.Value;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Lazy<Dictionary<(int Class, int Influence), string>> _influenceTags = new(() => LoadInfluenceTags(folder));
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, int itemLevel,
-        ItemInfluence influences = ItemInfluence.None) =>
-        _pools.GetOrAdd((t.Row, itemLevel, influences), _ =>
+        ItemInfluence influences = ItemInfluence.None) => Pool(t, itemLevel, influences, null);
+
+    /// <summary>The same with a tag the item itself has beyond its base's: a cluster jewel's theme, behind which its
+    /// notables are. Its own overload: mods built against the three-parameter one keep working.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, int itemLevel,
+        ItemInfluence influences, string? tag) =>
+        _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
             var tags = TagsWith(t, influences);
+            if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
             return [.. catalog.Mods.All
                 .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
                 .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
@@ -43,7 +49,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The affixes that can roll on this item.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, Item item) =>
-        Pool(t, item.ItemLevel, item.Influences);
+        Pool(t, item.ItemLevel, item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag);
 
     /// <summary>A base's spawn tags with those its influences open.</summary>
     public IReadOnlySet<string> TagsWith(ItemCatalog.BaseType t, ItemInfluence influences)
@@ -374,7 +380,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 ? t.Class == "AnimalCharm" ? (1, 1, 1) : (rng.Next(1, 3), 1, 1)
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
-        var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences)
+        var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag)
             .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;

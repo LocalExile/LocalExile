@@ -43,7 +43,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(pid, 123)
             events.append('attach')
             return session
-        fake = SimpleNamespace(get_local_device=lambda: SimpleNamespace(attach=attach))
+        fake = SimpleNamespace(get_local_device=lambda: SimpleNamespace(attach=attach, enumerate_processes=lambda: []))
         spec = importlib.util.spec_from_file_location('projectile_fake_runner',
             Path(__file__).resolve().parents[1] / 'frida' / 'run.py')
         runner = importlib.util.module_from_spec(spec)

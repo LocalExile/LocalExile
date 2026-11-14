@@ -1,11 +1,13 @@
 namespace GameServer.Gateway.Tests;
 
-public class LeagueQuestFlagSaveTests
+public class LeagueQuestFlagSaveTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public void League_quest_flags_are_saved_per_account_league_and_survive_a_reload()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-league-flags-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("league-flags");
         var catalog = new ItemCatalog("data");
         string account = "LeagueFlags" + Guid.NewGuid().ToString("N");
         string standard = AccountStash.Key(account, "Standard"), league = AccountStash.Key(account, "Mercenaries");

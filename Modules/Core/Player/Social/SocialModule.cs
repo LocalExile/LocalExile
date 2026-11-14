@@ -98,6 +98,8 @@ public sealed class SocialModule : IModule
             var remote = conn.Wire.Remote;
             return await PartyRoster.LeaveHuman(conn, InstanceSocial.ReadPartyAccept(bytes));
         });
+        // A "%…" line: only this module knows the party, so it carries the line to the members.
+        GameEvents.PartyChat.Add(module.Manifest.Id, PartyChat.Deliver);
     }
 }
 

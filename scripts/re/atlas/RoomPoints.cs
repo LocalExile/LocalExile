@@ -65,9 +65,12 @@ static class RoomPoints
                 var lists = new[] { "RoomSet", "FillTiles" }.Select(k => tsi?.GetValueOrDefault(k)).OfType<string>();
                 foreach (var arm in lists.SelectMany(l => files.List(TerrainText.Resolve(master, l.Trim()), ".arm")))
                 {
-                    // Rooms with a quest server object are kept too, without any point (RoomFile.IsQuestObject).
+                    // Rooms with a quest server object are kept too, without any point (RoomFile.IsQuestObject), and so are
+                    // the Labyrinth's (its arenas and their doors and markers are Metadata/Terrain/Labyrinth/Objects, which
+                    // no quest object names: a dropped room is an arena with no elevator and no door).
                     if (files.Room(arm) is not { } room
-                        || !room.Points.Any(p => IsKeptPoint(p.Name)) && !room.Doodads.Any(d => RoomFile.IsQuestObject(d.Type))) continue;
+                        || !room.Points.Any(p => IsKeptPoint(p.Name))
+                        && !room.Doodads.Any(d => RoomFile.IsQuestObject(d.Type) || RoomFile.IsLabyrinthObject(d.Type))) continue;
                     found.Add(arm);
                     rooms.TryAdd(arm, new
                     {

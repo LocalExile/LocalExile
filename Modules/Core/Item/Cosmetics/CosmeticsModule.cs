@@ -99,7 +99,11 @@ public static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
-        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
+        var morph = WornMorph(conn);
+        // The Portal slot's two choices that are no cosmetic (Game.PortalVariation): record 0 with option 1 or 2.
+        bool randomPortals = record is null && pick.Slot == InstanceMicrotransactions.PortalSlot && pick.Option is 1 or 2;
+        CharacterSaves.SetCosmetic(character, pick.Slot, randomPortals ? new CharacterSaves.SavedCosmetic(0, pick.Option)
+            : record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
         {
@@ -112,6 +116,8 @@ public static class CosmeticsFeature
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the pick");
         // The model and the stats: skins, attachments, character effects, footprints, apparitions.
         await SendEquipment(remote, stream, ciphers, conn, ItemsOf(conn));
+        // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
+        await SendMorph(remote, stream, ciphers, conn, morph);
         if (pick.Slot is 18 or 19) await SpawnPets(remote, stream, ciphers, conn);
         if (pick.Slot == PortraitSlot)
         {
@@ -179,10 +185,17 @@ public static class CosmeticsFeature
             }
         }, still: still);
 
-    static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now)
+    internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
         pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
         var from = pet.Walk.Order(to.X, to.Y, now);
+        // Local gates can put the owner in a separate walkable component. A finite loot walk must stop
+        // where its path ends, but a following pet rejoins its owner when that path falls short.
+        if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
+        {
+            pet.Walk.Teleport(to.X, to.Y, now);
+            return InstanceProtocol.Teleport(id, to.X, to.Y);
+        }
         return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
     }
 
@@ -205,7 +218,7 @@ public static class CosmeticsFeature
                     var to = PetSpot(conn, player, pet.Side);
                     if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
                     pet.Target = to;
-                    orders.Add((id, to, PetMove(conn, id, pet, to, now)));
+                    orders.Add((id, to, PetMove(conn, id, pet, to, now, following: true)));
                 }
             var (remote, stream, ciphers) = conn.Wire;
             foreach (var (id, to, move) in orders)

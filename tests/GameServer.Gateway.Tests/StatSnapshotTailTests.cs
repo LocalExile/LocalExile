@@ -110,7 +110,6 @@ public class StatSnapshotTailTests
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
         using var setup = new SnapshotSetup();
-        Assert.True((bool)Rules.GetField("VerifyStatSnapshotTail", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!);
         string character = "StatTail" + Guid.NewGuid().ToString("N");
         var conn = Connection(character);
         var items = (ItemCatalog)Game("ItemsFor", conn)!;

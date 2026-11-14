@@ -52,7 +52,7 @@ public static class BossKits
         List<int> usable = [];
         foreach (int effect in effects)
         {
-            if (effect < 0 || catalog.IsMovement(effect)) continue;
+            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                 || id.Contains("Daemon", StringComparison.Ordinal)

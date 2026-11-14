@@ -8,13 +8,15 @@ namespace GameServer.Gateway.Tests;
 /// <summary>A stash tab that a tab switch unloaded is loaded again before a change to it goes out (#710): the panel shows a
 /// tab it has shown before without asking for it, and a 0xbf for an inventory the client no longer has aborts the
 /// game.</summary>
-public class StashTabReloadTests
+public class StashTabReloadTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public async Task A_split_in_a_tab_that_a_tab_switch_unloaded_loads_the_tab_again_first()
     {
         var catalog = new ItemCatalog("data");
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-stashreload-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("stashreload");
         string account = "StashReload" + Guid.NewGuid().ToString("N");
         var stash = AccountStash.For(account, catalog);
         var items = PlayerInventories.For(account, catalog);

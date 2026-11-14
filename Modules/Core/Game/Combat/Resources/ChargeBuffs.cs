@@ -30,20 +30,25 @@ public static class ChargeBuffs
 
     /// <summary>The messages for one change: the old buff off (S→C 0x1c2), then the new one on (S→C 0x1c1) with its count
     /// and, for charges that expire, the seconds left. The player is its own source.</summary>
-    public static IEnumerable<(byte[] Packet, string Label)> Packets(ChargeSession.BuffChange change, uint player)
+    /// <paramref name="art"/> gives a type's BuffVisuals row when its art is not the buff's own (an Alternate Charge Skin).
+    public static IEnumerable<(byte[] Packet, string Label)> Packets(ChargeSession.BuffChange change, uint player,
+        Func<ChargeType, ushort?>? art = null)
     {
         if (change.Remove != 0)
             yield return (InstanceEntities.RemoveBuff(player, change.Remove),
                 $"0x01c2 player buff {change.Remove}: {Id(change.Type)} off");
         if (change.Count > 0 && change.Add != 0)
-            yield return (Add(change.Type, change.Add, change.Count, change.Remaining, player, change.Converted),
+            yield return (Add(change.Type, change.Add, change.Count, change.Remaining, player, change.Converted,
+                    change.Converted ? null : art?.Invoke(change.Type)),
                 $"0x01c1 player buff {change.Add}: {Id(change.Type, change.Converted)} (BuffDefinitions row {Row(change.Type, change.Converted)}) × {change.Count}" +
                 (change.Remaining is double s ? $", {s:0.###} s" : ", no duration"));
     }
 
     /// <summary>One charge buff: row, the player as source, stacks = the count, duration = the seconds left.</summary>
-    public static byte[] Add(ChargeType type, ushort buff, int count, double? remaining, uint player, bool converted = false) =>
-        InstanceEntities.AddBuff(player, buff, Row(type, converted), player,
+    /// <paramref name="visual"/> is a BuffVisuals row shown in place of the buff's own (0x1c1 flags bit4), null for its own.
+    public static byte[] Add(ChargeType type, ushort buff, int count, double? remaining, uint player, bool converted = false,
+        ushort? visual = null) =>
+        InstanceEntities.AddBuff(player, buff, Row(type, converted), player, visual: visual,
             u68: remaining is double s ? BitConverter.SingleToUInt32Bits((float)s) : null,
             stacks: (ushort)Math.Clamp(count, 0, ushort.MaxValue));
 }

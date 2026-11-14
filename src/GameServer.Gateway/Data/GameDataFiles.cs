@@ -89,7 +89,8 @@ public static class GameDataFiles
         ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
-        ("object-types", 9, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),
+        ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
+        ("object-types", 10, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

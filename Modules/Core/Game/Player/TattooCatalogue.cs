@@ -130,4 +130,60 @@ public static class TattooCatalogue
         }
         return result;
     }
+
+    /// <summary>The ten tribes' tradeable tattoo pools and their vendor-recipe weights. The client tables carry the
+    /// tribe (<c>PassiveSkillTattoos.Tribe</c>) but not the recipe weights; the wiki's 60,000-vendoring sample does:
+    /// 3:3:3:1:1 per tribe, and Kitava 2:2:2:4:1. The tribe ids follow the client rows, 0 Ngamahu through 9 Valako
+    /// (<see cref="VendorPool"/>). Only these tradeable tattoos come out: the Loyalty, Makanga, Honoured, Journey,
+    /// Ancestral and Forbidden rows are not in the output pool, although any tattoo with a tribe can go in.</summary>
+    static readonly (int Tribe, (string Name, int Weight)[] Pool)[] VendorPools =
+    [
+        (0, [("Tattoo of the Ngamahu Firewalker", 3), ("Tattoo of the Ngamahu Shaman", 3),
+             ("Tattoo of the Ngamahu Warmonger", 1), ("Tattoo of the Ngamahu Warrior", 3),
+             ("Tattoo of the Ngamahu Woodcarver", 1)]),
+        (1, [("Tattoo of the Kitava Blood Drinker", 2), ("Tattoo of the Kitava Rebel", 2),
+             ("Tattoo of the Kitava Warrior", 2), ("Tattoo of the Kitava Shaman", 1),
+             ("Tattoo of the Kitava Heart Eater", 4)]),
+        (2, [("Tattoo of the Tukohama Shaman", 3), ("Tattoo of the Tukohama Brawler", 3),
+             ("Tattoo of the Tukohama Warcaller", 1), ("Tattoo of the Tukohama Warmonger", 1),
+             ("Tattoo of the Tukohama Warrior", 3)]),
+        (3, [("Tattoo of the Rongokurai Brute", 3), ("Tattoo of the Rongokurai Goliath", 3),
+             ("Tattoo of the Rongokurai Guard", 1), ("Tattoo of the Rongokurai Warrior", 3),
+             ("Tattoo of the Rongokurai Turtle", 1)]),
+        (4, [("Tattoo of the Tasalio Bladedancer", 3), ("Tattoo of the Tasalio Scout", 1),
+             ("Tattoo of the Tasalio Tideshifter", 3), ("Tattoo of the Tasalio Warrior", 1),
+             ("Tattoo of the Tasalio Shaman", 3)]),
+        (5, [("Tattoo of the Arohongui Moonwarden", 3), ("Tattoo of the Arohongui Scout", 3),
+             ("Tattoo of the Arohongui Warrior", 3), ("Tattoo of the Arohongui Shaman", 1),
+             ("Tattoo of the Arohongui Warmonger", 1)]),
+        (6, [("Tattoo of the Ramako Archer", 3), ("Tattoo of the Ramako Fleetfoot", 1),
+             ("Tattoo of the Ramako Scout", 3), ("Tattoo of the Ramako Shaman", 1),
+             ("Tattoo of the Ramako Sniper", 3)]),
+        (7, [("Tattoo of the Hinekora Deathwarden", 3), ("Tattoo of the Hinekora Shaman", 3),
+             ("Tattoo of the Hinekora Storyteller", 1), ("Tattoo of the Hinekora Warmonger", 1),
+             ("Tattoo of the Hinekora Warrior", 3)]),
+        (8, [("Tattoo of the Tawhoa Herbalist", 1), ("Tattoo of the Tawhoa Naturalist", 3),
+             ("Tattoo of the Tawhoa Scout", 3), ("Tattoo of the Tawhoa Shaman", 1),
+             ("Tattoo of the Tawhoa Warrior", 3)]),
+        (9, [("Tattoo of the Valako Shieldbearer", 1), ("Tattoo of the Valako Scout", 3),
+             ("Tattoo of the Valako Shaman", 1), ("Tattoo of the Valako Stormrider", 3),
+             ("Tattoo of the Valako Warrior", 3)]),
+    ];
+
+    /// <summary>The tattoos three same-tribe tattoos vendor into, with their weights, or empty for a tribe without a
+    /// pool.</summary>
+    public static IReadOnlyList<(string Name, int Weight)> VendorPool(int tribe) =>
+        VendorPools.Where(pool => pool.Tribe == tribe).Select(pool => pool.Pool).FirstOrDefault() ?? [];
+
+    /// <summary>A weighted random pick from <see cref="VendorPool"/>, or null for a tribe without one.</summary>
+    public static string? VendorTattoo(int tribe, Random rng)
+    {
+        var pool = VendorPool(tribe);
+        int total = pool.Sum(entry => entry.Weight);
+        if (total <= 0) return null;
+        int roll = rng.Next(total);
+        foreach (var (name, weight) in pool)
+            if ((roll -= weight) < 0) return name;
+        return pool[^1].Name;
+    }
 }

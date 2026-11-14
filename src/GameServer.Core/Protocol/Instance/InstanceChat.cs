@@ -94,12 +94,14 @@ public static class InstanceChat
             _ => (TypedChannel.Local, typed),
         };
 
-    /// <summary>The 0x17 sender of a player's own line: the name, with '#' or '$' in front for the global and trade
-    /// channels, which the chat panel shows as "#Name: text" in red and "$Name: text" in orange.</summary>
+    /// <summary>The 0x17 sender of a player's own line: the name, with the channel's prefix in front for the global,
+    /// trade and party channels, which the chat panel shows as "#Name: text" in red, "$Name: text" in orange and
+    /// "%Name: text" in the party colour. The prefix is what tells a party line from a local one.</summary>
     public static string Sender(TypedChannel channel, string name) => channel switch
     {
         TypedChannel.Global => "#" + name,
         TypedChannel.Trade => "$" + name,
+        TypedChannel.Party => "%" + name,
         _ => name,
     };
 

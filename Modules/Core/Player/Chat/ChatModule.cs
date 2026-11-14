@@ -80,6 +80,11 @@ sealed class ChatService : IDisposable
     static IReadOnlyList<ChatFrameItem>? FrameItems(ClientState conn, IReadOnlyList<(int At, Item Item)> placed, string text) =>
         ChatWire.Items(text, [.. placed.Select(l => new ChatFrameItem(l.At, ChatItems.Write(l.Item, ItemsFor(conn))))]);
 
+    // The items of the sender's own line, as the 0x17 it comes back with carries them: in the order of the text, up to
+    // the limit the client reads.
+    static IReadOnlyList<ChatLineItem> OwnLine(InstanceChat.ChatInput chat, ConcurrentDictionary<byte, Item>? linked, string text, int cut) =>
+        [.. Placed(chat, linked, text, cut).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))];
+
     /// <summary>The items of a line from a chat server that this client can be shown: the others stay '_'.</summary>
     public IReadOnlyList<ChatLineItem>? LineItems(ClientState conn, string text, IReadOnlyList<ChatFrameItem>? items)
     {
@@ -102,7 +107,12 @@ sealed class ChatService : IDisposable
         switch (channel)
         {
             case TypedChannel.Local:
-                await SayLocally(conn, text, name, [.. Placed(chat, linked, text, prefix).OrderBy(l => l.At).Take(ChatWire.MaxItems).Select(l => new ChatLineItem((uint)l.At, l.Item.Wire()))]);
+                await SayLocally(conn, text, name, OwnLine(chat, linked, text, prefix));
+                break;
+            case TypedChannel.Party:
+                // The party is a module's to know, so the framework hands the line over; nothing else keeps it.
+                if (!await GameEvents.RunPartyChat(conn, text, OwnLine(chat, linked, text, prefix)))
+                    Log($"{conn.Wire.Remote} <= 0x0015 party line \"{text}\" from {name} with no party to take it");
                 break;
             case TypedChannel.Global or TypedChannel.Trade:
                 var kind = channel == TypedChannel.Global ? ChatChannelKind.Global : ChatChannelKind.Trade;

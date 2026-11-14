@@ -25,14 +25,15 @@ public static partial class Game
 
     static async Task DarkBargainCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
-        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice)
+        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
+        double sealDelay = 0, double reoccurrenceMore = 1)
     {
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
         bool Current() => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
             && (cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken));
         double delay;
         lock (conn.Monsters)
-            delay = castMs / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+            delay = sealDelay + castMs / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
         await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
         await WhilePaused(conn);
         if (!Current())
@@ -106,7 +107,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
             await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, scaledBlastChaos: addedChaos, damageMore: more);
+                criticalRoll: criticalRoll, sacrifice: sacrifice, scaledBlastChaos: addedChaos, damageMore: more * reoccurrenceMore);
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>

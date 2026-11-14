@@ -589,6 +589,7 @@ class RunnerFinalizerTests(unittest.TestCase):
         calls = []
         script, session, device = mock.Mock(), mock.Mock(), mock.Mock()
         script.list_exports_sync.return_value = ['finish'] if exported else []
+        device.enumerate_processes.return_value = []
 
         def finish():
             calls.append('finish')

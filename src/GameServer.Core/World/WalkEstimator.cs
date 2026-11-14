@@ -90,6 +90,8 @@ public sealed class WalkEstimator
         _t0 = now;
     }
 
+    public (int X, int Y) Destination => _path[^1];
+
     /// <summary>When the current walk ends.</summary>
     public double ArrivesAt => _t0 + _cumulative[^1] / _speed;
 

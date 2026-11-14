@@ -11,11 +11,7 @@ public static partial class Game
         if (conn.Golems.IncomingHits.Any(h => h.Enemy == id && h.Generation == enemy.ActionGeneration)) return true;
         if (enemy.BusyUntil > now || MonsterActionFactor(enemy, now) == 0) return false;
         var here = enemy.Walk.Position(now);
-        var golem = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                && (g.Definition.IsGolem || g.Definition.Kind == "Purity" || conn.Summons.Definitions.GetValueOrDefault(g.Id)?.Targetable == true))
-            .Select(g => (G: g, Distance: Dist(here, g.Monster.Walk.Position(now))))
-            .Where(t => t.Distance <= enemy.AggroRange && (t.Distance < ownerDistance || t.G.Taunts.GetValueOrDefault(id) > now))
-            .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
+        var golem = GolemTargetLocked(conn, id, enemy, here, now, ownerDistance);
         if (golem.G is null) return false;
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
@@ -34,6 +30,17 @@ public static partial class Game
         conn.Golems.IncomingHits.Add(new(id, enemy, golem.G, attack, action));
         conn.Minions.OutputQueue.Add(new([], null, id, enemy, PlayerMinions.OutputKind.GolemIncoming, Action: action));
         return true;
+    }
+
+    static (GolemState.Golem? G, double Distance) GolemTargetLocked(ClientState conn, uint id, SpawnedMonster enemy,
+        (int X, int Y) here, double now, double ownerDistance)
+    {
+        if (conn.Golems.All.Count + conn.Reservations.Fighters.Count + conn.Summons.Fighters.Count == 0) return default;
+        return conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead && g.Monster.Life > 0
+                && (g.Definition.IsGolem || g.Definition.Kind == "Purity" || conn.Summons.Definitions.GetValueOrDefault(g.Id)?.Targetable == true))
+            .Select(g => (G: g, Distance: Dist(here, g.Monster.Walk.Position(now))))
+            .Where(t => t.Distance <= enemy.AggroRange && (t.Distance < ownerDistance || t.G.Taunts.GetValueOrDefault(id) > now))
+            .OrderByDescending(t => t.G.Taunts.GetValueOrDefault(id) > now).ThenBy(t => t.Distance).FirstOrDefault();
     }
 
     static byte[]? GolemIncomingPresentation(ClientState conn, PlayerMinions.Output output)
