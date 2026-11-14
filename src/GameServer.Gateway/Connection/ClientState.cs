@@ -38,12 +38,18 @@ public enum MonsterSkillShape
     Self,
     /// <summary>A curse: its debuff on the player, for its time.</summary>
     Curse,
+    /// <summary>A spell on a corpse (Volatile Dead, Cremation, Detonate Dead): it consumes corpses and hits from them.</summary>
+    Corpse,
 }
 
 /// <summary>A kit skill's use: its shape, the BuffDefinitions row that draws it (0: none), how long it lasts, the stats
-/// it grants (on its user; on the player for a curse), and the nearest the player must be for a travel.</summary>
+/// it grants (on its user; on the player for a curse), and the nearest the player must be for a travel.
+/// A skill on corpses (<paramref name="OnCorpse"/>: Bodyswap's travel, every <see cref="MonsterSkillShape.Corpse"/>) takes
+/// up to <paramref name="Corpses"/> within <paramref name="Radius"/> of the first, hits within <paramref name="Reach"/> of
+/// each, <paramref name="Pulses"/> times <paramref name="PulseSeconds"/> apart.</summary>
 public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<string, int> Stats,
-    double MinRange = 0);
+    double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
+    double PulseSeconds = 0);
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {

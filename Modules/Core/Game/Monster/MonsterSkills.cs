@@ -32,6 +32,10 @@ public static partial class MonsterSkills
     public static MonsterSkillShape? ShapeOf(SkillCatalog skills, int effect)
     {
         if (skills.IsAura(effect)) return null;
+        // A skill on a corpse: Bodyswap travels to one, Volatile Dead, Cremation and Detonate Dead hit from them. One that
+        // raises a minion from it is no hit (the server raises none).
+        if (IsCorpseSkill(effect))
+            return skills.HasType(effect, "Minion") ? null : skills.IsTravel(effect) ? MonsterSkillShape.Travel : MonsterSkillShape.Corpse;
         if (skills.HasType(effect, "Hex")) return MonsterSkillShape.Curse;
         // A travel that summons or channels plays as no simple move (Blink Arrow's clone, Charged Dash's hold).
         if (skills.IsTravel(effect) && !skills.IsChannelled(effect) && !skills.HasType(effect, "Minion")) return MonsterSkillShape.Travel;
@@ -45,6 +49,7 @@ public static partial class MonsterSkills
     {
         if (ShapeOf(skills, effect) is not { } shape) return null;
         var (stats, seconds) = StatsOf(skills, effect, level);
+        if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
         ushort row = BuffRowOf(skills.EffectId(effect) ?? "", shape);
         return shape switch
         {
@@ -52,6 +57,119 @@ public static partial class MonsterSkills
             MonsterSkillShape.Curse => new(shape, row, seconds ?? CurseSeconds, stats),
             _ => new(shape, row, Math.Max(seconds ?? SelfSeconds, 1), stats),
         };
+    }
+
+    // ---- Corpses --------------------------------------------------------------------------------------------------------
+
+    /// <summary>How far a corpse's orbs and projectiles reach the player from it (cells, ours), and how fast they fly.</summary>
+    const double CorpseShotReach = 40, CorpseShotSpeed = 30;
+
+    /// <summary>A skill that targets a corpse (ActiveSkills ActiveSkillTargetTypes 6: Detonate Dead, Raise Zombie,
+    /// Volatile Dead, Cremation, Bodyswap). Without one it does nothing in the client.</summary>
+    public static bool IsCorpseSkill(int effect) => CorpseSkills.Value.Contains(effect);
+
+    static readonly Lazy<HashSet<int>> CorpseSkills = new(() =>
+    {
+        HashSet<int> effects = [];
+        if (ClientTables.TableOrNull("ActiveSkills") is not { } active || ClientTables.TableOrNull("GrantedEffects") is not { } granted) return effects;
+        HashSet<int> skills = [];
+        int i = 0;
+        foreach (var a in active) { if (a.Ints("ActiveSkillTargetTypes").Contains(6)) skills.Add(i); i++; }
+        i = 0;
+        foreach (var e in granted) { if (e.IntOrNull("ActiveSkill") is int a && skills.Contains(a)) effects.Add(i); i++; }
+        return effects;
+    });
+
+    /// <summary>A corpse skill's use from its stats: its area (active_skill_base_area_of_effect_radius), the corpses it
+    /// takes (volatile_dead_base_number_of_corpses_to_consume), and a geyser's bursts (Cremation: one every
+    /// cremation_base_fires_projectile_every_x_ms for its duration). An orb or a projectile reaches the player from the
+    /// corpse; an explosion only its area.</summary>
+    static MonsterSkillUse CorpseUseOf(SkillCatalog skills, int effect, byte level, MonsterSkillShape shape, Dictionary<string, int> stats, double? seconds)
+    {
+        var raw = GolemData.Skill(skills, effect, level).Stats;
+        int Raw(string name) => Stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
+        double radius = Raw("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : LandingRadius;
+        bool shoots = skills.IsProjectile(effect) || skills.HasType(effect, "Orb");
+        int corpses = Math.Max(1, Raw("volatile_dead_base_number_of_corpses_to_consume"));
+        int every = Raw("cremation_base_fires_projectile_every_x_ms");
+        int pulses = every > 0 && seconds is > 0 ? Math.Max(1, (int)(seconds.Value * 1000 / every)) : 1;
+        return new(shape, 0, seconds ?? 0, stats, shape == MonsterSkillShape.Travel ? TravelMinRange : 0, OnCorpse: true,
+            Radius: radius, Reach: shape == MonsterSkillShape.Travel ? radius : shoots ? CorpseShotReach : radius,
+            Corpses: corpses, Pulses: pulses, PulseSeconds: every / 1000.0);
+    }
+
+    static bool IsCorpse(SpawnedMonster m) =>
+        m.Dead && m.Life == 0 && !m.CorpseConsumed && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true;
+
+    /// <summary>The corpse a monster uses the skill on, under the Monsters lock: for a travel, the one nearest the player
+    /// that is within its reach and brings it nearer; for a spell, the one nearest the player whose hits reach the player.
+    /// Null when there is none.</summary>
+    public static (uint Id, SpawnedMonster Corpse, (int X, int Y) At)? CorpseFor(ClientState conn, SpawnedMonster m, MonsterAttack a, double now)
+    {
+        if (a.Use is not { OnCorpse: true } use) return null;
+        var here = m.Walk.Position(now);
+        var player = conn.Walk.Position(now);
+        double near = Dist(here, player);
+        (uint, SpawnedMonster, (int, int))? best = null;
+        double bestDistance = double.MaxValue;
+        foreach (var (id, corpse) in conn.Monsters)
+        {
+            if (!IsCorpse(corpse)) continue;
+            var at = corpse.Walk.Position(now);
+            double fromMonster = Dist(here, at), fromPlayer = Dist(at, player);
+            bool fits = use.Shape == MonsterSkillShape.Travel
+                ? fromMonster <= a.Range && fromPlayer < near - use.MinRange / 2
+                : fromMonster <= a.Range && fromPlayer <= use.Reach;
+            if (!fits || fromPlayer >= bestDistance) continue;
+            (best, bestDistance) = ((id, corpse, at), fromPlayer);
+        }
+        return best;
+    }
+
+    /// <summary>Whether the kit may choose this attack now (BossKits.Choose): a corpse skill only with a corpse for it.</summary>
+    public static bool Usable(ClientState conn, SpawnedMonster m, MonsterAttack a, double now) =>
+        a.Use is not { OnCorpse: true } || CorpseFor(conn, m, a, now) is not null;
+
+    /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
+    /// (0x2bd) and every corpse use. Returns where each was.</summary>
+    static async Task<List<(int X, int Y)>> Consume(ClientState conn, uint corpseId, MonsterSkillUse use)
+    {
+        List<(uint Id, string Label, (int X, int Y) At)> taken = [];
+        lock (conn.Monsters)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (!conn.Monsters.TryGetValue(corpseId, out var first) || !IsCorpse(first)) return [];
+            var centre = first.Walk.Position(now);
+            foreach (var (id, corpse) in conn.Monsters.ToArray()
+                .Where(p => IsCorpse(p.Value) && (p.Key == corpseId || Dist(p.Value.Walk.Position(now), centre) <= use.Radius))
+                .OrderBy(p => p.Key == corpseId ? 0 : 1).Take(use.Corpses))
+            {
+                corpse.CorpseConsumed = true;
+                conn.Monsters.Remove(id);
+                taken.Add((id, corpse.Label, corpse.Walk.Position(now)));
+            }
+        }
+        var (remote, stream, ciphers) = conn.Wire;
+        foreach (var (id, label, _) in taken)
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd corpse 0x{id:x} ({label}) consumed by a monster's skill");
+        return [.. taken.Select(t => t.At)];
+    }
+
+    /// <summary>A hit on the player from a point (a corpse's explosion, orb or geyser), if the player is within reach of
+    /// it when it lands.</summary>
+    static async Task HitFrom(ClientState conn, uint id, SpawnedMonster m, int action, ushort seq, MonsterAttack a, (int X, int Y) from, double reach)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        MonsterHitOutcome? outcome = null;
+        var hit = a with { Range = reach, Use = null };
+        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        {
+            if (InGracePeriod(conn) || m.Dead) return null;
+            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            outcome = CommitMonsterHitLocked(remote, conn, id, m, hit, now, conn.Walk.Position(now), from, checkRange: true, sequence: seq);
+            return outcome?.HitPacket;
+        }, $"0x01af monster 0x{id:x} hit on the player from ({from.X}, {from.Y})")) return;
+        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
     }
 
     /// <summary>The auras a monster's skills keep up: their stats together and the BuffDefinitions rows that draw them.</summary>
@@ -156,6 +274,11 @@ public static partial class MonsterSkills
     {
         // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
         lock (conn.Monsters) BossKits.Consume(m, a, conn.Clock.Elapsed.TotalSeconds);
+        if (use.OnCorpse)
+        {
+            await OnCorpse(remote, stream, ciphers, conn, id, m, action, a, use);
+            return;
+        }
         int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
         if (chargePct > 0)
         {
@@ -194,6 +317,55 @@ public static partial class MonsterSkills
             case MonsterSkillShape.Curse:
                 await Curse(conn, id, use);
                 break;
+        }
+    }
+
+    /// <summary>A corpse skill: the action aimed at the corpse (its object as the target), then at its contact the corpse
+    /// taken. Bodyswap carries the monster onto it and explodes around it; a spell hits from each corpse it took, an
+    /// explosion at once, an orb or a geyser's projectile when it has flown to the player, a geyser once per burst.</summary>
+    static async Task OnCorpse(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
+    {
+        double startedAt = 0, seconds = a.Seconds;
+        ushort seq = conn.NextActionSequence();
+        uint corpseId = 0;
+        (int X, int Y) corpseAt = default;
+        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        {
+            if (CorpseFor(conn, m, a, AreaTime(conn)) is not { } corpse) return null;
+            if (MonsterSwingOrderLocked(conn, m, a, action, false, seconds, AreaTime(conn), seq) is not { } order) return null;
+            (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
+            (corpseId, corpseAt) = (corpse.Id, corpse.At);
+            return InstanceProtocol.ActionStarted(id, order.From.X, order.From.Y, corpseAt.X, corpseAt.Y, a.SkillId, seq,
+                conn.MonsterOrderFlags, targetObjectId: corpseId);
+        }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4} on a corpse, {seconds:0.00} s")) return;
+        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * 0.6)) return;
+        var corpses = await Consume(conn, corpseId, use);
+        if (corpses.Count == 0) return;
+        if (use.Shape == MonsterSkillShape.Travel)
+        {
+            lock (conn.Monsters) m.Walk.Teleport(corpseAt.X, corpseAt.Y, conn.Clock.Elapsed.TotalSeconds);
+            if (!a.Damage.IsZero) await HitFrom(conn, id, m, action, seq, a, corpseAt, use.Reach);
+            return;
+        }
+        if (a.Damage.IsZero) return;
+        bool shots = use.Reach > use.Radius;
+        for (int pulse = 0; pulse < use.Pulses; pulse++)
+        {
+            if (pulse > 0) await Task.Delay(TimeSpan.FromSeconds(use.PulseSeconds));
+            if (conn.Closed || m.Dead) return;
+            foreach (var from in corpses)
+            {
+                if (!shots) { await HitFrom(conn, id, m, action, seq, a, from, use.Reach); continue; }
+                // An orb or a projectile flies to where the player is, and hits if the player is still near it.
+                double flight = Dist(from, conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) / CorpseShotSpeed;
+                var corpse = from;
+                _ = Task.Delay(TimeSpan.FromSeconds(flight)).ContinueWith(async _ =>
+                {
+                    var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    if (Dist(corpse, player) <= use.Reach) await HitFrom(conn, id, m, action, seq, a, player, LandingRadius);
+                }).Unwrap();
+            }
         }
     }
 

@@ -67,6 +67,8 @@ public static class BossKits
                 || id.Contains("Emerge", StringComparison.Ordinal)
                 || id.Contains("Retreat", StringComparison.Ordinal))) continue;
             if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect))) continue;
+            // A skill on a corpse is no hit of its own: without one the client plays nothing (MonsterSkills.OnCorpse).
+            if (MonsterSkills.IsCorpseSkill(effect)) continue;
             if (!usable.Contains(effect)) usable.Add(effect);
         }
         return usable;
@@ -106,7 +108,8 @@ public static class BossKits
             {
                 // A travel reaches as far as it carries the monster; a buff or a curse is used from where it sees the player.
                 attack = attack with { Use = use, Range = use.Shape == MonsterSkillShape.Travel ? MonsterSkills.TravelReach : Math.Max(variety.AggroRange, attack.Range) };
-                cooldown = use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3) : Math.Max(cooldown, use.Seconds + 2);
+                cooldown = use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
+                    : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
                 kit.Add(new(effect, attack, cooldown));
                 continue;
             }
@@ -186,7 +189,7 @@ public static class BossKits
     /// the cooldown is for. Between specials (and for the skills without one, the default swing included) the skill used
     /// longest ago takes it, so the whole list is played rather than one move repeated; on a tie the default swing does,
     /// which is what a boss does with nothing to prove.</para></summary>
-    public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance)
+    public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
     {
         if (monster.Kit.Count == 0) return monster.Attack;
         MonsterKitSkill? best = null;
@@ -198,6 +201,8 @@ public static class BossKits
             if (entry.Attack.Range < distance) continue;
             // A travel is for closing a distance: nearer than its least, the monster swings.
             if (entry.Attack.Use is { } use && distance < use.MinRange) continue;
+            // A skill that needs what is not there (a corpse) waits.
+            if (usable is not null && !usable(entry.Attack)) continue;
             double used = monster.KitReadyAt.GetValueOrDefault(entry.Effect);
             bool special = entry.CooldownSeconds > 0;
             if (special && used > now) continue;

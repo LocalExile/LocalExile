@@ -59,7 +59,8 @@ public static partial class Game
             int? fallback = null;
             foreach (int effect in effects)
             {
-                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect)) continue;
+                // A corpse skill does nothing without a corpse (MonsterSkills.OnCorpse): it is never the plain attack.
+                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
