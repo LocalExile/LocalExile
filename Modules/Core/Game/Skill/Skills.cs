@@ -701,22 +701,13 @@ public static partial class Game
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
-                // Multistrike: a use repeats, each repeat after the first taking its own more damage. The panel's
-                // damage per use and DPS average all of those repeats rather than only the first hit's.
-                if (SkillsFor(conn).IsAttack(effect) && supportedHit != GameServer.Core.World.DamagePacket.Empty)
-                {
-                    int msRepeats = MeleeAttackRepeats(conn, id);
-                    if (msRepeats > 0)
-                    {
-                        double total = 1, mult = 1;
-                        for (int r = 1; r <= msRepeats; r++)
-                        {
-                            mult *= MeleeRepeatDamageMore(conn, id, r);
-                            total += mult;
-                        }
-                        supportedHit = supportedHit.Scale(total);
-                    }
-                }
+                // Each repeat has its own multiplier relative to the initial hit. Average only the display totals;
+                // per-hit ranges and ailment inputs still describe an individual hit.
+                int meleeRepeats = MeleeAttackRepeats(conn, id);
+                double repeatAverage = 1;
+                for (int repeat = 1; repeat <= meleeRepeats; repeat++)
+                    repeatAverage += MeleeRepeatDamageMore(conn, id, repeat);
+                repeatAverage /= meleeRepeats + 1;
                 double seconds = SkillsFor(conn).IsAttack(effect)
                     ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
                     : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
@@ -727,7 +718,7 @@ public static partial class Game
                 double damageFactor = CriticalStrikePolicy.DamageFactor(
                     CriticalProhibitedBy(characterInputs, SkillsFor(conn).IsAttack(effect), own) ? 0 : criticalChance,
                     criticalMultiplier, CriticalExtraRollsFor(conn, characterInputs, own),
-                    SkillsFor(conn).IsAttack(effect) ? accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false) : 100);
+                    SkillsFor(conn).IsAttack(effect) ? accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false) : 100) * repeatAverage;
                 var ranges = SkillsFor(conn).IsAttack(effect)
                     ? AttackPanelStats.Compute(finalPlan, supportedHit, 1 / seconds, damageFactor)
                     : SpellPanelStats.Compute(finalPlan, supportedHit, 1 / seconds,
@@ -757,7 +748,7 @@ public static partial class Game
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
                             SupportedOffHandAttackSeconds(conn, id, offWeapon), damageFactor,
-                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
+                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own) * repeatAverage);
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
                                 stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;

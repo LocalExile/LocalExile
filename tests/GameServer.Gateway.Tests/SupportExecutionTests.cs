@@ -169,4 +169,67 @@ public sealed class SupportExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
+    [Fact]
+    public void Multistrike_panel_averages_independent_repeats_for_each_hand_without_changing_hit_ranges()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"multistrike-panel-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull;
+        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("MultistrikePanelAcceptance");
+        try
+        {
+            foreach (var (support, repeats, average) in new[]
+            {
+                ("SupportGemMultistrike", 2, 1.22),
+                ("SupportGemGreaterMultistrike", 3, 1.33),
+                ("SupportGemAddedFireDamage", 0, 1.0),
+            })
+            {
+                ushort id = Equip(conn, "SkillGemCleave", support);
+                Assert.Equal(repeats, Game.MeleeAttackRepeats(conn, id));
+                var items = Game.ItemsOf(conn);
+                for (int hands = 1; hands <= 2; hands++)
+                {
+                    if (hands == 2)
+                    {
+                        var off = ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword5")!);
+                        items.Add(PlayerInventories.Offhand1, 0, 0, off);
+                    }
+                    conn.PlayerSkillsCache = null;
+                    var rows = Game.PlayerSkills(conn).Single(s => s.Id == id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+                    int Row(string name) => rows.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                    double Factor(string hand) => CriticalStrikePolicy.DamageFactor(Row(hand + "_critical_strike_chance"),
+                        Row(hand + "_critical_strike_multiplier"), 0, Row(hand + "_chance_to_hit_%"));
+                    var mainHit = Game.SupportedHit(conn, id);
+                    foreach (var (stat, value) in PanelStats.HandDamage(mainHit, "main_hand"))
+                        Assert.Equal(value, Row(stat));
+                    double mainSeconds = Game.SupportedAttackSeconds(conn, id);
+                    var main = SpellDamage.Display((mainHit.MinTotal, mainHit.MaxTotal), 1 / mainSeconds, Factor("main_hand") * average);
+                    int perUse = main.PerUse, perSecond = main.PerSecond;
+                    if (hands == 2)
+                    {
+                        var offWeapon = Game.OffhandWeaponFor(conn)!;
+                        var offInputs = Game.SupportedHitInputsFor(conn, id, weapon: offWeapon)!;
+                        var offHit = Game.SupportedHitFrom(offInputs, suppress: true);
+                        foreach (var (stat, value) in PanelStats.HandDamage(offHit, "off_hand"))
+                            Assert.Equal(value, Row(stat));
+                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal),
+                            1 / Game.SupportedOffHandAttackSeconds(conn, id, offWeapon), Factor("off_hand") * average);
+                        perUse = (int)Math.Round((main.PerUse + off.PerUse) / 2.0);
+                        perSecond = (int)Math.Round((main.PerSecond + off.PerSecond) / 2.0);
+                    }
+                    Assert.Equal(perUse, Row("display_hundred_times_damage_per_skill_use"));
+                    Assert.Equal(perSecond, Row("hundred_times_damage_per_second"));
+                }
+                foreach (var off in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Offhand1))
+                    items.Remove(PlayerInventories.Offhand1, off.Item.Id);
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
 }
