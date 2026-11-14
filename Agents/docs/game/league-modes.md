@@ -15,14 +15,14 @@ All eight combinations remain separate personal-stash and gold namespaces.
 | SSF Hardcore | SSF Standard |
 | Hardcore Allflame | Allflame |
 | HC SSF Allflame | SSF Allflame |
-| Any Hardcore Ruthless combination | The same variant without Hardcore (`parent` in its `league.json`) |
+| Any Hardcore Ruthless combination | The same variant without Hardcore (`parent` in its `league.json`); Void with `hardcoreDeathToVoid` |
 
 Ordinary challenge Hardcore deaths keep their challenge base and SSF choice.
 This follows the changed challenge-parent behavior documented in the
 [official 3.27 patch notes](https://www.pathofexile.com/forum/view-thread/3869068)
 and shown in the supplied 3.29 Allflame selector.
-The Hardcore Ruthless exception follows GGG's
-[Ruthless announcement](https://www.pathofexile.com/forum/view-thread/3320651): the character stays permanently dead.
+Retail voids Hardcore Ruthless deaths ([Ruthless announcement](https://www.pathofexile.com/forum/view-thread/3320651)):
+the character stays permanently dead. LocalExile does that only with the Ruthless setting `hardcoreDeathToVoid` (below).
 
 Carried equipment, inventory, gems and character progress stay with an ordinary migrated character.
 The source account stash and gold stay in the source league; the destination has its own stash and gold.
@@ -146,7 +146,7 @@ Native table values and implemented campaign rules are used where available; unk
 
 ## Change Ruthless balance without rebuilding
 
-Eight numbers are the Ruthless module's settings, declared in `Modules/Core/Ruthless/settings.json` with their defaults and
+Eight numbers and one switch are the Ruthless module's settings, declared in `Modules/Core/Ruthless/settings.json` with their defaults and
 limits ([modding](../dev/modding.md), "Settings"). These are server settings, separate from the private client's graphics
 and input settings. GGG does not publish the exact server drop and XP formulas, so the defaults are LocalExile
 approximations; they are not claimed to reproduce retail probabilities.
@@ -167,6 +167,7 @@ A user's values go in `data/modules/Ruthless.json`, with only the numbers they c
 | `experiencePenaltyStartLevel` | 68 | First character level affected by the extra player-XP penalty |
 | `experienceMultiplierPerLevel` | 0.90 | Factor compounded once at the start level and once for each subsequent level |
 | `campaignBossLifeRecoveryFraction` | 0.25 | Share of maximum life restored to a nearby campaign boss on player death |
+| `hardcoreDeathToVoid` | false | `true`: a Hardcore Ruthless death sends the character to Void, as retail does |
 
 For a multiplier, `0.25` means 25%, `0.50` means 50%, and `1.0` means the ordinary amount.
 For example, changing `gemExperienceMultiplier` from `0.25` to `0.50` doubles this Ruthless gem-XP allowance.
