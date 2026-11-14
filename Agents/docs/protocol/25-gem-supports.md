@@ -134,7 +134,7 @@ Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the 
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
 speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
 exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
-support's less damage; its radius is the 12-cell default grown by the area modifier and
+support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
 Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
