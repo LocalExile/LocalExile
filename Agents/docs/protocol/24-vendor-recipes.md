@@ -37,7 +37,9 @@ all original items. Socketed equipment cannot enter the sale until its gems have
   client tables carry `PassiveSkillTattoos.Tribe` (11 on the untagged Honoured/Journey/Ancestral/Forbidden rows) but
   not the recipe weights; they are the wiki's 60,000-tattoo vendoring sample (3:3:3:1:1 per tribe, Kitava may be
   4:2:2:2:1). Only the five tradeable tattoos of a tribe come out; Loyalty and Makanga tattoos can go in as tribe
-  tattoos. The input acceptance and the five-item output pool are this recipe's reading and are not live-checked.
+  tattoos. Unspent units of a matched tribe group come back like the essence block's remainders; fewer than three
+  units of a tribe do not match and sell normally. The input acceptance and the five-item output pool are this
+  recipe's reading and are not live-checked.
 - Currency downgrades for Portal/Transmutation/Alteration/armour/weapon quality currency; Fusing + Chromatic;
   Mirror -> 2 Exalted + 5 Regal + 1 Divine. These are sell recipes, not the direct-purchase currency exchange chain.
 - Vaal Orb from seven Vaal gems and a Sacrifice fragment; Mortal fragments do not qualify.
