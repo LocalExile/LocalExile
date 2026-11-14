@@ -106,6 +106,7 @@ public static partial class Game
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {
+            target.Ruptures.SetExpiryRate(now, target.RecipientDebuffRate);
             target.Ruptures.Add(now, settings.RupturePercent);
             target.Bleeds.SetExpiryRate(now, BleedingExpiryRate(target, now));
         }
