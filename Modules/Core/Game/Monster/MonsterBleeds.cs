@@ -99,6 +99,12 @@ public static partial class Game
             target.Bleeds.Aggravate();
         if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, conn.IgniteRandom)) return null;
         var e = target.Mods.Effects;
+        // Rupture Support: bleeding expires 25% more quickly per Rupture already on the target (poewiki Rupture:
+        // "Bleeding expires 25% more quickly per Rupture"). The bleed's duration is captured at application, so the
+        // reduction uses the Ruptures present before this hit; the Rupture this hit inflicts (below) affects later bleeds.
+        int ruptureStacks = target.Ruptures.Stacks(now);
+        if (ruptureStacks > 0)
+            settings = settings with { Seconds = settings.Seconds / (1 + 0.25 * ruptureStacks) };
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
                 conn.IgniteRandom)) return null;
