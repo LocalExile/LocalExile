@@ -122,7 +122,8 @@ public partial class Program
                 conn.Wire = (remote, stream, ciphers);
                 // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
                 // this connection's character is loaded only after that.
-                if (!await Logic.AdmittingAsync(conn))
+                // Closed: a third login of the character ended this one while it waited for the first.
+                if (!await Logic.AdmittingAsync(conn) || conn.Closed)
                 {
                     conn.CloseReason ??= "the game rules refused the connection";
                     Console.WriteLine($"[gateway] {remote} connection refused by the rules");
@@ -250,25 +251,32 @@ public partial class Program
             left.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
-            // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                if (!left.BuildFinalized) Logic.Save(left, prepared);
+                // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
+                try
+                {
+                    if (!left.BuildFinalized) Logic.Save(left, prepared);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                }
+                // What follows must run whatever the rules do, or the player stays in the instance.
+                try { if (!left.BuildFinalized) Logic.Left(left); }
+                catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
+                left.Instance.RemovePlayer(left.PeerId);
+                if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
+                ForgetCommands(left);
+                Instances.Leave(left.Instance);
+                CharacterBuildImports.Release(left);
             }
-            catch (Exception e)
+            finally
             {
-                Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                // The connection has ended and its save is written: whoever ended it for another connection goes on. Set
+                // whatever threw above, or that login (and every later one of the character) would wait for ever.
+                left.Ended.TrySetResult();
             }
-            // What follows must run whatever the rules do, or the player stays in the instance.
-            try { if (!left.BuildFinalized) Logic.Left(left); }
-            catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
-            left.Instance.RemovePlayer(left.PeerId);
-            if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
-            ForgetCommands(left);
-            Instances.Leave(left.Instance);
-            CharacterBuildImports.Release(left);
-            // The connection has ended and its save is written: whoever ended it for another connection goes on.
-            left.Ended.TrySetResult();
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder

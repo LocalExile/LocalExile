@@ -94,9 +94,21 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         foreach (var previous in Rules.ClaimCharacter(conn))
         {
+            // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once
+            // this one is up (09 §6). It is not another login, and main's transfer path already orders its saves.
+            if (previous.TransferAccepted) continue;
             Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: another login took the character; ending the older connection");
-            await Program.EndAsync(previous, "another login took this character",
-                "This character was entered from another client: you have been disconnected.");
+            try
+            {
+                await Program.EndAsync(previous, "another login took this character",
+                    "This character was entered from another client: you have been disconnected.");
+            }
+            catch (TimeoutException)
+            {
+                Console.WriteLine($"[gateway] {Program.CharacterName(conn)}: the older connection did not finish ending within "
+                    + $"{Program.EndingTimeout.TotalSeconds:0} s; this login is refused");
+                return false;
+            }
         }
         return true;
     }
