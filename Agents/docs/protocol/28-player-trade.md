@@ -32,7 +32,7 @@ was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) remov
 - wstr account (the key; entry `+0x30`), wstr (`+0x50`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
   u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
 - with bit 2 (or bit 5): wstr character (`+0x70`), u8 (`+0xb9`), u8 (`+0xb8`, the packed class); with bit 2 also u16 BE
-  (`+0xa8`, sent as the level), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
+  (`+0xa8`, the area the player is in), u16 BE (`+0xac`), wstr (`+0x90`), u8 (`+0xb4`), then the pairs;
 - without bit 2: u64 (`+0xa0`).
 
 The bit 1 pair is the portrait frame (`+0xb0`) and the portrait (`+0xb2`); the client's writer leaves it out when both are
@@ -113,6 +113,12 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   - Every member, the player itself too, must be in the known players first.
   - Without its own entry, the joining client threw (a huge string copy in `0x14020b5a0`) from the party-changed event
     (`+0x7578`, raised by `0x14215ddc0`).
+- **A member's area, and the travel button.** The panel's row draws its member's area from that member's known-player
+  `+0xa8`, a `WorldAreas` HASH16: `0x140207a95` reads it and `0x140208210` resolves it through the area data, and a
+  value that is no area (a level, say) is drawn as "Travelling..." with the row's button disabled.
+  - The button sends **C→S 0x92** with that member's character name in a wstr (live 2026-11-14:
+    `0092000F` + `CorvinRavencall`); the client only asks, and the server moves the player, as the real one does.
+    Nothing is sent back: the answer is the area change (0x2b4, then 0x27).
 - **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
   `0x142153495`): u32 party id, u8 reason.
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
