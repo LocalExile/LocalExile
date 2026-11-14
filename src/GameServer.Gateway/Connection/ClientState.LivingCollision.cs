@@ -132,13 +132,29 @@ public sealed partial class ClientState
         return new BlockerSet(result);
     }
 
+    /// <summary>What stands in a monster's way now. Inside a pass its frame answers. Outside one (an order placed at
+    /// its send gate, a skill's walk) the bodies are read each time, and the frame made from them is kept for as long as
+    /// they read the same: a crowd's orders of one client frame would otherwise each index every body again.</summary>
     public IReadOnlyList<ClientPathfinder.Blocker> MonsterBlockers(uint self)
     {
         lock (Monsters)
         {
             if (monsterFrame is { } frame) return frame.For(self);
-            using var snapshot = BeginMonsterBlockerFrame(Clock.Elapsed.TotalSeconds);
-            return snapshot.For(self);
+            long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            double now = Clock.Elapsed.TotalSeconds;
+            var read = spareBodies ?? new BodyList();
+            spareBodies = null;
+            read.Read(this, now, placement: false);
+            if (keptFrame is { } kept && kept.Read.Same(read))
+            {
+                spareBodies = read;
+                Performance.Elapsed(LatencyPhase.BlockerBuild, startedAt);
+                return kept.For(self);
+            }
+            // The frame given up is used by nobody (its views are read only inside the search they were asked for).
+            spareBodies = keptFrame?.Read;
+            keptFrame = new MonsterBlockerFrame(this, null, read, startedAt);
+            return keptFrame.For(self);
         }
     }
 

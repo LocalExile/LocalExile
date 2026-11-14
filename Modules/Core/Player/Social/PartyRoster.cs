@@ -120,6 +120,8 @@ public static class PartyRoster
         }
     }
 
+    // The wire encrypts a packet in place (Program.Write), so a kept one (a companion's Known) is sent as a copy:
+    // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
     static Task Send(ClientState c, byte[] packet) => !c.Closed && c.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
     static byte[] Known(ClientState c) => InstanceSocial.KnownPlayer(c.Account ?? CharacterName(c), CharacterName(c),
@@ -152,7 +154,7 @@ public static class PartyRoster
                 await Deliver(to, async () =>
                 {
                     foreach (var human in humans) await Send(to, Known(human));
-                    foreach (var guest in guests) await Send(to, guest.Known);
+                    foreach (var guest in guests) await Send(to, [.. guest.Known]);
                     await SetPartySize(to, entries.Length);
                     await Send(to, InstanceSocial.PartyInfo(party, CharacterName(leader), leader.Account ?? CharacterName(leader),
                         ownIndex, 0, 0, 0, entries));
@@ -190,7 +192,7 @@ public static class PartyRoster
         // The party id itself stays stable for its existing members and module-owned actors.
         await Send(to, InstanceSocial.PartyRemove(party));
         foreach (var human in humans) await Send(to, Known(human));
-        foreach (var guest in guests) await Send(to, guest.Known);
+        foreach (var guest in guests) await Send(to, [.. guest.Known]);
         await Send(to, Known(to));
         (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
             .. guests.Select(m => (m.Account, (byte)1)), (to.Account ?? CharacterName(to), (byte)0)];

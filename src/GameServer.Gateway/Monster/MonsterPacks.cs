@@ -488,10 +488,13 @@ public static class AreaPopulation
         {
             if (i >= area.Bosses.Count || at.ContainsKey(area.Bosses[i])) continue;
             if (points.FirstOrDefault(p => BossPoint(p.Name) is { Count: > 0 } rows && rows.Contains(i + 1)) is not { } point) continue;
-            if (Nearest((point.X, point.Y), walkable, [], BossSearchRadius) is { } cell) at[area.Bosses[i]] = cell;
+            if (BossCell(point, walkable) is { } cell) at[area.Bosses[i]] = cell;
         }
         return at;
     }
+
+    public static (int X, int Y)? BossCell(RoomPoint point, Func<int, int, bool> walkable) =>
+        Nearest((point.X, point.Y), walkable, [], BossSearchRadius);
 
     /// <summary>The free walkable cell nearest to <paramref name="at"/> within <paramref name="radius"/> (square rings
     /// outwards, the closest of each ring by distance), or null.</summary>

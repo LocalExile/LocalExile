@@ -162,15 +162,26 @@ public static partial class Game
                 // player, since the projectile is launched by the cast below (live 2026-10-25).
                 bool attack = cast && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect);
                 if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(conn).IsMovement(gem.Effect)
-                    && !SkillsFor(conn).IsProjectile(gem.Effect) && WeaponProfileFor(conn).Melee)
+                    && (!SkillsFor(conn).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)))
+                    && WeaponProfileFor(conn).Melee)
                 {
                     var here = conn.Walk.Position(at);
                     if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(conn).Range))
                     {
                         int walkAction = 0;
+                        double arrive = at;
+                        // A predictive client's action walks up to the weapon's range less one of the aim and swings there
+                        // by itself (07 §5), so the estimate stops there too and swings on arrival (SwingAtGroundOnArrival).
                         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                             CooldownForSkill(conn, use.SkillId), false,
-                            () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
+                            () =>
+                            {
+                                at = Math.Max(at, ProjectileWorldTime(conn));
+                                walkAction = Interlocked.Increment(ref conn.ActionCount);
+                                if (conn.LockstepClient) conn.Walk.Order(use.X, use.Y, at);
+                                else arrive = conn.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(conn)), at).At;
+                                conn.ChannelSkill = 0;
+                            },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
                         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})",
@@ -185,6 +196,8 @@ public static partial class Game
                             await SendPlayerMana(remote, stream, ciphers, conn,
                                 $"0x01b1 player mana {conn.PlayerMana} (attack-move, cost back)");
                         }
+                        if (!conn.LockstepClient)
+                            _ = SwingAtGroundOnArrival(remote, stream, ciphers, conn, use, gem, walkAction, arrive);
                         continue;
                     }
                 }
@@ -264,8 +277,11 @@ public static partial class Game
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 Mark("charge");
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
-                if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
-                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                double? swingAt = attack ? at : null;
+                Task<bool>? castTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
+                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
+                    swingAt: swingAt) : null;
+                if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
                 Func<Task> echo = async () =>
@@ -293,7 +309,7 @@ public static partial class Game
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
-                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);

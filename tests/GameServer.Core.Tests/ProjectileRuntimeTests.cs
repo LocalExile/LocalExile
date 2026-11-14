@@ -45,4 +45,60 @@ public class ProjectileRuntimeTests
             Assert.Contains(e.Projectile.Use.Payload, new object?[] { "paid", "unpaid" }));
     }
 
+    [Fact]
+    public void Per_initial_projectile_speeds_deliver_different_targets_in_same_time_window()
+    {
+        var world = new Arena();
+        var runtime = new ProjectileRuntime(world);
+        var profile = new ProjectileProfile("mortar")
+        {
+            Count = 2, Lobbed = true, DirectDamage = false,
+            EndArea = new("landing", 2),
+            EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+        };
+
+        Assert.Throws<ArgumentException>(() => runtime.Release(Use(profile) with { ProjectileSpeeds = [10] }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => runtime.Release(Use(profile) with { ProjectileSpeeds = [10, 0] }));
+
+        var targets = new ProjectileVector[] { new(6, 0), new(24, 0) };
+        var speeds = new[] { 6 / 0.633, 24 / 0.633 };
+        runtime.Release(Use(profile) with { ProjectileTargets = targets, ProjectileSpeeds = speeds });
+        runtime.AdvanceTo(ProjectileRuntime.Time(0.65));
+
+        var landings = world.Events.Where(e => e.Kind == ProjectileEventKind.End && e.Reason == ProjectileEndReason.Landing).ToList();
+        Assert.Equal(2, landings.Count);
+        Assert.All(landings, l => Assert.InRange(l.At / (double)ProjectileRuntime.QuantaPerSecond, 0.62, 0.65));
+        Assert.Contains(landings, l => Math.Abs(l.Position.X - 6) < 0.01);
+        Assert.Contains(landings, l => Math.Abs(l.Position.X - 24) < 0.01);
+    }
+
+    [Fact]
+    public void Ground_bounce_keeps_range_when_enabled_else_uses_ground_bounce_distance()
+    {
+        var world = new Arena();
+        var runtime = new ProjectileRuntime(world);
+        var profile = new ProjectileProfile("bounce")
+        {
+            Count = 1, Lobbed = true, DirectDamage = false, Speed = 100, GroundChains = 1, GroundBounceDistance = 16,
+            EndArea = new("landing", 2),
+            EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
+        };
+
+        runtime.Release(Use(profile with { GroundBounceKeepsRange = false }) with
+        {
+            ProjectileTargets = [new(10, 0)]
+        });
+        runtime.AdvanceTo(ProjectileRuntime.Time(1.0));
+        var defaultEnd = Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End);
+        Assert.Equal(26, defaultEnd.Position.X, 4);
+
+        world.Events.Clear();
+        runtime.Release(Use(profile with { GroundBounceKeepsRange = true }) with
+        {
+            ProjectileTargets = [new(10, 0)]
+        });
+        runtime.AdvanceTo(ProjectileRuntime.Time(2.0));
+        var keptEnd = Assert.Single(world.Events, e => e.Kind == ProjectileEventKind.End);
+        Assert.Equal(20, keptEnd.Position.X, 4);
+    }
 }

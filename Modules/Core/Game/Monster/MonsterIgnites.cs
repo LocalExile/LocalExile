@@ -127,7 +127,8 @@ public static partial class Game
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
-        return WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand);
+        return WithOverheat(conn, skillId,
+            WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand));
     }
 
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation

@@ -1,6 +1,7 @@
 {
   "modules": [
     "Core/Content/Delve",
+    "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
     "Core/Game",

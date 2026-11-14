@@ -330,6 +330,15 @@ whether the real server sends the rarity's own mods, and in which list. The mons
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
 
+## Arakaali's arena lasers
+
+`SpiderGodActivateLaser` (ActionTypes row 722, HASH16 `0xf2d4`) enters
+`0x141c79bd0`, which gathers `ArakaaliTurret_A` and `ArakaaliTurret_B` objects. Its shuffle starts at `begin + 8`
+without checking an empty list: with both begin/end pairs null, the count becomes -1 and it dereferences address 8
+at `0x141c7a0e4`. The Toward/Away effects use the same action. These are encounter drivers, not standalone attacks;
+generic boss AI cannot call them without the turret objects. A missing `SpellProjectileCold` clip in the default
+stance is a separate phase-admission problem, not the faulting instruction.
+
 ## ControlZone and Orion's projection
 
 The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`

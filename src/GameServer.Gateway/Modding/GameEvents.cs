@@ -147,6 +147,9 @@ public static class GameEvents
     /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> AreaGenerated = new();
 
+    /// <summary>The player has used an area transition to another room of this instance.</summary>
+    public static readonly GameEvent<Func<ClientState, Task>> LocalGateUsed = new();
+
     /// <summary>The player is about to leave the area or the game, with why.</summary>
     public static readonly GameEvent<Func<ClientState, string, Task>> PlayerLeaving = new();
 
@@ -158,6 +161,15 @@ public static class GameEvents
 
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>A map device's checked input before any item is consumed.</summary>
+    public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
+
+    public static void ResolveMapOpening(MapOpening request)
+    {
+        foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
+            GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
+    }
 
     /// <summary>A hostile monster died by the player's hand, after its kill was committed (<see cref="Kill"/> runs inside the commit).</summary>
     public static readonly GameEvent<Func<MonsterKill, Task>> MonsterKilled = new();
@@ -201,6 +213,11 @@ public static class GameEvents
     public static async Task RunAreaGenerated(ClientState conn)
     {
         foreach (var (owner, run) in AreaGenerated.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(conn));
+    }
+
+    public static async Task RunLocalGateUsed(ClientState conn)
+    {
+        foreach (var (owner, run) in LocalGateUsed.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(LocalGateUsed), () => run(conn));
     }
 
     public static async Task RunPlayerLeaving(ClientState conn, string why)

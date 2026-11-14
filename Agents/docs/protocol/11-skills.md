@@ -1146,9 +1146,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   - bit 0 clear: a point **within the weapon's reach** is a swing at the ground, even with nothing standing there (live
     2026-10-26: standing and swinging at empty ground must cost the skill's mana, as it does on the client); the server
     echoes 0x1ab in place, pays the cost and runs the skill's area hit. A point **beyond** the reach is an
-    **attack-move** — the client walks to the aimed point itself and sends no C→S 0x25 Move for that walk, so the server
-    walks its estimate after it (`Walk.Order`) and answers 0x1ab from that estimate, like a move's echo; it costs no
-    mana. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
+    **attack-move** — the client walks up to the weapon's range less one of the aimed point itself, sends no C→S 0x25
+    Move for that walk, and swings there with no further message ([07](07-latency-visibility-movement.md) §5). The
+    server walks its estimate after it (`Walk.Approach`) and answers 0x1ab from that estimate, like a move's echo, with
+    no cost; on the estimate's arrival it swings as after a walk-up to a monster (`SwingAtGroundOnArrival`). Until
+    2026-11-13 it only walked, and the client's swing at the end hit nothing. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
     hit still covers every monster within the skill's radius of it, the client aiming at the cell rather than the
     object: Holy Strike on a monster sends 0x25, live 2026-10-25), beyond reach it is an attack-move.
     The client's threshold for that choice is not traced: its action's walk-up (`0x141e95400`) gives MoveTo the range
@@ -1641,8 +1643,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   The previous absolute-value interpretation under-scaled positive offsets and ignored negative offsets.
   Missing data retains the identity fallback; a known zero offset resolves to an explicit 100%.
   A spell's own base damage is already final; its added damage alone uses effectiveness (Fireball level 1: 300%).
-  Current attacks retain the shared effectiveness scalar for their whole packet; separate weapon-base
-  `BaseMultiplier` versus added-damage coefficients are not distinguished by this existing constructor.
+  Attacks use the independently decoded `BaseMultiplier` for the local weapon packet and `DamageEffectiveness`
+  for already-supported additions; local weapon flat damage stays in the former.
+  Level-2 Tornado Shot offsets 110/100 mean 101.1%/101%, while Rain of Arrows -5140/-5100 mean 48.6%/49%.
+  Pinned PoB `16de4b82`, `CalcOffence.lua` lines 3350–3356 applies these coefficients separately.
+  New skill-specific added-damage inputs remain outside this correction (#368); native validation remains open.
   Normal KB's 40% less area damage is applied by the secondary-explosion profile, not the main-hit panel.
 - **Per-level stats** add to a ConstantStats value of the same stat instead of replacing it (Righteous Fire's radius:
   18 + 0 at level 1).
@@ -2548,11 +2553,13 @@ on the monsters the client strikes.
   active-skill hash and that use as the first entry).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
-  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and their transfigured
-  gems except Frost Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes
-  through the projectile runtime (`ScheduleGemProjectile`), which launches only its
-  projectiles: the server has no melee hit for these gems, so it has no spirit strikes or previous location for them
-  either and sends them no `skill_location_memory`.
+  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Wild Strike and their transfigured gems except Frost
+  Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes through the
+  projectile runtime (`ScheduleGemProjectile`), which launches only its projectiles: the server has no melee hit for
+  these gems, so it has no spirit strikes or previous location for them either and sends them no
+  `skill_location_memory`. Molten Strike is the exception: its melee hit (`MoltenStrike.cs`, a copy of `AreaSkillHit`'s
+  per-target pipeline) takes the spirit strikes and the previous location too, and launches its balls from the struck
+  enemies.
   The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
   damage on the server.
   The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
@@ -3782,13 +3789,12 @@ per-use critical rolls are shared as documented above. Remaining source conditio
 [Damage §2h](20-damage.md#2h-ordinary-attack-evasion-and-critical-confirmation) records the source evidence,
 snapshot/admission decisions, alternatives, parsed-contact controls and remaining native work.
 
-**Selected attack-gem hit rows (#196)** (`AttackSkillHit`, `AttackPanelStats`): main-hand total and per-type
+**Selected attack-gem hit rows (#196)** (`SupportedHitInputsFor`, `AttackPanelStats`): main-hand total and per-type
 ranges now use the same packet constructor as projectile and area attack combat.
-The constructor starts with raw local weapon and added damage, applies the skill's level-aware effectiveness,
+The constructor scales local weapon and added damage with their separate level-aware coefficients (§9),
 then resolves conversion/gain history and inherited modifiers together through `PlayerHitDamage`.
-Conversion retains `ConversionFor` precedence: player keys win and level-only skill keys fill gaps, without quality
-conversion. Final supported rows are then replaced from `SupportedHit`'s existing merged supported inputs.
-Burning Arrow level one uses effectiveness 18000 and 100% skill physical-to-fire conversion; Heavy Strike uses 12430.
+Supported rows use the same merged character/skill inputs as the hit and its captured ailment inputs.
+Burning Arrow level one's two offsets of 18000 mean 280%, with 100% skill physical-to-fire conversion.
 All twelve main-hand range fields are explicit and floored, including zeros for absent types after conversion.
 `CharacterPanelStats` reads whole-number total keys 670/671, physical 279/280, fire 267/268, cold 263/264,
 lightning 271/272 and chaos 275/276. These rows retain the existing main-hand and spell/secondary gates.

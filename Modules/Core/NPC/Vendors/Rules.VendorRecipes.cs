@@ -250,20 +250,22 @@ sealed partial class VendorRecipes
                      .GroupBy(i => TattooTribe(i.Type.Id)).ToList())
         {
             var entries = group.ToList();
-            while (entries.Sum(i => i.Left) >= 3)
+            int count = entries.Sum(i => i.Left) / 3;
+            if (count == 0) continue;
+            int consumed = count * 3;
+            foreach (var entry in entries) { int take = Math.Min(consumed, entry.Left); entry.Left -= take; consumed -= take; }
+            for (int n = 0; n < count; n++)
             {
-                int take = 3;
-                foreach (var entry in entries)
-                {
-                    if (take == 0) break;
-                    int used = Math.Min(take, entry.Left);
-                    entry.Left -= used;
-                    take -= used;
-                }
                 recipes.Add("three tattoos of one tribe");
                 if (TattooCatalogue.VendorTattoo(group.Key, rng) is { } name
                     && TattooCatalogue.Create(_catalog, name) is { } tattoo)
                     rewards.Add(tattoo);
+            }
+            // Currency remainders are returned, not silently sold (like the essence block above).
+            foreach (var entry in entries.Where(i => i.Left > 0))
+            {
+                rewards.Add(entry.Item with { StackSize = (ushort)entry.Left });
+                entry.Left = 0;
             }
         }
 

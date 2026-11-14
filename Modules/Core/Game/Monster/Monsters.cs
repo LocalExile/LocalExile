@@ -29,6 +29,26 @@ public static partial class Game
             ? [.. stats, (StatKeys.SkillBehaviourVariation, variation)]
             : stats;
 
+    // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
+    // not emit a shot. Keep simulated mortars on their own publication path.
+    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    {
+        if (attack.Projectile is not null) return MonsterProjectileSkillStats(conn, effect, level, attack);
+        var catalog = SkillsFor(conn);
+        var own = WithBehaviourVariation(conn, effect, attack.SkillStats());
+        if (!attack.Ranged) return own;
+        var raw = catalog.EffectStats(effect, level);
+        int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        count = Math.Max(1, count);
+        own = [.. own, (StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count),
+            (StatKeys.TotalArrowsToFire, count), (StatKeys.VirtualTotalArrows, count)];
+        var taken = own.Select(s => s.Item1).ToHashSet();
+        foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
+        return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
+    }
+
     public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
         var own = attack.InPlaceSkillStats();
@@ -217,7 +237,7 @@ public static partial class Game
         };
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
-                attack.Projectile is null ? WithBehaviourVariation(conn, effect, attack.SkillStats()) : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
+                MonsterActionSkillStats(conn, effect, level, attack)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
         // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
         var stage = scripted || atlas ? null : BossFights.For(variety.Id);
@@ -248,7 +268,7 @@ public static partial class Game
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? BrineKing.StartStates(variety) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
+        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
         var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skills, stats)
         {
@@ -299,7 +319,9 @@ public static partial class Game
             // wake zone until the player comes near: KeepWakeZone wakes it there. Woken at creation, the client put its far
             // copy to sleep on its own while the server still had it awake, and the boss life bar (0x2bc boss_life_bar) for
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
-            bool farBoss = variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
+            // created awake, as every other buried monster is; its bar only comes after the rise.
+            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
             if (farBoss) lock (conn.Monsters) conn.AsleepMonsters.Add(id);
             else await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
             if (farBoss && log) Console.WriteLine($"[gateway] {remote} boss 0x{id:x} {variety} created asleep: far from the player");
@@ -339,7 +361,7 @@ public static partial class Game
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
                 // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
                 LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
-                EntranceGrace = !friendly && (Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
+                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
             if (friendly) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
@@ -398,9 +420,10 @@ public static partial class Game
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         var quests = QuestsOf(conn);
+        bool useWetlandsFallback = false;
         // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
         // placed with the area.
-        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && !quests.QuestSpawned(layout.Id, v.Id);
+        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && (!quests.QuestSpawned(layout.Id, v.Id) || useWetlandsFallback && v.Id == RyslathaEncounter.Boss);
         // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
         area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
         // Device-recipe phases hold the last WorldAreas boss (Maven's Nucleus, Sirus, Atziri) until the first wave is dead.
@@ -433,6 +456,14 @@ public static partial class Game
                     trapClear.Add((trap.X + dx, trap.Y + dy));
         // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
         var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
+        var nests = new List<AreaPopulation.Spawn>();
+        if (layout.Id == RyslathaEncounter.Area && quests.FormsAfter(layout.Id, RyslathaEncounter.Nest).Count > 0)
+        {
+            if (RyslathaEncounter.Place(points, walkable, nests) is { } arena)
+                laterForms[Monsters.Find(RyslathaEncounter.Boss)!.Row] = arena;
+            else
+                useWetlandsFallback = true;
+        }
         lock (conn.Monsters)
         {
             conn.LaterFormPoints.Clear();
@@ -449,6 +480,7 @@ public static partial class Game
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks],
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
+        spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
                 foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
@@ -1773,7 +1805,7 @@ public static partial class Game
         if (suppressed && m.Rarity == MonsterRarity.Unique && conn.PlayerLife > 0)
             LoyaltySuppressedHitLocked(conn, stats);
         var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
-        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided);
+        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided, ElusiveAvoidPct(conn));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);

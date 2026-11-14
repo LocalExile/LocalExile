@@ -84,6 +84,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
 - Lifetap Support. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Blood Magic. Docs: [25](../docs/protocol/25-gem-supports.md).
+- Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
+  from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
+  Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,
@@ -96,6 +99,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
 - Weapon-local damage and timing. Docs: [20](../docs/protocol/20-damage.md) §2a.
+  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) §2c.
@@ -130,6 +134,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
+  Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),

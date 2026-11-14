@@ -8,8 +8,8 @@ public static partial class Game
     // Inspiration charges cap at five (poedb: maximum_righteous_charges is the buff's own maximum).
     public const int InspirationMaxCharges = 5;
 
-    // BuffDefinitions rows: arcane_surge (895) and righteous_charge (1378).
-    const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378;
+    // BuffDefinitions rows: arcane_surge (895), righteous_charge (1378) and cruelty (1815).
+    const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378, CrueltyBuffRow = 1815;
 
     /// <summary>Arcane Surge without the support: "Arcane Surge grants 20% increased Cast Speed and 30% increased Mana
     /// Regeneration rate, for 4 seconds" (ReminderTextArcaneSurge; SupportArcaneSurge's constant stats are the same).</summary>
@@ -188,6 +188,40 @@ public static partial class Game
             packets.Add(InstanceEntities.AddBuff(PlayerId, state.ArcaneSurgeBuff, ArcaneSurgeBuffRow, PlayerId,
                 u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.ArcaneSurgeUntil - now))));
             state.PendingStats = true;
+        }
+
+        // Cruelty: one buff for the player, showing the strongest running per-skill value (BuffDefinitions 1815, its
+        // one GrantedStats value is the more damage over time). The client's field +0x82 is a percent increase to the
+        // shown value, so it is sent as 0, as the elemental ailment rows' is.
+        int crueltyPct = 0;
+        double crueltyUntil = 0;
+        foreach (var (skill, pct) in state.CrueltyPct)
+        {
+            if (state.CrueltyUntil.GetValueOrDefault(skill) <= now || pct <= 0) continue;
+            double until = state.CrueltyUntil[skill];
+            if (pct > crueltyPct || pct == crueltyPct && until > crueltyUntil) (crueltyPct, crueltyUntil) = (pct, until);
+        }
+        int shownCruelty = state.PresentedCrueltyPct;
+        bool crueltyChanged = crueltyPct != shownCruelty;
+        if (state.PresentedCruelty != 0 && (crueltyPct == 0 || crueltyChanged
+            || crueltyUntil - state.CrueltyShownUntil >= ArcaneSurgeRepresentSeconds))
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCruelty));
+            state.PresentedCruelty = 0;
+            state.PresentedCrueltyPct = 0;
+        }
+        // The ailment rows the panel shows change with the buff, so a change of value refreshes the character stats; a
+        // refresh of the deadline alone only re-sends the buff.
+        if (crueltyChanged) state.PendingStats = true;
+        if (crueltyPct > 0 && state.PresentedCruelty == 0)
+        {
+            state.CrueltyBuff = conn.NextBuff++;
+            state.PresentedCruelty = state.CrueltyBuff;
+            state.PresentedCrueltyPct = crueltyPct;
+            state.CrueltyShownUntil = crueltyUntil;
+            packets.Add(InstanceEntities.AddBuff(PlayerId, state.CrueltyBuff, CrueltyBuffRow, PlayerId,
+                u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, crueltyUntil - now)),
+                u82: 0, values: [(uint)crueltyPct]));
         }
 
         // Inspiration charges last ten seconds (longer with the support's quality) and all of them expire together.

@@ -8,10 +8,28 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static readonly Lazy<Dictionary<string, StateMachineData>> ProjectileStateMachines = new(() =>
+    {
+        var states = ObjectTypes.SharedStates();
+        var machines = new Dictionary<string, StateMachineData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, row) in ObjectTypes.All())
+        {
+            if (!path.StartsWith("Metadata/Projectiles/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (ObjectTypes.Components(row) is [.., "Projectile", "StateMachine"]
+                && ObjectTypes.StateMachine(row, states) is { } machine)
+                machines[path] = machine;
+        }
+        return machines;
+    });
+
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
-    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
-        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
+    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj)
+    {
+        if (obj.StateMachine is null && ProjectileStateMachines.Value.TryGetValue(obj.TypePath, out var machine))
+            obj = obj with { StateMachine = machine };
+        return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
+    }
 
     public static byte[] CreateEffectObject(uint id, EffectObject effect) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
@@ -106,18 +124,22 @@ public static partial class Game
                     Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
                     {
                         if (!Active || !valid()) return;
-                        try
-                        {
-                            var use = release() with { Seed = ++seed };
-                            long useId = Runtime.Release(use);
-                            if (ServerTrace.Projectiles && !Quiet(use.Payload))
-                                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
-                                    + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
-                                    + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
-                        }
+                        try { ReleaseNow(release()); }
                         catch (InvalidOperationException ex)
                         { Console.WriteLine($"[gateway] {remote} projectile path unavailable: {ex.Message}"); }
                     });
+        }
+
+        /// <summary>Releases a resolved use at the runtime's current instant. Call under the Monsters lock.</summary>
+        public long ReleaseNow(ProjectileUse use)
+        {
+            var seeded = use with { Seed = ++seed };
+            long useId = Runtime.Release(seeded);
+            if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
+                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
+                    + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
+                    + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
+            return useId;
         }
 
         public double NowTicks => Runtime.Now;
@@ -252,33 +274,72 @@ public static partial class Game
         /// flight never contacts the monster itself.</summary>
         public ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
 
+        // The runtime asks for the actors at every step of the simulation, thousands of times a second in a crowd, and
+        // a new record and position function for each monster each time was a third of what a step cost. A monster keeps
+        // its record for as long as what the record says stands: its id, its walk (the function reads that walk), its
+        // side and its size. The list itself is new every time: the runtime holds one while a hit changes the next.
+        readonly Dictionary<SpawnedMonster, (uint Id, object Walk, bool Hostile, int Size, ProjectileActor Actor)> actorOf =
+            new(ReferenceEqualityComparer.Instance);
+        ProjectileActor? playerActor;
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
-            var result = new List<ProjectileActor>();
+            var result = new List<ProjectileActor>(Conn.Monsters.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
                 if (monster.Dead || monster.Life == 0) continue;
                 var walk = monster.Walk;
-                result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
-                    t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
+                int size = LivingCollision.Size(monster);
+                if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
+                    || kept.Hostile != monster.Hostile || kept.Size != size)
+                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, new(Key(id, monster), monster.Hostile ? 2 : 1,
+                        t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size });
+                result.Add(kept.Actor);
             }
+            // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
+            // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
+            // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
+            if (actorOf.Count > 2 * result.Count + 64) PruneActors();
             foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
                 result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
-                result.Add(new(new(PlayerId, epoch), 1,
+                result.Add(playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
         }
 
+        void PruneActors()
+        {
+            var listed = new HashSet<SpawnedMonster>(Conn.Monsters.Values, ReferenceEqualityComparer.Instance);
+            foreach (var monster in actorOf.Keys.Where(m => m.Dead || m.Life == 0 || !listed.Contains(m)).ToArray())
+                actorOf.Remove(monster);
+            // A living monster that left the list (asleep, held back) keeps its generation, so a flight that already hit
+            // it does not see a new actor when it returns.
+            foreach (var monster in generations.Keys.Where(m => (m.Dead || m.Life == 0) && !listed.Contains(m)).ToArray())
+                generations.Remove(monster);
+        }
+
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
             ProjectileGeometry.TraceGrid(from, to, Wall);
 
+        // The area's cells and heights, looked up once for the session (a connection plays one area): by the area's name
+        // it was a string and two dictionary lookups for every cell every flight crossed at every step. Kept only once
+        // found, and the heights asked for again after a capture was forgotten (TerrainHeights.Forget).
+        ProjectileGrid.Area? blocking;
+        TerrainHeights.Area? heights;
+        int heightsAsOf = -1;
+
         bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
             || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true || Conn.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Conn.Layout.Id, Conn.Seed))?.Blocks(x, y) == true || Conn.ProjectileWalls.Contains((x, y));
 
-        int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
+        int? Height(int x, int y)
+        {
+            int asOf = TerrainHeights.Forgotten;
+            if (heights is null || heightsAsOf != asOf) (heights, heightsAsOf) = (TerrainHeights.AreaOf(Conn.Layout.Id, Conn.Seed), asOf);
+            return heights?.At(x, y);
+        }
 
         // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
         // continuation children and monster shots keep the plain projectile grid.
@@ -376,10 +437,14 @@ public static partial class Game
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
+            uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            // Cruelty: a player projectile's hit grants its skill's buff (a totem's or a monster's never does).
+            if (shot.ActualCaster is null && target.Hostile)
+                CrueltyOnHitLocked(Conn, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
             else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
@@ -471,16 +536,13 @@ public static partial class Game
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
-                        { AnimatedObject = flightVisual,
-                            // DelveMonkeyMortar.ot appends an empty StateMachine; omitting its two counts
-                            // makes the client consume the task byte as a count and throw Buffer Underflow.
-                            StateMachine = p.Profile.Id == "Metadata/Projectiles/DelveMonkeyMortar" ? new([], 0) : null };
+                        { AnimatedObject = flightVisual };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
+                    return CreateProjectileObject(id, obj);
                 });
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of

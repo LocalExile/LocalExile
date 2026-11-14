@@ -327,7 +327,8 @@ public static class SaveRows
     [
         "type", "item_level", "quality", "charges", "stack_size", "sockets", "links", "gem_experience", "rarity", "identified",
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
-        "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type",
+        "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
+        "heist_blueprint",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -335,7 +336,7 @@ public static class SaveRows
         i.Type, i.ItemLevel, i.Quality, i.Charges, i.StackSize, JsonOf(i.Sockets?.Select(s => s.Colour).ToList()), JsonOf(i.Links),
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
-        i.AlternateQualityType,
+        i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint),
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -379,7 +380,8 @@ public static class SaveRows
                 (int)v.Long("gem_variant")!.Value, v.Bool("corrupted")!.Value, (byte)v.Long("fractured")!.Value, v.Bool("mirrored")!.Value,
                 (byte)v.Long("gem_flags")!.Value, (ushort?)v.Long("visual"), (byte)v.Long("defence_base_roll")!.Value,
                 (ItemInfluence)v.Long("influences")!.Value, v.Bool("split")!.Value, v.Bool("synthesised")!.Value, v.Bool("foreseeing")!.Value,
-                (uint)v.Long("foresee_seed")!.Value, (byte?)v.Long("alternate_quality_type"), original);
+                (uint)v.Long("foresee_seed")!.Value, (byte?)v.Long("alternate_quality_type"), original,
+                v.Bool("vestigial") == true, v.Json<HeistBlueprintState>("heist_blueprint"));
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];
