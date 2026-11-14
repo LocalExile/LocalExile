@@ -367,11 +367,15 @@ public static class AreaPopulation
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
         if (packs.Count == 0) return spawns;
+        // The layout's own pack points stand their packs first, where the room puts them (issue #668).
+        int roomPlaced = 0;
         foreach (var p in roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
                 var pack = PickPack(packs, rng);
+                int before = spawns.Count;
                 AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);
+                if (spawns.Count > before) roomPlaced++;
                 centres.Add((p.X, p.Y));
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
             }
@@ -385,7 +389,10 @@ public static class AreaPopulation
         int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
             * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density)
             + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
-        if (wanted <= 0) return spawns;
+        // The layout's own pack points already stand their packs: they count against the budget, so an area whose rooms
+        // name their packs does not also get a full scattered set on top of them.
+        wanted -= roomPlaced;
+        if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
         Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
         foreach (var c in candidates)
