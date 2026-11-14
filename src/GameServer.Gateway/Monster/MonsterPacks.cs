@@ -366,12 +366,15 @@ public static class AreaPopulation
             // the pack rings it a little further out than an ordinary pack's members stand.
             int first = spawns.Count;
             AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, visible, memberLimit: rule.Fixed ?? int.MaxValue,
-                keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius);
+                keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius, ring: true);
             centres.Add(at);
-            var ring = spawns.Skip(first).Select(s => Math.Max(Math.Abs(s.X - at.X), Math.Abs(s.Y - at.Y))).ToList();
+            var mine = spawns.Skip(first).ToList();
             notes.Add($"shrine {shrine} at {at}: guarded by {guard.Id} " +
                 (rule.Fixed is int fixedCount ? $"({fixedCount})" : $"({guard.MinCount}\u2013{guard.MaxCount})") +
-                (ring.Count == 0 ? ": no cell free around it" : $": {ring.Count} at {ring.Min()}\u2013{ring.Max()} cells"));
+                (mine.Count == 0
+                    ? ": no cell free around it"
+                    : $": {mine.Count} around it at " + string.Join(" ", mine.Select(s =>
+                        $"({s.X - at.X},{s.Y - at.Y})"))));
         }
         if (packs.Count == 0) return spawns;
         foreach (var p in roomPacks ?? [])
@@ -439,7 +442,7 @@ public static class AreaPopulation
 
     static List<int> AddPack(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, PackCatalog.Pack pack,
         MonsterRarity rarity, bool withBoss, Random rng, Func<int, bool> spawnable, Func<int, bool?>? uniqueBoss = null, double packSize = 1,
-        int memberLimit = int.MaxValue, int keepClear = 0, int maxRadius = MemberRadius)
+        int memberLimit = int.MaxValue, int keepClear = 0, int maxRadius = MemberRadius, bool ring = false)
     {
         int rolled = rng.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1);
         int count = Math.Max(1, (int)Math.Round(rolled * SystemSettings.Default.MonsterPackSizeMultiplier * (packSize > 0 ? packSize : 1)));
@@ -458,19 +461,49 @@ public static class AreaPopulation
                     members.Insert(0, (b, unique));
         var uniques = new List<int>();
         int before = spawns.Count;
+        // A shrine's guards stand evenly around it (ring): one cell per member on a circle whose rotation is the
+        // instance's, alternating two radii so neighbours do not touch; a blocked cell falls back to the search below.
+        var ringCells = ring ? RingCells(at, members.Count, keepClear, rng) : null;
         for (int i = 0; i < members.Count && spawns.Count - before < memberLimit; i++)
         {
             // Magic packs are magic throughout; a rare pack has one rare (the first member) among normal ones.
             var r = members[i].Unique ? MonsterRarity.Unique : rarity == MonsterRarity.Rare ? (i == 0 ? MonsterRarity.Rare : MonsterRarity.Normal) : rarity;
             if (AddMember(spawns, taken, walkable, at, members[i].Variety, r, pack.Id, rng,
-                    keepClear > 0 ? keepClear : i == 0 ? 0 : 2, keepClear, maxRadius) && members[i].Unique) uniques.Add(members[i].Variety);
+                    keepClear > 0 ? keepClear : i == 0 ? 0 : 2, keepClear, maxRadius,
+                    ringCells is null ? null : ringCells[i]) && members[i].Unique) uniques.Add(members[i].Variety);
         }
         return uniques;
     }
 
-    static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
-        MonsterRarity rarity, string pack, Random rng, int minRadius, int keepClear = 0, int maxRadius = MemberRadius)
+    /// <summary>The cells a pack rings its centre with: <paramref name="count"/> bearings evenly spaced from a random
+    /// starting angle, on radii <c>keepClear + 1</c> and <c>keepClear + 3</c> in turn, so neighbour spacing grows with the
+    /// ring and the pack does not bunch on one side of a shrine.</summary>
+    static (int X, int Y)[] RingCells((int X, int Y) at, int count, int keepClear, Random rng)
     {
+        var cells = new (int X, int Y)[Math.Max(1, count)];
+        double start = rng.NextDouble() * Math.PI * 2;
+        for (int i = 0; i < count; i++)
+        {
+            double angle = start + Math.PI * 2 * i / Math.Max(1, count);
+            int radius = keepClear + 1 + i % 2 * 2;
+            cells[i] = (at.X + (int)Math.Round(Math.Cos(angle) * radius), at.Y + (int)Math.Round(Math.Sin(angle) * radius));
+        }
+        return cells;
+    }
+
+    static bool AddMember(List<Spawn> spawns, HashSet<(int, int)> taken, Func<int, int, bool> walkable, (int X, int Y) at, int variety,
+        MonsterRarity rarity, string pack, Random rng, int minRadius, int keepClear = 0, int maxRadius = MemberRadius,
+        (int X, int Y)? preferred = null)
+    {
+        // The ring cell first, when it is free ground: that is what makes the guards a circle around the shrine.
+        if (preferred is { } p && walkable(p.X, p.Y)
+            && Math.Sqrt((double)(p.X - at.X) * (p.X - at.X) + (double)(p.Y - at.Y) * (p.Y - at.Y)) >= keepClear
+            && !taken.Any(t => Math.Abs(t.Item1 - p.X) < MemberSpacing && Math.Abs(t.Item2 - p.Y) < MemberSpacing))
+        {
+            taken.Add(p);
+            spawns.Add(new Spawn(variety, p.X, p.Y, rarity, pack));
+            return true;
+        }
         for (int attempt = 0; attempt < 60; attempt++)
         {
             int radius = Math.Min(maxRadius, minRadius + attempt / 6);

@@ -133,8 +133,13 @@ public sealed class ShrineTests
             Assert.All(mine, s => Assert.Equal("Test-Pack", s.Pack));
             Assert.All(mine, s => Assert.Equal(MonsterRarity.Normal, s.Rarity));
             // Around the shrine, never on it: no guard inside the shrine's object size (the statue and its base).
-            Assert.All(mine, s => Assert.True(Math.Max(Math.Abs(s.X - cell.Item1), Math.Abs(s.Y - cell.Item2))
-                >= ShrinePlacement.ObjectSize));
+            double Away(int x, int y) => Math.Sqrt(Math.Pow(x - cell.Item1, 2) + Math.Pow(y - cell.Item2, 2));
+            Assert.All(mine, s => Assert.True(Away(s.X, s.Y) >= ShrinePlacement.ObjectSize));
+            // Evenly around it: two bearings apart where a pack of four is split, never two on the same side of the
+            // statue (their cells' sum, x + y, differs: one west-north, one east-south).
+            if (mine.Count >= 3)
+                Assert.True(mine.Select(s => s.X - cell.Item1).Max() - mine.Select(s => s.X - cell.Item1).Min()
+                    >= ShrinePlacement.ObjectSize);
         }
         // No member stands twice in one cell, and each shrine's pack is its own: the scattered packs keep their 28-cell
         // spacing from both shrine centres, so these members are the guards.

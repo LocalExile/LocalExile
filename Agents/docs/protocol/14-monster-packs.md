@@ -124,7 +124,10 @@ So:
    stand **around** the shrine and never on it: a guard is kept at least `ShrinePlacement.ObjectSize` (7) cells from the
    shrine's cell, so the statue and its base stay clear, and out to `AreaPopulation.ShrineGuardRadius` (12) cells rather
    than an ordinary pack's 9, where a pack of four still fits around a 2×2 shrine room. The log line says the spread
-   (`shrine Multi at (758, 713): guarded by Act1-RhoaBig (1–2): 1 at 7–7 cells`). A guard has to be seen
+   (`shrine Regen at (506, 643): guarded by Act1-Rhoa (2–4): 2 around it at (-6,6) (7,-7)`). The members are spread
+   around the statue rather than scattered from it: their bearings are `2π/n` apart from a rotation the instance's rng
+   gives, on radii `ObjectSize + 1` and `ObjectSize + 3` in turn (`RingCells`), so a pack of two stands on opposite sides
+   and neighbours never share a spot; a blocked ring cell falls back to the ordinary search. A guard has to be seen
    standing, so an emerge variety — buried and rising only when the player is on top of it, which made a shrine guarded
    by `Act1-ZombieMiredEmerge` look empty — is passed over while the pack has a standing variety (`guardSpawnable`); a
    pack of emerge monsters only is still used rather than leaving the shrine bare. The guards
