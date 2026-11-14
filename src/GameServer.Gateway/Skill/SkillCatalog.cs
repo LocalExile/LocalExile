@@ -916,6 +916,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }
+        /// <summary>How many targets the shot passes through (-1: all of them), from the skill's own
+        /// <c>always_pierce</c> stat (the Shaper's orbs and his bullet hell).</summary>
+        public int Pierce { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
@@ -977,6 +980,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
             Count = Math.Max(1, count),
+            // A skill whose stat set says the shot pierces (the Shaper's orbs and his bullet hell) passes through
+            // every target it meets.
+            Pierce = Get("always_pierce") != 0 ? -1 : 0,
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
