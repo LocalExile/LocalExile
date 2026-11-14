@@ -19,6 +19,7 @@ public sealed class CooldownBypassTests
         Assert.True(CooldownBypass.FlickerVigilantOverride("VigilantStrike", 1));
         Assert.False(CooldownBypass.FlickerVigilantOverride("VaalFlickerStrike", 4));
         Assert.False(CooldownBypass.FlickerVigilantOverride("FlickerStrikeProphecy", 4));
+        Assert.False(CooldownBypass.FlickerVigilantOverride("VigilantStrikeMercenary", 1));
         Assert.False(CooldownBypass.FlickerVigilantOverride("ColdSnap", 2));
     }
 }

@@ -283,6 +283,44 @@ public static partial class Game
         }
     }
 
+    // An attack gem used at the ground out of the weapon's reach (an attack-move): the client's action walks up to the
+    // weapon's range less one of the aim and swings there by itself, with no word to the server (07 §5: an aim 17 cells
+    // off with range 10 walked 8 and 5 cells, then swung, near a monster and on empty ground). Without this the server
+    // only walked, and that swing hit nothing. On the estimate's arrival, if no other action replaced the walk, the server
+    // swings at the aim as CastOn does after its walk-up: it pays, echoes the swing from where it stands and runs the skill.
+    public static async Task SwingAtGroundOnArrival(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceProtocol.UseSkillAtLocation use, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        int action, double arrive)
+    {
+        try
+        {
+            while (true)
+            {
+                if (conn.Closed || conn.LeavingArea || !PlayerActionCurrent(conn, action)) return;
+                if (!conn.Paused && conn.Clock.Elapsed.TotalSeconds >= arrive) break;
+                await Task.Delay(16);
+            }
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _)) return;
+            (int X, int Y) stop = default;
+            if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect, CooldownForSkill(conn, use.SkillId), false,
+                () => stop = conn.Walk.Position(ProjectileWorldTime(conn)), out var cooldownUse, actionToken: action)) return;
+            (int X, int Y) aim = (use.X, use.Y);
+            bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+            if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+            bool acknowledged = false;
+            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y,
+                aim.X, aim.Y, use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(PlayerId)],
+                $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} at ({aim.X}, {aim.Y}) from ({stop.X}, {stop.Y}) after its walk-up (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
+                still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                    () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+            if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+            if (!projectileRuntime && acknowledged) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
     // The player uses a skill on a monster (C→S 0x24, e.g. the default attack on a left click). The client walks into range
     // first, so the server walks its estimate too (WalkUpToSwing, reach = the weapon's MaxAttackDistance in cells less one,
     // centre to centre) and only then starts the swing: it echoes the action aimed at the monster (0x1ab, flags | 0x80 +
@@ -1981,7 +2019,7 @@ public static partial class Game
         // the client centres them (its controller's +0x35c is the owner's cell).
         if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
             _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, from, to, radius,
-                hammerTargets, damageMore, sequence, repeat);
+                hammerTargets, damageMore, sequence, repeat, criticalRoll);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
@@ -2015,11 +2053,11 @@ public static partial class Game
     // the use's sequence, in the client's grid order (ClientEntityGrid). They outlive the swing (a later action does not
     // stop them); a death, an area change or a closed connection does. The hammer hits send no 0x1af: the client draws
     // its own hammers (11-skills.md §9a). Its Holy Sweep candidates are the enemies its own hit roll accepted, which can
-    // differ from the server's struck ones.
+    // differ from the server's struck ones. The hammers are hits of the sweep's use, so they share its critical roll.
     static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, HolySweepHammers.Settings hammers,
         IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, (int X, int Y) facing, int sweepRadius,
-        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat)
+        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat, SkillCriticalRoll? criticalRoll)
     {
         try
         {
@@ -2047,8 +2085,11 @@ public static partial class Game
             {
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
                 double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
-                // The rate the client's controller holds (the combined_main_hand_attack_speed_+% the skill's stats carry).
-                int attackSpeed = SupportedMainHandAttackSpeedPct(conn, skillId);
+                // The rate the client's controller holds: the combined_main_hand_attack_speed_+% of the skill list it last
+                // received, not the character's attack speed now (a Rage or charge change since is not in it until the
+                // list goes out again).
+                int attackSpeed = SentSkillStat(conn, skillId, "combined_main_hand_attack_speed_+%")
+                    ?? SupportedMainHandAttackSpeedPct(conn, skillId);
                 double every = HolySweepHammers.WaveSeconds(hammers.RateSeconds, attackSpeed);
                 var times = HolySweepHammers.WaveTimes(every, duration);
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
@@ -2078,7 +2119,8 @@ public static partial class Game
                     if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;
                     foreach (var (_, point) in wave)
                         await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                            melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                            melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                            radiusOverride: radius, hammer: hammers);
                 }
                 return;
             }
@@ -2087,7 +2129,8 @@ public static partial class Game
                 if (!await WaitProjectileTime(conn, start + at, epoch)) return;
                 foreach (var point in points)
                     await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                        melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                        melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                        radiusOverride: radius, hammer: hammers);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

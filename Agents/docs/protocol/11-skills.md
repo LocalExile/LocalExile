@@ -1146,9 +1146,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   - bit 0 clear: a point **within the weapon's reach** is a swing at the ground, even with nothing standing there (live
     2026-10-26: standing and swinging at empty ground must cost the skill's mana, as it does on the client); the server
     echoes 0x1ab in place, pays the cost and runs the skill's area hit. A point **beyond** the reach is an
-    **attack-move** — the client walks to the aimed point itself and sends no C→S 0x25 Move for that walk, so the server
-    walks its estimate after it (`Walk.Order`) and answers 0x1ab from that estimate, like a move's echo; it costs no
-    mana. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
+    **attack-move** — the client walks up to the weapon's range less one of the aimed point itself, sends no C→S 0x25
+    Move for that walk, and swings there with no further message ([07](07-latency-visibility-movement.md) §5). The
+    server walks its estimate after it (`Walk.Approach`) and answers 0x1ab from that estimate, like a move's echo, with
+    no cost; on the estimate's arrival it swings as after a walk-up to a monster (`SwingAtGroundOnArrival`). Until
+    2026-11-13 it only walked, and the client's swing at the end hit nothing. A monster inside the skill's hit radius adds nothing to the decision: within reach the point is a swing (the
     hit still covers every monster within the skill's radius of it, the client aiming at the cell rather than the
     object: Holy Strike on a monster sends 0x25, live 2026-10-25), beyond reach it is an attack-move.
     The client's threshold for that choice is not traced: its action's walk-up (`0x141e95400`) gives MoveTo the range
