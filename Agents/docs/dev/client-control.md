@@ -210,3 +210,48 @@ is deferred until its native callback has returned, so a one-shot process can de
 it is still unwinding. Prefer loading additional probes into the same Frida session when extending this tool.
 
 The campaign runner built on this bridge is described in [campaign automation](campaign-automation.md).
+
+## Map overlay (2026-11-13)
+
+The map overlay's "monsters remain" counter cannot be found in the game state, and the overlay does not re-read the
+area row when it is redrawn:
+
+- The current `WorldAreas` row is `[[[[0x1445d6fd8]] + 0x348] + 0xc278] + 0xb0` (app, instance, holder, row); the
+  row's Id string pointer is at `+0` and HASH16 at `+0x2a`. Live in `MapWorldsChateau` this read the right row.
+- `0x14156702f` reads `row+0x14` and `row+0x139` (two zero/non-zero flags) after that same chain. A memory access
+  monitor on the row's page, armed while the player toggled the overlay (Tab) twice, recorded only that site: the
+  redraw draws from a cached copy, not from the row.
+- The overlay's own block is `instance+0xc3a4`..`instance+0xc3b8` (the league text is the wide string at
+  `instance+0xc3b8`). Killing all 168 monsters of Chateau changed 10 of 4096 ints in a 16 KB window at
+  `instance+0xc000`; the only meaningful drop was `instance+0xc3a4` (`0x8000004` -> `0`), the current target's
+  object id. Nothing there counts monsters.
+- A cleared area still shows "More than 50 monsters remain", i.e. the client is showing its unknown-count variant and
+  only a message we never send changes it. `MapOverlayMonstersRemaining1/N/MoreThan50` and
+  `MapOverlayMapObjectiveComplete` are not worth hunting by their ClientStrings HASH32: those values appear nowhere in
+  `Game.patched.exe` as a 32- or 64-bit immediate, so the client resolves the rows by another key.
+- `0x1406b25f0`, recorded as the overlay function, does not fire in this build when the overlay is toggled, so the
+  address is stale.
+
+### Analysing the client in Ghidra headless (2026-11-14)
+
+The 79 MB client cannot be analysed with the defaults: `analyzeHeadless.bat` sets the heap from
+`GHIDRA_HEADLESS_MAXMEM` (2 GB by default; `support/launch.properties` does not affect headless) and the run still
+runs out of heap in the MSVC demangler at about 30 minutes even at 16 GB. A pre-script that turns off the analyzers
+listed below lets the full analysis finish in about 25 minutes and saves the project:
+
+    GHIDRA_HEADLESS_MAXMEM=16G analyzeHeadless <projdir> LxClient -process \
+        -preScript PrepAnalysis.java disable -postScript DumpFunc.java <addresses>
+
+The pre-script clears the bare-name option of each of: `Demangler Microsoft`, `Windows x86 PE RTTI Analyzer`,
+`Decompiler Parameter ID`, `Call Convention ID`, `Apply Data Archives`, `Create Address Tables`, `ASCII Strings`,
+`Embedded Media`, `Aggressive Instruction Finder`, `Non-Returning Functions - Known/Discovered`, `Stack`. Without the
+analysis, `analyzeHeadless -noanalysis` plus a hand-found function start produces `halt_baddata()` instead of code, so
+the analysis is worth its time. Ghidra 12.2 needs JDK 25+, not 21.
+
+The captured access site `0x14156702f` is inside `FUN_141566f40` (called from `FUN_141566d50`, also in a vtable at
+`0x144826f10`). It is an entity-list updater, not the overlay's text builder: it reads the area row through
+`(instance+0xc278)+0xb0`, takes the two flags at `row+0x14` and `row+0x139` to decide whether the area has an overlay,
+walks the instance's entity list at `+0xc848..+0xc850`, tests component `0x1ede`, and calls `FUN_140d5f350(row+0xf5, 4)`.
+Nothing in it counts monsters. The project it produced and the analysis output are not committed
+(`Tools/ghidra-projects`, `Tools/re/out`).
+
