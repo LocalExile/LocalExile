@@ -59,12 +59,12 @@ sealed class MonsterAuraEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
-    public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster) => Remove(ctx, monster);
+    public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster) => Remove(ctx, shrine, monster);
 
     /// <summary>The shrine is claimed: the monsters it accelerated lose the buff with the shrine's own activation.</summary>
     public async Task OnActivation(ShrineContext ctx, ShrineInstance shrine)
     {
-        foreach (uint monster in buffed.Keys.ToArray()) await Remove(ctx, monster);
+        foreach (uint monster in buffed.Keys.ToArray()) await Remove(ctx, shrine, monster);
     }
 
     /// <summary>The area is going: its monsters and their buffs go with it, so nothing is sent.</summary>
@@ -74,11 +74,14 @@ sealed class MonsterAuraEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
-    Task Remove(ShrineContext ctx, uint monster)
+    Task Remove(ShrineContext ctx, ShrineInstance shrine, uint monster)
     {
         if (!buffed.Remove(monster, out var entry)) return Task.CompletedTask;
         lock (ctx.Conn.Monsters)
             if (ctx.Conn.Monsters.TryGetValue(monster, out var m)) m.EncounterStats = entry.Previous;
+        // The other side of the enter line, so a claim (or a monster leaving) can be checked in the log.
+        if (shrine.Definition.Monster is { } buff)
+            Console.WriteLine($"[gateway] {ctx.Conn.Wire.Remote} monster 0x{monster:x} loses shrine aura {buff.Template}");
         return Task.CompletedTask;
     }
 }

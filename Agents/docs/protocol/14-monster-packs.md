@@ -122,8 +122,12 @@ So:
    `AreaPopulation.TransitionClearance` (25 cells) of the arrival or an area transition is not guarded (the 1.0.0d note,
    "Monster packs around shrines are now not spawned if they are too close to an area entrance or waypoint"). The guards
    are planned with the area's monsters, so an instance keeps them: re-entry restores them rather than adding a pack, and
-   activating a shrine neither respawns nor removes its guards. Their shrine buff (`Monster_ShrineBuffsKey`) is not
-   applied yet.
+   activating a shrine neither respawns nor removes its guards. The shrine's monster buff (`Monster_ShrineBuffsKey`) is
+   on the monsters around it while it is unclaimed (`MonsterAuraEffect`): every hostile monster within 20 cells
+   (`ShrineManager.NearbyRadius`) gets the row's own monster values as `EncounterStats`, the client is sent no buff icon,
+   and the buff comes off again when the shrine is claimed or the monster leaves the neighbourhood, restoring the
+   monster's previous `EncounterStats`. Live (2026-11-14, The Ledge, `/shrines Acceleration`): four Rhoas gained
+   `acceleration_monster` and lost it on the claim.
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
    (`BossMonster_MonsterVarietiesKeys`, at its `BossMonsterSpawnChance`) comes with it, unique when it is one of the

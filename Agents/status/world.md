@@ -100,7 +100,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   are outside the roll. Each shrine is guarded by one pack: the shrine's own `MonsterPacks` rows when its row names them
   (the apparition shrines, 2–9 monsters), else one of the area's own packs at that pack's count
   (`ShrineGuards.Resolve`, normal rarity, campaign and maps separately); a shrine within 25 cells of an entrance or
-  waypoint is not guarded. A
+  waypoint is not guarded. While a shrine is unclaimed it puts its own `Monster_ShrineBuffsKey` on every hostile monster
+  within 20 cells (guards included, server-side only), and a claim takes it off them. A
   click in walk-up range grants that Shrines row's buff for its duration (45 s,
   the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
   click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
