@@ -524,7 +524,9 @@ public static partial class Game
                 && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
-        double factor = gem.Supports.Aggregate(1.0, (v, support) => v * support.CostMultiplier / 100.0);
+        // Integer multipliers are exact percentages (Arrogance's 201% of Grace's 50% is 100.50%), so binary floating
+        // point must not cost the reservation its last permyriad (2.01 * 5000 = 10049.99...).
+        decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
         return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
     }
 

@@ -36,6 +36,12 @@ The real client accepted Cyclone with Increased Area of Effect and later constru
 The server applies linked area modifiers, added attack/spell damage, selected unconditional more/less damage,
 conversion/gain-as-extra, damage prohibitions, attack/cast/projectile speed, critical modifiers and mana costs.
 Reservation uses support cost multipliers; changing links refreshes active aura reservation values.
+Arrogance Support adds its stat set's `base_skill_reserve_life_instead_of_mana` and `aura_effect_+%` (19 at level 20)
+to the aura it supports: `ReservationContext` moves the reservation from mana to life, and `AuraSupport` supplies the
+increased effect (the aura still affects its caster, unlike Generosity's `aura_cannot_affect_self`). Arrogance's own
+reservation multiplier (201% at level 20) multiplies the aura's percentage, so level-20 Grace reserves 100.50% of
+maximum life instead of 50% of maximum mana. That product is computed as an exact decimal percentage, not a binary
+`double`, so 201% of 50% keeps its last permyriad (`GemSupports.SupportedReservation`).
 AttackSpeedMultiplier is an increased percentage: Cyclone 200 means three times base attack speed.
 Lifetap Support turns the supported skill's whole Mana cost into Life (`base_skill_cost_life_instead_of_mana`, with
 its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_life_threshold`, and grants the Lifetap
@@ -210,9 +216,9 @@ updates replace the complete spent-use queue. Duplicate same-effect gems and the
 `SingleUseCooldown` retain their existing limitations. Momentum's stacks need a skill-use and movement signal;
 Barrage needs its own release pattern, not a stat.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
-their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
-aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
-more damage over time on top of its hit damage.
+their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overheat needs
+Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds more damage over time on top of
+its hit damage.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.

@@ -82,6 +82,10 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+   Arrogance's aura reservation is modelled too: it moves a supported aura's reservation to life
+   (`base_skill_reserve_life_instead_of_mana`), exposes its increased aura effect (`aura_effect_+%`, 19 at level 20)
+   and scales the reservation percent by its own multiplier (201% at level 20), so level-20 Grace reserves 100.50%
+   of maximum life instead of 50% of maximum mana.
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
