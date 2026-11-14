@@ -47,6 +47,9 @@ public static partial class Game
                 }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
+                // A buried monster that rises joins the connection's monsters: the overlay's "X monsters remain" (S→C
+                // 0x1a0) is one larger from now on (MonsterRemaining.cs).
+                if (risen.Count > 0) await SendRemainingMonsters(remote, stream, ciphers, conn);
                 if (!watching) return;
             }
         }
