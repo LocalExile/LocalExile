@@ -157,6 +157,7 @@ sealed class Act6 : Act
             // (1000). Tarkleigh's "Puppet Mistress Reward" (offer 44) is a Book of Skill.
             new Quest("a6q6")
             {
+                On.Forms(WetlandsAct6, [RyslathaEncounter.Nest], Act6Monsters.Ryslatha),
                 On.Seen(WetlandsAct6, Act6Monsters.Ryslatha, "a6q6-SeenBoss"),
                 On.Killed(WetlandsAct6, Act6Monsters.Ryslatha, "a6q6-KilledBoss"),
                 On.Appears(WetlandsAct6, Act6Monsters.Ryslatha, Act6Npcs.SinRyslatha, "SinRyslathaReward"),

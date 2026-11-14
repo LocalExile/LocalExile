@@ -420,9 +420,10 @@ public static partial class Game
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         var quests = QuestsOf(conn);
+        bool useWetlandsFallback = false;
         // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
         // placed with the area.
-        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && !quests.QuestSpawned(layout.Id, v.Id);
+        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && (!quests.QuestSpawned(layout.Id, v.Id) || useWetlandsFallback && v.Id == RyslathaEncounter.Boss);
         // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
         area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
         // Device-recipe phases hold the last WorldAreas boss (Maven's Nucleus, Sirus, Atziri) until the first wave is dead.
@@ -455,6 +456,14 @@ public static partial class Game
                     trapClear.Add((trap.X + dx, trap.Y + dy));
         // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
         var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
+        var nests = new List<AreaPopulation.Spawn>();
+        if (layout.Id == RyslathaEncounter.Area && quests.FormsAfter(layout.Id, RyslathaEncounter.Nest).Count > 0)
+        {
+            if (RyslathaEncounter.Place(points, walkable, nests) is { } arena)
+                laterForms[Monsters.Find(RyslathaEncounter.Boss)!.Row] = arena;
+            else
+                useWetlandsFallback = true;
+        }
         lock (conn.Monsters)
         {
             conn.LaterFormPoints.Clear();
@@ -471,6 +480,7 @@ public static partial class Game
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks],
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
+        spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
                 foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
