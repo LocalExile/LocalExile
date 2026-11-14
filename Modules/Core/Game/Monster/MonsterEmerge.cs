@@ -23,8 +23,8 @@ public enum EmergeKind
 /// <c>Emerge</c> (ActionTypes 16641 = 0x4101, skill id 0x0101) and a Transitionable without <c>num_states</c> (2 states)
 /// whose client script <c>create_untransitioned</c> plays the emerge clip and pauses it. A type whose client Targetable
 /// says <c>targetable = false</c> (or whose create_untransitioned runs DisableTargetable) is <see cref="EmergeKind.Buried"/>,
-/// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state: a boss's entrance is its fight's
-/// script (BossFights), not a proximity rise.
+/// the others <see cref="EmergeKind.Lurking"/>. Unique monsters keep their own state, except campaign Yugul: his paused
+/// entrance must rise before generic AI can fight, or his native Targetable stays disabled until an instance rebind.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
@@ -62,7 +62,8 @@ public sealed class MonsterEmerge(string folder = "data")
 
     /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>).</summary>
     public EmergeKind Kind(MonsterCatalog.Variety v, MonsterRarity rarity = MonsterRarity.Normal) =>
-        rarity != MonsterRarity.Unique && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
+        (rarity != MonsterRarity.Unique || v.Id == "Metadata/Monsters/Frog/FrogGod/SilverFrog")
+            && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
             && _types.Value.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
 
     /// <summary>Whether area packs may place this variety: not an "Emerge" variety that would wait for good (a
