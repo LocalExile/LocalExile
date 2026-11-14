@@ -491,6 +491,15 @@ in one jump (live 2026-11-03, a Rhoa pack outrun on the Mud Flats: three such ju
 Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick,
 so its clients do not ask, and the Gateway does the same.
 
+**Predictive Leap Slam acknowledgement.** The 3.29.3c Actor dispatcher (`0x14219aa10`) treats a local predictive
+actor's nonnegative-sequence 0x1ab as a source-cell check, not an action start: squared error at least `0x2110`
+(92 cells) relocates it to that source. A live Leap Slam had already landed at the packet target, 109 cells from
+the server's old source, and this handler put it back there. 0x1ac decrements Actor's pending-action counter
+(`+0x22c`) without stopping its predicted positive-sequence action. The Game module therefore sends only 0x1ac
+to that Leap Slam owner; observers retain the original 0x1ab and 0x1ac, including target and sequence.
+Lockstep and negative-sequence server actions retain their full replies. This does not establish that all other
+movement or collision drift is resolved.
+
 **Measuring it.** `Game_TRACE=sync` logs the server's estimates every 50 ms, `scripts/dev/sync_drive.py` plays a session
 client with real mouse input through `scripts/re/frida/drive-input.js` and records where the client has every object
 (`trace-sync.js`), and `scripts/re/sync_report.py` compares them. The bridge's `move` is no use for this: it only writes
