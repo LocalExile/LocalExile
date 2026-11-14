@@ -28,6 +28,7 @@ static class Act10Items
 /// <summary>Act 10's quest objects, chests and NPCs (Oriath Docks' two stages of Bannon included).</summary>
 static class Act10Objects
 {
+    public static readonly string ShortcutOpen = InstanceFlag("AvariusShortcutOpen");
     public const string PlaguewingSpawner = "Metadata/Monsters/KitavaDemon/KitavaDemonSpawnerPlaguewing",
         HornBlockage = "Metadata/QuestObjects/Act10/Square/CanalHornBlockage", HornBlocker = "Metadata/QuestObjects/Act10/Square/HornBlocker_1",
         ElixirChest = "Metadata/Chests/QuestChests/Potion", TeardropChest = "Metadata/Chests/QuestChests/Teardrop",
@@ -74,7 +75,8 @@ sealed class Act10 : Act
             new Quest("a10q2")
             {
                 On.Seen(DesecratedChambers, Act10Monsters.Avarius, "a10q2-SeenBoss"),
-                On.Killed(DesecratedChambers, Act10Monsters.Avarius, "a10q2-KilledBoss"),
+                On.Killed(DesecratedChambers, Act10Monsters.Avarius, "a10q2-KilledBoss", Act10Objects.ShortcutOpen),
+                new DisabledTeleportRule(DesecratedChambers, Act10Objects.ShortcutOpen),
                 On.Drops(DesecratedChambers, Act10Monsters.Avarius, Act10Items.AvariusStaff),
                 On.Npc(OriathDocks, Act10Objects.BannonTown, "a10q2-BannonTransformed"),
                 On.Npc(OriathDocks, Act10Objects.InnocenceTown, null, transitionedBy: "a10q2-BannonTransformed", shownBy: "a10q2-BannonTransformed"),
