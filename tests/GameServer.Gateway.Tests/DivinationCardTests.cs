@@ -29,6 +29,22 @@ public sealed class DivinationCardTests
         var wisdom = DivinationRewards.Create(scholar, items, uniques, rolls, new Random(1))!;
         Assert.Equal(items.Find("Scroll of Wisdom")!.Hash, wisdom.TypeHash);
         Assert.Equal(40, wisdom.StackSize);
+        var justice = DivinationRewards.Find(items.Find("Divine Justice")!.Id)!;
+        string[] spectrumBases = ["Metadata/Items/Jewels/JewelStr", "Metadata/Items/Jewels/JewelDex", "Metadata/Items/Jewels/JewelInt"];
+        Assert.Equal(spectrumBases.Order(), justice.Members.Select(m => m.Base).Order());
+        foreach (var member in justice.Members)
+        {
+            Assert.Equal("unique", member.Kind);
+            Assert.Equal("Grand Spectrum", member.Id);
+            var spectrum = DivinationRewards.Create(justice with { Members = [member] }, items, uniques, rolls, new Random(974))!;
+            Assert.NotNull(spectrum);
+            Assert.Equal(member.Base, items.ByHash(spectrum.TypeHash)!.Id);
+            Assert.Equal(ItemRarity.Unique, spectrum.Rarity);
+            Assert.True(spectrum.Corrupted);
+        }
+        var rolledSpectrumBases = Enumerable.Range(0, 32).Select(seed => items.ByHash(
+            DivinationRewards.Create(justice, items, uniques, rolls, new Random(seed))!.TypeHash)!.Id).ToHashSet();
+        Assert.Equal(spectrumBases.Order(), rolledSpectrumBases.Order());
         Assert.Null(DivinationRewards.Create(doctor with { Name = "No such unique" }, items, uniques, rolls, new Random(1)));
         Assert.Null(DivinationRewards.Create(doctor with { Enabled = false }, items, uniques, rolls, new Random(1)));
         Assert.Null(DivinationRewards.Create(doctor with { Kind = "void" }, items, uniques, rolls, new Random(1)));
