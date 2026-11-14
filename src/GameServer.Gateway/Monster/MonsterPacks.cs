@@ -380,13 +380,26 @@ public static class AreaPopulation
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
             }
         var depth = Depth(w, h, walkable);
+        // A pack in a pocket the arrival cannot walk to is a monster the area's count keeps and nobody can kill: the
+        // map reads "more than 50 monsters remaining" long after it was cleared. The walk map of a generated map has
+        // such pockets (cells walled off from the entrance), so the packs stand only where the player can reach them.
+        var reach = Reachable(w, h, walkable, arrival);
         var candidates = new List<(int X, int Y)>();
+        int pocket = 0;
         for (int y = 0; y < h; y += 3)
             for (int x = 0; x < w; x += 3)
-                if (depth[y * w + x] >= CentreDepth) candidates.Add((x, y));
+                if (depth[y * w + x] >= CentreDepth)
+                {
+                    if (reach is not null && !reach[y * w + x]) pocket++;
+                    else candidates.Add((x, y));
+                }
         int walkableCells = depth.Count(d => d > 0);
+        int packCells = reach is null ? walkableCells : reach.Count(r => r);
+        if (pocket > 0)
+            notes.Add($"{pocket} deep cell(s) the arrival cannot walk to stand no pack " +
+                $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
         double size = scale.Size > 0 ? scale.Size : 1;
-        int wanted = (int)Math.Round(walkableCells / (double)CellsPerPack
+        int wanted = (int)Math.Round(packCells / (double)CellsPerPack
             * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density)
             + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         // The layout's own pack points already stand their packs: they count against the budget, so an area whose rooms
@@ -590,6 +603,33 @@ public static class AreaPopulation
             }
         }
         return dist;
+    }
+
+    /// <summary>Per cell: whether the arrival walks to it (8 neighbours, so a diagonal squeeze counts). Null when the
+    /// arrival is not itself a walkable cell, where the walk map cannot say which way the player comes in.</summary>
+    static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
+    {
+        if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable(arrival.X, arrival.Y))
+            return null;
+        var seen = new bool[w * h];
+        var q = new Queue<int>();
+        seen[arrival.Y * w + arrival.X] = true;
+        q.Enqueue(arrival.Y * w + arrival.X);
+        while (q.Count > 0)
+        {
+            int i = q.Dequeue(), x = i % w, y = i / w;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx, ny = y + dy;
+                    if ((uint)nx >= (uint)w || (uint)ny >= (uint)h) continue;
+                    int j = ny * w + nx;
+                    if (seen[j] || !walkable(nx, ny)) continue;
+                    seen[j] = true;
+                    q.Enqueue(j);
+                }
+        }
+        return seen;
     }
 
     /// <summary>
