@@ -1517,6 +1517,15 @@ static class CommandsFeature
             uint seed = args.Length > 1 && uint.TryParse(args[^1], out var s) && s != 0 ? s : 0;
             string target = string.Join(' ', seed != 0 ? args[..^1] : args);
             if (AreaTransitionCatalog.HashOf(target) is not { } hash) { await conn.Commands!.Reply($"Unknown area \"{target}\" (needs data/area-transitions.json)."); return; }
+            // An area the Gateway does not generate (ServerLevels) runs on the client's own layout, and where the client
+            // has none it crashes while loading (live 2026-11-14: /goto PersonalHideout reached "Got Instance Details
+            // from login server" and died with APPCRASH). The area load only warns after it teleported the player, so
+            // refuse the teleport here.
+            if (AreaTransitionCatalog.IdOf(hash) is not { } areaId || (!ServerLevels.IsSupported(areaId) && !CaptureTour.Active(CharacterName(conn))))
+            {
+                await conn.Commands!.Reply($"/goto {target}: {ServerLevels.UnsupportedMessage} Refused (the client crashes loading it without the Gateway's own layout).");
+                return;
+            }
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hash, 0, seed != 0) { Seed = seed },
                 seed != 0 ? $"/goto {target} seed {seed}" : $"/goto {target}");
         }, "area")
