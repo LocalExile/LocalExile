@@ -79,7 +79,8 @@ Green supports with a condition or an execution of their own now run: Cull the W
 `additional_chance_to_freeze_chilled_enemies_%` counts an enemy chilled by an earlier hit (not the hit's own chill),
 Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignites, bleeds and poisons, Vicious Projectiles'
 `support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
-`support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
+`support_chain_count_+%_final` multiplies the whole chain count; PoB keeps the resulting fraction, so the server
+truncates it rather than rounding up (`GatewayProjectileModifiers`).
 
 Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
 (`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
