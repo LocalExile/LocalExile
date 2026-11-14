@@ -1206,6 +1206,13 @@ public static partial class Game
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
+        // Overheat Support: "consume all Fortification on use" - once for the use, before its hit or any projectile it
+        // releases, so every ailment this use inflicts gets the more damage the consumed stacks paid for.
+        var overheatStats = SupportedSkill(conn, skillId).Stats;
+        lock (conn.Monsters)
+            OverheatConsumeLocked(conn, skillId,
+                name => Stats.Key(name) is uint key ? overheatStats.GetValueOrDefault(key) : 0,
+                conn.Clock.Elapsed.TotalSeconds);
         if (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)))
         {
             var rainCritical = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);

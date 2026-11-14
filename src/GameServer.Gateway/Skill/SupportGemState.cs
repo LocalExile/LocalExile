@@ -1,5 +1,5 @@
-/// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, Inspiration's charges, and Cruelty's per-skill
-/// buff. Guarded by the connection's Monsters lock.</summary>
+/// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, Inspiration's charges, Cruelty's buff values
+/// and Overheat's per-use ailment more. Guarded by the connection's Monsters lock.</summary>
 public sealed class SupportGemState
 {
     /// <summary>When the Arcane Surge buff ends (Clock seconds); 0 means it is not running.</summary>
@@ -32,6 +32,9 @@ public sealed class SupportGemState
     public int PresentedCrueltyPct;
     public double CrueltyShownUntil;
     public bool CrueltyRefresh;
+
+    /// <summary>Each skill's more ailment damage from Overheat's last use (1 when its use consumed no Fortification).</summary>
+    public readonly Dictionary<ushort, double> OverheatMore = [];
 
     /// <summary>Client instances for the two buffs and the counts last shown for Inspiration.</summary>
     public ushort ArcaneSurgeBuff, PresentedArcaneSurge, InspirationBuff, PresentedInspiration;

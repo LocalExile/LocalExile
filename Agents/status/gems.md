@@ -89,6 +89,9 @@ Nothing yet.
    Cruelty's per-skill buff is modelled: a hit of a supported skill grants up to 40% more Damage over Time (from the
    hit's damage relative to the monster's maximum life), keeps the strongest running value and refreshes its 4 s
    duration; that value is injected as cruelty_damage_over_time_+%_final into the skill's own stats while its buff runs.
+   Overheat's Fortification consumption is modelled: a supported skill's use consumes all Fortification once, at the
+   start of the use, and stores (1 + 6-8% per 3 stacks consumed) more Ailment damage for that use's ailments, applied
+   through WithOverheat to SupportedIgnite/SupportedBleed/SupportedPoison and ProjectileRelease.
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
