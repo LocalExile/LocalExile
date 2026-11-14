@@ -114,7 +114,7 @@ public sealed class SpellTotemExecutionTests
             gem = Game.SupportedSkill(conn, skill);
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
             skill = Equip(conn, "SkillGemShockwaveTotem", "SupportGemSpellTotem");
-            Assert.False(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
+            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
             skill = Equip(conn, "SkillGemRejuvenationTotem", "SupportGemSpellTotem");
             Assert.NotNull(Game.TotemVariety(conn, Game.SupportedSkill(conn, skill).Effect));
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
@@ -445,6 +445,9 @@ public sealed class SpellTotemExecutionTests
                 new(SocketColour.White, Gem("SupportGemFocusedBallista"))], Links = [2] });
             var focused = Game.GemSkillEffects(conn).Single();
             Assert.False(Game.BallistaPathAvailable(conn, focused.Id));
+            // The dedicated-skill clause must not place what the ballista path refuses: this is a SummonsTotem skill,
+            // so the clause alone admitted it, and SpellTotemCurrent kept it alive through the same gate.
+            Assert.False(Game.TotemPathAvailable(conn, focused.Id, focused.Effect));
         }
         finally
         {
