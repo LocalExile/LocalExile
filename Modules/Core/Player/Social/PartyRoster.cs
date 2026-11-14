@@ -66,6 +66,19 @@ public static class PartyRoster
     public static uint PartyOf(ClientState c) { lock (Gate) return Find(c); }
     public static ClientState? Leader(uint id) { lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault(); }
     public static ClientState[] Players(uint id) { lock (Gate) return Humans.TryGetValue(id, out var members) ? [.. members] : []; }
+    internal static ClientState? TravelMember(ClientState actor, string name)
+    {
+        lock (Gate)
+        {
+            if (!Available(actor) || !actor.PlayerSent || actor.PlayerLife == 0 || actor.HardcoreDeathRecorded
+                || !InGame.ContainsKey(actor) || !Humans.TryGetValue(Find(actor), out var members)
+                || !members.Any(c => ReferenceEquals(c, actor))) return null;
+            return members.FirstOrDefault(c => !ReferenceEquals(c, actor) && Compatible(actor, c)
+                && c.PlayerSent && c.PlayerLife > 0 && !c.HardcoreDeathRecorded && InGame.ContainsKey(c)
+                && string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
     public static int Size(uint id) { lock (Gate) return Math.Max(1, Count(id)); }
     public static bool ContainsCompanion(uint id, string account)
     {

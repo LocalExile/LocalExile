@@ -26,7 +26,7 @@ public class PartyAreaTests
             var c = new ClientState(new(area, areaId, 100, 100, 20, 20, null, []), 1, 1)
             {
                 Character = name, Account = name, League = "Standard", Instance = instance, PlayerSent = true,
-                PlayerLife = 100, ClassRow = 0, Controlled = false,
+                PlayerLife = 100, ClassRow = 0, Controlled = false, InstanceNumber = (ulong)players.Count + 10,
             };
             var packets = new List<byte[]>();
             c.Outbox = (bytes, _) => { lock (packets) packets.Add(bytes); return Task.CompletedTask; };
@@ -38,7 +38,7 @@ public class PartyAreaTests
         try
         {
             var leader = Player("AreaLeader", town, "1_1_town");
-            var member = Player("AreaMember", graveyard, "The Ship Graveyard");
+            var member = Player("AreaMember", graveyard, "1_1_9");
             Assert.True(await PartyRoster.InviteHuman(leader, member.Character!));
             uint party = PartyRoster.PartyOf(leader);
             await PartyRoster.AcceptHuman(member, party);
@@ -47,6 +47,54 @@ public class PartyAreaTests
             // Each side's row for the other names the area the other is in, so the panel has something to draw and travel to.
             Assert.Equal(graveyard, AreaOf(sent[leader], member.Account!));
             Assert.Equal(town, AreaOf(sent[member], leader.Account!));
+            Assert.Same(member, PartyTravel.Member(leader, member.Character!));
+            Assert.Null(PartyTravel.Member(leader, leader.Character!));
+            Assert.Null(PartyTravel.Member(leader, "NotInThisParty"));
+            Assert.Equal(member.Character, InstanceSocial.ReadPartyTravel(
+                new LoginWriter().U16(InstanceSocial.PartyTravelId).WStr(member.Character!).ToArray()));
+            // The area gate uses the travelling player's flags, not the destination owner's.
+            var required = GameServer.Core.ClientTables.Table("WorldAreas")
+                .First(r => r.Int("HASH16") == graveyard).Ints("EndQuestFlags");
+            Assert.NotEmpty(required);
+            Assert.Null(PartyTravel.Destination(leader, member));
+            leader.QuestFlags.UnionWith(required.Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
+            var travel = Assert.IsType<PendingTransfer>(PartyTravel.Destination(leader, member));
+            Assert.Equal((graveyard, member.InstanceNumber), (travel.Area, travel.Instance));
+            Assert.Equal((20, 20), travel.ArriveAt);
+            member.ReturnPortal = (123, 35, 45); member.ReturnPortalTo = town;
+            Assert.Equal((43, 45), PartyTravel.Destination(leader, member)!.ArriveAt);
+            member.ReturnPortal = null;
+            // Same area is not the same instance; another member must not win the selected target's destination.
+            var other = Player("OtherAreaMember", graveyard, "1_1_9");
+            await PartyRoster.InviteHuman(leader, other.Character!); await PartyRoster.AcceptHuman(other, party);
+            other.QuestFlags.UnionWith(leader.QuestFlags);
+            Assert.Equal(member.InstanceNumber, PartyTravel.Destination(other, member)?.Instance);
+            // Rebound connections retire the previous identity even if it has not yet been marked closed.
+            var replaced = Player(leader.Character!, town, "1_1_town");
+            await PartyRoster.Rebind(replaced);
+            Assert.Null(PartyTravel.Member(leader, member.Character!));
+            Assert.Same(member, PartyTravel.Member(replaced, member.Character!));
+            leader = replaced;
+            member.Closed = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.Closed = false;
+            member.LeavingArea = true; Assert.Null(PartyTravel.Member(leader, member.Character!)); member.LeavingArea = false;
+            leader.PlayerLife = 0; Assert.Null(PartyTravel.Member(leader, member.Character!)); leader.PlayerLife = 100;
+            var mapArea = new MapDevice.MapArea(graveyard, "test-map", "test map", 1);
+            var origin = new MapDevice.Origin(town, leader.InstanceNumber, 70, 80);
+            try
+            {
+                MapDevice.Activate(member.Character!, mapArea, entrance: origin);
+                MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
+                leader.QuestFlags.UnionWith(GameServer.Core.ClientTables.Table("WorldAreas")
+                    .First(r => r.Int("HASH16") == town).Ints("EndQuestFlags")
+                    .Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));
+                var entrance = Assert.IsType<PendingTransfer>(PartyTravel.Destination(leader, member));
+                Assert.Equal((town, leader.InstanceNumber, (70, 80)), (entrance.Area, entrance.Instance, entrance.ArriveAt));
+                Assert.Equal(6, MapDevice.OpenOf(member.Character!)!.PortalsLeft);
+                MapDevice.Activate(member.Character!, mapArea);
+                MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
+                Assert.Null(PartyTravel.Destination(leader, member)); // No origin cannot mean free entry.
+            }
+            finally { MapDevice.Close(member.Character!); }
         }
         finally
         {

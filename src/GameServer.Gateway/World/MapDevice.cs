@@ -232,6 +232,8 @@ public sealed class MapDevice
     {
         public int PortalsLeft => Left.Count;
         public Origin? ReturnTo { get; init; }
+        /// <summary>The device's exact source instance and arrival cell, retained independently of return routing.</summary>
+        public Origin? Entrance { get; init; }
     }
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
@@ -242,8 +244,10 @@ public sealed class MapDevice
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow) { ReturnTo = returnTo };
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
+        Origin? entrance = null) =>
+        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
+            { ReturnTo = returnTo, Entrance = entrance };
 
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
