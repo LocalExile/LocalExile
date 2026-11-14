@@ -183,8 +183,8 @@ where separately rounded 50.5/49.5 becomes 51/50; official endpoint/normalizatio
 Reference: pinned PoB `16de4b82`, `CalcOffence.lua` 35-140 and 1938-1982, via the PoE Reference Library.
 
 `PlayerHitDamage.Resolve` now uses that history for ordinary and supported player hits. Callers supply raw item/class
-or extracted spell base plus raw added damage, with attack effectiveness on the complete attack base and spell
-effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
+or extracted spell base plus raw added damage, with separate attack base/added coefficients ([11](11-skills.md) §9)
+and spell effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
 inputs once, each visited typed increase once, and Elemental once if any elemental type was visited. Clamp only the
 completed bucket, so a negative source-type subtotal can recover through a positive destination increase.
 Each applicable support/aura more source also follows the visited-type set once. The existing three no-damage flags
@@ -327,9 +327,15 @@ description (`Metadata/StatDescriptions/stat_descriptions.txt`, "Adds {0} to {1}
 Strength", and every one of its translations), PoB's unique text and parsed mod cache (`ModCache.lua`: `div=80`) and
 RePoE's mod text all say 80.
 At 11,833 Strength the boots add 147–11,760 chaos.
-The weapon-local "to Attacks with this Weapon per 10 <attribute>" stats
-(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`,
-`attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity`) and the spell
+The `attacks_with_this_weapon_minimum/maximum_added_cold_damage_per_10_dexterity` pair is weapon-scoped added
+damage, not the item's local base damage: Stats rows 7005/7006 have `IsWeaponLocal=1` and `IsLocal=0`.
+`AddedColdDamagePerDexterityUber1` and `AddedColdDamagePerDexterityInfluence1` include bow spawn tags.
+Only the qualified attacking weapon supplies the pair; each complete ten final Dexterity adds its rolled range
+before the skill's added effectiveness, without item quality or local elemental increases.
+Pinned PoB `16de4b82`, `ModParser.lua` lines 1188 and 1471, attaches the attacking-hand condition and Dexterity
+`PerStat` divisor; `CalcOffence.lua` lines 3350–3356 separates that added input from the weapon base.
+The remaining weapon-scoped fire per Strength and lightning per Dexterity/Intelligence pairs
+(`attack_minimum_added_fire_damage_per_10_strength`, `attack_minimum_added_lightning_damage_per_10_dex/int`) and the spell
 `spell_minimum_added_lightning_damage_per_10_intelligence` are not read yet.
 
 Damage-type prohibitions (`DamageStats.Prohibited`) remove a final-type portion after conversion.

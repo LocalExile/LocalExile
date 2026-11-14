@@ -302,6 +302,15 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
+        int barrageTime = Get("support_barrage_attack_time_+%_per_projectile_fired");
+        if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
+        {
+            var projectiles = projectileParameters.Resolve(Get, 1, ArrowsFor(conn, gem.Effect));
+            int count = Get("projectiles_rain") != 0 && projectiles.EndEmission is { } rain
+                ? rain.Child.Count : projectiles.Count;
+            // The native final-speed consumer divides by 1 + the per-projectile time penalty before rounding.
+            more /= 1 + (double)barrageTime * count / 100;
+        }
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
@@ -417,8 +426,9 @@ public static partial class Game
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!plan.CanHit) return null;
         var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
+        var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
         var raw = attackWeapon is not null
-            ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(attackWeapon, Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, coefficients.Base, coefficients.Added)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
         if (!attack && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
@@ -433,7 +443,8 @@ public static partial class Game
             if (bladeWeapon.Melee && bladeWeapon.LocalDamage is not null)
             {
                 double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
-                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon, Get).Components)
+                // The weapon's attack-only attribute grant is not added damage for this spell.
+                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon with { LocalSources = null }, Get).Components)
                     raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
             }
         }

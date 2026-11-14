@@ -228,7 +228,11 @@ instant skills retain their original count, and spent uses recover in sequence o
 changes preserve progress; removing the support changes capacity without refunding spent uses. Native Actor cooldown
 updates replace the complete spent-use queue. Duplicate same-effect gems and the special cooldown exclusions in
 `SingleUseCooldown` retain their existing limitations. Momentum's stacks need a skill-use and movement signal;
-Barrage needs its own release pattern, not a stat.
+Barrage's attack-time penalty uses the resolved projectile count, including additional arrows, before final-speed rounding.
+In the 3.29.3c release, `0x142706610` reads the count (`0x2d5`, or bow alias `0x2d6`) and
+`support_barrage_attack_time_+%_per_projectile_fired` (`0x2a28`), multiplying final speed by
+`100 / (100 + count * penalty)` at `0x142708769..0x1427087fd` before rounding to an integer percent.
+This does not establish individual release times: Barrage still needs its sequential release, cancellation and hit admission.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overexertion
 needs warcry exertion.
