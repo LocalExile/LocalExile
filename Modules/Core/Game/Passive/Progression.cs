@@ -1489,7 +1489,13 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name} chosen at the font");
+        await ChangeArea(remote, stream, ciphers, conn, AscendancyReload(conn), $"ascendancy {chosen.Name} chosen at the font");
+    }
+
+    public static PendingTransfer AscendancyReload(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return new(conn.Layout.Hash, conn.InstanceNumber, false, ArriveAt: conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
     }
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
