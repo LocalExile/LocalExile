@@ -195,6 +195,10 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   EssenceStashTabLayout / FragmentStashTabLayout `FirstSlotIndex` (a currency slot also takes its `StoredItem`: the Eldritch Embers and Ichors rows keep old Ids, CurrencyCleansingFireOrb1-4 and CurrencyGreatTangleOrb1-4, SlotGroup 1 = the Atlas page; a fragment slot also takes its `StoredItems`). The
   client shows slot n as cell (n, 0) and sends it so (live 2026-10-20: a Scroll of Wisdom dropped at (54, 0), (12, 0) and
   (1, 0); its slot is 1). An item dropped anywhere on such a tab goes into its own slot, onto what is there.
+  Inventory row 26 is shared, but the kind must identify the special tab: fragment `0x16`, Delirium `0x1e`
+  (`StashType.__col5`). Generic kind `0x11` hides their stack counters for inventory-single items even when the
+  transmitted count is greater than one. Verified live with two Simulacrums and fragments; reopening the panel
+  refreshes an inventory created before this kind changed through hot reload.
 - **Crafting slot.** The currency tab's big cell in the middle is CurrencyStashTabLayout row `CraftingSlot` (no
   `StoredItem`, `FirstSlotIndex` 28, 2 × 4). The client drops onto it as (28, 0) (live 2026-10-23, a weapon). It takes
   any item, where dropped (`StashRules.TakesAnything`), at the item's own stack size; an item dropped on it swaps with the
@@ -216,7 +220,10 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
   map from each row's card (its BaseItemTypes Id) to the row index (`0x140b306d0`), and 470 rows run past the tab's
   255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other
-  layout fits its first row. The tab shows a card only once its set is complete (stack = the card's stack size).
+  layout except fragments fits its first row. FragmentStashTabLayout `Subtab` is the inventory row, not the visible
+  category (`Tab`): cell `(FirstSlotIndex, Subtab)`, flattened as `Subtab * 255 + FirstSlotIndex`.
+  Allflame uses columns 3–10 of row 1; reusing row 0 collides with Vaal fragments and leaves Allflame empty.
+  The tab shows a card only once its set is complete (stack = the card's stack size).
   Live 2026-10-28: with one card each, only the 1-card sets showed; with two each, exactly the 1- and 2-card sets.
   Luck of the Vaal (row 154, not in game) never showed. Unique (4), Breach (22) and Ultimatum (14) tabs exist but take nothing yet (`StashRules.NotShown`: uniques
   are keyed by unique names and the server has none; 3.29.3b has no breach or ultimatum layout table). The starter tabs
