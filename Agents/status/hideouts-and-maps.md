@@ -40,7 +40,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
-  presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
+  presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
+  0x1a4, so both panels (the Atlas and the map device's portals) draw the new mark without an area change.
+  `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
   real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
