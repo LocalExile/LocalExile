@@ -530,6 +530,10 @@ public static partial class Game
                 await SpawnMavenRing(remote, stream, ciphers, conn, MavenNucleus.Phase1Orbs,
                     (maven.X, maven.Y), MavenNucleus.Phase1Radius, level);
         }
+        // The league encounters of a new instance (Rogue Exiles, …): their modules place them now, and the instance keeps
+        // them with the packs.
+        await GameEvents.RunAreaPopulated(new AreaPopulated(conn, level, AreaPopulation.PopulationSeed(layout.Hash, conn.Seed),
+            [.. spawns.Select(s => (s.X, s.Y))]));
         Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count + extra} at level {level}: " +
             string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} × {g.Count()}")) +
             (extra > 0 ? $", invitation × {extra}" : "") +

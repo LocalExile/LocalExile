@@ -147,6 +147,10 @@ public static class GameEvents
     /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> AreaGenerated = new();
 
+    /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
+    /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
+    public static readonly GameEvent<Func<AreaPopulated, Task>> AreaPopulated = new();
+
     /// <summary>The player has used an area transition to another room of this instance.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> LocalGateUsed = new();
 
@@ -213,6 +217,11 @@ public static class GameEvents
     public static async Task RunAreaGenerated(ClientState conn)
     {
         foreach (var (owner, run) in AreaGenerated.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(conn));
+    }
+
+    public static async Task RunAreaPopulated(AreaPopulated area)
+    {
+        foreach (var (owner, run) in AreaPopulated.Subscribers(area.Conn)) await GameEventOwners.Guard(owner, nameof(AreaPopulated), () => run(area));
     }
 
     public static async Task RunLocalGateUsed(ClientState conn)

@@ -28,6 +28,14 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
     public IPlayer Player => Program.PlayerOf(Conn);
 }
 
+/// <summary>A new instance's monsters are placed (<see cref="GameEvents.AreaPopulated"/>): the monsters' level, the
+/// population's seed (for an encounter's own rolls) and the cells the packs and bosses took, to keep an encounter
+/// apart from them.</summary>
+public sealed record AreaPopulated(ClientState Conn, byte Level, int Seed, IReadOnlyList<(int X, int Y)> Taken)
+{
+    public IPlayer Player => Program.PlayerOf(Conn);
+}
+
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
 public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
 {

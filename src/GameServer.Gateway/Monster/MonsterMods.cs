@@ -72,9 +72,11 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     }
 
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
-    /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table).</summary>
+    /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 + the encounter's own
+    /// more life, <see cref="MonsterModCatalog.EncounterLifeStat"/>).</summary>
     public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
-        * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)));
+        * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
+        * (1 + this[MonsterModCatalog.EncounterLifeStat] / 100.0)));
 
     /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
     /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
@@ -200,6 +202,9 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     /// <summary>The stat the rarity's level table (MagicMonsterLifeScalingPerLevel, RareMonsterLifeScalingPerLevel)
     /// gives: Stats.dat row 9877. No Mods.dat row carries it; the server applies it.</summary>
     public const string RarityTableLifeStat = "monster_life_+%_final_from_rarity_table";
+    /// <summary>An encounter's own more life by level, from a table no stat names (RogueExileLifeScalingPerLevel): the
+    /// server's key, not a Stats.dat row, so it is never sent; the client sees the final maximum_life.</summary>
+    public const string EncounterLifeStat = "server_encounter_monster_life_+%_final";
     /// <summary>The area level from which rare monsters have the maps' mod counts (the first map level).</summary>
     public const int MapLevel = 68;
 

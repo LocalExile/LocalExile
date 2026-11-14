@@ -556,6 +556,27 @@ public static class AreaPopulation
         return packs[^1].Pack;
     }
 
+    /// <summary>Where a league encounter stands: a cell as deep in the walk map as a pack centre, as far from the
+    /// arrival and the area transitions as the packs keep, and <paramref name="spacing"/> from every taken cell (the
+    /// placed monsters, other encounters). With no such cell the taken cells are ignored; null when the area has no
+    /// cell at all.</summary>
+    public static (int X, int Y)? EncounterSpot(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20)
+    {
+        var depth = Depth(w, h, walkable);
+        var candidates = new List<(int X, int Y)>();
+        for (int y = 0; y < h; y += 3)
+            for (int x = 0; x < w; x += 3)
+                if (depth[y * w + x] >= CentreDepth && !Near((x, y), arrival, SpawnClearance)
+                    && !transitions.Any(t => Near((x, y), t, TransitionClearance)))
+                    candidates.Add((x, y));
+        if (candidates.Count == 0) return null;
+        Shuffle(candidates, rng);
+        foreach (var c in candidates)
+            if (!taken.Any(t => Near(c, t, spacing))) return c;
+        return candidates[0];
+    }
+
     static bool Near((int X, int Y) a, (int X, int Y) b, int d) => (long)(a.X - b.X) * (a.X - b.X) + (long)(a.Y - b.Y) * (a.Y - b.Y) < (long)d * d;
 
     static void Shuffle<T>(List<T> list, Random rng)
