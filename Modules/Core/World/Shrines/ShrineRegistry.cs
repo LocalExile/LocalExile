@@ -171,6 +171,17 @@ public static class ShrineRegistry
             AfterActivation = [() => new IceNovaEffect()],
         });
 
+        // Shrouded (the client's row id is Smoke): BuffDefinitions 253 (shrine_smoke, "Smoke shrouds you") for 45 s,
+        // BuffTemplates 402 (smoke_player). The row summons MonsterVarieties 2922, whose ShrineSmokeCloud is a smoke cloud
+        // over the statue while it stands and around the player once the buff is up.
+        Register(new ShrineDefinition
+        {
+            Id = "Smoke",
+            Name = "Shrouded Shrine",
+            BeforeActivation = [() => new SmokeCloudEffect()],
+            AfterActivation = [() => new SmokeCloudEffect()],
+        });
+
         // Lightning: Shock Novas and shocked ground around the shrine while it stands unclaimed, then around the player
         // while its buff is up.
         Register(new ShrineDefinition

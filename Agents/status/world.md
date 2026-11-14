@@ -108,10 +108,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   the pulse. Both are drawn at the size their own art is made for (the meshes' ±244.4 and ±137.7 units, the burst ~12.7
   cells), which is how the client shows them: enlarging them to the 30 cells the hit reaches (26 raised by the stat set's
   15% final) drew a frozen floor across most of the screen.
+  The Shrouded shrine (the Smoke row) is the cloud its buff promises: GrantedEffects 2942 `ShrineSmokeCloud` over the
+  statue while it stands and around the player once its buff is up, drawn with the largest smoke of GroundEffects' Smoke
+  row (row 117, `smoke_blind_fog_of_war_large.ao`, the radius 350 its `__col4` gives, ~32 cells) and kept where the caster
+  is rather than re-cast. Its buff (BuffDefinitions 253 `shrine_smoke`) carries no stat but `has_shrine_effect`, so the
+  cloud is the whole effect. The fog blinds through the engine's timed Blind (buff 179 `blinded`, 20% less accuracy and
+  evasion): a player who walks into an unclaimed shrine's fog gets it, and so do the hostile monsters standing in a claimed
+  one, refreshed once a second while they stay inside and lapsing 1.5 s after they leave.
   and `/shrines [Id …]` places types around the player for checking.
   Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
-  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`), `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`,
-  `ShrinePlacement.cs`),
+  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`, `Effects/SmokeCloudEffect.cs`),
+  `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
   `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
   The on-kill explosion a shrine can promise (`explode_enemies_for_25%_life_as_chaos_on_kill_chance_%`, Gloom's 40%
   for 25% of the dead monster's maximum life as chaos) is the existing kill explosion (`Game.ExplodeOnKill`), which
@@ -121,10 +128,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   the shrine aura's EncounterStats: a monster already in the shrine's radius gets it on the next tick, as one that walks in does.
   The aura is server-side only: no 0x01c1 buff is sent for it, so the monsters around an unclaimed shrine wear no icon
   (the stats still apply, and are restored when they leave, the shrine is claimed or the area unloads).
-  The Lightning and Freezing effects were checked with the client (their art draws and their hits land); the claimed
-  buffs' versions are less exercised. The other types' active effects (the Burning nova, Skeletal summons, Smoke's
-  cloud) are not built, and the tables carry no activated statue state for the standard rows, so a used shrine is
-  consumed rather than dimmed.
+  The Lightning, Freezing and Shrouded effects were checked with the client (their art draws and the novae's hits land);
+  the claimed buffs' versions are less exercised. The other types' active effects (the Burning nova, Skeletal summons)
+  are not built, and the tables carry no activated statue state for the standard rows, so a used shrine is consumed
+  rather than dimmed.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
