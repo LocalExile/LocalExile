@@ -104,10 +104,17 @@ static class DivinationFeature
 
     internal sealed record Change(byte Row, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added);
 
-    internal static IReadOnlyList<Change> Move(ClientState conn, InstanceDivination.Move request) =>
-        Saves.Atomically<IReadOnlyList<Change>>(() =>
+    internal static IReadOnlyList<Change> Move(ClientState conn, InstanceDivination.Move request)
     {
-        if (!Current(conn) || request.Expanded && (!request.IntoWindow || !Game.ExpandedInventoryGranted(conn))) return [];
+        // Worked out before the transaction: the check builds the character's stats under conn.Monsters, and that lock
+        // comes before the save lock (Saves.cs), never inside it.
+        bool expandedAllowed = !request.Expanded || request.IntoWindow && Game.ExpandedInventoryGranted(conn);
+        return Saves.Atomically<IReadOnlyList<Change>>(() => MoveLocked(conn, request, expandedAllowed));
+    }
+
+    static IReadOnlyList<Change> MoveLocked(ClientState conn, InstanceDivination.Move request, bool expandedAllowed)
+    {
+        if (!Current(conn) || !expandedAllowed) return [];
         var items = ItemsOf(conn);
         byte main = PlayerInventories.MainInventory;
         byte source = request.IntoWindow ? (request.Expanded ? PlayerInventories.ExpandedInventory : main) : Row;
@@ -166,7 +173,7 @@ static class DivinationFeature
             return new Change(row, before[row].Where(i => !after.Contains(i)).Select(i => i.Id).ToArray(),
                 after.Where(i => !before[row].Contains(i)).ToArray());
         }).Where(c => c.Removed.Count + c.Added.Count > 0).ToArray();
-    });
+    }
 
     internal static InventoryItem? TurnIn(ClientState conn, Random? random = null) => Saves.Atomically(() =>
     {
