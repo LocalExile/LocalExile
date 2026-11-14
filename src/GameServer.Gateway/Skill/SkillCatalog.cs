@@ -729,6 +729,74 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// projectile is not known yet; the Gateway matches the Id, and <see cref="ProjectileFallbacks"/> covers the gems
     /// whose row is not named after their effect. Kinetic Blast (ClusterBurst) fires the wand attack's own projectile
     /// (3.29 has no ClusterBurst row); its explosion is a separate impact art (Program.Combat).</summary>
+    /// <summary>The projectile the client flies for an effect, as its resolver picks it (RE 012 resource-selection §1–3:
+    /// 0x1419417c0 → 0x141f67770): the SkillArtVariations rows associated with the GrantedEffects row, then those
+    /// associated with its ActiveSkills row, each in row order; the first whose ProjectileArt has the slot and whose
+    /// ProjectilesArtVariations Id has a row at the variant gives that row's Projectiles (the first, when there are several:
+    /// none of the rows this is used for has more). Variant 0: a monster carries no art-variation stat. Null when no
+    /// candidate has one: the client then flies nothing from this path.</summary>
+    public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int variant = 0)
+    {
+        var art = _skillArt.Value;
+        IEnumerable<int> candidates = art.ByEffect.GetValueOrDefault(effectRow, []);
+        if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
+            candidates = candidates.Concat(art.ByActive.GetValueOrDefault(active, []));
+        foreach (int row in candidates)
+        {
+            var slots = art.ProjectileArt[row];
+            if (slot >= slots.Count || !art.ArtIds.TryGetValue(slots[slot], out string? id)
+                || !art.Directory.TryGetValue((id, variant), out var projectiles) || projectiles.Count == 0) continue;
+            return projectiles[0];
+        }
+        return null;
+    }
+
+    sealed record SkillArt(Dictionary<int, List<int>> ByEffect, Dictionary<int, List<int>> ByActive, List<IReadOnlyList<int>> ProjectileArt,
+        Dictionary<int, string> ArtIds, Dictionary<(string Id, int Variant), List<(string Id, int Speed, int CollisionRadius)>> Directory);
+
+    private readonly Lazy<SkillArt> _skillArt = new(() =>
+    {
+        Dictionary<int, List<int>> byEffect = [], byActive = [];
+        List<IReadOnlyList<int>> projectileArt = [];
+        Dictionary<int, string> artIds = [];
+        Dictionary<(string, int), List<(string, int, int)>> directory = [];
+        if (!ClientTables.Has("SkillArtVariations") || !ClientTables.Has("ProjectilesArtVariations") || !ClientTables.Has("Projectiles"))
+            return new(byEffect, byActive, projectileArt, artIds, directory);
+        int index = 0;
+        foreach (var r in ClientTables.Table("SkillArtVariations"))
+        {
+            projectileArt.Add([.. r.Ints("ProjectileArt")]);
+            foreach (int e in r.Ints("GrantedEffect")) { if (!byEffect.TryGetValue(e, out var l)) byEffect[e] = l = []; l.Add(index); }
+            foreach (int a in r.Ints("ActiveSkill")) { if (!byActive.TryGetValue(a, out var l)) byActive[a] = l = []; l.Add(index); }
+            index++;
+        }
+        var projectiles = ClientTables.Table("Projectiles").Select(p => (p.Text("Id") ?? "", p.IntOrNull("ProjectileSpeed") ?? 0,
+            p.IntOrNull("CollisionRadius") ?? 1)).ToList();
+        index = 0;
+        foreach (var r in ClientTables.Table("ProjectilesArtVariations"))
+        {
+            string id = r.Text("Id") ?? "";
+            artIds[index++] = id;
+            // The directory's exact (Id, variant) key; on a duplicate the first row wins (0x14222a250).
+            directory.TryAdd((id, r.IntOrNull("Variant") ?? 0),
+                [.. r.Ints("Projectiles").Where(p => p >= 0 && p < projectiles.Count).Select(p => projectiles[p])]);
+        }
+        return new(byEffect, byActive, projectileArt, artIds, directory);
+    });
+
+    private readonly Lazy<Dictionary<int, int>> _activeSkillOfEffect = new(() =>
+    {
+        Dictionary<int, int> result = [];
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        int row = 0;
+        foreach (var e in ClientTables.Table("GrantedEffects"))
+        {
+            if (e.IntOrNull("ActiveSkill") is int a) result[row] = a;
+            row++;
+        }
+        return result;
+    });
+
     public (string Id, int Speed)? ProjectileFor(int effectRow)
     {
         if (_tables.Value is not { } t) return null;

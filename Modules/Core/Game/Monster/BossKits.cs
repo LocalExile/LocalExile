@@ -117,11 +117,35 @@ public static class BossKits
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
             // default attack is kept whatever it is: it is the attack it had before the kit.
+            // A unique's ranged skill flies the projectile the client's art resolver picks for it, as an object of the
+            // server's (a monster's action draws none of its own but a mortar's: Game.MonsterProjectileUse). One that
+            // resolves to none is left out: its hit would land with nothing in flight.
+            if (unique && kit.Count > 0 && attack.Ranged && attack.Projectile is null)
+            {
+                if (ArtShot(catalog, effect, level) is not { } shot) continue;
+                attack = attack with
+                {
+                    Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot),
+                };
+            }
             bool acts = !attack.Damage.IsZero || attack.Summon is not null || attack.Projectile is not null;
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
         return kit;
+    }
+
+    /// <summary>A skill's projectile as the client resolves its art (SkillCatalog.SkillArtProjectile), with the count its
+    /// stats give one release (number_of_projectiles_override, else base_number_of_projectiles plus
+    /// number_of_additional_projectiles); null when the art names none.</summary>
+    public static SkillCatalog.MonsterProjectileInfo? ArtShot(SkillCatalog catalog, int effect, byte level)
+    {
+        if (catalog.SkillArtProjectile(effect) is not { } art) return null;
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count) };
     }
 
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
