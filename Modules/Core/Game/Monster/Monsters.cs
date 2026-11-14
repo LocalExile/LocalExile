@@ -1558,11 +1558,14 @@ public static partial class Game
         // Entry protection: a protected player is not attacked (the planner also skips hostile monsters meanwhile).
         if (!CurrentGameWork || InGracePeriod(conn)) return;
         // A kit skill that is more than a hit: a travel, a buff on itself, a curse (MonsterSkills).
-        if (a.Use is { } skill && !area)
+        // Not a swing the client's walk-up began: that one is the chase's melee clip, whatever the kit chose since.
+        if (a.Use is { } skill && !area && begunAt is null)
         {
             await MonsterSkills.Play(remote, stream, ciphers, conn, id, m, action, a, skill);
             return;
         }
+        // A walk-up swing is the chase's melee clip: it hits as the kit's plain attack, not as the skill chosen since.
+        if (begunAt is not null && a.Use is not null && m.Kit.Count > 0) a = m.Kit[0].Attack;
         // A swing the client's own chase action began when its walk-up got there (a lockstep client, PlanMonsterAi): no
         // order goes out, the clip is the chase order's, and the contact counts from the start of the frame it began in.
         if (begunAt is { } begun && use is null && !area)

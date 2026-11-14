@@ -154,6 +154,14 @@ public static partial class MonsterSkills
     public static async Task Play(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
+        // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
+        lock (conn.Monsters) BossKits.Consume(m, a, conn.Clock.Elapsed.TotalSeconds);
+        int chargePct = use.Shape == MonsterSkillShape.Travel ? use.Stats.GetValueOrDefault(ChargeStat) : 0;
+        if (chargePct > 0)
+        {
+            await Charge(remote, stream, ciphers, conn, id, m, action, a, chargePct);
+            return;
+        }
         double startedAt = 0, seconds = a.Seconds;
         ushort seq = conn.NextActionSequence();
         (int X, int Y) from = default, target = default;
@@ -187,6 +195,53 @@ public static partial class MonsterSkills
                 await Curse(conn, id, use);
                 break;
         }
+    }
+
+    /// <summary>The stat that makes a travel a charge: its user's movement speed while it runs (Shield Charge's).</summary>
+    const string ChargeStat = "base_movement_velocity_+%";
+
+    /// <summary>A charge's farthest run and the radius its end hits within (cells; the player's: ShieldCharge.cs).</summary>
+    const int ChargeDistance = 75, ChargeEndRadius = 16;
+
+    /// <summary>A charge (Shield Charge): the client runs it as a walk at the actor's own movement speed (0x141e827a0
+    /// reads movement_velocity_+% from its Stats), so its length is the distance over that speed, not the attack time.
+    /// The skill's movement bonus goes to the client as the monster's movement_velocity_+% (0xf5) while it runs, the
+    /// server's walk charges at the same speed (PlayerWalk.Charge), and the hit lands where and when the walk arrives.</summary>
+    static async Task Charge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, int action, MonsterAttack a, int bonusPct)
+    {
+        int ownPct = m.Mods.Effects.MovementPct;
+        double walkSpeed, chargeSpeed;
+        lock (conn.Monsters)
+        {
+            walkSpeed = m.Walk.Speed;
+            chargeSpeed = walkSpeed / Math.Max(.01, 1 + ownPct / 100.0) * Math.Max(.01, 1 + (ownPct + bonusPct) / 100.0);
+        }
+        await SendWorldRecord(remote, stream, ciphers, conn, id,
+            InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct + bonusPct)]), null);
+        double startedAt = 0, arrives = 0;
+        ushort seq = conn.NextActionSequence();
+        (int X, int Y) from = default, target = default;
+        bool sent = await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+        {
+            if (MonsterSwingOrderLocked(conn, m, a, action, false, a.Seconds, AreaTime(conn), seq) is not { } order) return null;
+            (startedAt, seq) = (order.StartedAt, order.Sequence);
+            from = order.From;
+            target = Landing(conn, from, order.Player);
+            m.Walk.SetSpeed(chargeSpeed, startedAt);
+            m.Walk.Charge(target.X, target.Y, ChargeDistance, startedAt);
+            arrives = Math.Max(m.Walk.ArrivesAt, startedAt);
+            m.BusyUntil = Math.Max(m.BusyUntil, arrives + conn.LockstepActionTail);
+            return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags);
+        }, $"0x01ab monster 0x{id:x} ({m.Label}) charges with skill 0x{a.SkillId:x4} at {ownPct + bonusPct:+0;-0}% movement speed");
+        if (sent)
+            Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
+        bool arrived = sent && await WaitMonsterActionTime(conn, id, m, action, arrives);
+        lock (conn.Monsters) m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds);
+        if (!conn.Closed && !m.Dead)
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct)]), null);
+        if (arrived && !a.Damage.IsZero)
+            await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a with { Range = ChargeEndRadius, Use = null });
     }
 
     /// <summary>Where a travel lands: short of the player on the line from the monster, on a walkable cell; else the
