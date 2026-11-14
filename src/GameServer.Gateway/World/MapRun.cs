@@ -78,6 +78,9 @@ public sealed class MapMods
         if (MonsterDamage != 0) extra["damage_+%"] = MonsterDamage;
         if (Get("map_monster_damage_taken_+%_final_from_atlas_keystone") is int taken and not 0)
             extra["map_monster_damage_taken_+%_final_from_atlas_keystone"] = taken;
+        // The map tier's hidden more life and damage (the area stats' tier block).
+        foreach (string hidden in new[] { MonsterModCatalog.MapHiddenLifeStat, MonsterModCatalog.MapHiddenDamageStat })
+            if (Get(hidden) is int more and not 0) extra[hidden] = more;
         return extra;
     }
 
