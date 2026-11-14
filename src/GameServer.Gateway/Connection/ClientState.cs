@@ -28,6 +28,23 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+/// <summary>What a kit skill does beyond a hit (BossKits, MonsterSkills.cs).</summary>
+public enum MonsterSkillShape
+{
+    /// <summary>A movement skill (Leap Slam, Shield Charge, Flame Dash, Lightning Warp): it carries its user to a cell
+    /// by the player and hits around where it lands, if it deals damage.</summary>
+    Travel,
+    /// <summary>A war cry or a buff (Enduring Cry, Blood Rage, Immortal Call): its buff on its user, for its time.</summary>
+    Self,
+    /// <summary>A curse: its debuff on the player, for its time.</summary>
+    Curse,
+}
+
+/// <summary>A kit skill's use: its shape, the BuffDefinitions row that draws it (0: none), how long it lasts, the stats
+/// it grants (on its user; on the player for a curse), and the nearest the player must be for a travel.</summary>
+public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<string, int> Stats,
+    double MinRange = 0);
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     public bool Ranged { get; init; }
@@ -80,8 +97,11 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
     public bool Scripted { get; init; }
 
+    /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
+    public MonsterSkillUse? Use { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
@@ -223,7 +243,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
-    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
+    /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
+    public IReadOnlyDictionary<string, int>? BuffStats;
+    public MonsterModEffects Effects => Curses.Effects(WithBuffs(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects));
+    MonsterModEffects WithBuffs(MonsterModEffects effects) => BuffStats is { Count: > 0 } buffs ? effects.Combine(buffs) : effects;
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).

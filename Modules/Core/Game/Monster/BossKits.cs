@@ -72,6 +72,17 @@ public static class BossKits
         return usable;
     }
 
+    /// <summary>A unique's effects: those <see cref="Effects"/> plays as hits, then those it plays as a travel, a buff on
+    /// itself or a curse (MonsterSkills.ShapeOf; a Rogue Exile's Leap Slam, Enduring Cry, Temporal Chains).</summary>
+    public static IReadOnlyList<int> UniqueEffects(SkillCatalog catalog, MonsterCatalog.Variety variety)
+    {
+        List<int> effects = [.. Effects(catalog, variety)];
+        foreach (int effect in variety.GrantedEffects ?? [])
+            if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && MonsterSkills.ShapeOf(catalog, effect) is not null)
+                effects.Add(effect);
+        return effects;
+    }
+
     /// <summary>Its kit: the effect the monster's own default attack uses first (so a boss keeps the attack it had
     /// before the kit), then the variety's other effects in its order. Empty for anything that is not a kit boss.</summary>
     /// <param name="defaultAttack">The attack the monster would have swung without a kit: the kit's first entry is that
@@ -81,9 +92,9 @@ public static class BossKits
         int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
     {
         var catalog = SkillsFor(conn);
-        if (!IsKitBoss(catalog, variety) && !(unique && Effects(catalog, variety).Count > 1)) return [];
+        if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
         List<MonsterKitSkill> kit = [];
-        IReadOnlyList<int> effects = Effects(catalog, variety);
+        IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
         foreach (int effect in effects)
         {
@@ -91,6 +102,14 @@ public static class BossKits
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
             var attack = kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id);
+            if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
+            {
+                // A travel reaches as far as it carries the monster; a buff or a curse is used from where it sees the player.
+                attack = attack with { Use = use, Range = use.Shape == MonsterSkillShape.Travel ? MonsterSkills.TravelReach : Math.Max(variety.AggroRange, attack.Range) };
+                cooldown = use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3) : Math.Max(cooldown, use.Seconds + 2);
+                kit.Add(new(effect, attack, cooldown));
+                continue;
+            }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
@@ -177,6 +196,8 @@ public static class BossKits
         {
             // A skill that does not reach the player is no candidate: the boss keeps its attack and walks up.
             if (entry.Attack.Range < distance) continue;
+            // A travel is for closing a distance: nearer than its least, the monster swings.
+            if (entry.Attack.Use is { } use && distance < use.MinRange) continue;
             double used = monster.KitReadyAt.GetValueOrDefault(entry.Effect);
             bool special = entry.CooldownSeconds > 0;
             if (special && used > now) continue;

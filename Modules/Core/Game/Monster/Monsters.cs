@@ -149,7 +149,12 @@ public static partial class Game
         var emerge = Emerges.Kind(variety, rarity);
         bool waits = emerge != EmergeKind.None && (unrisen ?? true);
         // Its mods (MonsterMods.cs): the kept ones, else rolled for its rarity. They set its life, hit, speed and defences.
+        bool freshMods = mods is null;
         mods = MonsterModsFor(conn, variety, level, rarity, mods, alone);
+        // A hostile unique keeps its auras up (a Rogue Exile's Hatred, Haste): their stats are its own from the spawn, and
+        // a kept one keeps them in its mods.
+        var auras = !friendly && rarity == MonsterRarity.Unique ? MonsterSkills.Auras(SkillsFor(conn), variety, level) : default;
+        if (freshMods && auras.Stats is { Count: > 0 }) mods = mods with { Effects = mods.Effects.Combine(auras.Stats) };
         // Additional encounter scaling composes with rolled rarity and map effects.
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         if (!friendly && MapModsOf(conn) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
@@ -338,6 +343,7 @@ public static partial class Game
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, glow), !log ? null :
                 $"0x01c1 monster 0x{id:x} buff {MonsterRarityBuffs.Id(glow)} (BuffDefinitions row {glow})");
         }
+        if (auras.Rows is { Count: > 0 }) await MonsterSkills.ShowAuras(conn, id, auras.Rows, log);
         if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
             (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
         if (log && attack.Projectile is { } shot)
@@ -1551,6 +1557,12 @@ public static partial class Game
         if ((use ?? m.Attack) is not { } a) return;
         // Entry protection: a protected player is not attacked (the planner also skips hostile monsters meanwhile).
         if (!CurrentGameWork || InGracePeriod(conn)) return;
+        // A kit skill that is more than a hit: a travel, a buff on itself, a curse (MonsterSkills).
+        if (a.Use is { } skill && !area)
+        {
+            await MonsterSkills.Play(remote, stream, ciphers, conn, id, m, action, a, skill);
+            return;
+        }
         // A swing the client's own chase action began when its walk-up got there (a lockstep client, PlanMonsterAi): no
         // order goes out, the clip is the chase order's, and the contact counts from the start of the frame it began in.
         if (begunAt is { } begun && use is null && !area)
