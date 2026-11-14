@@ -586,6 +586,13 @@ public static class CharacterSaves
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
+        // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.
+        if (t.HasOneSocket && item.Rarity != ItemRarity.Unique && item.Sockets.Count == 0)
+        {
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (local.GetValueOrDefault("local_has_X_sockets") == 1 && !local.ContainsKey("local_has_no_sockets"))
+                item = item with { Sockets = [new(SocketColour.White)], Links = [1] };
+        }
         // Older Stygian Vises could be saved with missing or ordinary sockets. Preserve every occupied layout.
         if (t.Id == AbyssJewels.StygianVise && item.Sockets.All(socket => socket.Gem is null)
             && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))

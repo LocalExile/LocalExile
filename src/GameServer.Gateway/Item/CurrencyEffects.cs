@@ -414,7 +414,7 @@ public static class CurrencyEffects
         if (!item.Components.Contains("Sockets") || !type.Components.Contains("Sockets")) return 0;
         // The class setting is the cap, not the inventory cell count: a wand is 1x3 cells but may be given six
         // sockets by the setting, as the old Game_SOCKET_CAPACITY dev flag already allowed. The client accepts it.
-        return SystemSettings.Default.SocketMax(type.Class);
+        return type.HasOneSocket ? Math.Max(1, item.Sockets.Count) : SystemSettings.Default.SocketMax(type.Class);
     }
 
     /// <summary>Reroll the socket count and link groups. Refused targets spend no currency. 3.29: only the sockets the
