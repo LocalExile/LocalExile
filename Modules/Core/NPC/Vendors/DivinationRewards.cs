@@ -127,13 +127,14 @@ static class DivinationRewards
                 reward.WhiteSockets ? SocketColour.White : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random)))],
                 Links = [6] };
         }
-        // Only a reward that names its corruption implicits ("Two-Implicit", "1-2 Implicit") rolls them, replacing the
-        // base's own. A plain "Corrupted" reward is the item as it is, corrupted: Apocalypse's Eyes of the Greatwolf keeps
-        // its doubled Talisman implicit, and a corrupted unique keeps its own implicits.
+        // A card's Corrupted equipment reward guarantees one corruption implicit where possible. Maps and gems
+        // keep their own reward rules; a named corruption implicit or a naturally corrupted Talisman is already handled.
+        bool ordinaryCorruption = reward.Corrupted && type.Components.Contains("Mods")
+            && !type.Components.Contains("SkillGem") && !type.Components.Contains("Map") && !type.Components.Contains("MapKey");
         if (reward.Equipment?.Special is not ("corrupted_blood" or "talisman")
-            && (reward.TwoImplicit || reward.Equipment?.Implicits == -2))
+            && (ordinaryCorruption || reward.TwoImplicit || reward.Equipment?.Implicits == -2))
         {
-            int count = reward.Equipment?.Implicits == -2 ? random.Next(1, 3) : 2;
+            int count = reward.Equipment?.Implicits == -2 ? random.Next(1, 3) : reward.TwoImplicit ? 2 : 1;
             if (CorruptionImplicits(item, type, items, random, count) is not { } corrupted) return null;
             item = corrupted;
         }

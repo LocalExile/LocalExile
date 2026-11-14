@@ -209,6 +209,13 @@ Its exchange button (`0x140bb2980`) sends C→S 0x19a with no fields only when t
 Its close handler (`0x140bb2f00`) sends C→S 0x85.
 An ordinary card pickup remains C→S 0x28; it is not an exchange request.
 
+For 3.29.3d, a card's ordinary Corrupted equipment reward has one eligible corruption implicit, replacing
+the base implicits; Two-Implicit and 1–2 Implicit rewards retain their advertised counts.
+The [reward rule](https://www.poewiki.net/wiki/Divination_card#Rewards) also appears in
+[PoEDB's reward notes](https://poedb.tw/us/Divination_Cards#CommunityWiki).
+Maps, gems, named corruption implicits and naturally corrupted Talisman rewards have separate rules.
+Apocalypse's Corrupted Eyes of the Greatwolf therefore has a corruption implicit; its explicit magnitude doubler remains.
+
 C→S 0x85 during a talk = Continue → next eligible automatic quest talk, or 0x84 0xff (options);
 otherwise the Gateway answers 0x84 with object 0,
 which ends the dialogue (without an answer the client stays in its dialogue state and the player cannot move).
