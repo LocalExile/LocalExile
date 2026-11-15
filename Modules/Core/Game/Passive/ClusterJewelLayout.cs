@@ -26,7 +26,11 @@ public static class ClusterJewelLayout
 {
     public enum Kind { None, Small, Notable, Socket, Keystone }
 
-    public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders);
+    public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders)
+    {
+        public int EntryOffset { get; init; }
+        public IReadOnlyDictionary<int, int> ChildSockets { get; init; } = new Dictionary<int, int>();
+    }
 
     sealed record Template(int[] Small, int[] Notable, int[] Socket, int Total);
 
@@ -92,7 +96,8 @@ public static class ClusterJewelLayout
         }
         // A single-keystone small cluster creates its only node at index zero, rotated by the cell start.
         if (size == 0 && keystones == 1 && nodes == 1)
-            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, []);
+            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, [])
+                { EntryOffset = Offset(0) };
 
         var kinds = new Dictionary<int, Kind>();
         var orders = new Dictionary<int, int>();
@@ -109,7 +114,7 @@ public static class ClusterJewelLayout
             Put(0, Kind.Small);
             for (int i = 0; i < 3; i++) Put(3 * (i + 1), Kind.Notable, i);
         }
-        else if (treeSocket)
+        else if (treeSocket || notables > 0)
         {
             // The client's template layout: sockets take the first socket positions, the notables the first free notable
             // positions in ascending order (the item's notables in the client's order), the smalls the remaining list.
@@ -155,6 +160,17 @@ public static class ClusterJewelLayout
             }
         }
 
-        return new Layout(block, compressed ? total / 2 : total, kinds, orders);
+        var children = new Dictionary<int, int>();
+        foreach (int child in Program.Passives.ClusterSlots(cell))
+        {
+            int index = Program.Passives.ClusterIndex(child);
+            // Large jewels open the two outer sockets before the middle one. Pane indexes run left/middle/right,
+            // while PassiveTreeExpansionJewels.SocketIndices is ordered left/right/middle (4,8,6).
+            int order = size == 2 ? index switch { 1 => 2, 2 => 1, _ => index } : index;
+            if (order >= 0 && order < sockets && order < template.Socket.Length)
+                children[child] = Offset(template.Socket[order]);
+        }
+        return new Layout(block, compressed ? total / 2 : total, kinds, orders)
+            { EntryOffset = Offset(0), ChildSockets = children };
     }
 }
