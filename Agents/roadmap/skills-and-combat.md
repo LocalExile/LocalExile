@@ -172,10 +172,12 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster weapon projectiles: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` (109 varieties'
-    first effect) take their projectile from the monster's weapon art (MonsterVarieties
-    `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), which the server does not read, so they hit instantly
-    with no shot. Monster spell projectiles (`MonsterProjectileSpell`) need their own adapter.
+  - Monster shots (`MonsterShots`): about 190 projectile effects resolve no row and still hit at the contact (rolling
+    magma, the matriarch's mortar, spectral throws, ethereal knives, miner fire, essence drain, `monster_snipe`,
+    `monster_puncture`, the Shaper's accelerating mover 0x1419f3620, decelerating projectiles). Shots whose mover or
+    columns the server does not model fly as its objects (`ServerReason`: spark, ice spear, the weapon jitter
+    variations, `projectile_uses_contact_direction` such as the Elder's volley); trace them to hand them to the client.
+    A shot at a golem aims at its cell at release, not the order's.
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and

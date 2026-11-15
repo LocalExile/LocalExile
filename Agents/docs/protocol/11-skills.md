@@ -1020,8 +1020,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   trackers refuse an earlier time than their last read, and the pump once closed a connection over it (live
   2026-10-29). A melee contact commits at the same rule: the runtime's time, read at the send gate without advancing
   it, lagged the life tick's clock read, and the tracker's refusal faulted the swing's task unobserved (review
-  2026-10-30; such faults are logged now). Weapon projectile skills (`monster_projectile_weapon`, SkillID 0) take their projectile from the
-  monster's weapon art, not resolved yet.
+  2026-10-30; such faults are logged now).
+  Every other monster shot goes the same way (`MonsterShots`): the row its client action fires (MonsterProjectileSpell
+  or MonsterProjectileAttack by `monster_projectile_variation`, a fixed skeleton row, a bow's `default_ranged` art by
+  `arrow_projectile_variation` or a wand's bolt, else the skill's art slot 0), its count on the record, the client's
+  range, contact and volley for the hidden flight, released at the contact toward the order's cell.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final
@@ -4061,6 +4064,9 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
   level 1 `Damage` 4.99 × `DamageMultiplier` 120 = 5.99, ±20% `DamageSpread`) cannot give a constant 4, so the server
   computes or rolls this hit differently; how is open.
   A Spitter's spits were at least about 990 ms apart (its `AttackSpeed` 990), often 1–2.5 s.
+- **Other monster shots (3.30.0b, 2026-11-14, both network modes):** no object for any Goatman Shaman fireball,
+  bow skeleton arrow, Axiom Frostguard shot or Bramble Cobra spit; the hit's delay grows with distance at the resolved
+  row's speed (fireball 9.7 ms per cell against the row's 10.5, spit 6.3 against 6.0), where melee hits show none.
 
 ## Open
 
