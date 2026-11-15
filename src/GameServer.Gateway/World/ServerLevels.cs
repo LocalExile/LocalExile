@@ -82,6 +82,8 @@ public static class ServerLevels
     // generator's extra terrain feature roll reads them as the client's does, so the level is generated with the same list.
     // Part of the cache key (StatsKey): two instances of one (area, seed) with other stats are other levels.
     static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<uint, int>> PlayedStats = new();
+    // A seed's rules cannot change after any client has received it. Reserve distinct seeds for conflicting rules.
+    static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
 
     public static byte[]? DelveTerrain(uint seed) => DelveTerrains.GetValueOrDefault(seed);
@@ -251,36 +253,34 @@ public static class ServerLevels
     /// seed tried in place of one the port cannot generate is tried with them too.</param>
     public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats)
     {
-        Played(areaId, seed, stats);
-        foreach (uint other in Replacements(seed)) Played(areaId, other, stats);
-        seed = Playable(areaId, seed, areaLevel);
-        if (areaLevel > 0) PlayedLevels[(areaId, seed)] = areaLevel;
-        return seed;
-    }
-
-    static void Played(string areaId, uint seed, IReadOnlyDictionary<uint, int>? stats)
-    {
-        if (stats is { Count: > 0 }) PlayedStats[(areaId, seed)] = stats;
-        else PlayedStats.TryRemove((areaId, seed), out _);
-    }
-
-    static uint Playable(string areaId, uint seed, int areaLevel)
-    {
-        if (AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }) return seed;
-        if (seed == 1)
+        lock (Gate)
         {
-            if (SeedInPlaceOfOne(areaId) is not { } inPlace) return seed;
-            Console.WriteLine($"[gateway] server levels: the client cannot generate {areaId} at seed 1; played at seed {inPlace}");
-            seed = inPlace;
-        }
-        if (!IsSupported(areaId) || For(areaId, seed, areaLevel) is not null) return seed;
-        foreach (uint other in Replacements(seed))
-            if (For(areaId, other, areaLevel) is not null)
+            var snapshot = stats is null ? new Dictionary<uint, int>()
+                : stats.Where(p => p.Value != 0).ToDictionary(p => p.Key, p => p.Value);
+            string statsKey = string.Join(",", snapshot.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value}"));
+            int level = areaLevel > 0 ? areaLevel : AreaLevel(areaId);
+            bool exact = AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 };
+            if (!exact && seed == 1 && SeedInPlaceOfOne(areaId) is { } seedOneReplacement) seed = seedOneReplacement;
+            uint Reserve(uint candidate)
             {
+                while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey))
+                    candidate = Replacements(candidate).First();
+                PlayedContexts[(areaId, candidate)] = (level, statsKey);
+                PlayedLevels[(areaId, candidate)] = level;
+                PlayedStats[(areaId, candidate)] = snapshot;
+                return candidate;
+            }
+            seed = Reserve(seed);
+            if (exact || !IsSupported(areaId) || For(areaId, seed, level) is not null) return seed;
+            foreach (uint replacement in Replacements(seed))
+            {
+                uint other = Reserve(replacement);
+                if (For(areaId, other, level) is null) continue;
                 Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} not generated; played at seed {other}");
                 return other;
             }
-        return seed;
+            return seed;
+        }
     }
 
     /// <summary>The seeds tried in place of one the port cannot generate, in order (1 … int.MaxValue, as Auth's).</summary>

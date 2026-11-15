@@ -73,7 +73,7 @@ public sealed partial class InstanceState
     /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
     public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
     {
-        lock (_areaStatsGate) return _areaStats ??= compose();
+        lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
     }
 
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>

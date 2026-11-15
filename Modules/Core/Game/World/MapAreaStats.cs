@@ -43,7 +43,7 @@ public static partial class Game
         return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater);
     }
 
-    static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
+    public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,
         IReadOnlySet<string> families, int preset, bool deepwater)
     {
         var stats = new Dictionary<uint, int>();
@@ -60,12 +60,15 @@ public static partial class Game
         if (mods is null) return stats;
         foreach (var (key, value) in atlas) stats[key] = stats.GetValueOrDefault(key) + value;
         if (preset >= 0) Add("map_active_atlas_passive_tree_index", preset + 1);
-        int effect = Stats.Key("map_mod_effect_+%_for_non_unique_maps") is uint effectKey ? stats.GetValueOrDefault(effectKey) : 0;
+        int effect = mods.MapRarity != GameServer.Core.Protocol.Instance.ItemRarity.Unique && Stats.Key("map_mod_effect_+%_for_non_unique_maps") is uint effectKey ? stats.GetValueOrDefault(effectKey) : 0;
         // Each explicit mod's values scaled by the mod effect and truncated on their own; implicits and fragments unscaled.
         foreach (var mod in mods.ExplicitMods)
-            foreach (var (id, value) in mod) if (value != 0) Add(id, value * (100 + effect) / 100);
+            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
         foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
         foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
+        // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
+        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
+            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
         // The derived counts.
         Set("map_rarity", (int)mods.MapRarity);
         Set("map_number_of_explicit_mods", mods.ExplicitMods.Count);

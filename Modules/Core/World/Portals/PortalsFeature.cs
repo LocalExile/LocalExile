@@ -13,7 +13,7 @@ static class PortalsFeature
     // a device once the world is active (21-hideouts.md §5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var origin = global::Game.MapRunOf(conn)?.ReturnTo;
+        var origin = MapReturnOrigin(conn);
         var hideout = HomeHideout(conn);
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
@@ -154,7 +154,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if (global::Game.MapRunOf(conn)?.ReturnTo is { } origin)
+        if (MapReturnOrigin(conn) is { } origin)
             await ChangeArea(remote, stream, ciphers, conn,
                 new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the map device");
         else if (conn.ReturnPortalTo is ushort town and not 0)

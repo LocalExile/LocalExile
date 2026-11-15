@@ -33,7 +33,7 @@ public sealed class MapInstanceTests
             MapDevice.Run? last = null;
             for (int i = 0; i < MapDevice.PortalCount; i++)
                 if (MapDevice.TakePortal(owner, i) is var (map, _)) last = MapDevice.Run.Of(owner, map);
-            Assert.Null(MapDevice.OpenOf(owner));
+            Assert.Equal(0, MapDevice.OpenOf(owner)!.PortalsLeft); // Retained for completion and return routing.
             MapDevice.TicketArrivals[0xa3] = last!;
             var later = store.Enter(42, 1);
             Assert.Same(second, MapDevice.Admit(later, 0xa3, strand.Hash16, 42)!.Mods);
@@ -45,12 +45,34 @@ public sealed class MapInstanceTests
             // The area stats are composed by the instance's first connection only: a later one (another atlas, another
             // map) gets the same list, so its level is the one already generated.
             int composed = 0;
-            var stats = instance.AreaStats(() => { composed++; return new Dictionary<uint, int> { [1] = 40 }; });
+            var mutable = new Dictionary<uint, int> { [1] = 40 };
+            var stats = instance.AreaStats(() => { composed++; return mutable; });
+            mutable[1] = 999;
+            Assert.Equal(40, stats[1]);
             var again = instance.AreaStats(() => { composed++; return new Dictionary<uint, int> { [1] = 99 }; });
             Assert.Same(stats, again);
             Assert.Equal(1, composed);
             Assert.Equal(new Dictionary<uint, int> { [1] = 40, [2] = 5 },
                 InstanceEvents.Merge(stats, new Dictionary<uint, int> { [2] = 5 }));
+            var areaRule = new Dictionary<uint, int> { [1] = 7 };
+            uint seedA = ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70, areaRule);
+            areaRule[1] = 11;
+            uint seedB = ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70, areaRule);
+            Assert.NotEqual(seedA, seedB);
+            Assert.Equal(seedA, ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70,
+                new Dictionary<uint, int> { [1] = 7 }));
+            Assert.Equal(seedB, ServerLevels.PlayableSeed("MapRuleIsolationTest", 12345, 70, areaRule));
+
+            uint life = Program.Stats.Key("map_monsters_life_+%")!.Value;
+            uint effect = Program.Stats.Key("map_mod_effect_+%_for_non_unique_maps")!.Value;
+            var explicitStats = new Dictionary<string, int> { ["map_monsters_life_+%"] = 40 };
+            var atlas = new Dictionary<uint, int> { [effect] = 50 };
+            var unique = new MapMods(explicitStats) { MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Unique,
+                ExplicitMods = [explicitStats] };
+            Assert.Equal(40, Game.ComposeMapAreaStats(unique, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            var rare = new MapMods(explicitStats) { ExplicitMods = [explicitStats] };
+            Assert.Equal(60, Game.ComposeMapAreaStats(rare, 3, atlas, new HashSet<string>(), 0, false)[life]);
+            Assert.Equal(40, Game.ComposeMapAreaStats(first, 3, atlas, new HashSet<string>(), 0, false)[life]);
         }
         finally { MapDevice.Close(owner); }
     }
