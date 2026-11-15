@@ -96,7 +96,7 @@ features.
 - **Socket colours (3.29):** the 3.29 rules are in (white by default with an item-level colour chance, the
   Chromatic and non-white bench crafts, white sockets from Jeweller's/bench socket adds, Vaal colouring one white
   socket; [13](../docs/protocol/13-items.md), "Socket colours (3.29)", Status).
-  Remaining: Tainted Chromatic/Jeweller's Orbs, the Orb of Binding, the Locus of Corruption, the milestone bench
+  Remaining: the Locus of Corruption, the milestone bench
   reward (25 reforges keeping the most non-white sockets), special item overrides, and fitting the exact colour
   probabilities from live captures (the current curve is an approximation).
 - **Done when:** items' damage and defences count, and flasks and currency can be used.

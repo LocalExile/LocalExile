@@ -13,7 +13,6 @@
     "Core/NPC/Vendors",
     "Core/Player/Chat",
     "Core/Player/Commands",
-    "Core/Player/Pantheon",
     "Core/Player/Social",
     "Core/World/Atlas",
     "Core/World/HideoutEditing",
