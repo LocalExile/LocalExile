@@ -173,7 +173,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's arena-laser activators stay out until an encounter supplies their required turret objects; calling them
   without those objects crashes the client.
-  Her Silk transition and stance-specific attacks now run; turret patterns remain missing.
+  Her Silk transition and stance-specific attacks run across reentry and wake-up; turret patterns remain missing.
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his dive/mirror phases remain missing.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,

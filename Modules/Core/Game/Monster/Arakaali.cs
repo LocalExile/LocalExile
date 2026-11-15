@@ -32,6 +32,19 @@ public static class Arakaali
             _ => true,
         };
     }
+    // A sleeping observer keeps its Actor; waking does not recreate it from the instance snapshot.
+    // Commit its stance with the action at the send gate, under the monster lock.
+    internal static byte[]? StanceUpdateLocked(ClientState c, uint id, double now)
+    {
+        if (c.Closed || c.LeavingArea || c.AsleepMonsters.Contains(id)
+            || !c.Monsters.TryGetValue(id, out var boss) || !IsBoss(boss.Variety)
+            || !c.MonsterViews.TryGetValue(id, out var seen) || seen.ActorStance == 2
+            || !c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) || origin.Object.ActorStance != 2) return null;
+        var at = boss.Walk.Position(now);
+        c.MonsterViews[id] = seen with { ActorStance = 2 };
+        return InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y,
+            5828, c.NextActionSequence(), 0x0800, id);
+    }
     public static async Task Tick(ClientState c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
@@ -56,12 +69,19 @@ public static class Arakaali
         bool stopped;
         public void Bind(ClientState c) => players.Add(c);
         IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
-        async Task All(Func<ClientState, byte[]> message)
+        async Task All(Func<ClientState, byte[]?> message)
         {
-            foreach (var p in Present.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)).ToArray())
+            var observers = Present.Concat(InGame.Keys.Where(p => ReferenceEquals(p.Instance, owner.Instance)
+                && !p.Closed && !p.LeavingArea)).Distinct().ToArray();
+            foreach (var p in observers.Where(p => p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id)))
             {
                 var w = p.Wire;
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, message(p), null);
+                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
+                {
+                    lock (p.Monsters)
+                        return !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea
+                            && p.MonsterViews.ContainsKey(id) && !p.AsleepMonsters.Contains(id) ? message(p) : null;
+                });
             }
         }
         public async Task Step(ClientState c, double now)
@@ -76,7 +96,6 @@ public static class Arakaali
                 lock (c.Monsters)
                 {
                     if (!phases.Active && !phases.Begin(boss.Life, boss.MaxLife)) return;
-                    boss.StageRunning = true;
                     boss.ActionGeneration++; boss.SwingGeneration = null;
                     boss.FlinchUntil = 0; boss.StunSerial++;
                     boss.BusyUntil = deadline = now + SilkSeconds;
@@ -90,16 +109,19 @@ public static class Arakaali
             {
                 c.Instance.SetState(SecondPhase);
                 boss.Life = Math.Max(boss.Life, (uint)((ulong)boss.MaxLife * 60 / 100));
-                phases.Finish(); boss.StageRunning = false; boss.BusyUntil = now;
                 if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { ActorStance = 2 } };
             }
-            var at = boss.Walk.Position(now);
-            await All(p => InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y,
-                5828, p.NextActionSequence(), 0x0800, id));
+            await All(p => StanceUpdateLocked(p, id, now));
             await All(_ => InstanceProtocol.LifeUpdate(id, boss.Life));
+            // Keep ordinary AI and damage gated until every current observer has the new stance.
+            lock (c.Monsters)
+            {
+                if (stopped || !CurrentGameWork) return;
+                phases.Finish(); boss.BusyUntil = now;
+            }
             Console.WriteLine("[Arakaali] second stance ready");
         }
-        public void Stop() { stopped = true; boss.StageRunning = false; }
+        public void Stop() { stopped = true; }
     }
 }
