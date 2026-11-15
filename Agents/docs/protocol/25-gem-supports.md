@@ -6,6 +6,7 @@
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
 These item supports do not require links and pass through the same compatibility and duplicate-family resolver.
+The Squire's mod adds every support gem in the active off-hand, unlinked, to the main hand's gems (verified live).
 An unambiguous displayed support-level stat uses the item's rolled value, including developer-set levels.
 Non-level pseudo-supports retain their native fixed granted-effect definitions.
 Compatibility uses active skill types, postfix AND/OR/NOT expressions, exclusions and weapon restrictions.
