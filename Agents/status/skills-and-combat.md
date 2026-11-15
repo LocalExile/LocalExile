@@ -165,6 +165,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Combat: server-side damage, monster AI and player hit recovery. Real and synthetic enemy hits share recent-hit,
   attack/spell block, suppression, charge and automatic-flask event bookkeeping.
   Blocked monster hits retain flask charge gain from being hit.
+  Real and synthetic blocks recover Life, Mana and Energy Shield before damage, with shared recovery caps.
   Docs: [11](../docs/protocol/11-skills.md) §5–6.
 - Critical-strike elemental resistance rules (Inevitable Judgement). Docs: [20](../docs/protocol/20-damage.md) §4.
 - Client Buff descriptor research (#370, #466, offline only).
