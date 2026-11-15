@@ -38,6 +38,19 @@ public sealed class KitavaActTenTests
         Assert.False(KitavaActTen.GateShown(c, exit));
         var fight = new KitavaActTen.Fight(id, body, c); await fight.Bind(c); await fight.Step(c, 1); await fight.Step(c, 7);
         Assert.Equal(2, fight.Stage);
+        var allies = c.Monsters.Where(p => p.Value.Variety?.Id is KitavaActTen.Sin or KitavaActTen.Innocence).ToArray();
+        Assert.Equal(2, allies.Length);
+        foreach (var ally in allies)
+        {
+            var origin = c.Instance.World.MonsterOrigins[ally.Key];
+            Assert.Equal(2, origin.Object.TransitionState);
+            c.Instance.World.MonsterOrigins[ally.Key] = origin with { Object = origin.Object with { TransitionState = 3 } };
+        }
+        var observer = new ClientState(layout, 2, 1) { Instance = c.Instance, Wire = c.Wire, PlayerSent = true };
+        observer.MonsterViews[id] = new((2000, 2000), (2000, 2000), body.Life);
+        await fight.Bind(observer);
+        foreach (var ally in allies) Assert.Equal(2, observer.Instance.World.MonsterOrigins[ally.Key].Object.TransitionState);
+        observer.Closed = true;
         for (int interval = 0; interval < 3; interval++)
         {
             double now = 100 + interval * 100;
