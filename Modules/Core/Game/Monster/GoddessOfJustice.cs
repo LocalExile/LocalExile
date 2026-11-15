@@ -157,9 +157,13 @@ static class GoddessOfJustice
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         double cast = Game.SkillsFor(conn).CastTimeMs(IzaroGoddess.MortarEffect) / 1000.0;
+        // The volly clip's contacts (monster_contact_clip_frames: 566 to 1400 of 1900 ms), stretched to the cast.
+        var volly = goddess.Variety is { } variety ? Game.SkillsFor(conn).MonsterContactPool(variety.Id, "SpellProjectileFire") : null;
+        var contacts = volly is [{ Contacts: { Count: > 0 } frames, LengthMs: > 0 } clip, ..]
+            ? frames.Select(f => (double)f.Ms / clip.LengthMs).ToArray() : [.5];
         for (int i = 0; i < IzaroGoddess.MortarCount; i++)
         {
-            double release = started + cast * IzaroGoddess.VolleyContacts[Math.Min(i, IzaroGoddess.VolleyContacts.Length - 1)] / IzaroGoddess.VolleySeconds;
+            double release = started + cast * contacts[Math.Min(i, contacts.Length - 1)];
             session.Schedule(ProjectileRuntime.Time(release), () => fighting() && conn.PlayerLife > 0 && !InGracePeriod(conn),
                 () => Mortar(session, conn, id, goddess, IzaroGoddess.SpiritMortar, aim,
                     new HostileProjectileOffense(id, goddess, mortar, action, "the Goddess of Justice's Spirit Mortar"), hidden: true));

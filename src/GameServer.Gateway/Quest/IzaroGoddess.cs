@@ -32,10 +32,9 @@ public static class IzaroGoddess
     public const double EverySeconds = 20, GuardianSeconds = 30, ImpactSeconds = 6.625;
 
     /// <summary>Art/Models/MONSTERS/Izaro/IzaroStatue/rig.amd: <c>death</c> (clip 3, 17.333 s), and <c>volly</c> (1.9 s), whose
-    /// contacts release the mortars (0.566 to 1.4 s, 318.6 units up).</summary>
+    /// contacts release the mortars (0.566 to 1.4 s, 318.6 units up: the monster contact data).</summary>
     public const uint DeathClip = 3;
     public const double DeathSeconds = 17.333, VolleySeconds = 1.9;
-    public static readonly double[] VolleyContacts = [0.566, 0.733, 0.9, 1.066, 1.233, 1.4];
     public const float VolleyHeight = -318.593f;
 
     /// <summary>Her actor's Animation.dat types (GoddessOfJustice.act): SpellProjectileFire plays <c>volly</c>,

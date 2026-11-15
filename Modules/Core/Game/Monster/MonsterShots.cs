@@ -366,9 +366,12 @@ public static class MonsterShots
             else if (Get("projectile_spiral_nova_time_ms") != 0 && (lobbed || family is "incinerate_old" or "totem_fire_spray"
                 or "totem_fire_spray_triggerable" or "incinerate_channel" or "figurehead_incinerate"))
                 reason = "spiral nova";
-            // The count getter (0x141ba61c0) splits the volley over the clip's contacts; the server releases it at one.
-            else if (Get("distribute_projectiles_over_contact_points") != 0) reason = "projectiles over contact points";
-            else if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
+            // projectile_uses_contact_direction turns the shot by the clip's contact (MonsterShots.ContactTurn), which the
+            // server needs from every clip the action may play.
+            else if (Get("projectile_uses_contact_direction") != 0 && !(variety is not null
+                && catalog.MonsterContactPool(variety.Id, animation ?? catalog.EffectAnimationKey(effect) ?? "Melee") is { Length: > 0 } pool
+                && pool.All(c => c.Point is not null && (c.Contacts is null || c.Contacts.All(f => f.Point is not null)))))
+                reason = "contact direction without the clip's contact";
             else if (Get("projectile_ballistic_angle_from_reference_event") != 0 || Get("projectile_ballistic_angle_from_target_distance") != 0)
                 reason = "ballistic arc";
             // projectile_minimum_range moves no straight shot in these classes; only a mortar's landing.
@@ -426,7 +429,6 @@ public static class MonsterShots
             : get("projectile_swap_from_to_locations") != 0 ? "swapped ends"
             : get("projectile_uses_contact_direction") != 0 ? "projectile_uses_contact_direction"
             : get("projectiles_barrage") != 0 || get("support_parallel_projectile_number_of_points_per_side") != 0 ? "barrage or parallel volley"
-            : get("distribute_projectiles_over_contact_points") != 0 ? "projectiles over contact points"
             : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
         // Its fixed flight is its rig's flight clip's contact (projectile-clips): without that clip the server cannot
         // time it (the Sanctum candles' views, an undefined clip).
@@ -495,6 +497,17 @@ public static class MonsterShots
         return (n, n > 1 ? ms / 1000.0 * n / (s * (n - 1.0)) : 0, s > 1 ? degrees * Math.PI / 180 / (s - 1) : 0,
             Stat(shot, "projectile_spiral_nova_starting_angle_offset") * Math.PI / 180,
             Stat(shot, "projectile_spiral_nova_both_directions") != 0);
+    }
+
+    /// <summary>The direction a shot turns to by its release's contact (<c>projectile_uses_contact_direction</c>; release
+    /// 0x141ba73c0, wrapper 0x141ba7840): the contact's x along the facing's left and its −y along the facing, from the
+    /// facing (the monster's line to its target, turned when it faces away). Null for a contact on the axis origin.</summary>
+    public static ProjectileVector? ContactTurn(ContactPoint p, ProjectileVector facing, bool facesAway)
+    {
+        if (p.X == 0 && p.Y == 0 || facing.Length <= 0) return null;
+        var f = facing.Unit * (facesAway ? -1 : 1);
+        var turned = new ProjectileVector(-f.Y, f.X) * p.X - f * p.Y;
+        return turned.Length > 0 ? turned.Unit : null;
     }
 
     /// <summary>The record's count stats for a shot the client draws (none for any other): the totals the action's

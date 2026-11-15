@@ -25,7 +25,17 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// (Program.MonsterReleaseFor): the clip, its contact keyframe as a fraction of the attack, the keyframe's position when
 /// the skill spawns the shot there (<c>projectile_uses_contact_position</c>), and whether the monster turns its back for
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
-public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
+public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway)
+{
+    /// <summary>The contact point the shot turns by (<c>projectile_uses_contact_direction</c>), also without the
+    /// position stat.</summary>
+    public ContactPoint? Turn { get; init; }
+    /// <summary>One release per contact of a clip with several (the client releases on each contact event), in order;
+    /// null for one.</summary>
+    public IReadOnlyList<MonsterRelease>? Repeats { get; init; }
+    /// <summary>This release's place among the clip's contacts (0 for the first), which seeds its shots.</summary>
+    public int Ordinal { get; init; }
+}
 
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>

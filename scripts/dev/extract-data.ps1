@@ -53,9 +53,10 @@ $manifest = @(
        Args = @('scripts/re/anim_contacts.py'); Version = 8; Needs = @('tables')
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), and every contact frame of a clip: when each of a multi-strike skill''s strikes lands' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
-    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
+    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
+    # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
+       Args = @('scripts/re/monster_contacts.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.

@@ -100,9 +100,19 @@ public static partial class Game
         bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
         var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
         if (clip is null) return null;
-        var point = Has("projectile_uses_contact_position") ? clip.Point : null;
-        if (point is { } p && Has("use_scaled_contact_offset")) point = p.Scaled(variety.ModelScale);
-        return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
+        bool position = Has("projectile_uses_contact_position"), direction = Has("projectile_uses_contact_direction");
+        bool scaled = Has("use_scaled_contact_offset"), away = Has("action_should_face_away_from_target");
+        ContactPoint? Scale(ContactPoint? p) => p is { } q && scaled ? q.Scaled(variety.ModelScale) : p;
+        MonsterRelease At(double fraction, ContactPoint? contact, int ordinal) =>
+            new(clip.Animation, fraction, position ? Scale(contact) : null, away) { Turn = direction ? Scale(contact) : null, Ordinal = ordinal };
+        var release = At(clip.ContactFraction ?? 0.5, clip.Point, 0);
+        // The client releases the action on each of the clip's contact events (0x9b8d), each a volley of its own.
+        if (clip.Contacts is { Count: > 1 } contacts && clip.LengthMs > 0)
+            release = release with
+            {
+                Repeats = [.. contacts.Select((c, k) => At(Math.Clamp((double)c.Ms / clip.LengthMs, 0, 1), c.Point, k))],
+            };
+        return release;
     }
 
     // The native selector seeds the clip from this action (0x141e9fa80). Keep its contact and launch point together;
@@ -1643,9 +1653,12 @@ public static partial class Game
             // The client's own shot leaves at the clip's contact: a lockstep client's at the end of the frame that crosses
             // it, like the player's native shot (starting between frames lets the server hit a moving player before the
             // visible flight reaches them), a predictive client's at the contact itself. The runtime releases it then,
-            // if the action is still the monster's current one (LaunchMonsterProjectile).
-            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, nativeProjectile, action, projectileAim,
-                conn.LockstepClient ? LockstepShotAt(startedAt, seconds * contact) : startedAt + seconds * contact, seq);
+            // if the action is still the monster's current one (LaunchMonsterProjectile). A clip with several contacts
+            // releases on each, and distribute_projectiles_over_contact_points shares the count among them (0x141ba61c0).
+            foreach (var (release, shot) in ReleasesOf(a, nativeProjectile))
+                LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a with { Release = release }, shot, action, projectileAim,
+                    conn.LockstepClient ? LockstepShotAt(startedAt, seconds * (release?.Fraction ?? contact))
+                        : startedAt + seconds * (release?.Fraction ?? contact), seq);
             return;
         }
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
@@ -1657,7 +1670,10 @@ public static partial class Game
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
-            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, projectile, action, projectileAim, sequence: seq);
+            // A clip's later contacts release again.
+            foreach (var (release, shot) in ReleasesOf(a, projectile))
+                LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a with { Release = release }, shot, action, projectileAim,
+                    release is { Ordinal: > 0 } ? startedAt + seconds * release.Fraction : null, seq);
             return;
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }
@@ -1680,6 +1696,26 @@ public static partial class Game
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
     // and giving no experience or items when the skill says so.
+    // Each release of a shot: one per contact of the clip (one when it has one or none), each firing the shot's count, or
+    // with distribute_projectiles_over_contact_points its share: count / contacts, the first ones one more for the rest.
+    static IEnumerable<(MonsterRelease? Release, SkillCatalog.MonsterProjectileInfo Shot)> ReleasesOf(MonsterAttack a,
+        SkillCatalog.MonsterProjectileInfo shot)
+    {
+        if (a.Release?.Repeats is not { Count: > 1 } repeats)
+        {
+            yield return (a.Release, shot);
+            yield break;
+        }
+        bool share = shot.SkillStats is { } own && Stats.Key("distribute_projectiles_over_contact_points") is uint key
+            && own.GetValueOrDefault(key) != 0;
+        int count = Math.Max(1, shot.Count);
+        foreach (var release in repeats)
+        {
+            int each = share ? count / repeats.Count + (release.Ordinal < count % repeats.Count ? 1 : 0) : count;
+            if (each > 0) yield return (release, shot with { Count = each });
+        }
+    }
+
     // A Lightning Golem boss's arc carries alternate_minion 1 (a Rhoa), which no arc summons.
     public static bool SummonsMonsters(SkillCatalog catalog, int effect) => catalog.ActiveSkillId(effect) != "lightning_golem_arc";
 

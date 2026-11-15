@@ -46,6 +46,17 @@ public static partial class Game
         double ahead = release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
+        // projectile_uses_contact_direction: the shot flies from its launch along the contact's direction, as far as the
+        // aim was (at least 60 units).
+        var heading = toward;
+        void TurnAim()
+        {
+            if (release?.Turn is { } turn && MonsterShots.ContactTurn(turn, toward, release.FacesAway) is { } h)
+            {
+                heading = h;
+                aim = origin + h * Math.Max(distance, 60 / WorldUnits.PerCell);
+            }
+        }
         ProjectileVector[]? nativeTargets = null;
         double[]? nativeSpeeds = null;
         bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
@@ -56,6 +67,7 @@ public static partial class Game
             double lateral = release?.Point is { } contact ? contact.X / WorldUnits.PerCell * (release.FacesAway ? 1 : -1) : 0;
             origin += new ProjectileVector(toward.Y, -toward.X) * lateral;
             origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
+            TurnAim();
             // A table column moves the aim on along the shot (aim + N × unit(aim − release), rounded half up).
             if (!mortar && projectile.AimOffset != 0 && (aim - origin).Length > 0)
             {
@@ -126,6 +138,8 @@ public static partial class Game
             if (projectile.Recipe == "WaterVortex")
                 nativeTargets = [WaterVortexTarget(from, aim, (int)(128 * (100 + SkillStat("spell_maximum_action_distance_+%")) / 100.0))];
         }
+        // The server's own object turns by its contact too.
+        if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
         // its range) or, without UseTargetLocation, its range from the release (0x141ba99d0); then (0x141a10d50) pushed
@@ -141,7 +155,7 @@ public static partial class Game
             landing = Math.Max(0.5, landing);
         }
         if (projectile.Recipe == "RollingMagma") landing = Math.Max(0.5, MonsterShots.MagmaLanding(projectile, landing + ahead) - ahead);
-        var target = projectile.Lobbed ? origin + toward * landing : aim;
+        var target = projectile.Lobbed ? origin + heading * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
         // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
         // A spark's wander starts from the monster's own cell (0x141b35a10).

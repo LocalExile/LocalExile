@@ -13,12 +13,15 @@
 # Events come from the rig .amd merged with the .ao chain's own list (ot_components.rig_clips: the Spitter's .ao
 # replaces the rig's events with exclude_metadata_events). Only plain pools are recorded (comma-separated clip names:
 # no "@alias", no "clip:condition" variants, every clip present in the rig); a key with anything else is left out, and
-# the Gateway keeps its fallback timing for it. Files come from the GGPK through scripts/re/ggdump (cached in
-# Tools/re/out/ot, see ot_components.py), fetched in batches first.
+# the Gateway keeps its fallback timing for it. A clip with several "contact" events also lists them all
+# ("contacts": [[ms, position], ...]): the client releases the action once per contact event (0x9b8d), each a volley of
+# its own. The keys include the Animation of every monster_mortar / monster_projectile_spell / monster_projectile_weapon
+# granted effect (the Kelp Dreg's Snipe), and an .act entry that names an effect after its clips keeps its clips. Files
+# come from the GGPK through scripts/re/ggdump (cached in Tools/re/out/ot, see ot_components.py), fetched in batches first.
 import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
+from ot_components import REPO, all_contacts, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 from anim_contacts import act_tokens, closing_brace  # noqa: E402
 import clientdb  # noqa: E402  (on the path through ot_components)
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
@@ -29,18 +32,26 @@ def table(name):
 
 
 def animation_keys():
-    """"Melee" and every Animation.dat Id a monster projectile table names, sorted."""
+    """"Melee" and every Animation.dat Id a monster projectile table names, or a monster_mortar /
+    monster_projectile_spell / monster_projectile_weapon granted effect names, sorted."""
     animations = table("Animation")
     keys = {"Melee", "Throw"}
+
+    def add(a):
+        if isinstance(a, int) and 0 <= a < len(animations) and animations[a].get("Id"):
+            keys.add(animations[a]["Id"])
     for name in ("MonsterMortar", "MonsterProjectileSpell", "MonsterProjectileAttack"):
         try:
             rows = table(name)
         except FileNotFoundError:
             continue
         for r in rows:
-            a = r.get("Animation")
-            if isinstance(a, int) and 0 <= a < len(animations) and animations[a].get("Id"):
-                keys.add(animations[a]["Id"])
+            add(r.get("Animation"))
+    skills = {i for i, r in enumerate(table("ActiveSkills")) if isinstance(r, dict)
+              and (str(r.get("Id", "")).startswith("monster_mortar") or r.get("Id") in ("monster_projectile_spell", "monster_projectile_weapon"))}
+    for r in table("GrantedEffects"):
+        if isinstance(r, dict) and r.get("ActiveSkill") in skills:
+            add(r.get("Animation"))
     return sorted(keys)
 
 
@@ -66,8 +77,9 @@ def fetch_ao_chain(paths):
 def root_assignments(text):
     """`Key = "value";` entries of the .act's root block only, first one wins. A nested stance's entries (a weapon or
     phase stance) apply in that stance, not to the type: taking the last entry at any depth had given 191 varieties
-    another stance's pool (review 2026-10-30). Entries with anything between the string and the `;` (an Emerge's
-    effect) are left out."""
+    another stance's pool (review 2026-10-30). An entry that names an effect after its clips (`Key = "a,b" effect
+    "x" "y";`: the Delve turret's, ProtoVaal's) keeps its clips; anything else between the string and the `;` is left
+    out."""
     tokens = act_tokens(text)
     if "{" not in tokens:
         return {}
@@ -81,6 +93,11 @@ def root_assignments(text):
             elif i + 3 < len(body) and body[i + 1] == "=" and body[i + 2].startswith('"') and body[i + 3] == ";":
                 out.setdefault(body[i], body[i + 2][1:-1].strip())
                 i += 4
+            elif i + 3 < len(body) and body[i + 1] == "=" and body[i + 2].startswith('"') and body[i + 3] == "effect":
+                end = body.index(";", i + 3) if ";" in body[i + 3:] else len(body)
+                if all(t.startswith('"') for t in body[i + 4:end]):
+                    out.setdefault(body[i], body[i + 2][1:-1].strip())
+                i = end + 1
             else:
                 i += 1
         return out
@@ -159,9 +176,13 @@ def main():
                     for name in names:
                         i, a = clips[name]
                         contact = first_contact(a["events"])
-                        pool.append({"animation": name, "index": i, "length": a["length"],
-                                     "contact": None if contact is None else contact[0],
-                                     "position": None if contact is None else contact[1]})
+                        entry_clip = {"animation": name, "index": i, "length": a["length"],
+                                      "contact": None if contact is None else contact[0],
+                                      "position": None if contact is None else contact[1]}
+                        every = all_contacts(a["events"])
+                        if len(every) > 1:
+                            entry_clip["contacts"] = [[ms, pos] for ms, pos in every]
+                        pool.append(entry_clip)
                     recorded[k] = pool
                 if recorded:
                     entry = {"act": act, "ao": ao, "amd": amd, "pools": recorded}

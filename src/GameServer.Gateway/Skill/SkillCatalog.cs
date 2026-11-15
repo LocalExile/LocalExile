@@ -1069,6 +1069,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
     {
+        /// <summary>Every contact of a clip with several (monster_contact_clip_frames: the Iguana's five spines), in time
+        /// order; null for a clip with one or none.</summary>
+        public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
+
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
@@ -1087,18 +1091,27 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return pool[AnimationVariantSelector.Select(sequence, weights)];
     }
 
+    /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
+    public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
+        _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
         var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        var framesByClip = ClientTables.TableOrNull("monster_contact_clip_frames")?.By("clip");
+        IReadOnlyList<(int, ContactPoint?)>? Frames(int clip) => framesByClip is null ? null
+            : framesByClip[clip].OrderBy(f => f.Int("ord")).Select(f => (f.Int("ms"), AnimationContacts.Point(f, "position"))).ToArray() is { Length: > 1 } all
+                ? all : null;
         foreach (var variety in varieties)
         {
             var byKey = clipsByVariety[variety.Index]
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
                 .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
-                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position")) { Contacts = Frames(c.Index) }).ToArray(),
+                    StringComparer.Ordinal);
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
