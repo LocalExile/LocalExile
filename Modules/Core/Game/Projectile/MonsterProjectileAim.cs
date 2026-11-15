@@ -208,6 +208,31 @@ public static partial class Game
         return targets;
     }
 
+    /// <summary>A storm burst's orb headings in release order, absolute, each the line (cos h, −sin h). A nova of several
+    /// (0x141c68140, key [sequence, owner, 0]): a draw in [0, 2π), orb i at that plus i × 2π/n plus a draw in ±π/(2n), the
+    /// list then shuffled forward (each place swapped with a later or itself). Otherwise (0x141c679b0, key [sequence, 0,
+    /// 0]): the facing turned by the mean of three draws in ±0.4363323.</summary>
+    public static float[] StormBurstHeadings(float facing, int count, bool nova, ushort sequence, uint owner)
+    {
+        var headings = new float[count];
+        if (!nova || count < 2)
+        {
+            var random = new AnimationVariantSelector.NativeRandom([sequence, 0, 0]);
+            float turn = (random.Range(-.4363323f, .4363323f) + random.Range(-.4363323f, .4363323f) + random.Range(-.4363323f, .4363323f)) / 3;
+            Array.Fill(headings, facing + turn);
+            return headings;
+        }
+        var spread = new AnimationVariantSelector.NativeRandom([sequence, owner, 0]);
+        float first = spread.Range(0, 6.2831855f), jitter = 3.1415927f / (2 * count);
+        for (int i = 0; i < count; i++) headings[i] = first + i * (6.2831855f / count) + spread.Range(-jitter, jitter);
+        for (int i = 0; i < count; i++)
+        {
+            int j = i + spread.Uniform(0, count - 1 - i);
+            (headings[i], headings[j]) = (headings[j], headings[i]);
+        }
+        return headings;
+    }
+
     /// <summary>A riptide's end (0x141b39750): 120 cells from the caster's cell toward its target (each part rounded half
     /// up), at skill_behaviour_variation 1 turned by a seeded angle in [−π/4, π/4], cut where the line first meets a cell
     /// the caster cannot stand on (size: its collision size plus one). The seed's last words are not traced.</summary>

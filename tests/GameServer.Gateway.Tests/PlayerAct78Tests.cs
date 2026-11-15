@@ -78,6 +78,24 @@ public sealed class PlayerAct78Tests
             Assert.Equal("Metadata/Projectiles/PaleKingSiphon", Shot("", "ProphecyBossEssenceDrain")!.Metadata);
             Assert.Equal(("Metadata/Projectiles/ThrownWeapon", "SpectralThrow", true),
                 (Shot("", "ExileThrownWeapon")!.Metadata, Shot("", "ExileThrownWeapon")!.Recipe, Shot("", "ExileThrownWeapon")!.ClientDraws));
+            // The Elder Guardian's holy throw is the client's too: out as any thrown weapon, then back from its rest at a
+            // fifth of its launch speed (the runtime's Return), ending at its first hit.
+            var holy = Shot("", "HolyElderSpectralRuckusLeft")!;
+            var holyFlight = MonsterShots.ClientDrawnProfile(conn, holy, true, new(30, 0), 0x8001, 0x40);
+            Assert.Equal(("Metadata/Projectiles/ElderGuardianHolySpectralThrowLeft", true, true, (int?)1, 0.0, 27.6),
+                (holy.Metadata, holy.ClientDraws, holyFlight.Returns, holyFlight.ReturnHitLimit, holyFlight.ReturnOvershoot,
+                    Math.Round(holyFlight.ReturnSpeedMultiplier, 2)));
+            // A storm burst stays the server's: its orbs meet no one and burst where the action's end finds them, 22 cells
+            // by the radius percentage and more by their area damage; the Elder Guardian's four in a seeded shuffled ring.
+            var yugul = Shot("", "YugulStormBurst")!;
+            var yugulBurst = MonsterShots.RecipeProfile(yugul, 1, 20, attack: false);
+            Assert.Equal((false, "StormBurst", false, 19.0, 2.0), (yugul.ClientDraws, yugul.Recipe, yugulBurst.DirectDamage,
+                yugulBurst.EndArea!.Radius, yugulBurst.EndArea.Multiplier));
+            var stormburst = Shot("", "ElderGuardianStormburst1")!;
+            var stormburstFlight = MonsterShots.RecipeProfile(stormburst, 1, 20, attack: false);
+            Assert.Equal((4, 22.0, 3.0), (stormburst.Count, stormburstFlight.EndArea!.Radius, stormburstFlight.EndArea.Multiplier));
+            Assert.Equal([3.8243f, 4.8289f, 8.6294f, 6.6863f], Game.StormBurstHeadings(0, 4, true, 0x8001, 0x40).Select(h => MathF.Round(h, 4)));
+            Assert.Equal([0.9773f], Game.StormBurstHeadings(1, 1, false, 0x8001, 0x40).Select(h => MathF.Round(h, 4)));
             Assert.Equal(("Metadata/Projectiles/MatriachMortar", true, "RollingMagma"),
                 (Shot("", "MotherOfFlamesMagmaOrb")!.Metadata, Shot("", "MotherOfFlamesMagmaOrb")!.Lobbed, Shot("", "MotherOfFlamesMagmaOrb")!.Recipe));
             Assert.Equal("Metadata/Projectiles/MortarLightning", Shot("", "EssenceWrathMortarProjectile")!.Metadata);

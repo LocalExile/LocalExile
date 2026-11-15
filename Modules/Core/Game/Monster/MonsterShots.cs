@@ -209,7 +209,11 @@ public static class MonsterShots
                 recipe = "ShavronneBallLightning";
                 break;
             case "storm_burst":                                                                         // 0x141c658f0
-                id = Row(artVariation, "StormBurst", (2, "ShavronneStormBurst"), (1, "YugulChromeProjectile")); reason = "storm burst orbs"; break;
+                // Its orbs meet no actor and burst where they are when the action ends (RecipeProfile, ProjectileHostile).
+                // Two words of their key and the clip span that times them are not checked: the server's orbs fly.
+                id = Row(artVariation, "StormBurst", (2, "ShavronneStormBurst"), (1, "YugulChromeProjectile"));
+                (recipe, reason) = ("StormBurst", "storm burst orbs");
+                break;
             case "water_vortex":                                                                        // 0x14133b070
                 // Its mover (0x141c6cc80) sends it to the L1 diamond of radius 128 × (1 + spell action distance) around
                 // the caster in the aim's direction (MonsterProjectileAim.WaterVortexTarget); it strikes every 0.2 s.
@@ -253,9 +257,6 @@ public static class MonsterShots
                 // Out slowing to a stop and back to the thrower (ThrownWeaponLegs); Vaal Thrown Weapon's spiral out
                 // (SpiralThrowLegs). Vaal Spectral Throw's spiral of throws is the shared spiral (LaunchMonsterProjectile).
                 recipe = family == "vaal_thrown_weapon" ? "SpiralThrow" : "SpectralThrow";
-                // The Elder Guardian's holy throws (skill_behaviour_variation 2) come back at a constant speed and stop at
-                // their first hit on the way back, which these legs do not fly.
-                if (recipe == "SpectralThrow" && catalog.BehaviourVariation(effect) == 2) reason = "constant-speed return";
                 break;
             case "ethereal_knives":                                                                     // 0x1419f2d50
                 // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
@@ -666,21 +667,36 @@ public static class MonsterShots
         // Lunaris's orb meets no actor: only its ground hurts.
         if (shot.Recipe == "Maelstrom") profile = profile with { DirectDamage = false, Pierce = -1 };
         if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed);
-        if (shot.Recipe == "SpectralThrow" && thrower is not null)
+        // skill_behaviour_variation 2 (the Elder Guardian's holy throws) comes back at a constant speed.
+        bool constantReturn = Get("skill_behaviour_variation") == 2;
+        if (shot.Recipe == "SpectralThrow" && (thrower is not null || constantReturn))
         {
             // ThrownWeaponProjectile (ctor 0x141ab4fb0): a = 100 cells/s², or spectral_throw_deceleration_override, else
             // scaled by spectral_throw_projectile_deceleration_+%; back at (1 + (P + R)/100) / (1 + P/100), P and R the
-            // projectile and returned projectile speed; it forgets its hits every 0.3 s (or its override, ms).
+            // projectile and returned projectile speed, a fifth of that for the holy art (13, 14); it forgets its hits
+            // every 0.3 s (or its override, ms).
             double a = Get("spectral_throw_deceleration_override") is > 0 and var fixedA ? fixedA
                 : 100 * Math.Max(0, 1 + Get("spectral_throw_projectile_deceleration_+%") / 100.0);
             double p = Get("projectile_speed_+%") + Get("base_projectile_speed_+%");
-            double back = (1 + (p + Get("returned_projectile_speed_+%")) / 100.0) / Math.Max(.01, 1 + p / 100.0);
+            bool holy = Get("skill_art_variation") is 13 or 14;
+            double back = (1 + (p + Get("returned_projectile_speed_+%")) / 100.0) / Math.Max(.01, 1 + p / 100.0) * (holy ? .2 : 1);
             double forget = Get("spectral_throw_forget_hit_list_time_override") is > 0 and var forgetMs ? forgetMs / 1000.0 : .3;
             profile = profile with
             {
-                Legs = _ => new ThrownWeaponLegs(speed, Math.Max(1, a), back, thrower), LegLeash = 0, Returns = false,
+                Legs = _ => new ThrownWeaponLegs(speed, Math.Max(1, a), back, constantReturn ? null : thrower), LegLeash = 0,
+                Returns = constantReturn,
                 HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(forget)),
             };
+            // The constant return is the runtime's Return at the launch speed × back from the legs' rest. The holy weapon
+            // stops piercing once it has stopped (+0x330 = 0), so the way back ends at its first hit.
+            // shortcut: the client's return aims at the thrower's live cell plus its clip's offset every tick; this one
+            // aims once at the thrower's cell.
+            if (constantReturn)
+                profile = profile with
+                {
+                    CannotReturn = false, ReturnOvershoot = 0, ReturnSpeedMultiplier = speed * back / ThrownWeaponLegs.RestSpeed,
+                    ReturnHitLimit = holy ? 1 : null,
+                };
         }
         if (shot.Recipe == "SpiralThrow")
             // Each weapon spirals out from where it leaves (0x141a867f0) and ends one step after its first hit.
@@ -799,6 +815,17 @@ public static class MonsterShots
             {
                 Legs = _ => new SpectralThrowLegs(speed), LegLeash = SpectralThrowLegs.Leash(speed), ReturnOvershoot = 0,
                 ReturnSpeedMultiplier = profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier,
+            };
+        if (shot.Recipe == "StormBurst")
+            // A storm burst's orbs meet no actor (no contact damage) and burst only where the action's end finds them
+            // (0x141c67d80; ProjectileHostile ends each there): 22 cells by the radius percentage, rounded down, its
+            // active_skill_area_damage_+%_final as more damage (no monster hit reads it). One ended sooner bursts not.
+            return profile with
+            {
+                DirectDamage = false, Pierce = -1, Range = 150,
+                EndArea = new ProjectileAreaRecipe("storm burst", Math.Floor(22 * Math.Max(0, 100 + Get(AreaPercent)) / 100.0),
+                    Multiplier: Math.Max(0, 1 + Get("active_skill_area_damage_+%_final") / 100.0)),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Distance },
             };
         return profile;
     }

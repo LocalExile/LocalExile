@@ -57,11 +57,14 @@ public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
 /// it stops, or turns at 130 cells travelled; then back from rest, speeding up by <c>a</c> × the return factor toward
 /// the thrower's live cell, where it ends. A wall on the way out turns it at once; one on the way back ends it. Each leg
 /// flies one tick of that curve at the tick's average speed.
+/// Without a thrower (skill_behaviour_variation 2, the Elder Guardian's holy throws, which come back at a constant speed ×
+/// the return factor) it flies only the way out, then one short leg at <see cref="RestSpeed"/>: the runtime's Return
+/// brings it back from there (ReturnSpeedMultiplier = speed × returnFactor / RestSpeed).
 /// shortcut: the client keeps separate outbound and return hit lists; this one flight forgets its hits on one window.
 /// </summary>
-public sealed class ThrownWeaponLegs(double speed, double deceleration, double returnFactor, Func<ProjectileVector> thrower) : IProjectileLegs
+public sealed class ThrownWeaponLegs(double speed, double deceleration, double returnFactor, Func<ProjectileVector>? thrower) : IProjectileLegs
 {
-    public const double Tick = .066, TurnCells = 130;
+    public const double Tick = .066, TurnCells = 130, RestSpeed = 1;
 
     ProjectileVector start, direction;
     int tick, back;
@@ -74,8 +77,9 @@ public sealed class ThrownWeaponLegs(double speed, double deceleration, double r
 
     public bool EndsAfterLegs => true;
 
-    public double Lifetime => OutboundSeconds
-        + Math.Sqrt(2 * (Covered(OutboundSeconds) + 30) / Math.Max(.001, deceleration * returnFactor)) + 1;
+    public double Lifetime => OutboundSeconds + (thrower is null
+        ? (Covered(OutboundSeconds) + 30) / Math.Max(.001, speed * returnFactor)
+        : Math.Sqrt(2 * (Covered(OutboundSeconds) + 30) / Math.Max(.001, deceleration * returnFactor))) + 1;
 
     public ProjectileLeg First(ProjectileVector from, ProjectileVector aim)
     {
@@ -99,6 +103,12 @@ public sealed class ThrownWeaponLegs(double speed, double deceleration, double r
             if (t1 >= end) returning = true;
             double before = Covered(t0), after = Covered(t1);
             return new(start + direction * after, Math.Max(.001, (after - before) / Math.Max(1e-6, t1 - t0)));
+        }
+        if (thrower is null)
+        {
+            // At rest a moment (a thousandth of a cell back), then the runtime's Return; a wall ends the rest leg too.
+            home = true;
+            return new(from - direction * .001, RestSpeed);
         }
         double legSpeed = Math.Max(.001, deceleration * returnFactor * (back++ + .5) * Tick);
         var gap = thrower() - from;

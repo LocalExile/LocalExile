@@ -264,6 +264,22 @@ public static partial class Game
             aim = RiptideEnd(conn, from, aim, SkillStat("skill_behaviour_variation") == 1,
                 [sequence, Derived(0), id, ordinal, 0, 0, 0, 0], LivingCollision.Size(m) + 1);
         }
+        long orbEvery = 0;
+        if (projectile.Recipe == "StormBurst")
+        {
+            // A storm burst lets its first orb go at the release and one more every attack / (n + 1) (0x141c67820) while
+            // the action lasts; at its end (0x141c67d80) orb k bursts 0.05 × k s later. Each orb flies its heading at a
+            // constant speed, so it ends, and bursts, where that time finds it (no storm burst reaches its range by then).
+            // shortcut: the attack's own time, not one a chill slowed.
+            double left = a.Seconds * (1 - (release?.Fraction ?? .5)), every = a.Seconds / (projectile.Count + 1);
+            int orbs = Math.Max(1, Enumerable.Range(0, projectile.Count).Count(k => k * every < left));
+            var facing = aim - from;
+            var headings = StormBurstHeadings(MathF.Atan2(-(float)facing.Y, (float)facing.X), projectile.Count,
+                SkillStat("projectiles_nova") != 0, sequence, id);
+            nativeTargets = [.. Enumerable.Range(0, orbs).Select(k => origin + new ProjectileVector(Math.Cos(headings[k]), -Math.Sin(headings[k]))
+                * Math.Min(MortarRange(), speed * Math.Max(.001, left - k * every + .05 * k)))];
+            orbEvery = ProjectileRuntime.Time(every);
+        }
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
         // its range) or, without UseTargetLocation, its range from the release (0x141ba99d0); then (0x141a10d50) pushed
@@ -300,6 +316,7 @@ public static partial class Game
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(contactRow) };
+        if (orbEvery > 0) profile = profile with { Count = nativeTargets!.Length, SequentialDelay = orbEvery };
         if (projectile is { ClientDraws: false, Recipe: "FireMortar" } && SkillStat("number_of_chains") > 0
             && nativeTargets is [var landed, ..] && (landed - origin).Length > 0)
         {
