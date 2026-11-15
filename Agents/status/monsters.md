@@ -163,7 +163,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Monster shots fly and hit when they arrive, in both network modes (#1004): the client draws a shot the server can
   reproduce from its record's count and the server flies it hidden; any other is the server's object.
-  The Shaper's accelerating shots and a few creeping-frost variants still hit at the contact.
+  Checked live in both modes (fireball, arrows, Sand Spitter, cold skeleton, ice spear, a spell mortar). Lunaris's
+  dark orbs still hit at the contact: their damage is a ground degen the server does not model.
   Code: `MonsterShots`. Docs: [11](../docs/protocol/11-skills.md) §6.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 

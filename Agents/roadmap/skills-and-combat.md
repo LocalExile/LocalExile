@@ -172,14 +172,15 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster shots (`MonsterShots`): the Shaper's accelerating mover (0x1419f3620) resolves no row yet. Shots whose
-    mover the server does not model fly as its objects (`ServerReason`): the per-projectile seeded jitter of weapon
-    variations 4/8/24/26/29, knives, sprays, flames and barrages (the seed's derived byte, taken as 2 + index, needs a
-    live check), thrown weapons' deceleration and spirals, ball lightning's pulses, spell mortar forks and chains,
-    `projectile_uses_contact_direction` (the Elder's volley). Check live that a monster's spark draws from the record
-    and seeds from the 0x1ab sequence, the spell mortar's 0.666 s landing and its radius, and creeping frost's burst.
-    The golem's arc, siege totems and clone retaliation are no projectile and still hit at the contact. A shot at a
-    golem aims at its cell at release, not the order's.
+  - Monster shots (`MonsterShots`): shots whose mover the server does not model fly as its objects (`ServerReason`):
+    the per-projectile seeded jitter of weapon variations 4/8/24/26/29, knives, sprays, flames and barrages (the seed's
+    derived byte, taken as 2 + index, needs a live check), thrown weapons' deceleration and spirals, ball lightning's
+    pulses, spirals, totem, trap and mine forms (the server places none), spell mortars whose landings the emitter
+    moves (forks, chains, nova, cone, swapped ends, capped range, barrage). `projectile_uses_contact_direction` (the
+    Elder's volley) turns the shot by the release's contact offset rotated by the facing (release 0x141ba73c0, wrapper
+    0x141ba7840); the server would need that facing and the clip's point also for direction-only effects. Lunaris's
+    dark orb needs its Maelstorm ground degen. Check live that a monster's spark draws from the record and seeds from
+    the 0x1ab sequence. A shot at a golem aims at its cell at release, not the order's.
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and

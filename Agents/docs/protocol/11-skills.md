@@ -1024,7 +1024,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   Every other monster shot goes the same way (`MonsterShots`): the row its client action fires (MonsterProjectileSpell
   or MonsterProjectileAttack by `monster_projectile_variation`, a fixed skeleton row, a bow's `default_ranged` art by
   `arrow_projectile_variation` or a wand's bolt, else the skill's art slot 0), its count on the record, the client's
-  range, contact and volley for the hidden flight, released at the contact toward the order's cell.
+  range, contact and volley for the hidden flight, released at the contact toward the order's cell. A spell mortar
+  lands its flight clip's first `contact` after the release (its length without one; 666 ms on most mortar rigs),
+  over its speed multiplier, at any distance.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final
