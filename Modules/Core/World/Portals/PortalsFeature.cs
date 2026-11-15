@@ -118,7 +118,6 @@ static class PortalsFeature
             $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = conn.Layout.Near((device.Value.X, device.Value.Y));
-        ResetRunCompleted(conn);
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
             device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(conn.Layout.Hash, conn.InstanceNumber, entrance.X, entrance.Y));

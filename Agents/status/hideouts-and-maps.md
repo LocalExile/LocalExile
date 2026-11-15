@@ -72,9 +72,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
 - Map device portal labels (2026-11-14, live): a portal's floating label names its area and appends "(Completed)" once
-  that run's map boss is dead (S→C 0x008f flags bit 1, which the Portal component's nametag reads). The mark is per
-  character and per map, so the hideout's new connection still has it, a map completed on another day is not marked,
-  and putting a map in the device clears it; the game module's tick marks it once the area's bosses are all dead.
+  that run's map boss is dead (S→C 0x008f flags bit 1, which the Portal component's nametag reads). The mark follows the
+  exact shared map run across area changes and guest kills. Every declared terminal boss must die; unrelated uniques
+  do not count. A new run of the same map starts unmarked, and existing visitors receive updated labels.
   Live in a Chinese client: after the boss died the standing portals read "<area name> (已完成)", and the logged
   message began `008F02`. See [21](../docs/protocol/21-hideouts.md) §5.
 

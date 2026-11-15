@@ -1,10 +1,10 @@
-﻿using System.Buffers.Binary;
+using System.Buffers.Binary;
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-/// <summary>The label over a map device's portal (21-hideouts.md 搂5): the S鈫扖 0x008f flags byte the client's nametag
-/// reads, and the hand-over that answers whether the map is completed.</summary>
+/// <summary>The native completed flag and the map run that owns it.</summary>
 public sealed class MapPortalLabelTests
 {
     // 0x008f: u16 id, u8 flags, u8 +0x2e, u8 +0x31, u32 BE device, u16 BE +0x2c, u8 +0x2f, u8 +0x30, u8 n, then each
@@ -33,29 +33,63 @@ public sealed class MapPortalLabelTests
     }
 
 
-    // The mark behind the flag is per run and per character: an area change is a new connection of the same character (the
-    // hideout re-sends the list, so the label has to survive it), another map is another run, and a map going into the
-    // device clears it.
     [Fact]
-    public void The_completed_label_follows_the_character_and_a_new_map_clears_it()
+    public async Task Completion_follows_the_exact_run_and_requires_its_actual_final_bosses()
     {
-        var anywhere = new InstanceState();
-        ClientState Player(string name) => new(new(0x235c, "1_1_town", 32, 32, 10, 10, null, []), 0, 1)
+        const string owner = "portal-label-owner", guest = "portal-label-guest";
+        var area = new MapDevice.MapArea(0x2a5a, "MapWorldsStrand", "Strand", 1);
+        ClientState Player(InstanceState instance, ulong number, MapDevice.MapArea map) =>
+            new(new(map.Hash16, map.Id, 32, 32, 10, 10, null, []), 0, 1)
+            { Character = guest, Account = guest, Instance = instance, InstanceNumber = number, PlayerSent = true, PlayerLife = 100 };
+        SpawnedMonster Boss(int row, bool dead = false) => new("boss", new(15, 15, 30), 60, 8, 100)
+            { Variety = Game.Monsters.Find(row.ToString()), Rarity = MonsterRarity.Unique, Dead = dead, Life = dead ? 0u : 100u };
+        try
         {
-            Character = name, Account = name, League = "Standard", Instance = anywhere, PlayerSent = true, PlayerLife = 100,
-        };
-        var first = Player("label-run-first");
-        var next = Player("label-run-first"); // the same character's connection after an area change
-        const string strand = "MapWorldsStrand", chateau = "MapWorldsChateau";
-        Assert.False(Game.RunBossKilled(first, strand));
-        Game.MarkRunBossKilled(first, strand);
-        Assert.True(Game.RunBossKilled(first, strand));
-        Assert.True(Game.RunBossKilled(next, strand));
-        // Another map is another run, and another character has its own.
-        Assert.False(Game.RunBossKilled(first, chateau));
-        Assert.False(Game.RunBossKilled(Player("label-run-second"), strand));
-        // A map put in the device starts unmarked.
-        Game.ResetRunCompleted(next);
-        Assert.False(Game.RunBossKilled(first, strand));
+            var run = MapDevice.Activate(owner, area);
+            MapDevice.Entered(run, 987654);
+            var instance = new InstanceState();
+            var conn = Player(instance, 987654, area); // The guest can finish it with the owner absent.
+            var rows = Game.Packs.For(area.Id)!.Bosses;
+            Assert.Equal(2, rows.Count);
+            conn.Monsters[1] = Boss(rows[0], dead: true);
+            conn.Monsters[99] = new("unrelated unique", new(12, 12, 0), 60, 8, 100) { Rarity = MonsterRarity.Unique };
+            await Game.TickMapRunBoss(conn, force: true);
+            Assert.False(Game.RunBossKilled(run)); // The second actual boss has not appeared yet.
+            conn.Monsters.Remove(1); // Consuming the first corpse must not lose its kill.
+            var last = Boss(rows[1]);
+            conn.DormantMonsters[2] = last;
+            await Game.TickMapRunBoss(conn, force: true);
+            Assert.False(Game.RunBossKilled(run));
+            (last.Dead, last.Life) = (true, 0);
+            await Game.TickMapRunBoss(conn, force: true);
+            Assert.True(Game.RunBossKilled(run)); // The unrelated unique is still alive.
+            var returned = Player(new InstanceState(), 1234, area);
+            returned.MapPortalRun = MapDevice.OpenOf(owner);
+            Assert.True(Game.RunBossKilled(returned.MapPortalRun));
+            Assert.False(Game.RunBossKilled(MapDevice.Activate(guest, area)));
+            var replacement = MapDevice.Activate(owner, area);
+            await Game.TickMapRunBoss(conn, force: true);
+            Assert.False(Game.RunBossKilled(replacement));
+            Assert.True(Game.RunBossKilled(run));
+
+            var core = new MapDevice.MapArea(0x1234, "MapWorldsCore", "Core", 2);
+            var phased = MapDevice.Activate(owner, core);
+            MapDevice.Entered(phased, 987655);
+            var phases = Player(new InstanceState(), 987655, core);
+            var forms = Game.Packs.For(core.Id)!.Bosses;
+            Assert.Equal(2, forms.Count);
+            phases.Monsters[1] = Boss(forms[0]); // First form flees; it need not leave a dead corpse.
+            await Game.TickMapRunBoss(phases, force: true);
+            Assert.False(Game.RunBossKilled(phased));
+            phases.Monsters.Clear();
+            phases.Monsters[2] = Boss(forms[1]);
+            phases.Monsters[3] = Boss(forms[1], dead: true); // A dead twin cannot complete a living one's fight.
+            await Game.TickMapRunBoss(phases, force: true);
+            Assert.False(Game.RunBossKilled(phased));
+            (phases.Monsters[2].Dead, phases.Monsters[2].Life) = (true, 0);
+            await Game.TickMapRunBoss(phases, force: true);
+            Assert.True(Game.RunBossKilled(phased));
+        }
+        finally { MapDevice.Close(owner); MapDevice.Close(guest); }
     }
 }

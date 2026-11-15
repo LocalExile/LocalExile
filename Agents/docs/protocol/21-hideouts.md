@@ -244,8 +244,8 @@ plain list: it is a different byte, +0x32, and it selects the "just opened" rend
 
 So the Gateway sets bit 1 for the run whose map boss has died, and leaves it clear otherwise: before the boss dies, and
 for a map its character finished on another day, the label stays plain; so do the map's own portal back and the towns.
-The mark is kept by character, not by connection, because an area change is a new connection of the same character and
-the hideout re-sends this list — and putting a map in the device clears it. Seen live 2026-11-14 (3.29.3c): after a
+The mark follows the exact device run and its instance, including guest kills; opening the same map again starts a
+new run. Only that area’s declared terminal bosses count, including every living twin, not unrelated unique monsters. Seen live 2026-11-14 (3.29.3c): after a
 map's boss died and the player returned to the hideout, the standing portals read "<area name> (已完成)" in a Chinese
 client, and the logged message began `008F02 00 00` (`00` before the change).
 
