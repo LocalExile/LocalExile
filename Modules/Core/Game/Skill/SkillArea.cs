@@ -51,8 +51,8 @@ public static class SkillArea
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
     public static int RadiusPercent(Func<string, int> get, bool spell) =>
-        (int)Math.Floor(Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
-            * Math.Max(0, 1 + get("active_skill_area_of_effect_radius_+%_final") / 100.0)) - 100;
+        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
+            * Math.Max(0L, 100L + get("active_skill_area_of_effect_radius_+%_final")) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>The area modifier: (1 + increased) × each more multiplier, at least 0.</summary>
     public static double Modifier(Func<string, int> get, bool spell)

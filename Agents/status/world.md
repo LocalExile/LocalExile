@@ -94,6 +94,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
+  re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
+  the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
+  so overlapping shrines cannot restore stale encounter stats; Divine protects against hits and damage over time.
+  Standing Ice/Lightning novas use player resistances, avoidance, block, suppression and normal death accounting.
+  Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
+  explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.
+  Source: `Modules/Core/World/Shrines`, `src/GameServer.Gateway/World/Shrines`, `ShrineTests`.
+  Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
+  Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
+  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
+  before payment because the Conqueror apparition skills are not implemented.
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
@@ -141,6 +154,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
+  Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
   Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and

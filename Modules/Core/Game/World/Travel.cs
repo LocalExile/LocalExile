@@ -514,6 +514,7 @@ public static partial class Game
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+        if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),

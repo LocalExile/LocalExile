@@ -53,6 +53,35 @@ public sealed partial class InstanceState
     /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
 
+    MapDevice.Run? _map;
+
+    /// <summary>The map this instance was opened with, or null outside a map: its level, mods and owner for population,
+    /// monsters, drops and every later entry.</summary>
+    public MapDevice.Run? Map => Volatile.Read(ref _map);
+
+    /// <summary>The first connection that brings a map fixes it (<see cref="Map"/>); later ones keep that one.</summary>
+    public MapDevice.Run? OpenedWith(MapDevice.Run? run)
+    {
+        if (run is not null) Interlocked.CompareExchange(ref _map, run, null);
+        return Map;
+    }
+
+    readonly Lock _areaStatsGate = new();
+    IReadOnlyDictionary<uint, int>? _areaStats;
+
+    /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
+    /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
+    public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
+    public IReadOnlyDictionary<uint, int>? KeptAreaStats
+    {
+        get { lock (_areaStatsGate) return _areaStats; }
+    }
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();

@@ -286,13 +286,19 @@ public static partial class Game
                 if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
+                bool predictedLeap = cast && PredictsLeapSlam(conn, SkillsFor(conn).EffectId(gem.Effect), use.Slot);
                 Func<Task> echo = async () =>
                 {
-                    await Send(remote, stream, ciphers,
-                    [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
-                    $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
+                    await Send(remote, stream, ciphers, [],
+                    $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
-                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)),
+                    atGate: () =>
+                    {
+                        byte[] reply = [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                            .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []];
+                        return predictedLeap ? LeapSlamAcknowledgement(ciphers, reply) : reply;
+                    });
                     if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
                 };
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);

@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Delirium\Delirium.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\World\Shrines\Shrines.csproj" />
     <!-- The tattoo vendor recipe (VendorTattooRecipeTests). -->
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
   </ItemGroup>

@@ -754,10 +754,17 @@ public static partial class Game
         Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt) : null;
         if (spellTask is { IsCompletedSuccessfully: true, Result: false }) return;
-        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
-            $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
-            still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
-                () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        byte[][] ActionRecords() => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y,
+            use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
+        bool Acknowledge() => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+            () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction));
+        bool predictedLeap = PredictsLeapSlam(conn, SkillsFor(conn).EffectId(gem.Effect), use.Sequence);
+        string acknowledgement = $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab player skill")} 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})";
+        if (predictedLeap)
+            await Send(remote, stream, ciphers, [], acknowledgement, still: Acknowledge,
+                atGate: () => LeapSlamAcknowledgement(ciphers, [.. ActionRecords().SelectMany(p => p)]));
+        else
+            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, ActionRecords, acknowledgement, still: Acknowledge);
         if (flickers && spellAcknowledged)
         {
             await FlickerArt(remote, stream, ciphers, conn, gem.Gem, stand, landing);
@@ -2287,6 +2294,10 @@ public static partial class Game
         Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
+        // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
+        // EncounterStats, whether it was there when the shrine spawned or walked in later) takes no hit at all, so every
+        // path through this funnel leaves its life alone.
+        if (m.Effects["base_cannot_be_damaged"] > 0) return null;
         uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
@@ -2742,8 +2753,7 @@ public static partial class Game
                 drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
             // tier lets the rolls add their base card/scarab drops in a map.
-            int mapTier = MapDevice.ForInstance(conn) is { } openMap
-                ? openMap.Area.Tier : 0;
+            int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));

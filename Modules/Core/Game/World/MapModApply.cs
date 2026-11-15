@@ -2,8 +2,27 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static MapMods? MapModsOf(ClientState conn) =>
-        MapDevice.ForInstance(conn)?.Mods;
+    /// <summary>The map this connection's instance plays with (InstanceState.Map), or null outside a map.</summary>
+    public static MapDevice.Run? MapRunOf(ClientState conn) => conn.Instance?.Map is { } run && run.Area.Hash16 == conn.Layout.Hash ? run : null;
+
+    /// <summary>The map mods this connection's instance plays with: its area stats as the client got them in 0x1d
+    /// (MapAreaStats: the explicit mods scaled by the atlas's map mod effect, the atlas's own stats, the fragments), so
+    /// what the server applies is what the map shows; the map item's own sum when the instance has no stats.</summary>
+    public static MapMods? MapModsOf(ClientState conn)
+    {
+        if (MapRunOf(conn) is not { } run) return null;
+        if (conn.Instance?.KeptAreaStats is not { Count: > 0 } stats) return run.Mods;
+        return MapModsByStats.GetValue(stats, s =>
+        {
+            var names = Stats.Names;
+            var byName = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var (key, value) in s)
+                if (key >= 1 && key <= names.Count) byName[names[(int)key - 1]] = byName.GetValueOrDefault(names[(int)key - 1]) + value;
+            return new MapMods(byName, run.Mods.Quality);
+        });
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
     static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {

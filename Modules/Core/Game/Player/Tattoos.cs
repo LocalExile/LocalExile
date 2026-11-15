@@ -36,7 +36,7 @@ public static partial class Game
             && kv.Value == "Ancestral Tattoo of Bloodlines");
         int tribes = ancestral
             ? tattoos
-                .Where(kv => allocated.Contains(kv.Key))
+                .Where(kv => allocated.Contains(kv.Key) && TattooCatalogue.Find(kv.Value)?.IsRunegraft != true)
                 .Select(kv => TattooCatalogue.Find(kv.Value)?.Tribe ?? 11)
                 .Where(tribe => tribe is >= 0 and <= 10)
                 .Distinct()
@@ -49,6 +49,8 @@ public static partial class Game
             Add("mana_recovery_rate_+%", recovery);
             Add("energy_shield_recovery_rate_+%", recovery);
         }
+        int grafts = tattoos.Count(kv => allocated.Contains(kv.Key) && TattooCatalogue.Find(kv.Value)?.IsRunegraft == true);
+        if (grafts > 0) Add("number_of_runegrafted_masteries", grafts);
         return result;
     }
 }

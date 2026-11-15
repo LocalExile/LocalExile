@@ -102,8 +102,8 @@ static partial class Sirus
                     int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
                     if (e.BloodStacks > 0 && (e.BloodUntil <= now || BloodImmune(Get) || p.PlayerLife == 0))
                     { e.BloodStacks = 0; e.BloodDps = 0; BloodIcon(p, e, now); }
-                    var raw = p.PlayerLife == 0 || p.Immune || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
-                    if (p.PlayerLife > 0 && !p.Immune && !InGracePeriod(p) && e.BloodStacks > 0)
+                    var raw = p.PlayerLife == 0 || p.Immune || Get("base_cannot_be_damaged") > 0 || InGracePeriod(p) ? DamagePacket.Empty : Ground(p, p.Walk.Position(now), false, now);
+                    if (p.PlayerLife > 0 && !p.Immune && Get("base_cannot_be_damaged") == 0 && !InGracePeriod(p) && e.BloodStacks > 0)
                         raw = raw.Add(DamageType.Physical, new(e.BloodDps * e.BloodStacks, e.BloodDps * e.BloodStacks));
                     var immune = PlayerImmunities(p);
                     double shieldBefore = p.EnergyShield.Current;

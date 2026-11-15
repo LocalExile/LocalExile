@@ -14,6 +14,9 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
+
+    /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
+    public MapDevice.Run? Map { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
@@ -187,6 +190,11 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
+    /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
+    /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
+    /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
+    public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -223,7 +231,17 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
-    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
+    /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
+    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public MonsterModEffects Effects
+    {
+        get
+        {
+            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            return Curses.Effects(effects);
+        }
+    }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).

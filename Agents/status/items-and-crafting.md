@@ -40,7 +40,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
-- Character-build previews and imports through the mod SDK; the POB mod and converter are external.
+- Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
@@ -93,7 +93,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/eldritch-ember-coe.md).
 - **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
-- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules, not checked live).
+- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules; the Tainted orbs live 2026-11-14).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
 - **Enkindling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/enkindling-coe.md).

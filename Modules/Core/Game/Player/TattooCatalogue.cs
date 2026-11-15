@@ -4,15 +4,55 @@ using GameServer.Core;
 
 
 /// <summary>
-/// The client's tattoo items: BaseItemTypes rows whose name contains "Tattoo", joined to
+/// The client's tattoo and Runegraft items: BaseItemTypes rows joined to
 /// <c>PassiveSkillTattoos</c> for the target set and tribe. The effect itself is the replacement passive; the
-/// currency item carries no mods. Runegrafts share the apply action and are excluded by the name filter.
+/// currency item carries no mods. Runegrafts replace masteries and have their own per-type limits.
 /// </summary>
 public static class TattooCatalogue
 {
+    /// <summary>One tattoo per client limit group (Loyalty, Attribute Notable, Ancestral, Keystone, Ascendancy),
+    /// apart from the global 50 cap. The same group on the same node is a replacement and is allowed.</summary>
+    public static string? TattooLimitRefusal(IReadOnlyDictionary<ushort, string> tattoos, ushort node,
+        TattooCatalogue.Entry entry, LimitSettings? limits = null)
+    {
+        if (entry.Limit < 0 || TattooCatalogue.LimitName(entry.Limit) is not { } group) return null;
+        int limit = (limits ?? LimitSettings.Default).Get($"tattoo:{group}", SystemSettings.Default.TattooGroupLimit);
+        if (limit == 0) return null;
+        int count = 0;
+        foreach (var (other, name) in tattoos)
+            if (other != node && TattooCatalogue.Find(name) is { } existing && existing.Limit == entry.Limit)
+                count++;
+        return count < limit ? null
+            : limit == 1 ? $"only one {group} can be applied" : $"only {limit} {group} can be applied";
+    }
+
+    public static bool TargetMatches(PassiveTree.Node node, string target)
+    {
+        bool Has(string stat, int value) => node.Stats.Any(s => Stats.Name(s.Key) == stat && s.Value == value);
+        bool Attribute(string stat) => node.Stats.Count == 1 && Has(stat, node.Stats[0].Value) && node.Stats[0].Value > 0;
+        bool small = !node.IsNotable && !node.IsKeystone && !node.IsAscendancy && !node.IsStart
+            && !node.IsJewelSocket && !node.IsMastery && !node.IsProxy && !node.IsExpansion;
+        return target switch
+        {
+            "Small Strength" => small && Attribute("base_strength"),
+            "Small Dexterity" => small && Attribute("base_dexterity"),
+            "Small Intelligence" => small && Attribute("base_intelligence"),
+            "Small Attribute" => small && (Attribute("base_strength") || Attribute("base_dexterity") || Attribute("base_intelligence")),
+            "Notable (+30 to Strength)" => node.IsNotable && Has("base_strength", 30),
+            "Notable (+30 to Dexterity)" => node.IsNotable && Has("base_dexterity", 30),
+            "Notable (+30 to Intelligence)" => node.IsNotable && Has("base_intelligence", 30),
+            "Keystone" => node.IsKeystone,
+            "Mastery" => node.IsMastery,
+            // A Forbidden tattoo replaces an ascendancy notable, not a small ascendancy node.
+            "Ascendancy Notable" => node.IsAscendancy && node.IsNotable,
+            _ => false,
+        };
+    }
+
     public sealed record Entry(int Row, string Id, string Name, int Set, string Target, int Tribe, int Override,
         int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden, int Effect = -1)
     {
+        public bool IsRunegraft => Name.StartsWith("Runegraft ", StringComparison.Ordinal);
         public bool DropDisabled => Name.StartsWith("Honoured ", StringComparison.Ordinal)
             || Name.StartsWith("Loyalty ", StringComparison.Ordinal)
             || Name.StartsWith("Ancestral ", StringComparison.Ordinal)
@@ -46,6 +86,7 @@ public static class TattooCatalogue
         5 => "Ancestral Tattoo",
         6 => "Keystone Tattoo",
         40 => "Ascendancy Tattoo",
+        >= 8 and <= 39 => "Runegraft " + limit,
         _ => null,
     };
 
@@ -108,7 +149,7 @@ public static class TattooCatalogue
         {
             string name = row.Text("Name") ?? "";
             string id = row.Text("Id") ?? "";
-            if (name.Contains("Tattoo", StringComparison.Ordinal))
+            if (name.Contains("Tattoo", StringComparison.Ordinal) || name.StartsWith("Runegraft ", StringComparison.Ordinal))
             {
                 if (!targets.TryGetValue(index, out var target)) continue;
                 string targetName = target.Set >= 0 && target.Set < sets.Count ? sets[target.Set] : "unknown";

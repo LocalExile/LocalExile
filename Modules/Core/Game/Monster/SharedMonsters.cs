@@ -196,6 +196,8 @@ public static partial class Game
     public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
     {
         if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
+        if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, ciphers))
+            bytes = leap.Records;
         ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
         if (message is InstanceProtocol.ActionStartedId or 0x1ac
             && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
