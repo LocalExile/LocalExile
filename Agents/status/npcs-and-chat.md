@@ -125,7 +125,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
   from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
   (a module reload clears that flag until the bot's next update).
-  Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
+  Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
