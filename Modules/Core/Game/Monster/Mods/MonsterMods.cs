@@ -98,6 +98,9 @@ public static partial class Game
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
     {
+        // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, EncounterStats by stat name): the Divine shrine's
+        // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
+        if (m.EncounterStats is { } aura && aura.GetValueOrDefault("base_cannot_be_damaged") > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)

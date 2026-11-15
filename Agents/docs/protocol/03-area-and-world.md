@@ -151,3 +151,21 @@ minimap marker inside the town outline). The character model is not visible yet.
 - The real player start position for each town (area data, or a real capture).
 - What the 0x21 record lists and flag bits mean (party, league, PvP …).
 - The remaining 0x1d fields and flags.
+
+## Shrine objects (`Metadata/Shrines/Shrine`)
+
+Object type 9293 reads ten components, in order: Positioned, BaseEvents, Stats, Animated, Buffs, Life, ObjectMagicProperties,
+Shrine, MinimapIcon, InteractionAction (Render and Targetable are in the type but not serialised). Live findings, 2026-11-12:
+
+- **The Shrine component's key byte** is the Shrines row the client copies for the icon it draws over the object; `0xff`
+  means no shrine, and the statue then keeps its model but loses the icon and the interaction. The component's next byte
+  (stored at `+0x50`) changed nothing visible when written as 1.
+- **`ObjectMagicProperties` bit 3 (`u16` flags `0x08`) is the identified flag.** Without it the client's target nameplate
+  prints its unidentified line ("Undefined") under the shrine's name; with it the line disappears. Rarity is bits 0–2
+  (0 = normal).
+- **A life pool of 0 removes the target nameplate but also hover and click**: a live `Life` component is what makes the
+  object targetable at all. The top-centre nameplate and its bar are that lifecycle HUD, so a clickable shrine cannot
+  avoid them. Chests and strongboxes are not affected because their object types carry no `Life` component.
+
+See also: the shrine buff is a normal `0x01c1` on a BuffDefinitions row (the Shrines row's `Player_ShrineBuffsKey` template),
+and the click that claims it is C→S 0x24, answered with 0x01ab `ActionStarted`/`ActionEnded` like any walked-up object.
