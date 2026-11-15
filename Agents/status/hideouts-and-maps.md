@@ -40,9 +40,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
-  presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
-  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
-  real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
+  0x1a4, so both panels (the Atlas and the map device's portals) draw the new mark without an area change.
+  `/atlas_complete <map | all>` and `/atlas_reset` (dev).
+  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; a native Beach boss kill also sent
+  the completion and refreshed the Atlas state. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
@@ -59,7 +61,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   its Waypoint (with HideoutDoodad data), Stash, Nessa and map device come from its decoration (`scripts/re/atlas
   hideouts` → `data/hideouts.json`); the HUD shows the Edit button;
   the map device can be clicked and opens its window (S→C 0x7b kind 5);
-  maps go into its slots, Activate (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
+  maps go into its slots (dragged, or Ctrl + clicked: C→S 0x00e4 in and 0x00e5 out, live 2026-11-15), Activate
+  (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
   opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
   stays gone); guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
@@ -69,6 +72,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
+- Map device portal labels (2026-11-14, live): a portal's floating label names its area and appends "(Completed)" once
+  that run's map boss is dead (S→C 0x008f flags bit 1, which the Portal component's nametag reads). The mark follows the
+  exact shared map run across area changes and guest kills. Every declared terminal boss must die; unrelated uniques
+  do not count. A new run of the same map starts unmarked, and existing visitors receive updated labels.
+  Live in a Chinese client: after the boss died the standing portals read "<area name> (已完成)", and the logged
+  message began `008F02`. See [21](../docs/protocol/21-hideouts.md) §5.
 
 ## Partly working
 

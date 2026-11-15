@@ -1872,6 +1872,7 @@ public static partial class Game
             MonsterHit? applied;
             int damage;
             bool critical;
+            byte hitCode;
             string? resistance;
             List<byte[]>? ignited = null, bled = null;
             string igniteLog = "", bleedLog = "";
@@ -1954,6 +1955,7 @@ public static partial class Game
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
+                hitCode = HitCode(mitigated);
                 var taken = MonsterTakenComponents(m, mitigated, spell, at);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = damageMore * bloodMore;
@@ -2041,9 +2043,10 @@ public static partial class Game
             }
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
-            await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
+            await NotifyMonsterHitCore(remote, stream, ciphers, conn, id, m, hit, damage,
                 $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
-                melee: melee ?? !spell, sequence: sequence, deaths: deaths, stun: stun);
+                log: true, melee: melee ?? !spell, sequence: sequence, deaths: deaths, hitCode: hitCode, stun: stun,
+                critical: critical, impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null);
             await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
             await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
@@ -2298,9 +2301,15 @@ public static partial class Game
         return new(m.Life, starts);
     }
 
-    public static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+    public static Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
-        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null)
+        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null) =>
+        NotifyMonsterHitCore(remote, stream, ciphers, conn, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun,
+            critical: false, impactArt: null);
+
+    static async Task NotifyMonsterHitCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+        MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
+        List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -2322,9 +2331,10 @@ public static partial class Game
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py),
-                    orderKey: order.Key, checkpoint: order.Hit),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, MeleeHitFeedback(PlayerId, sequence, id, hitCode,
+                    HitAngle(mx - px, my - py), critical, impactArt, order.Key, order.Hit),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
+            if (impactArt is not null) await PresentMeleeImpact(remote, stream, ciphers, conn, impactArt, (px, py), (mx, my));
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(remote, stream, ciphers, conn, id, m, stun ?? new(damage), log);
@@ -2625,7 +2635,12 @@ public static partial class Game
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     public static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         bool byMinion = false)
-        => await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion);
+    {
+        await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion);
+        // The map overlay's "X monsters remain" (S→C 0x1a0): one fewer of the area's monsters is alive. Its corpse stays
+        // in the roster, so the count is the living ones (MonsterRemaining.cs).
+        await SendRemainingMonsters(remote, stream, ciphers, conn);
+    }
 
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, bool playerKill)

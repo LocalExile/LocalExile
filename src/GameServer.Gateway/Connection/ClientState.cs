@@ -1154,6 +1154,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// instance (a test's) keeps its own.</summary>
     public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
     readonly EmergeGround ownEmergeGround = new();
+    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
+    public int SentMonstersRemaining = -1;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.

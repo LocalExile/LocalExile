@@ -377,6 +377,8 @@ public static partial class Game
         if (damagedLife < life)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
         if (!friendly && KingInMists.IsBoss(variety)) KingInMists.Begin(remote, stream, ciphers, conn, id);
+        // A monster the area did not have until now (a summon, a quest's, a kept instance's): the overlay's count changes.
+        await SendRemainingMonsters(remote, stream, ciphers, conn);
         return id;
     }
 
@@ -387,6 +389,9 @@ public static partial class Game
     {
         // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
         if (!ClaimMonsterHost(remote, conn)) return;
+        // The packs go in one monster at a time, and the overlay's count waits for the last of them (the entry's 0x1a0,
+        // Messages.cs): a recount per spawn would be a count of the area per monster.
+        using var recount = HoldMonstersRemaining(conn);
         var layout = conn.Layout;
         if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point

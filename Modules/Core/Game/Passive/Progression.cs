@@ -253,6 +253,14 @@ public static partial class Game
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
         var tree = PassivesFor(conn);
         var catalog = ItemsFor(conn);
+        var pathJewels = JewelPathEffects.Apply(conn, tree, catalog, family, sourcesKey.Nodes,
+            sourcesKey.ClusterPassives, items.Items(PlayerInventories.PassiveJewels), treeJewels);
+        if (!ReferenceEquals(pathJewels, treeJewels))
+        {
+            treeJewels = pathJewels;
+            worn = equipment.Select(e => e.Item)
+                .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) })).Concat(charms).ToArray();
+        }
         var timeless = items.Items(PlayerInventories.PassiveJewels)
             .Where(i => TimelessJewelCatalog.IsTimeless(i.Item, catalog)
                 && tree.JewelNodeForSlot(i.X) is { } socket && allocated.Contains(socket))
@@ -519,7 +527,8 @@ public static partial class Game
             .Where(i => ClusterSize(i.Item) is not null
                 && (tree.JewelNodeForSlot(i.X) is { } ordinary && allocated.Contains(ordinary) || ClusterSlotOpen(conn, i.X)))
             .OrderBy(i => i.X).ToList();
-        foreach (var (key, value) in ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats))
+        var clusterStats = ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats).ToArray();
+        foreach (var (key, value) in clusterStats)
             passives[key] = passives.GetValueOrDefault(key) + value;
         // Threshold jewels: Path of Building's Threshold pass sums the attributes of every ordinary passive in
         // radius, allocated or not, and grants the skill stat only when the total reaches the requirement. The
@@ -590,6 +599,9 @@ public static partial class Game
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         foreach (var (key, value) in copiedSmallStats)
+            if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
+                passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+        foreach (var (key, value) in clusterStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
