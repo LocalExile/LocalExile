@@ -37,19 +37,15 @@ public sealed class MapDevice
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
-    private readonly Dictionary<uint, MapArea> _byFragment;
     private readonly AtlasCatalog? _atlas;
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
     private readonly HashSet<ushort> _recipeAreas;
 
     public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null,
-        IReadOnlyDictionary<uint, MapArea>? byFragment = null, MapRunCatalog? runs = null,
-        IReadOnlyList<MapArea?>? worldAreas = null)
+        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null)
     {
         _byItemType = new(byItemType);
-        // Retained for callers that query fragment destinations. Activation always requires a recipe in runs.
-        _byFragment = byFragment is null ? [] : new(byFragment);
         _atlas = atlas;
         _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
         _worldAreas = worldAreas is null ? [] : [.. worldAreas];
@@ -82,14 +78,8 @@ public sealed class MapDevice
             }
         }
         var worldAreas = LoadWorldAreas(folder);
-        var runs = MapRunCatalog.Load(folder);
-        var device = new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
-            runs: runs, worldAreas: worldAreas);
-        foreach (var recipe in runs.Recipes.Where(r => r.AnyOne || r.Items.Count == 1))
-            if (device.AreaOfWorld(recipe) is { } area)
-                foreach (int item in recipe.Items)
-                    if (hashOfRow(item) is uint hash) device._byFragment.TryAdd(hash, area);
-        return device;
+        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
+            MapRunCatalog.Load(folder), worldAreas);
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
@@ -119,14 +109,9 @@ public sealed class MapDevice
 
     public MapArea? AreaOf(uint itemType) => _byItemType.GetValueOrDefault(itemType);
 
-    /// <summary>The destination of a single-item recipe, or an explicitly supplied fragment lookup.
-    /// A lookup alone does not authorize activation: the complete inputs must match a recipe.</summary>
-    public MapArea? AreaOfFragment(uint itemType) => _byFragment.GetValueOrDefault(itemType);
-
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
-    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16) ||
-        _byFragment.Values.Any(a => a.Hash16 == hash16) || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true
-        || _recipeAreas.Contains(hash16);
+    public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
+        || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
     public readonly record struct Slot(uint TypeHash, string Class, string Name, int BaseRow, IReadOnlyList<ItemMod> Mods, byte Quality)

@@ -24,7 +24,6 @@ public sealed class MapDeviceRecipeTests
         Assert.Equal("AzmeriLeagueBoss", opening.Area.Id);
         Assert.Equal(83, opening.Area.Level);
         Assert.Equal(audience.BaseRow, opening.ItemRow);
-        Assert.Equal(opening.Area, device.AreaOfFragment(audience.TypeHash));
         Assert.True(device.IsMapArea(opening.Area.Hash16));
 
         var key = Slot("Metadata/Items/MapFragments/ClassicVaultKey");
@@ -38,12 +37,5 @@ public sealed class MapDeviceRecipeTests
         }
         Assert.NotNull(device.Check([key], null, catalog.Mods, out why));
         Assert.Empty(why);
-
-        // Constructor-supplied lookup metadata cannot bypass the recipe's complete-input validation.
-        var lookupOnly = new MapDevice(new Dictionary<uint, MapDevice.MapArea>(),
-            byFragment: new Dictionary<uint, MapDevice.MapArea> { [audience.TypeHash] = opening.Area });
-        Assert.Equal(opening.Area, lookupOnly.AreaOfFragment(audience.TypeHash));
-        Assert.Null(lookupOnly.Check([audience], out _));
-        Assert.Null(lookupOnly.Check([audience, key], out _));
     }
 }
