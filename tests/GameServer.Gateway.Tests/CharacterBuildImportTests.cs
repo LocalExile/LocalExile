@@ -9,6 +9,35 @@ namespace GameServer.Gateway.Tests;
 public sealed class CharacterBuildImportTests
 {
     [Fact]
+    public void Build_replacement_replaces_secondary_ascendancy_and_clears_a_previous_selection()
+    {
+        var current = new CharacterSaves.Save([], Descendancy: 4, DescendancyNodes: [123], QuestFlags: ["KeepQuest"],
+            ModuleData: new() { ["PersonalSetting"] = "keep", ["Game.Golems"] = "old" });
+        var build = new CharacterSaves.Save([], Descendancy: 11, DescendancyNodes: [35011],
+            ModuleData: new() { [ImportedProgress.BanditKey] = "Alira", [ImportedProgress.PointsKey] = "24" });
+        var merged = CharacterBuildImports.Merge(current, build);
+        Assert.Equal((byte)11, merged.Descendancy);
+        Assert.Equal(new ushort[] { 35011 }, merged.DescendancyNodes);
+        Assert.Equal(current.QuestFlags, merged.QuestFlags);
+        Assert.Equal("keep", merged.ModuleData!["PersonalSetting"]);
+        Assert.False(merged.ModuleData.ContainsKey("Game.Golems"));
+        foreach (string choice in new[] { "Alira", "Oak", "Kraityn", "Eramir" })
+        {
+            var intent = merged with { ModuleData = new(merged.ModuleData) { [ImportedProgress.BanditKey] = choice } };
+            var normalized = ImportedProgress.Normalize(intent);
+            Assert.Contains("KeepQuest", normalized.QuestFlags!);
+            Assert.Single(normalized.QuestFlags!, f => new[] { "a2q1-QuestRewardTaken", "a2q2-QuestRewardTaken", "a2q3-QuestRewardTaken", "a2q7-QuestRewardTaken" }.Contains(f));
+            Assert.Equal((ushort)(choice == "Eramir" ? 23 : 24), normalized.ExtraPassivePoints!.Value);
+            Assert.Same(normalized, ImportedProgress.Normalize(normalized));
+            Assert.Equal("keep", normalized.ModuleData!["PersonalSetting"]);
+        }
+        var cleared = CharacterBuildImports.Merge(merged, new CharacterSaves.Save([]));
+        Assert.Null(cleared.Descendancy);
+        Assert.Null(cleared.DescendancyNodes);
+        Assert.Equal(current.QuestFlags, cleared.QuestFlags);
+    }
+
+    [Fact]
     public async Task Public_mod_imports_validate_identity_expiry_lifetime_and_single_use_confirmation()
     {
         string path = Path.Combine(Path.GetTempPath(), $"mod-build-api-{Guid.NewGuid():N}.db");
@@ -182,7 +211,7 @@ public sealed class CharacterBuildImportTests
             CharacterSaves.Write(record.Name, latest);
             var cached = PlayerInventories.For(record.Name, catalog);
             var proposed = new CharacterSaves.Save(new() { [2] = [new(1, 0, 0, old)] }, Experience: 1234,
-                Passives: [10, 20]);
+                Passives: []); // This fixture tests the transaction, not synthetic client-graph node ids.
             var plan = Plan(record, proposed);
             CharacterEquipmentState.Inactive[record.Name] = [902];
             var oldGemIds = GemSkillIds.ByCharacter.GetOrAdd(record.Name, _ => new());

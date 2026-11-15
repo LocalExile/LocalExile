@@ -23,14 +23,15 @@ static partial class TattoosRules
     internal static bool TargetMatches(PassiveTree.Node node, string target)
     {
         bool Has(string stat, int value) => node.Stats.Any(s => Stats.Name(s.Key) == stat && s.Value == value);
+        bool Attribute(string stat) => node.Stats.Count == 1 && Has(stat, node.Stats[0].Value) && node.Stats[0].Value > 0;
         bool small = !node.IsNotable && !node.IsKeystone && !node.IsAscendancy && !node.IsStart
             && !node.IsJewelSocket && !node.IsMastery && !node.IsProxy && !node.IsExpansion;
         return target switch
         {
-            "Small Strength" => small && Has("base_strength", 10),
-            "Small Dexterity" => small && Has("base_dexterity", 10),
-            "Small Intelligence" => small && Has("base_intelligence", 10),
-            "Small Attribute" => small && (Has("base_strength", 10) || Has("base_dexterity", 10) || Has("base_intelligence", 10)),
+            "Small Strength" => small && Attribute("base_strength"),
+            "Small Dexterity" => small && Attribute("base_dexterity"),
+            "Small Intelligence" => small && Attribute("base_intelligence"),
+            "Small Attribute" => small && (Attribute("base_strength") || Attribute("base_dexterity") || Attribute("base_intelligence")),
             "Notable (+30 to Strength)" => node.IsNotable && Has("base_strength", 30),
             "Notable (+30 to Dexterity)" => node.IsNotable && Has("base_dexterity", 30),
             "Notable (+30 to Intelligence)" => node.IsNotable && Has("base_intelligence", 30),

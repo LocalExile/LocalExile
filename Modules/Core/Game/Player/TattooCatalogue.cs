@@ -4,15 +4,16 @@ using GameServer.Core;
 
 
 /// <summary>
-/// The client's tattoo items: BaseItemTypes rows whose name contains "Tattoo", joined to
+/// The client's tattoo and Runegraft items: BaseItemTypes rows joined to
 /// <c>PassiveSkillTattoos</c> for the target set and tribe. The effect itself is the replacement passive; the
-/// currency item carries no mods. Runegrafts share the apply action and are excluded by the name filter.
+/// currency item carries no mods. Runegrafts replace masteries and have their own per-type limits.
 /// </summary>
 public static class TattooCatalogue
 {
     public sealed record Entry(int Row, string Id, string Name, int Set, string Target, int Tribe, int Override,
         int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden, int Effect = -1)
     {
+        public bool IsRunegraft => Name.StartsWith("Runegraft ", StringComparison.Ordinal);
         public bool DropDisabled => Name.StartsWith("Honoured ", StringComparison.Ordinal)
             || Name.StartsWith("Loyalty ", StringComparison.Ordinal)
             || Name.StartsWith("Ancestral ", StringComparison.Ordinal)
@@ -46,6 +47,7 @@ public static class TattooCatalogue
         5 => "Ancestral Tattoo",
         6 => "Keystone Tattoo",
         40 => "Ascendancy Tattoo",
+        >= 8 and <= 39 => "Runegraft " + limit,
         _ => null,
     };
 
@@ -108,7 +110,7 @@ public static class TattooCatalogue
         {
             string name = row.Text("Name") ?? "";
             string id = row.Text("Id") ?? "";
-            if (name.Contains("Tattoo", StringComparison.Ordinal))
+            if (name.Contains("Tattoo", StringComparison.Ordinal) || name.StartsWith("Runegraft ", StringComparison.Ordinal))
             {
                 if (!targets.TryGetValue(index, out var target)) continue;
                 string targetName = target.Set >= 0 && target.Set < sets.Count ? sets[target.Set] : "unknown";

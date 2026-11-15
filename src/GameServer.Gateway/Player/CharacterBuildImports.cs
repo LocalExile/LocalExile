@@ -27,6 +27,7 @@ public static class CharacterBuildImports
             throw new InvalidDataException("Invalid character build import result.");
         foreach (var item in save.Inventories.Values.SelectMany(v => v))
             _ = CharacterSaves.FromSaved(item.Item, Program.Items).Payload();
+        Program.GameLogicOrNull?.ValidateImportedBuild(converted, save);
         string summary = root.GetProperty("Summary").GetString() ?? "";
         string[] warnings = root.GetProperty("Warnings").Deserialize<string[]>() ?? [];
         if (summary.Length > 800 || warnings.Length > 100 || warnings.Any(w => w is null || w.Length > 800))
@@ -77,6 +78,7 @@ public static class CharacterBuildImports
                 throw new InvalidDataException("The character's owner, league, or state has changed.");
             var current = CharacterSaves.Load(record.Name) ?? new CharacterSaves.Save([]);
             var merged = Merge(current, plan.Save);
+            Program.GameLogicOrNull?.ValidateImportedBuild(record with { Class = plan.Class, Level = plan.Level }, merged);
             Saves.Db.SetMeta($"character-build-backup/{record.Id:N}/{Guid.NewGuid():N}", JsonSerializer.Serialize(new { Record = record, Save = current }));
             CharacterSaves.Write(record.Name, merged);
             accounts.UpdateCharacter(record with { Class = plan.Class, Level = plan.Level });
@@ -100,12 +102,20 @@ public static class CharacterBuildImports
             Inventories = inventories, SkillBar = build.SkillBar, Experience = build.Experience, Passives = build.Passives,
             MasteryEffects = build.MasteryEffects, Tattoos = build.Tattoos, TattooKeystones = build.TattooKeystones,
             ExtraPassivePoints = build.ExtraPassivePoints, ClusterPassives = build.ClusterPassives, MainAscendancy = build.MainAscendancy,
+            Descendancy = build.Descendancy, DescendancyNodes = build.DescendancyNodes,
             PantheonMajor = build.PantheonMajor, PantheonMinor = build.PantheonMinor,
             ActiveAuras = null, PetrifiedBlood = null, Stance = null,
-            ModuleData = current.ModuleData?.Where(kv => kv.Key != "Game.Golems").ToDictionary(kv => kv.Key, kv => kv.Value),
+            ModuleData = MergeModuleData(current.ModuleData, build.ModuleData),
             Life = null, Mana = null, VitalsOwner = null, Tutorial = null, StartWeapon = null,
             AttackInPlaceSlots = null, SkillBarMask52 = null,
         };
+    }
+
+    static Dictionary<string, string>? MergeModuleData(Dictionary<string, string>? current, Dictionary<string, string>? incoming)
+    {
+        var next = (current ?? []).Where(kv => kv.Key != "Game.Golems").ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var pair in incoming ?? []) next[pair.Key] = pair.Value;
+        return next.Count == 0 ? null : next;
     }
 
 }

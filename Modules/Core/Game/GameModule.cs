@@ -75,6 +75,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
     public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
         HeistModifierMagnitudes.For(item, mods);
+    public void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) =>
+        Rules.ValidateImportedBuild(character, save);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);

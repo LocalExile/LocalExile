@@ -32,7 +32,14 @@ public static class CharacterSaves
         bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null,
         bool Vestigial = false,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] HeistBlueprintState? HeistBlueprint = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] HeistBlueprintState? HeistBlueprint = null)
+    {
+        // Keep the public constructor/deconstructor ABI for already installed mods.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte MemoryStrands { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte Intangibility { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RequiredLevel { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
+    }
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -565,7 +572,9 @@ public static class CharacterSaves
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
-        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint);
+        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
+        { MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
+            RelicStyle = i.RelicStyle };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -587,6 +596,8 @@ public static class CharacterSaves
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
             HeistBlueprint = s.HeistBlueprint,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
+            MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
+            RelicStyle = s.RelicStyle,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.
@@ -596,6 +607,7 @@ public static class CharacterSaves
             if (local.GetValueOrDefault("local_has_X_sockets") == 1 && !local.ContainsKey("local_has_no_sockets"))
                 item = item with { Sockets = [new(SocketColour.White)], Links = [1] };
         }
+        item = item with { RequiredLevel = s.RequiredLevel };
         // Older Stygian Vises could be saved with missing or ordinary sockets. Preserve every occupied layout.
         if (t.Id == AbyssJewels.StygianVise && item.Sockets.All(socket => socket.Gem is null)
             && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))

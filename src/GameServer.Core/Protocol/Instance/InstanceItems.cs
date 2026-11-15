@@ -47,9 +47,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
+    /// <summary>The Mods reader's trailing bytes (+0x2db, +0x2dc), independent of combat modifiers.</summary>
+    public byte MemoryStrands { get; init; }
+    public byte Intangibility { get; init; }
+    public byte? RelicStyle { get; init; }
 
-    /// <summary>The map quality's AlternateQualityTypes row, from a map quality chisel; null is quantity quality (what
-    /// <see cref="Quality"/> alone means). A different chisel replaces it. Maps and map keys only.</summary>
+    /// <summary>The AlternateQualityTypes row, for catalysts or map chisels. Null uses ordinary quality;
+    /// an alternate type carries its amount in ObjectMagicProperties, not the ordinary Quality component.</summary>
     public byte? AlternateQualityType { get; init; }
 
     public const byte MaximumDefenceBaseRoll = 31;
@@ -151,8 +155,16 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// mods; without it 0 is sent. <see cref="RequiredLevel"/> overrides it for one item.</summary>
     public static Func<Item, int>? LevelRequirementOf { get; set; }
 
-    /// <summary>This item's level requirement, instead of <see cref="LevelRequirementOf"/>.</summary>
-    public int? RequiredLevel { get; init; }
+    /// <summary>This item's recorded level requirement, instead of <see cref="LevelRequirementOf"/>.
+    /// Modifier or socket replacement invalidates the recorded value so subsequent crafting recalculates it.</summary>
+    int? requiredLevel;
+    IReadOnlyList<ItemMod>? requiredLevelMods;
+    IReadOnlyList<ItemSocket>? requiredLevelSockets;
+    public int? RequiredLevel
+    {
+        get => ReferenceEquals(Mods, requiredLevelMods) && ReferenceEquals(Sockets, requiredLevelSockets) ? requiredLevel : null;
+        init { requiredLevel = value; requiredLevelMods = Mods; requiredLevelSockets = Sockets; }
+    }
 
     public static bool CanSerialize(IEnumerable<string> components) => components.All(c => c == "Tincture" || Supported.Contains(c));
 
@@ -200,10 +212,12 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // properties 0x142208700 (MagicProperties), u8, u8.
                 case "Mods":
                     w.U8(ItemLevel).U8((byte)Math.Clamp(RequiredLevel ?? LevelRequirementOf?.Invoke(this) ?? 0, 0, 255))
-                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0) | (Vestigial ? 0x400 : 0)));
-                    MagicProperties(w); w.U8(0).U8(0);
+                        .U16((ushort)((Mirrored ? 0x2 : 0) | (Split ? 0x4 : 0) | (Synthesised ? 0x20 : 0) | (Foreseeing ? 0x100 : 0)
+                            | (RelicStyle is not null ? 0x10 : 0) | (Vestigial ? 0x400 : 0)));
+                    if (RelicStyle is byte relic) w.U8(relic);
+                    MagicProperties(w); w.U8(MemoryStrands).U8(Intangibility);
                     break;
-                case "Quality": w.U8(Quality); break;                 // 0x1424b5720
+                case "Quality": w.U8(AlternateQualityType is null ? Quality : (byte)0); break; // 0x1424b5720
                 // The transformed original uses an unframed ordinary item payload.
                 case "Transformed":
                     if (OriginalItem is { } original) w.Bytes(original.Payload());
@@ -257,7 +271,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// signed compact (0x141e4c7e0) per stat of the row.
     /// </summary>
     void MagicProperties(BlobWriter w) =>
-        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, NameWords, u7a: FracturedCount);
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, u7a: FracturedCount,
+            alternateQualityType: AlternateQualityType, alternateQuality: Quality);
 
     /// <summary>The item as inventories and other messages carry it (0x1421f2b40 / 0x1421f2c30): u16 big-endian length,
     /// then <see cref="Payload"/>.</summary>
