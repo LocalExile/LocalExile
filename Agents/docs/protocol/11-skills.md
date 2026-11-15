@@ -1026,7 +1026,11 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   `arrow_projectile_variation` or a wand's bolt, else the skill's art slot 0), its count on the record, the client's
   range, contact and volley for the hidden flight, released at the contact toward the order's cell. A spell mortar
   lands its flight clip's first `contact` after the release (its length without one; 666 ms on most mortar rigs),
-  over its speed multiplier, at any distance.
+  over its speed multiplier, at any distance. A clip with several contacts releases at each, turned by that contact's
+  direction. Per-projectile ends (sprays, knives, weapon jitter) come from the client's seeded RNG, seed byte
+  2 + (release · count + i) % 254. A weapon-table shot (start 0x141b720e0) plays its GE animation, else Throw (Animation
+  row 40), or SpectralThrow (95) with `animation_effect_variation` 1, and launches 30 units from its cell's centre
+  toward the aim. A skill with a GEPL Cooldown waits it out; the monster's other attacks do not.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final

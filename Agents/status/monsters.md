@@ -163,9 +163,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Monster shots fly and hit when they arrive, in both network modes (#1004): the client draws a shot the server can
   reproduce from its record's count and the server flies it hidden; any other is the server's object.
-  Checked live in both modes (fireball, arrows, Sand Spitter, cold skeleton, ice spear, a spell mortar). Lunaris's
-  dark orbs still hit at the contact: their damage is a ground degen the server does not model.
-  Code: `MonsterShots`. Docs: [11](../docs/protocol/11-skills.md) §6.
+  Checked live in both modes: fireball, arrows, Sand Spitter, spell mortars, ball lightning, knives, sprays, thrown
+  weapons, spirals, vortices, the golem arc, Lunaris's orb ground. A skill waits out its GEPL cooldown. What stays the
+  server's object: [roadmap](../roadmap/skills-and-combat.md). Code: `MonsterShots`. Docs: [11](../docs/protocol/11-skills.md) §6.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
