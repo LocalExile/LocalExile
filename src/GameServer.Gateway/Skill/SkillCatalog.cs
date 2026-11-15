@@ -884,8 +884,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     });
 
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
-    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
+    /// first "contact" in ms (its length without one), by which the client times a spell mortar's landing.</summary>
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null);
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
     /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
@@ -903,7 +904,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             ProjectileClip? Clip(string key) =>
                 r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
-                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact")) : null;
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
@@ -957,8 +958,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// Magma's bouncing lob, Spectral Throw's return), or null for a plain flight.</summary>
         public string? Recipe { get; init; }
         /// <summary>A spell mortar's flight lasts a fixed time instead of flying at its row's speed (the client's mover
-        /// 0x141a10d50: the rig's contact event over the speed multiplier); false for every other shot.</summary>
+        /// 0x141a10d50: <see cref="ContactSeconds"/> over the speed multiplier); false for every other shot.</summary>
         public bool FixedFlight { get; init; }
+        /// <summary>A fixed-time spell mortar's flight at a multiplier of 1: its flight clip's first contact (666 ms on most
+        /// mortar rigs), else the clip's length (<see cref="ProjectileClip.Contact"/>).</summary>
+        public double ContactSeconds { get; init; } = .666;
         /// <summary>A mortar's launch moves this many cells toward its target first (MonsterMortar <c>__col9</c>).</summary>
         public int StartOffset { get; init; }
         /// <summary>A mortar's <c>mortar_projectile_distance_override</c> in cells (0: none): its landing is rescaled to

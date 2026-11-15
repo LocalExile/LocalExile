@@ -61,13 +61,17 @@ public static partial class Game
                 aim = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
             }
             var translated = aim + origin - from;
+            ProjectileNativeVolley? fan = null;
+            var fanFrom = origin;
             if (mortar)
             {
-                // A spell mortar's aim moves with the release only by the stat that says so; its launch then moves
+                // A spell mortar's aim moves with the release only by the stat that says so; its volley fans about the
+                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target); its launch then moves
                 // __col9 cells toward the target, which stays where it was (0x141a10d50).
                 if (projectile.Lobbed)
                 {
                     if (!projectile.AimTranslates) translated = aim;
+                    if (projectile.Count > 1) fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
                     if (projectile.StartOffset != 0)
                     {
                         origin += toward * Math.Min(projectile.StartOffset, distance);
@@ -77,7 +81,9 @@ public static partial class Game
                 // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
                 int minimum = projectile.MinimumRange != 0 ? projectile.MinimumRange + projectile.StartOffset : 0;
                 var draws = new float[projectile.Count];
-                nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin, translated,
+                var arm = translated - fanFrom;
+                nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin,
+                    fan is null || arm.Length <= 0 ? translated : fanFrom + arm.Rotate(fan.Angle(i, projectile.Count, arm.Length)),
                     minimum, projectile.SpreadRadius, sequence, id, i, projectile.DistanceOverride, out draws[i])).ToArray();
                 // A spell mortar lands a fixed time after its release, at any distance: each projectile at its own speed.
                 if (projectile.FixedFlight)
@@ -88,6 +94,13 @@ public static partial class Game
         // Retain the legacy landing model for server-created lobbed skills. Native straight mortar attacks use
         // their cell-based minimum range and scattered destinations above, not this untraced lob model.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
+        // A server-drawn mortar lands at its distance override, else no farther than its capped range (a Doedre nova's ring
+        // of 8 cells around her, not on the player).
+        if (projectile.Lobbed && nativeTargets is null)
+        {
+            if (projectile.DistanceOverride > 0) landing = Math.Max(0.5, projectile.DistanceOverride - ahead);
+            else if (SkillStat("projectile_maximum_range_override") is > 0 and var most) landing = Math.Max(0.5, Math.Min(landing, most - ahead));
+        }
         if (projectile.Recipe == "RollingMagma") landing = Math.Max(0.5, MonsterShots.MagmaLanding(projectile, landing + ahead) - ahead);
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
@@ -179,6 +192,8 @@ public static partial class Game
     public static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var conn = session.Conn;
+        // The flight's own damage multiplier (an ice spear's second form, a burst's or a bounce's) scales the attack's hit.
+        if (contact.Multiplier != 1) shot = shot with { Attack = shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) } };
         if (OwnedFighter(conn, contact.Target.Id) is { } golem)
         {
             bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,

@@ -81,6 +81,10 @@ public static class MonsterShots
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
             if (mortar.ClientDraws) return mortar;
+            // Where the server draws a spell mortar, its object lands as the client would place it: a nova in a ring, a
+            // cone across its angle (the shared emitter's layouts), each at its landing distance (ProjectileHostile).
+            if (Get("projectiles_nova") != 0) mortar = mortar with { SpreadRadians = 2 * Math.PI };
+            else if (Get("mortar_cone_angle") is > 0 and var cone) mortar = mortar with { SpreadRadians = cone * Math.PI / 180 };
             return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar row not named" };
         }
 
@@ -306,8 +310,16 @@ public static class MonsterShots
                     : "Metadata/Projectiles/WandProjectile";
                 break;
             case "shaper_projectile":
-                // Its own accelerating mover (0x1419f3620) from a row speed of 5: untraced, so no flight to simulate.
-                return null;
+                // Art slot 0 (ShaperProjectile, speed 5); its mover (0x1419f6030, frame hook 0x1419f6180) speeds it up by
+                // 50 cells/s² from the row's speed (AcceleratingLegs). Every one carries always_pierce.
+                id = Game.Art.SkillProjectile(effect, 0, Get);
+                recipe = "Accelerating";
+                break;
+            case "inca_minion_projectile":
+                // 0x141a0ba30 (+0x508): IncaBossMinionProjectile at skill_art_variation 1, else IncaMinionProjectile; a
+                // plain straight spell shot (its ActiveSkill lacks the Projectile type, so the default below would drop it).
+                id = Row(artVariation, "IncaMinionProjectile", (1, "IncaBossMinionProjectile"));
+                break;
             default:
                 // Only a projectile skill (ActiveSkillTypes Projectile) fires one: a beam or a slam with art of its own does not.
                 if (!catalog.IsProjectile(effect)) return null;
@@ -327,6 +339,8 @@ public static class MonsterShots
             // A spiral fires its projectiles one by one over projectile_spiral_nova_time_ms, which the shot's one
             // volley does not.
             else if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
+            // The count getter (0x141ba61c0) splits the volley over the clip's contacts; the server releases it at one.
+            else if (Get("distribute_projectiles_over_contact_points") != 0) reason = "projectiles over contact points";
             else if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
             else if (Get("projectile_ballistic_angle_from_reference_event") != 0 || Get("projectile_ballistic_angle_from_target_distance") != 0)
                 reason = "ballistic arc";
@@ -340,7 +354,7 @@ public static class MonsterShots
             AnimationKey = animation ?? catalog.EffectAnimationKey(effect),
             ClientDraws = reason is null, ServerReason = reason, Arrows = arrows, Target = target,
             AimTranslates = aimTranslates, SkillStats = stats, EndsAtTarget = catalog.ProjectileEndsAtTarget(id), Recipe = recipe,
-            AimOffset = aimOffset, PiercesAll = PierceAllFamilies.Contains(family),
+            AimOffset = aimOffset, PiercesAll = PierceAllFamilies.Contains(family) || Get("always_pierce") != 0,
         };
         // A spark with skill_behaviour_variation 2 fires one (0x141b363a0).
         if (family == "spark" && catalog.BehaviourVariation(effect) == 2) return shot with { Count = 1 };
@@ -353,8 +367,8 @@ public static class MonsterShots
     /// carries), so the client draws it from its count as it does the Sand Spitter's. Its mover (0x141a10d50) moves the
     /// launch <c>__col9</c> cells toward the target, pushes the landing out to the minimum range (plus <c>__col9</c>) from
     /// the actor, rescales it to <c>mortar_projectile_distance_override</c> from the launch, scatters it like the attack
-    /// form, and lands it a fixed time after the release: the rig's contact event (666 ms on every mortar rig) over a speed
-    /// multiplier, at any distance; with
+    /// form, and lands it a fixed time after the release: its flight clip's contact (666 ms on most mortar rigs, from 166 ms
+    /// to over a second on the rest) over a speed multiplier, at any distance; with
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c> it flies at its row's speed instead. A
     /// <c>__col5</c> row fires one. What the server does not reproduce keeps its object (a reason): forks, chains, a
     /// ground effect or a bounce on landing, and what the shared emitter (0x141bb13a0) does with the landings the
@@ -375,9 +389,15 @@ public static class MonsterShots
             : get("projectile_swap_from_to_locations") != 0 ? "swapped ends"
             : get("projectile_uses_contact_direction") != 0 ? "projectile_uses_contact_direction"
             : get("projectile_maximum_range_override") != 0 ? "capped range"
+            : get("projectiles_barrage") != 0 || get("support_parallel_projectile_number_of_points_per_side") != 0 ? "barrage or parallel volley"
+            : get("distribute_projectiles_over_contact_points") != 0 ? "projectiles over contact points"
             : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
-        if (reason is not null) return mortar with { ServerReason = reason };
+        // Its fixed flight is its rig's flight clip's contact (projectile-clips): without that clip the server cannot
+        // time it (the Sanctum candles' views, an undefined clip).
         bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
+        int? contact = catalog.Clips(mortar.Metadata)?.Flight?.Contact;
+        if (reason is null && !scaled && contact is not > 0) reason = "spell mortar flight clip not known";
+        if (reason is not null) return mortar with { ServerReason = reason };
         int speedPercent = columns.Speed + get("monster_mortar_additional_speed_+%")
             + (columns.SpeedModifier ? get("projectile_speed_+%") + get("base_projectile_speed_+%") : 0);
         int count = columns.Single ? 1 : mortar.Count;
@@ -387,15 +407,15 @@ public static class MonsterShots
             Count = count, StartOffset = columns.StartOffset,
             // 0x141bab4e0: the spread grows by its per-projectile part for every projectile past the first.
             SpreadRadius = mortar.SpreadRadius + (count - 1) * get("projectile_spread_radius_per_additional_projectile"),
-            FixedFlight = !scaled,
+            FixedFlight = !scaled, ContactSeconds = (contact ?? 666) / 1000.0,
             MortarSpeed = (speedPercent, columns.SpeedVariation),
         };
     }
 
-    /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: the contact event, 666 ms, over the multiplier
+    /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: its flight clip's contact over the multiplier
     /// max(0.01, 1 + (fixed + variation × (draw − 1)) / 100), with the draw in [0, 2] the action's first).</summary>
     public static double MortarFlightSeconds(SkillCatalog.MonsterProjectileInfo shot, float draw) =>
-        0.666 / Math.Max(0.01, 1 + (shot.MortarSpeed.Fixed + shot.MortarSpeed.Variation * (draw - 1)) / 100.0);
+        shot.ContactSeconds / Math.Max(0.01, 1 + (shot.MortarSpeed.Fixed + shot.MortarSpeed.Variation * (draw - 1)) / 100.0);
 
     /// <summary>How many projectiles one release fires: <c>number_of_projectiles_override</c> when set, else the shared
     /// count (GatewayProjectileDefaults: the base and every additional projectile, a bow's additional arrows), plus Split
@@ -476,18 +496,13 @@ public static class MonsterShots
                     Math.Max(0, 1 + Get("ice_spear_second_form_damage_+%") / 100.0)),
             };
         }
-        if (shot.Recipe == "CreepingFrost")
-            // Its burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius (15) by
-            // the radius percentage the record carries. It meets the player as a Fireball does: the contact ends it and
-            // the burst is the one hit (the burst passes over the actor the contact hit); the chilled ground it leaves
-            // is not modelled.
-            profile = profile with
-            {
-                EndArea = new ProjectileAreaRecipe("creeping frost",
-                    Math.Max(1, Get("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : 15)
-                        * Math.Max(0, 1 + Get(AreaPercent) / 100.0)),
-                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance },
-            };
+        if (shot.Recipe == "CreepingFrost") profile = CreepingFrostBurst(profile, Get);
+        if (shot.Recipe == "Accelerating")
+        {
+            // From the row's speed it gains 50 cells/s every second (0x1419f6180: s = v0·t + 25·t²) to its range.
+            double range = profile.Range;
+            profile = profile with { Legs = _ => new AcceleratingLegs(speed, 50, range), LegLeash = range };
+        }
         if (shot.Recipe == "Spark")
         {
             // The client's wander (0x141b35a10 seeds [sequence, 2 + index, repeats, owner]): life from the record's
@@ -505,6 +520,19 @@ public static class MonsterShots
         }
         return profile;
     }
+
+    // A creeping frost's burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius
+    // (15) by the radius percentage the record carries. It meets the player as a Fireball does: the contact ends it and
+    // the burst is the one hit (the burst passes over the actor the contact hit); the chilled ground it leaves is not
+    // modelled.
+    static ProjectileProfile CreepingFrostBurst(ProjectileProfile profile, Func<string, int> get) => profile with
+    {
+        DirectDamage = true,
+        EndArea = new ProjectileAreaRecipe("creeping frost",
+            Math.Max(1, get("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : 15)
+                * Math.Max(0, 1 + get(AreaPercent) / 100.0)),
+        EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance },
+    };
 
     /// <summary>The server's flight of a shot it draws itself by a player skill's recipe (Rolling Magma's bouncing lob
     /// and its landing explosions, Spectral Throw's piercing throw that comes back), at the shot's speed and count; the
@@ -529,6 +557,7 @@ public static class MonsterShots
                     (14 + Get("active_skill_base_radius_+")) * Math.Max(0, 1 + Get(AreaPercent) / 100.0)),
             };
         }
+        if (shot.Recipe == "CreepingFrost") return CreepingFrostBurst(profile, Get);
         if (shot.Recipe == "SpectralThrow")
             return profile with
             {

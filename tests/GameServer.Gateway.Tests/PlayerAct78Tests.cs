@@ -61,12 +61,16 @@ public sealed class PlayerAct78Tests
             var arrow = Shot("Metadata/Monsters/Skeletons/SkeletonBow", "MeleeAtAnimationSpeed")!;
             Assert.Equal(("Metadata/Projectiles/DefaultArrow", true), (arrow.Metadata, arrow.Arrows));
             // The issue's bosses: the Lieutenant's six arrows fly; the Elder's volley is the server's (its contact
-            // direction is not reproduced); the Shaper's accelerating mover is not traced, so it keeps its contact.
+            // direction is not reproduced); the Shaper's speeds up as the client's mover does, through every target.
             var split = Shot("", "LieutenantSplitArrow")!;
             Assert.Equal(("Metadata/Projectiles/SplitArrowDefault", 6, true), (split.Metadata, split.Count, split.ClientDraws));
             var elder = Shot("", "ElderProjectileSpellcast1")!;
             Assert.Equal(("Metadata/Projectiles/ElderProjectileLarge", 3, false), (elder.Metadata, elder.Count, elder.ClientDraws));
-            Assert.Null(Shot("", "AtlasBossAcceleratingProjectiles"));
+            var shaper = Shot("", "AtlasBossAcceleratingProjectiles")!;
+            var shaperFlight = MonsterShots.ClientDrawnProfile(conn, shaper, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal(("Metadata/Projectiles/ShaperProjectile", true, -1), (shaper.Metadata, shaper.ClientDraws, shaperFlight.Pierce));
+            Assert.Equal(0.46 * .05 + 25 * .05 * .05, shaperFlight.Legs!(0).First(new(0, 0), new(30, 0)).Target.X, 3);
+            Assert.Equal("Metadata/Projectiles/IncaBossMinionProjectile", Shot("", "IncursionIncaMinionProjectile")!.Metadata);
             // Actions that name their row in code: an archer known by its bow class, a siphon by its art, a throw that comes
             // back by the player's recipe, a bouncing magma orb, a fixed lightning mortar ring.
             Assert.Equal(("Metadata/Projectiles/DefaultArrow", true),
@@ -78,10 +82,12 @@ public sealed class PlayerAct78Tests
                 (Shot("", "MotherOfFlamesMagmaOrb")!.Metadata, Shot("", "MotherOfFlamesMagmaOrb")!.Lobbed, Shot("", "MotherOfFlamesMagmaOrb")!.Recipe));
             Assert.Equal("Metadata/Projectiles/MortarLightning", Shot("", "EssenceWrathMortarProjectile")!.Metadata);
             // A spell mortar is the client's as the attack form is (its SkillID's MonsterMortar row on the record), and
-            // lands a fixed 0.666 s after its release at any distance.
+            // lands a fixed time after its release at any distance: its flight clip's contact (the Tide Strider's 496 ms),
+            // else the clip's length (Arakaali's 400 ms clip has none).
             var spellMortar = Shot("", "ArakaaliMortarProjectile")!;
             Assert.Equal((true, 10, true), (spellMortar.ClientDraws, spellMortar.Variation, spellMortar.FixedFlight));
-            Assert.Equal(0.666, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
+            Assert.Equal(0.4, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
+            Assert.Equal(0.496, MonsterShots.MortarFlightSeconds(Shot("", "WaterElementalMortar")!, 1), 3);
             // ... but a nova of them is the server's: the client rings what the server lands at one aim.
             Assert.Equal((false, "spell mortar nova"), (Shot("", "DoedreBloodProjectileNova1")!.ClientDraws, Shot("", "DoedreBloodProjectileNova1")!.ServerReason));
             // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record; a totem's

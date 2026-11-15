@@ -4,15 +4,18 @@
 # may declare a default_animation the object plays by itself. A server object of a projectile type plays nothing
 # otherwise (the client's Projectile component is inert for it, 11-skills.md): the wand bolt's .ao has
 # default_animation = projectile_01 and flies visibly, the Sand Spitter mortar's has none, so without a 0x1b2 for its
-# "proj" clip the object was invisible (live 2026-10-29). Files come from the GGPK through scripts/re/ggdump
-# (ot_components.fetch, cached under Tools/re/out). Writes data/projectile-clips.json {Projectiles Id: entry}.
+# "proj" clip the object was invisible (live 2026-10-29). The flight clip's "contact" also times a spell mortar: the
+# client lands it that long after its release over its speed multiplier (mover 0x141a10d50); a clip without one ends at
+# its length (the client's second lookup, hash 0, finds the record that ends every clip). Files come from the GGPK
+# through scripts/re/ggdump (ot_components.fetch, cached under Tools/re/out). Writes data/projectile-clips.json
+# {Projectiles Id: entry}.
 import json
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_animations, amd_map, extends_of, fetch, read_text  # noqa: E402
+from ot_components import REPO, amd_map, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 import clientdb  # noqa: E402  (on the path through ot_components)
 
 DEFAULT = re.compile(r'default_animation\s*=\s*"([^"]+)"')
@@ -67,13 +70,16 @@ def main():
 
     rigs = {}
 
-    def rig(amd):
-        if amd not in rigs:
+    def rig(amd, ao):
+        # The rig's clips with the events the client ends up with for this .ao (rig_clips: the .ao chain may add or drop them).
+        if (amd, ao) not in rigs:
             anims = {}
-            for i, a in enumerate(amd_animations(amd, fetch_missing=False) or []):
-                anims.setdefault(a["name"], {"index": i, "ms": a["length"], "once": a["once"]})   # a repeated name: the first
-            rigs[amd] = anims
-        return rigs[amd]
+            for i, a in enumerate(rig_clips(amd, ao, fetch_missing=False) or []):
+                contact = first_contact(a["events"])
+                anims.setdefault(a["name"], {"index": i, "ms": a["length"], "once": a["once"],    # a repeated name: the first
+                                             "contact": contact[0] if contact else a["length"]})
+            rigs[(amd, ao)] = anims
+        return rigs[(amd, ao)]
 
     out = {}
     for row in rows:
@@ -81,7 +87,7 @@ def main():
             continue
         ao = row["AOFiles"][0]
         amd = amds.get(ao)
-        anims = rig(amd) if amd else {}
+        anims = rig(amd, ao) if amd else {}
         entry = {"ao": ao}
         if amd:
             entry["amd"] = amd
@@ -90,7 +96,10 @@ def main():
         for key, ids in (("flight", row.get("LoopAnimationIds")), ("impact", row.get("ImpactAnimationIds"))):
             name = (ids or [None])[0]
             if name and name in anims:
-                entry[key] = {"name": name, **anims[name]}
+                clip = dict(anims[name])
+                if key != "flight":
+                    clip.pop("contact")
+                entry[key] = {"name": name, **clip}
         if len(entry) > 1:
             out[row["Id"]] = entry
     with open(dest + ".tmp", "w", encoding="utf-8") as f:

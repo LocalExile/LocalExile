@@ -62,7 +62,7 @@ public static class GameDataFiles
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
         ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("monster_contacts", "monster projectile release timing/points and boss stage contacts"),
-        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
+        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time (projectile-clips v3)"),
         ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
         ("client_constants", "the Gateway does not start without its HNC mask"),
         ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
