@@ -95,7 +95,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live player and waypoint records used the same saved cell.
 
 - Hideout editing moves and rotates installed furniture, the waypoint and NPCs through native C→S 0x5b.
-  Placements persist per character/template; runtime interactions and path blockers follow the moved objects.
+  Selection, placements and Monster Statues persist per account/template; legacy homes migrate from the first
+  character with a selected hideout (an explicit migration source can be configured). Cross-character client verification pending.
+  Runtime interactions and path blockers follow the moved objects.
   Every template of the selected hideout is editable: one without a captured walk map leaves cell checks to the client.
   Furniture moves send 0x161 to rebuild native hideout model collision without changing object ids.
   Server blockers are registered again at saved positions on entry.
