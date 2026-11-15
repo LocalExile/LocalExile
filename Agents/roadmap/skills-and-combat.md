@@ -172,12 +172,14 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster shots (`MonsterShots`): the Shaper's accelerating mover (0x1419f3620) and creeping frost's art slot by
-    behaviour variation resolve no row yet. Shots whose mover or columns the server does not model fly as its objects
-    (`ServerReason`: the spell mortar's fixed 0.666 s flight, spark, ice spear, the weapon jitter variations, seeded
-    knife, spray and flame jitter, thrown weapons' deceleration, `projectile_uses_contact_direction` such as the
-    Elder's volley); port them to hand them to the client. The golem's arc, siege totems and clone retaliation are no
-    projectile and still hit at the contact. A shot at a golem aims at its cell at release, not the order's.
+  - Monster shots (`MonsterShots`): the Shaper's accelerating mover (0x1419f3620) resolves no row yet. Shots whose
+    mover the server does not model fly as its objects (`ServerReason`): the per-projectile seeded jitter of weapon
+    variations 4/8/24/26/29, knives, sprays, flames and barrages (the seed's derived byte, taken as 2 + index, needs a
+    live check), thrown weapons' deceleration and spirals, ball lightning's pulses, spell mortar forks and chains,
+    `projectile_uses_contact_direction` (the Elder's volley). Check live that a monster's spark draws from the record
+    and seeds from the 0x1ab sequence, the spell mortar's 0.666 s landing and its radius, and creeping frost's burst.
+    The golem's arc, siege totems and clone retaliation are no projectile and still hit at the contact. A shot at a
+    golem aims at its cell at release, not the order's.
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and
