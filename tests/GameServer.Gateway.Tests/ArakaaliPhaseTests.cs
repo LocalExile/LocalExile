@@ -59,6 +59,10 @@ public sealed class ArakaaliPhaseTests
         Assert.Equal(2, c.Instance.World.MonsterOrigins[restored].Object.ActorStance);
         Assert.Equal(0u, recovered.LifePhases.Damage(recovered.Life, recovered.MaxLife, int.MaxValue));
         Assert.Null(Arakaali.Phases(new(new(1, "other", 10, 10, 1, 1, null, []), 1, 1), v));
+        var outsideCampaign = new SpawnedMonster("Arakaali outside campaign", new(1, 1, 20), 55, 8, 1000)
+            { Variety = v };
+        Assert.True(Arakaali.Allowed(outsideCampaign, 4259));
+        Assert.True(Arakaali.Allowed(outsideCampaign, 6555));
         var plain = c.Instance.World.MonsterOrigins[restored].Object with { ActorStance = 0 };
         Assert.Single(plain.Blob().Zip((plain with { ActorStance = 2 }).Blob()), pair => pair.First != pair.Second);
     }

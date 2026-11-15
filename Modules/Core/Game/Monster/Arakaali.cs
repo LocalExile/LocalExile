@@ -23,7 +23,7 @@ public static class Arakaali
     }
     public static bool Allowed(SpawnedMonster m, int effect)
     {
-        if (!IsBoss(m.Variety)) return true;
+        if (!IsBoss(m.Variety) || m.LifePhases is null) return true;
         bool second = m.LifePhases?.Completed > 0;
         return effect switch
         {
