@@ -18,6 +18,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   a reference capture ([status](../status/monsters.md#partly-working)).
   Act 10 has three heart intervals and the allied finale; calibrate HP thresholds, AI weights and hazard geometry.
   Act 5 Kitava has the body/heart and rescue sequence; calibrate phase thresholds and AI weights against a reference.
+  Arakaali has the Silk/stance transition; arena corner travel, turret patterns and exact phase calibration remain.
   Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.

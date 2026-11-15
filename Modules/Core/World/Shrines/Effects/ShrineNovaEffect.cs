@@ -196,12 +196,17 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
         if (standing)
             foreach (var player in ShrineManager.NearbyPlayers(conn, (0, 0), double.MaxValue))
             {
-                if (!grounds.Any(g => Dist(g.At, player.Walk.Position(now)) <= g.Radius)) continue;
+                // Each player's ailments and walk run on that player's own clock.
+                double at = player.Clock.Elapsed.TotalSeconds;
+                if (!grounds.Any(g => Dist(g.At, player.Walk.Position(at)) <= g.Radius)) continue;
                 var stats = CharacterPlayerStats(player);
                 var playerKind = cold ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;
-                if (player.ElementalAilments.Magnitude(playerKind, now) >= magnitude) continue;
-                player.ElementalAilments.Inflict(playerKind, magnitude, .3, now,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, player.IncomingHitRandom);
+                lock (player.Monsters)
+                {
+                    if (player.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;
+                    ApplyPlayerAilmentsLocked(player, at, ailments => ailments.Inflict(playerKind, magnitude, .3, at,
+                        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, player.IncomingHitRandom));
+                }
             }
     }
 

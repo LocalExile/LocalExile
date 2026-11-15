@@ -725,7 +725,8 @@ public static partial class Game
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
                         var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
-                        if (!dormant && m.Variety is { } v && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
+                        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+                            && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
                             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
@@ -734,7 +735,7 @@ public static partial class Game
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life);
+                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
                         continue;
                     }
@@ -753,7 +754,7 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = new(at, to, life);
+                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }

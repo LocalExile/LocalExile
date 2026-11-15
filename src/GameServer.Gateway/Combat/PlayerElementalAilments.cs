@@ -8,6 +8,10 @@ public sealed class PlayerElementalAilments
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     public const double MonsterCriticalAilmentMultiplier = 1.3;
     public enum Kind { Ignite, Chill, Freeze, Shock }
+    /// <summary>The source skill's native ailment stats. Critical strikes and native chances share one application
+    /// per kind, so the defender's avoidance is rolled once even when both would inflict the same ailment.</summary>
+    public readonly record struct HitSettings(int IgniteChance, int FreezeChance, int ShockChance,
+        int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct);
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
@@ -85,26 +89,34 @@ public sealed class PlayerElementalAilments
     // Damaging ailments use the pre-critical base, not damage taken. Non-damaging ailments use damage dealt
     // against the ordinary player's maximum-Life threshold. No enemy chance-to-ailment modifiers are invented.
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, uint? source = null)
+        Func<string, int> get, Random random, uint? source = null) =>
+        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source);
+
+    public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
+        Func<string, int> get, Random random, HitSettings settings, uint? source = null)
     {
         lock (effects)
         {
             Reconcile(get);
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude, seconds, now, get, random, source);
-            if (critical) Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * MonsterCriticalAilmentMultiplier, 4);
+            if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
+                Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
+                    * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
             if (maxLife == 0) return;
             double cold = taken[DamageType.Cold].Min / maxLife;
             double lightning = taken[DamageType.Lightning].Min / maxLife;
             // Changing Seasons (all_damage_taken_can_chill): every type of the hit's damage counts toward its chill.
             double chilling = get("all_damage_taken_can_chill") != 0 ? taken.MinTotal / maxLife : cold;
             double chill = Math.Min(30, Math.Floor(50 * Math.Pow(chilling, .4)
-                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)));
+                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)
+                * Math.Max(0, 1 + settings.ChillEffectFinalPct / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
-            if (!critical) return;
-            Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
+            if (critical || RandomRolls.Chance(settings.FreezeChance, 100, random))
+                Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
                 * Math.Max(0, 1 + EffectOnSelfPct(Kind.Shock, get) / 100.0)));
-            if (shock >= 5) Add(Kind.Shock, shock, 2);
+            if (shock >= 5 && (critical || RandomRolls.Chance(settings.ShockChance, 100, random)))
+                Add(Kind.Shock, shock, 2 * Math.Max(0, 1 + settings.ShockDurationFinalPct / 100.0));
         }
     }
 

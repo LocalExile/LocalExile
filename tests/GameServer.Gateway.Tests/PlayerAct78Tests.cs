@@ -92,6 +92,14 @@ public sealed class PlayerAct78Tests
             Assert.Equal((true, -1, 20.199), (spear.ClientDraws, spearFlight.Pierce, spearFlight.FormChange!.Distance));
             var frost = Shot("", "WaterElementalArcticBreath")!;
             Assert.Equal((true, false), (frost.ClientDraws, MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40).DirectDamage));
+            // A simulated mortar's record keeps its own publication and gains the effect's native art.
+            var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
+                { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)
+                    { Count = 3, Variation = 183 } };
+            var final = Game.MonsterActionSkillStats(conn, 35, 58, mortar);
+            uint artKey = Program.Stats.Key("skill_art_variation")!.Value;
+            Assert.Equal(Game.MonsterProjectileSkillStats(conn, 35, 58, mortar), final.Where(s => s.Item1 != artKey));
+            Assert.Equal(21, Assert.Single(final, s => s.Item1 == artKey).Item2);
         });
     }
 
