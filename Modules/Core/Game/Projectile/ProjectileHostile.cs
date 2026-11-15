@@ -14,9 +14,9 @@ public static partial class Game
 
     /// <summary>The use for a monster's ranged attack released now. A shot the client draws (its record carries the
     /// count, MonsterShots.CountStats; the release 0x141ba7c30 fires nothing without one) keeps the order's aim and flies
-    /// hidden: a mortar attack to its scattered landing cells, any other straight shot by the client's own range,
-    /// contact and volley (MonsterShots.ClientDrawnProfile). Any other shot, a spell mortar's included, carries no count,
-    /// targets the player's cell at release, and the server's object is the projectile the player sees. A lobbed shot
+    /// hidden: a mortar to its scattered landing cells, any other straight shot by the client's own range, contact and
+    /// volley (MonsterShots.ClientDrawnProfile). Any other shot carries no count, targets the player's cell at release,
+    /// and the server's object is the projectile the player sees. A lobbed shot
     /// lands and damages the area there; a straight shot flies on past its aim. Team 2, so only the player (and friendly
     /// actors) are in its way, never the other monsters.</summary>
     public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
@@ -47,8 +47,6 @@ public static partial class Game
         ProjectileVector[]? nativeTargets = null;
         double[]? nativeSpeeds = null;
         bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
-        // A spell mortar's launch moves toward its target first (MonsterMortar __col9).
-        if (mortar && projectile.StartOffset != 0) origin += toward * Math.Min(projectile.StartOffset, distance);
         if (projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))
         {
             // The contact offset is rotated with the facing model, then quantized to Positioned cells.
@@ -56,15 +54,26 @@ public static partial class Game
             double lateral = release?.Point is { } contact ? contact.X / WorldUnits.PerCell * (release.FacesAway ? 1 : -1) : 0;
             origin += new ProjectileVector(toward.Y, -toward.X) * lateral;
             origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
-            var translated = aim + origin - from;
             // A table column moves the aim on along the shot (aim + N × unit(aim − release), rounded half up).
             if (!mortar && projectile.AimOffset != 0 && (aim - origin).Length > 0)
             {
                 var moved = aim + (aim - origin).Unit * projectile.AimOffset;
                 aim = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
             }
+            var translated = aim + origin - from;
             if (mortar)
             {
+                // A spell mortar's aim moves with the release only by the stat that says so; its launch then moves
+                // __col9 cells toward the target, which stays where it was (0x141a10d50).
+                if (projectile.Lobbed)
+                {
+                    if (!projectile.AimTranslates) translated = aim;
+                    if (projectile.StartOffset != 0)
+                    {
+                        origin += toward * Math.Min(projectile.StartOffset, distance);
+                        origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
+                    }
+                }
                 // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
                 int minimum = projectile.MinimumRange != 0 ? projectile.MinimumRange + projectile.StartOffset : 0;
                 var draws = new float[projectile.Count];
@@ -79,6 +88,7 @@ public static partial class Game
         // Retain the legacy landing model for server-created lobbed skills. Native straight mortar attacks use
         // their cell-based minimum range and scattered destinations above, not this untraced lob model.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
+        if (projectile.Recipe == "RollingMagma") landing = Math.Max(0.5, MonsterShots.MagmaLanding(projectile, landing + ahead) - ahead);
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
         // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
@@ -101,7 +111,7 @@ public static partial class Game
             + $"{(release is null ? "" : $", clip {release.Clip} at {release.Fraction:0.000} of the attack{(release.FacesAway ? ", facing away" : "")}")})"
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
-            { ProjectileTargets = nativeTargets, ProjectileSpeeds = nativeSpeeds,
+            { ProjectileTargets = nativeTargets, ProjectileSpeeds = nativeSpeeds, ReturnAnchor = profile.Returns ? owner : null,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
                     { Presentation = presentation, Sequence = sequence } };
     }
@@ -117,7 +127,7 @@ public static partial class Game
         SpreadRadians = projectile.SpreadRadians,
         Range = projectile.Lobbed ? landing : straightRange,
         DirectDamage = !projectile.Lobbed,
-        EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", projectile.AreaRadius > 0 ? projectile.AreaRadius : MonsterMortarRadius()) : null,
+        EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", MonsterShots.AreaRadius(projectile, MonsterMortarRadius())) : null,
         EndAreaReasons = projectile.Lobbed
             ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         HideVisual = projectile.ClientDraws,

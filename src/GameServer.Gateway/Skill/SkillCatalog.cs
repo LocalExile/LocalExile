@@ -922,7 +922,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public string? AnimationKey { get; init; }
         /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
-        /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
+        /// forms (<c>monster_mortar</c>, whose row MonsterShots sets where the client draws it) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b6c630; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
@@ -1189,8 +1189,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 || !mortarRows.TryGetValue(k, out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            // Only the attack form's action (0x141b6c390) is traced and checked live drawing its own; the spell forms
-            // (monster_mortar, monster_mortar_around_caster) keep the server's object.
+            // The attack form's action (0x141b6c390) is traced and checked live drawing its own. A spell form starts as
+            // the server's object here: the Game module's MonsterShots hands a monster_mortar to the client where it
+            // reproduces its landing.
             result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
             {
                 AnimationKey = mortar.AnimationKey, Variation = attackForm ? k : 0,

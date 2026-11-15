@@ -82,16 +82,24 @@ public sealed class PlayerAct78Tests
             var spellMortar = Shot("", "ArakaaliMortarProjectile")!;
             Assert.Equal((true, 10, true), (spellMortar.ClientDraws, spellMortar.Variation, spellMortar.FixedFlight));
             Assert.Equal(0.666, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
-            // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record.
-            var spark = Shot("", "BossSparkTotem")!;
+            // ... but a nova of them is the server's: the client rings what the server lands at one aim.
+            Assert.Equal((false, "spell mortar nova"), (Shot("", "DoedreBloodProjectileNova1")!.ClientDraws, Shot("", "DoedreBloodProjectileNova1")!.ServerReason));
+            // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record; a totem's
+            // spark is the server's, which places no totem.
+            var spark = Shot("", "MonsterSpark")!;
             Assert.Equal(("Metadata/Projectiles/Spark", true, "Spark"), (spark.Metadata, spark.ClientDraws, spark.Recipe));
             Assert.Contains(MonsterShots.CountStats(spark), s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 > 0);
-            // An ice spear changes form 20.199 cells out; creeping frost bursts where it ends.
+            Assert.Equal((false, "totem, trap or mine form"), (Shot("", "BossSparkTotem")!.ClientDraws, Shot("", "BossSparkTotem")!.ServerReason));
+            // An ice spear changes form 20.199 cells out, its second form stronger; a spiral of them is the server's.
             var spear = Shot("", "MountainGoatmanIceSpear")!;
             var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);
-            Assert.Equal((true, -1, 20.199), (spear.ClientDraws, spearFlight.Pierce, spearFlight.FormChange!.Distance));
-            var frost = Shot("", "WaterElementalArcticBreath")!;
-            Assert.Equal((true, false), (frost.ClientDraws, MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40).DirectDamage));
+            Assert.Equal((true, -1, 20.199, 1.25), (spear.ClientDraws, spearFlight.Pierce, spearFlight.FormChange!.Distance, spearFlight.FormChange.DamageMultiplier));
+            Assert.Equal("spiral nova", Shot("", "BeyondDemonIceSpearSpiral")!.ServerReason);
+            // Creeping frost meets the player and bursts there, at the radius its record gives the client (Hailrake's +100%).
+            var frost = Shot("", "HailrakeArcticBreath")!;
+            var frostFlight = MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal((true, true, 30.0), (frost.ClientDraws, frostFlight.DirectDamage, frostFlight.EndArea!.Radius));
+            Assert.Contains(MonsterShots.CountStats(frost), s => Program.Stats.Name(s.Item1) == "total_skill_area_of_effect_radius_+%_including_final" && s.Item2 == 100);
             // A simulated mortar's record keeps its own publication and gains the effect's native art.
             var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
                 { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)

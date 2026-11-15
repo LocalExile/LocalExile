@@ -63,6 +63,11 @@ public static class MonsterShots
         if (catalog.BehaviourVariation(effect) is > 0 and var behaviour && !stats.ContainsKey(StatKeys.SkillBehaviourVariation))
             stats[StatKeys.SkillBehaviourVariation] = behaviour;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // The radius percentage an area of the shot is sized by (0x1591, which the client derives for no network stat):
+        // the skill's own area stats and the monster's (Essence breaths -60% and -80%, the Hailrake's +100%).
+        if (SkillArea.RadiusPercent(Get, spell: !catalog.IsAttack(effect)) is not 0 and var areaPercent
+            && Stats.Key(AreaPercent) is uint areaKey)
+            stats[areaKey] = areaPercent;
         bool aimTranslates = Get("maintain_projectile_direction_when_using_contact_position") != 0;
 
         if (catalog.MonsterProjectile(effect) is { } mortar)
@@ -76,7 +81,7 @@ public static class MonsterShots
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
             if (mortar.ClientDraws) return mortar;
-            return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar forks, chains or ground" };
+            return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar row not named" };
         }
 
         string? family = catalog.ActiveSkillId(effect);
@@ -114,13 +119,11 @@ public static class MonsterShots
                     id = Game.Art.SkillProjectile(effect, volley > 5 && frostBehaviour != 0 ? 2 : frostBehaviour, Get);
                     recipe = "CreepingFrost";
                     if (frostBehaviour != 0) reason = "creeping frost arc";
-                    else if (Get("is_trap") != 0) reason = "trap";
                 }
                 break;
             case "frost_bolt":
                 id = Game.Art.SkillProjectile(effect, 0, Get);
                 if (Get("frostbolt_projectile_acceleration") != 0) reason = "frost bolt acceleration";
-                else if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
                 break;
             case "atziri_spear_throw": id = Row(0, "AtziriSpear"); break;                             // 0x141376e30
             case "stormflay_lightning_strike": id = Row(0, "StormflayLightningSlash"); break;         // 0x141c65aa0
@@ -134,7 +137,6 @@ public static class MonsterShots
             case "essence_drain":                                                                       // 0x141b32820
                 id = Row(artVariation, "Siphon", (1, "RigwaldSiphon"), (2, "SiphonMicrotransaction1"), (3, "PaleKingSiphon"),
                     (4, "CelestialSiphon"), (5, "ScientistSiphon"), (6, "ProjectSiphon"), (7, "SunprismSiphon"));
-                if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
                 break;
             case "insect_spawner_spit":                                                                 // 0x141332700
                 id = Row(artVariation, "InsectSpawnerSpit", (1, "InsectSpawnerSpitParasiteBoss"));
@@ -319,7 +321,13 @@ public static class MonsterShots
         if (lobbed) target = SkillCatalog.MonsterShotTarget.AtRelease;
         if (reason is null)
         {
-            if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
+            // A totem's or a trap's form places the totem or throws the trap, which then fires (SpellTotems: is_totem
+            // describes the placement); the server places neither, so its object flies from the monster.
+            if (Get("is_totem") != 0 || Get("is_trap") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
+            // A spiral fires its projectiles one by one over projectile_spiral_nova_time_ms, which the shot's one
+            // volley does not.
+            else if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
+            else if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
             else if (Get("projectile_ballistic_angle_from_reference_event") != 0 || Get("projectile_ballistic_angle_from_target_distance") != 0)
                 reason = "ballistic arc";
             // projectile_minimum_range moves no straight shot in these classes; only a mortar's landing.
@@ -348,15 +356,27 @@ public static class MonsterShots
     /// form, and lands it a fixed time after the release: the rig's contact event (666 ms on every mortar rig) over a speed
     /// multiplier, at any distance; with
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c> it flies at its row's speed instead. A
-    /// <c>__col5</c> row fires one. Forks, chains and a ground effect on landing are not modelled: null keeps the server's
-    /// object (around_caster is its own action, MonsterShots' switch).
+    /// <c>__col5</c> row fires one. What the server does not reproduce keeps its object (a reason): forks, chains, a
+    /// ground effect or a bounce on landing, and what the shared emitter (0x141bb13a0) does with the landings the
+    /// server puts at one aim: a nova's ring (0x141bb33f0 reads projectiles_nova, 0x141bb9500 turns each target), a
+    /// cone, swapped ends, the contact direction and a capped range. Null for no row (around_caster is its own action,
+    /// MonsterShots' switch).
     /// </summary>
     static SkillCatalog.MonsterProjectileInfo? SpellMortar(SkillCatalog catalog, int effect, SkillCatalog.MonsterProjectileInfo mortar,
         Func<string, int> get)
     {
         if (catalog.ActiveSkillId(effect) != "monster_mortar" || catalog.BehaviourVariation(effect) is not (> 0 and var row)
             || catalog.MonsterMortarColumns(row) is not { } columns) return null;
-        if (get("monster_mortar_number_of_forks") != 0 || get("number_of_chains") != 0 || columns.Ground || columns.BounceScale) return null;
+        string? reason = get("monster_mortar_number_of_forks") != 0 ? "spell mortar forks"
+            : get("number_of_chains") != 0 ? "spell mortar chains"
+            : columns.Ground || columns.BounceScale ? "spell mortar ground effect or bounce"
+            : get("projectiles_nova") != 0 ? "spell mortar nova"
+            : get("mortar_cone_angle") != 0 ? "spell mortar cone"
+            : get("projectile_swap_from_to_locations") != 0 ? "swapped ends"
+            : get("projectile_uses_contact_direction") != 0 ? "projectile_uses_contact_direction"
+            : get("projectile_maximum_range_override") != 0 ? "capped range"
+            : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
+        if (reason is not null) return mortar with { ServerReason = reason };
         bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
         int speedPercent = columns.Speed + get("monster_mortar_additional_speed_+%")
             + (columns.SpeedModifier ? get("projectile_speed_+%") + get("base_projectile_speed_+%") : 0);
@@ -395,19 +415,32 @@ public static class MonsterShots
     {
         if (shot is not { ClientDraws: true }) return [];
         int n = Math.Max(1, shot.Count);
-        // A spark's life is the record's skill_effect_duration (a virtual stat the client derives nothing for: without it
-        // a spark dies on its first tick).
-        if (shot.Recipe == "Spark" && Stat(shot, "base_skill_effect_duration") is > 0 and var life && Stats.Key("skill_effect_duration") is uint lifeKey)
-            return [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
-                (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n), (lifeKey, life)];
         // A mortar attack's record as GGG's Spitter's; any other shot with the four totals PR 983 checked live (the
         // Flame Sentinel's fireball fan), the arrow ones read only by a bow's arrows.
-        return shot.Variation > 0
+        List<(uint, int)> stats = shot.Variation > 0
             ? [(StatKeys.SkillBehaviourVariation, shot.Variation), (StatKeys.TotalProjectilesToFire, n),
                 (StatKeys.VirtualTotalProjectiles, n), (StatKeys.VirtualTotalArrows, n)]
             : [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
                 (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)];
+        // A spark's life is the record's skill_effect_duration (a virtual stat the client derives nothing for: without it
+        // a spark dies on its first tick).
+        if (shot.Recipe == "Spark" && Stat(shot, "base_skill_effect_duration") is > 0 and var life && Stats.Key("skill_effect_duration") is uint lifeKey)
+            stats.Add((lifeKey, life));
+        // A burst's radius percentage (a creeping frost's, a spell mortar's landing), by which the client sizes the burst
+        // it draws (0x141939aa0) as the server sizes its hit.
+        if ((shot.Recipe == "CreepingFrost" || shot.Lobbed) && Stat(shot, AreaPercent) is not 0 and var area && Stats.Key(AreaPercent) is uint areaKey)
+            stats.Add((areaKey, area));
+        return stats;
     }
+
+    const string AreaPercent = "total_skill_area_of_effect_radius_+%_including_final";
+
+    /// <summary>A lobbed shot's area radius in cells: the shot's own, else its skill's base radius (the development
+    /// fallback without one), by the skill's area percentage.</summary>
+    public static double AreaRadius(SkillCatalog.MonsterProjectileInfo shot, double fallback) =>
+        shot.AreaRadius > 0 ? shot.AreaRadius
+            : (Stat(shot, "active_skill_base_area_of_effect_radius") is > 0 and var radius ? radius : fallback)
+                * Math.Max(0, 1 + Stat(shot, AreaPercent) / 100.0);
 
     static int Stat(SkillCatalog.MonsterProjectileInfo shot, string name) =>
         Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
@@ -439,18 +472,20 @@ public static class MonsterShots
             {
                 Pierce = Get("virtual_projectiles_cannot_pierce") != 0 ? 0 : -1,
                 FormChange = new(20.199 * (100 + Get("ice_spear_distance_before_form_change_+%")) / 100.0,
-                    1 + Get("ice_spear_second_form_projectile_speed_+%_final") / 100.0, pierce),
+                    1 + Get("ice_spear_second_form_projectile_speed_+%_final") / 100.0, pierce,
+                    Math.Max(0, 1 + Get("ice_spear_second_form_damage_+%") / 100.0)),
             };
         }
         if (shot.Recipe == "CreepingFrost")
             // Its burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius (15) by
-            // the area multiplier; the chilled ground it leaves is not modelled.
+            // the radius percentage the record carries. It meets the player as a Fireball does: the contact ends it and
+            // the burst is the one hit (the burst passes over the actor the contact hit); the chilled ground it leaves
+            // is not modelled.
             profile = profile with
             {
-                DirectDamage = false,
                 EndArea = new ProjectileAreaRecipe("creeping frost",
                     Math.Max(1, Get("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : 15)
-                        * Math.Max(0, 1 + Get("total_skill_area_of_effect_radius_+%_including_final") / 100.0)),
+                        * Math.Max(0, 1 + Get(AreaPercent) / 100.0)),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance },
             };
         if (shot.Recipe == "Spark")
@@ -473,7 +508,9 @@ public static class MonsterShots
 
     /// <summary>The server's flight of a shot it draws itself by a player skill's recipe (Rolling Magma's bouncing lob
     /// and its landing explosions, Spectral Throw's piercing throw that comes back), at the shot's speed and count; the
-    /// explosions of a monster's magma are 14 cells across its area multiplier (the client's 0x141b80930 radius).</summary>
+    /// explosions of a monster's magma are 14 cells plus active_skill_base_radius_+ across its radius percentage (the
+    /// client's 0x141b80880), and each bounce lands 2S + 3 cells on (0x141b80a30: S = round(10 × (1 + chaining range)
+    /// × (1 + projectile speed)), 23 cells at base). Each bounce's own scatter is not modelled.</summary>
     public static ProjectileProfile RecipeProfile(SkillCatalog.MonsterProjectileInfo shot, double speed, double landing, bool attack)
     {
         int Get(string name) => Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
@@ -482,12 +519,16 @@ public static class MonsterShots
             Count = Math.Max(1, shot.Count), Radius = shot.CollisionRadius, HideVisual = false,
         };
         if (shot.Recipe == "RollingMagma")
+        {
+            double hop = Math.Max(1, Math.Floor(10 * (1 + Get("chaining_range_+%") / 100.0) * MagmaSpeed(shot) + .5));
             return profile with
             {
                 Range = landing,
+                GroundBounceDistance = 2 * hop + 3,
                 EndArea = new ProjectileAreaRecipe("monster magma",
-                    14 * Math.Max(0, 1 + Get("total_skill_area_of_effect_radius_+%_including_final") / 100.0)),
+                    (14 + Get("active_skill_base_radius_+")) * Math.Max(0, 1 + Get(AreaPercent) / 100.0)),
             };
+        }
         if (shot.Recipe == "SpectralThrow")
             return profile with
             {
@@ -496,6 +537,14 @@ public static class MonsterShots
             };
         return profile;
     }
+
+    static double MagmaSpeed(SkillCatalog.MonsterProjectileInfo shot) =>
+        1 + (Stat(shot, "projectile_speed_+%") + Stat(shot, "base_projectile_speed_+%")) / 100.0;
+
+    /// <summary>A monster magma orb's first landing, in cells from the caster (0x141b80fa0): its aim's, pushed out to 9 and
+    /// held within 50 cells, both by the shot's projectile speed.</summary>
+    public static double MagmaLanding(SkillCatalog.MonsterProjectileInfo shot, double cells) =>
+        Math.Clamp(cells, Math.Floor(9 * MagmaSpeed(shot) + .5), Math.Max(1, Math.Floor(50 * MagmaSpeed(shot) + .5)));
 
     /// <summary>Whether the variety holds a bow in its main hand (its Weapons, from MonsterVarieties
     /// MainHand_ItemClassesKey: the ItemClasses row Bow): the ranged melee attack's arrows, else a wand's bolt.</summary>

@@ -24,7 +24,7 @@ public static partial class Game
 
     // A monster record's skill_behaviour_variation: its effect's SkillID, as the client's own skill-stat builder adds it
     // (SkillCatalog.BehaviourVariation), unless the record already says. Projectile records keep their own rule above
-    // (MonsterProjectileSkillStats: a mortar's spell forms are sent without it, the server keeping their objects).
+    // (MonsterProjectileSkillStats: a mortar's spell form the server draws is sent without it).
     public static IReadOnlyList<(uint, int)> WithBehaviourVariation(ClientState conn, int effect, IReadOnlyList<(uint, int)> stats) =>
         SkillsFor(conn).BehaviourVariation(effect) is int variation and > 0 && stats.All(s => s.Item1 != StatKeys.SkillBehaviourVariation)
             ? [.. stats, (StatKeys.SkillBehaviourVariation, variation)]
@@ -64,7 +64,8 @@ public static partial class Game
         // carries none.
         own = [.. own, .. MonsterShots.CountStats(attack.Projectile)];
         // Any other resolved shot's record keeps the SkillID the client's own skill-stat builder adds (WithBehaviourVariation),
-        // as it had while it hit at the contact; only a spell mortar's is sent without it (its action is not traced).
+        // as it had while it hit at the contact; a spell mortar the server draws is sent without it, so its action draws no
+        // row of its own (one the client draws has its row with its count, CountStats).
         if (attack.Projectile is { SkillStats: not null, Variation: 0 } && SkillsFor(conn).MonsterProjectile(effect) is null)
             own = WithBehaviourVariation(conn, effect, own);
         var taken = own.Select(s => s.Item1).ToHashSet();
