@@ -54,6 +54,25 @@ public sealed class JewelPathAttributeTests
     [Fact]
     public void Split_personality_counts_nested_allocated_rings_and_invalidates_paths_and_item_effects()
     {
+        // Native constructors at cell 51: medium rings of 4, 5 and 6 passives, without notables.
+        foreach (var (count, ids) in new (int, int[])[]
+        {
+            (4, [208, 209, 211, 212]), (5, [207, 208, 209, 211, 212]), (6, [207, 208, 209, 210, 211, 212])
+        })
+        {
+            var plain = ClusterJewels.Create(Program.Items.Find("Medium Cluster Jewel")!, null, count, 1)!;
+            var mapped = Assert.IsType<ClusterJewelLayout.Layout>(ClusterJewelLayout.For(51, plain));
+            Assert.Equal(ids, mapped.ByOffset.Keys.Select(n => mapped.Base + n).Order());
+            Assert.Equal(ClusterJewelLayout.Kind.Socket, mapped.ByOffset[5]);
+        }
+        foreach (var (count, ids) in new (int, int[])[] { (4, [208, 209, 211, 212]), (5, [207, 208, 209, 211, 212]) })
+        {
+            var mediumWithNotable = ClusterJewels.Create(Program.Items.Find("Medium Cluster Jewel")!, null, count, 1)!;
+            mediumWithNotable = mediumWithNotable with { Mods = [.. mediumWithNotable.Mods, Mod("local_affliction_notable_overwhelming_malice", 1)] };
+            var mapped = ClusterJewelLayout.For(51, mediumWithNotable)!;
+            Assert.Equal(ids, mapped.ByOffset.Keys.Select(n => mapped.Base + n).Order());
+            Assert.Equal(ClusterJewelLayout.Kind.Notable, mapped.ByOffset[1]);
+        }
         var previous = Program.GameLogicOrNull;
         string name = "SplitPath" + Guid.NewGuid().ToString("N");
         var items = Program.Items;
