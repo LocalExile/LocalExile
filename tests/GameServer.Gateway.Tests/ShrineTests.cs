@@ -52,6 +52,8 @@ public sealed class ShrineTests
         Assert.Equal(ShrineCatalog.Skipped, []);
         Guards_come_from_the_shrines_own_pack_rows_or_the_areas_and_keep_clear_of_entrances();
         await Lifecycle();
+        NovaSpells();
+        await LesserLifecycle();
     }
 
     [Fact]
@@ -72,6 +74,11 @@ public sealed class ShrineTests
         // The Shrine component starts with the Shrines row the client looks up for the icon.
         Assert.Equal(0, blob[92]);
         Assert.Equal(11, new ShrineObject(120, 45, Row: 11).Blob()[92]);
+        Assert.Equal([.. ShrineObject.Components, "Transitionable", "DiesAfterTime"], ShrineObject.LesserComponents);
+        var lesser = new ShrineObject(120, 45, Row: 24, Lesser: true).Blob();
+        Assert.Equal(99, lesser.Length);
+        Assert.Equal(24, lesser[92]);
+        Assert.Equal(1, lesser[^2]); // Untransitioned: native states are one-based; state 0 crashes post-create.
 
         // A shrine room line is a shrine only on walkable ground, and the same layout and seed roll the same types.
         bool Walkable(int x, int y) => x == 5 && y == 5;
@@ -159,6 +166,90 @@ public sealed class ShrineTests
         public Task OnBuffApplied(ShrineContext ctx, ShrineInstance shrine) { Applied++; return Task.CompletedTask; }
         public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) { Expired++; return Task.CompletedTask; }
         public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) { Unloaded++; return Task.CompletedTask; }
+    }
+
+    static void NovaSpells()
+    {
+        var skills = Program.Skills;
+        var ice = ShrineNovaRules.Describe(skills, true, false);
+        var shock = ShrineNovaRules.Describe(skills, false, false);
+        var claimed = ShrineNovaRules.Describe(skills, false, true);
+        Assert.Equal((101, 29, 15), (ice.Effect, ice.Radius, ice.RadiusPercent));
+        Assert.Equal((1067, 52, 100, 5), (shock.Effect, shock.Radius, shock.RadiusPercent, shock.GroundCount));
+        Assert.Equal((1068, 19, -25, 1), (claimed.Effect, claimed.Radius, claimed.RadiusPercent, claimed.GroundCount));
+        Assert.Equal(6, shock.GroundRadius);
+        Assert.Equal(4, shock.GroundSeconds);
+        Assert.Equal(ice.CastSeconds, ShrineNovaRules.HitDelay(ice, 0));
+        Assert.Equal(ice.CastSeconds + .1, ShrineNovaRules.HitDelay(ice, ice.Radius / 2.0), 6);
+        Assert.Equal(ice.CastSeconds + .2, ShrineNovaRules.HitDelay(ice, ice.Radius), 6);
+        Assert.Equal(shock.CastSeconds, ShrineNovaRules.HitDelay(shock, shock.Radius));
+        Assert.Equal((ushort)0xc563, skills.ActionHash(shock.Effect));
+        Assert.NotEqual(skills.ActionHash(skills.EffectRow("ShockNova")), skills.ActionHash(shock.Effect));
+    }
+
+    static async Task LesserLifecycle()
+    {
+        var trigger = new LesserShrineTrigger();
+        trigger.Observe("gull-1", 10, 20);
+        Assert.False(trigger.TryUse(29.999, 20));
+        Assert.True(trigger.TryUse(30, 20));
+        Assert.False(trigger.TryUse(30, 20));
+        trigger.Rebase(35, 100);
+        Assert.False(trigger.TryUse(114.999, 20));
+        Assert.True(trigger.TryUse(115, 20));
+        trigger.Observe("", 116, 0);
+        Assert.False(trigger.TryUse(200, 20));
+        trigger.Observe("gull-1", 200, 20);
+        Assert.False(trigger.TryUse(219.999, 20));
+        trigger.Observe("gull-2", 300, 20);
+        trigger.Observe("gull-2", 310, 10); // Recovery changes retain the half-completed cooldown.
+        Assert.False(trigger.TryUse(314.999, 10));
+        Assert.True(trigger.TryUse(315, 10));
+        trigger.Observe("gull-2", 320, double.PositiveInfinity);
+        Assert.False(trigger.TryUse(400, double.PositiveInfinity));
+        trigger.Observe("gull-2", 400, 10);
+        Assert.True(trigger.TryUse(405, 10));
+
+        var instance = new InstanceState();
+        await using var wire = await ShrineWire.Open(instance);
+        var conn = wire.Conn;
+        using var stats = GameEvents.PlayerStatSources.Add("shrine-regression", ShrineManager.AddStats);
+        try
+        {
+            var opening = new MapDevice.Opening(new(1, "test", "Test", 1), new MapMods(new Dictionary<string, int>
+                { ["map_num_extra_apparition_shrines"] = 2 }));
+            var request = new MapOpening(conn, [], false, opening, "");
+            ShrineMapAdmission.Check(request);
+            Assert.Null(request.Opening);
+            Assert.Contains("not been consumed", request.Reason);
+            var ordinary = new MapOpening(conn, [], false, opening with { Mods = MapMods.None }, "");
+            ShrineMapAdmission.Check(ordinary);
+            Assert.NotNull(ordinary.Opening);
+
+            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            var kept = Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/"));
+            uint first = uint.Parse(kept.Key.Split('/')[^1]);
+            await ShrineManager.LeaveArea(conn);
+            await ShrineManager.SpawnArea(conn); // Unclaimed object survives a presentation rebuild, with its original deadline.
+            Assert.Equal(kept.Value, instance.ContentState[kept.Key]);
+            Assert.True(await ShrineManager.Use(conn, new(first, 0, 1, 0), 0));
+            Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
+            Assert.NotEmpty(ShrineManager.AddStats(conn, []));
+            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            uint second = uint.Parse(Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/")).Key.Split('/')[^1]);
+            Assert.NotEqual(first, second); // A new kill may make a fresh shrine on the same cell.
+            Assert.True(await ShrineManager.Use(conn, new(second, 0, 2, 0), 0));
+            Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
+            await ShrineManager.SpawnLesser(conn, (100, 100), 10, "AccelerationLesser");
+            var expired = Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/"));
+            uint expiredId = uint.Parse(expired.Key.Split('/')[^1]);
+            await ShrineManager.LeaveArea(conn);
+            instance.ContentState[expired.Key] = "{\"Type\":\"AccelerationLesser\",\"X\":100,\"Y\":100,\"Until\":0}";
+            await ShrineManager.SpawnArea(conn);
+            Assert.DoesNotContain(instance.ContentState.Keys, k => k.StartsWith("Shrines/lesser/"));
+            Assert.False(await ShrineManager.Use(conn, new(expiredId, 0, 3, 0), 0));
+        }
+        finally { await ShrineManager.LeaveArea(conn); }
     }
 
     static async Task Lifecycle()

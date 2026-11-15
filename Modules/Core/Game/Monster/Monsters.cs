@@ -351,7 +351,7 @@ public static partial class Game
             {
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
-                Scripted = !friendly && (scripted || atlas),
+                Scripted = scripted || !friendly && atlas,
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),

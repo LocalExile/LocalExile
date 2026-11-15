@@ -9,25 +9,26 @@ namespace GameServer.Core.Protocol.Instance;
 /// decoded form (0x141e3e0c0: u8 key — 0xff means no shrine, else bit 7 is stored at +0x24 and the low 7 bits are the
 /// Shrines row the client looks up for the icon and name — then the u8 it stores at +0x50).
 /// <para>The type is static and non-blocking, object size 7 (LesserShrine is 2 and adds Transitionable and
-/// DiesAfterTime, which this writer does not carry).</para>
+/// DiesAfterTime; its live Transitionable state is 1).</para>
 /// <para>The life pool must stay above 0 (live 2026-11-12): a live pool is what makes the client target the object, so the
 /// statue can be hovered and clicked. At 0 the statue stays visible but is no longer targetable or interactable. The price is
 /// the target nameplate the client draws for a targetable object: the shrine's name plus a rarity line it fills in as
 /// "Undefined" because no monster/map data backs it.</para>
 /// </summary>
 public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, float? Height = null, string? Model = null,
-    int Row = 0, uint Life = 1)
+    int Row = 0, uint Life = 1, bool Lesser = false)
 {
     /// <summary>The components the client reads for a shrine, in its order.</summary>
     public static readonly string[] Components =
         ["Positioned", "BaseEvents", "Stats", "Animated", "Buffs", "Life", "ObjectMagicProperties", "Shrine", "MinimapIcon", "InteractionAction"];
+    public static readonly string[] LesserComponents = [.. Components, "Transitionable", "DiesAfterTime"];
 
     public byte[] Blob()
     {
         var w = new BlobWriter();
         w.U8(0);            // object flags
         w.U8(0);            // base data entry count
-        foreach (string c in Components)
+        foreach (string c in Lesser ? LesserComponents : Components)
         {
             switch (c)
             {
@@ -49,6 +50,7 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
                 case "Shrine": w.U8((byte)Row).U8(0).U8(0); break;
                 case "MinimapIcon": w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;
+                case "Transitionable": w.U8(1); break; // States are one-based; 0 crashes the native post-create event.
                 // BaseEvents: no data.
             }
         }

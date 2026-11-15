@@ -102,7 +102,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
   explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.
   Source: `Modules/Core/World/Shrines`, `src/GameServer.Gateway/World/Shrines`, `ShrineTests`.
-  Exact nova art/timing, Shock Nova's separate ring hit, and apparition/lesser shrine generation remain incomplete.
+  Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
+  Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
+  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
+  before payment because the Conqueror apparition skills are not implemented.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

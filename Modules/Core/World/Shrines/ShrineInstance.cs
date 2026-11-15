@@ -45,7 +45,10 @@ public sealed class ShrineInstance
     public IReadOnlyList<(uint Key, int Value)> Stats { get; set; } = [];
 
     /// <summary>The buff's duration in seconds: the registered definition's or the Shrines row's.</summary>
-    public int Duration { get; set; }
+    public double Duration { get; set; }
+
+    /// <summary>A summoned lesser shrine's object lifetime, separate from its claimed buff duration.</summary>
+    public double ExpiresAt { get; set; } = double.PositiveInfinity;
 
     /// <summary>The monsters the pre-activation behaviour created (its data guard packs), if any.</summary>
     public List<uint> Guards { get; } = [];
