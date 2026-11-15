@@ -11,6 +11,34 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class RottingCoreTests
 {
+    [Fact]
+    public async Task Doedres_soul_is_visible_on_creation_and_saved_instance_restore()
+    {
+        using var runtime = new Runtime(); using var wire = new Wire();
+        var c = new ClientState(new(1, DepravedTrinity.Area, 4000, 4000, 2000, 2000, (_, _) => true, []), 1, 1)
+            { Character = "VisibleSoulRegression", Instance = new(), Wire = ("soul-visibility", wire.Stream, wire.Ciphers) };
+        runtime.Player = c;
+        var v = Game.Monsters.Find(DepravedTrinity.Souls[0])!;
+        int visible = v.StateMachine!.IndexOf("visible");
+        Assert.Equal(0, v.StateMachine.SharedStates[visible]);
+        uint first = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 64,
+            MonsterRarity.Unique, 2100, 2100);
+        AssertVisible(first);
+        uint restored = await Game.RestoreMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v,
+            new(v.Row, 64, MonsterRarity.Unique, true, 2200, 2200, 50));
+        AssertVisible(restored);
+        Assert.Equal(50u, c.Monsters[restored].Life);
+        Assert.Null(DepravedTrinity.StartStates(Game.Monsters.Find(DepravedTrinity.Boss)!));
+        Assert.Null(DepravedTrinity.StartStates(Game.Monsters.Find(DepravedTrinity.Souls[1])!));
+        void AssertVisible(uint id)
+        {
+            var origin = c.Instance.World.MonsterOrigins[id].Object;
+            Assert.Equal(1, c.Monsters[id].States!.SharedStates[visible]);
+            Assert.Equal(1, origin.StateMachine!.SharedStates[visible]);
+            Assert.Contains(visible, origin.StateMachine.Overridden);
+        }
+    }
+
     [GameFilesFact]
     public void Native_organ_gates_keep_their_domain_names_and_land_outside_each_arena()
     {

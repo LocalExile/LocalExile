@@ -172,7 +172,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's arena-laser activators stay out until an encounter supplies their required turret objects; calling them
-  without those objects crashes the client. Her stance/phase controller remains missing.
+  without those objects crashes the client.
+  Her Silk transition and stance-specific attacks run across reentry and wake-up; turret patterns remain missing.
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his dive/mirror phases remain missing.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
@@ -180,9 +181,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
   bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
-  room entrance pads and return pairs; exact official AI weights remain unverified.
+  room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
+  Exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
-- Act 10 Kitava: three hearts, finale and manual Epilogue portal; AI provisional ([Act 10](../docs/game/campaign/act10.md)).
+- Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
+  AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 

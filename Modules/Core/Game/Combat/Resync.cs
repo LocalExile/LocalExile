@@ -60,6 +60,8 @@ public static partial class Game
                 }
                 if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
                 else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
+                foreach (var (id, _, _) in back)
+                    if (Arakaali.StanceUpdateLocked(conn, id, now) is { } stance) packets.AddRange(stance);
                 return packets.Count == 0 ? null : [.. packets];
             }
         });
