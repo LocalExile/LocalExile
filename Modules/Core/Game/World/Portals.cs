@@ -96,7 +96,7 @@ public static partial class Game
     }
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
-    // town portal): object id Ã¢â€ â€™ the area it leads to, for the connection that made them.
+    // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
     static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
 
     /// <summary>
@@ -129,7 +129,7 @@ public static partial class Game
 
     /// <summary>
     /// The effect one portal is drawn with. The Portal slot has two choices that are no cosmetic
-    /// (MicrotransactionSlotAdditionalDefaultOptions; CÃ¢â€ â€™S 0x1f9 with record 0 and the option): 1 "Use one random
+    /// (MicrotransactionSlotAdditionalDefaultOptions; CÃ¢â€ ’S 0x1f9 with record 0 and the option): 1 "Use one random
     /// variation for every portal" and 2 "Use random variations for all portals". The pick is kept, per area visit for
     /// 1 and per portal for 2, so a portal listed again keeps its effect. Otherwise the worn effect.
     /// </summary>
@@ -158,7 +158,7 @@ public static partial class Game
         return true;
     }
 
-    // SÃ¢â€ â€™C 0x8f: the device's portals and where they lead (21-hideouts.md Ã‚Â§5). Without it the client never draws them; a
+    // SÃ¢â€ ’C 0x8f: the device's portals and where they lead (21-hideouts.md Ã‚§5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
     public static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {

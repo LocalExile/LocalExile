@@ -4,7 +4,7 @@ using Xunit;
 
 namespace GameServer.Gateway.Tests;
 
-// The map overlay's "X monsters remain" line: Sâ†’C 0x1a0 is its only input (InstanceProtocol.MonstersRemaining has the
+// The map overlay's "X monsters remain" line: S→C 0x1a0 is its only input (InstanceProtocol.MonstersRemaining has the
 // client's side), and the count is the area's living monsters. Live /raw checks pinned the byte's meaning; these are the
 // server's half.
 public class MonsterRemainingTests
