@@ -214,7 +214,7 @@ public class InflictedAilmentTests
         {
             var reflected = new ClientState(new(1, "reflected", 300, 300, 100, 100, null, []), 1, 1)
                 { PlayerLife = 1000, Pools = new(10, 1000, 100, 1, 0) };
-            double now = reflected.Clock.Elapsed.TotalSeconds;
+            const double now = 0;
             MonsterElementalAilments.Effect[] incoming = [new(Freeze, 0, 1, 100), new(Shock, 0, 2, 20)];
             lock (reflected.Monsters)
             {
