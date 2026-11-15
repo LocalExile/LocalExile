@@ -64,6 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
+
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
   it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
   Transference, a spread when a projectile or a minion makes the kill.
