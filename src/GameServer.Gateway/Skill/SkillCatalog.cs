@@ -759,6 +759,26 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return null;
     }
 
+    /// <summary>The Projectiles row an effect's action class creates when its art names none: the row of another effect on
+    /// the same ActiveSkills row, the action the client runs for both (<see cref="ProjectileFor"/>: Ethereal Knives'
+    /// EtherealKnivesProjectile, Spectral Throw's ThrownWeapon, Essence Drain's Siphon, all live-verified for the player's
+    /// gem). A monster's ExileEtherealKnives shares ethereal_knives with the gem's EtherealKnives. Its own row first, then
+    /// the others' in table order; null when none of them names one (a bow's arrow comes from the equipped item:
+    /// projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
+    public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
+    {
+        if (ProjectileFor(effectRow) is not { } found)
+        {
+            if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is not (>= 0 and var active)) return null;
+            found = default;
+            foreach (var (row, skill) in _activeSkillOfEffect.Value)
+                if (skill == active && row != effectRow && ProjectileFor(row) is { } other) { found = other; break; }
+            if (found.Id is null) return null;
+        }
+        int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == found.Id).IntOrNull("CollisionRadius") ?? 1;
+        return (found.Id, found.Speed, radius);
+    }
+
     sealed record SkillArt(Dictionary<int, List<int>> ByEffect, Dictionary<int, List<int>> ByActive, List<IReadOnlyList<int>> ProjectileArt,
         Dictionary<int, string> ArtIds, Dictionary<(string Id, int Variant), List<(string Id, int Speed, int CollisionRadius)>> Directory);
 

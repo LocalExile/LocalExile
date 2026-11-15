@@ -189,12 +189,13 @@ public static class BossKits
         return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius"), Get, catalog.IsSpell(effect));
     }
 
-    /// <summary>A skill's projectile as the client resolves its art (SkillCatalog.SkillArtProjectile), with the count its
+    /// <summary>A skill's projectile as the client resolves its art (SkillCatalog.SkillArtProjectile), else the row its
+    /// action class creates for the player's skill on the same ActiveSkills row (SkillCatalog.SharedProjectile), with the count its
     /// stats give one release (number_of_projectiles_override, else base_number_of_projectiles plus
     /// number_of_additional_projectiles); null when the art names none.</summary>
     public static SkillCatalog.MonsterProjectileInfo? ArtShot(SkillCatalog catalog, int effect, byte level)
     {
-        if (catalog.SkillArtProjectile(effect) is not { } art) return null;
+        if ((catalog.SkillArtProjectile(effect) ?? catalog.SharedProjectile(effect)) is not { } art) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
