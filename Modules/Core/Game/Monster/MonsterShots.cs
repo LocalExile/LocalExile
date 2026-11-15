@@ -270,11 +270,14 @@ public static class MonsterShots
                 id = Row(artVariation, "Flamethrower1", (1, "FlamethrowerBlue1"), (2, "IncinerateHoly"), (3, "GhostProjectile"),
                     (4, family == "figurehead_incinerate" ? "AbyssLichFigureHeadIncinerate" : "IncinerateKitavaMinion"));
                 // Each flame's mover turns it by its seed and the stage its recent casts built (MonsterProjectileUse,
-                // SeededEnd). A channel releases for as long as it lasts, which the server does not run; the Abyss Lich's
-                // flame draws a third time for its height; a spiral (below) keeps the server's object too.
-                if (family == "incinerate_channel") reason = "monster channel";
-                else if (family == "figurehead_incinerate" && artVariation == 4) reason = "flame height draw";
-                else if (Get("projectile_spiral_nova_time_ms") == 0) recipe = family == "figurehead_incinerate" ? "FigureheadFlames" : "Flames";
+                // SeededEnd: the live client's first wave matched cell for cell). But the class releases wave after wave
+                // through its cast (a Blackguard Cleric's 13, about 0.11 s apart, each a stage on), on a timer the server
+                // does not run yet, so the flames keep the server's object. A channel likewise; the Abyss Lich's flame
+                // draws a third time for its height; a spiral (below) keeps the server's object too.
+                recipe = Get("projectile_spiral_nova_time_ms") == 0 ? family == "figurehead_incinerate" ? "FigureheadFlames" : "Flames" : null;
+                reason = family == "incinerate_channel" ? "monster channel"
+                    : family == "figurehead_incinerate" && artVariation == 4 ? "flame height draw"
+                    : "flame waves through the cast";
                 break;
             case "totem_fire_spray" or "totem_fire_spray_triggerable":                                 // 0x141b87890
                 id = Row(artVariation, "TotemFireSpray", (1, "FlameBearerFireSpray"), (2, "SnakeFireSpray"), (3, "SnakeLightningSpray"),
@@ -362,7 +365,10 @@ public static class MonsterShots
                 // An unknown variation throws in the client: no shot, and no count that would make it try.
                 if (catalog.MonsterProjectileRow(spell, variation) is not { } row) return null;
                 id = row.Projectile;
-                animation = row.AnimationKey;
+                // The weapon table names no clip: its action plays the skill's own animation, else Throw (SpectralThrow
+                // with animation_effect_variation 1) (start 0x141b6dc70 -> 0x141b720e0), whose clip's contacts release it.
+                animation = spell ? row.AnimationKey
+                    : catalog.EffectAnimationKey(effect) ?? (Get("animation_effect_variation") == 1 ? "SpectralThrow" : "Throw");
                 // The movers (0x141a16240, 0x141b6e1d0) move the aim on along the shot by a column's cells; the other
                 // columns are an end height and flags that do not change where the shot flies.
                 aimOffset = spell ? row.Extra[2] : row.Extra[3];

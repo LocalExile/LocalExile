@@ -144,6 +144,15 @@ public static partial class Game
             {
                 // A weapon shot's or an ice spear's target is put at its range from the launch along its fanned line, on
                 // its cell (0x141bac460); then its mover turns it by its seed (SeededEnd, IceElementalSpearEnd).
+                // Without a contact position the shot leaves 30 units ahead of the caster's cell's centre toward the aim
+                // (0x141ba7c30), on that cell: the launch its mover measures from.
+                if (release?.Point is null)
+                {
+                    var centre = (new ProjectileVector(Math.Floor(from.X), Math.Floor(from.Y)) + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
+                    var aimWorld = (aim + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
+                    var spawn = centre + (aimWorld - centre).Unit * 30;
+                    origin = new(Math.Floor(spawn.X * .092), Math.Floor(spawn.Y * .092));
+                }
                 var fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
                 var arm = aim - origin;
                 float turn = SkillStat("monster_projectile_variation") == 8 ? .5f : .2f;
@@ -311,7 +320,7 @@ public static partial class Game
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
                 }
             : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
-                or "SummonMortar")
+                or "SummonMortar" or "Flames" or "FigureheadFlames")
                 ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
