@@ -705,15 +705,17 @@ public static partial class Game
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                foreach (uint gone in conn.MonsterViews.Keys.Where(id => !world.Monsters.ContainsKey(id)
-                    && !world.DormantMonsters.ContainsKey(id)).ToList())
+                foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
+                    || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
                     conn.MonsterViews.Remove(gone);
+                    conn.AsleepMonsters.Remove(gone);
                     bars.Hidden.Remove(gone);
-                    if (!runner) packets.Remove(gone);
+                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
                 {
+                    if (m.WorldHidden) continue;
                     if (!world.MonsterOrigins.TryGetValue(id, out var o)) continue; // a player's minion: SyncPeerMinions
                     bool dormant = world.DormantMonsters.ContainsKey(id);
                     uint life = m.Dead ? 0 : m.Life;
