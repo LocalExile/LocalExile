@@ -108,9 +108,21 @@ public static partial class Game
         chance > 0 && AlwaysCritical(conn, get) ? 10_000 : chance;
 
     public static int AttackCriticalMultiplier(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        int effect = -1, IReadOnlyDictionary<uint, int>? own = null) =>
-        AttackCriticalMultiplier(conn.Pools, WeaponProfileFor(conn, activeSet: true).Unarmed, MeleeAttack(conn, effect),
-            effect >= 0 && SkillsFor(conn).IsSpell(effect), player, own);
+        int effect = -1, IReadOnlyDictionary<uint, int>? own = null)
+    {
+        bool unarmed = WeaponProfileFor(conn, activeSet: true).Unarmed;
+        bool spell = effect >= 0 && SkillsFor(conn).IsSpell(effect);
+        // The Golden Charlatan: "Critical Strikes with this Weapon do not deal extra Damage", a local stat of the main hand.
+        // 100%: a critical strike deals the hit's own damage, nothing more (DamageModel.CriticalDamage).
+        if (!unarmed && !spell && MainHandNoCriticalMultiplier(conn)) return 100;
+        return AttackCriticalMultiplier(conn.Pools, unarmed, MeleeAttack(conn, effect), spell, player, own);
+    }
+
+    static bool MainHandNoCriticalMultiplier(ClientState conn)
+    {
+        var main = ItemsOf(conn).Items(PlayerInventories.Weapon1).Where(i => !IsInactive(conn, i.Id)).Select(i => i.Item).FirstOrDefault();
+        return main is not null && ItemModStats.Local(main, ItemsFor(conn).Mods).GetValueOrDefault("local_no_critical_strike_multiplier") != 0;
+    }
 
     // The default attack's (no gem effect) from the stat snapshot's tail inputs: the active set's profile decides both.
     public static int AttackCriticalMultiplier(CharacterStats.Pools pools, bool unarmed, bool melee, bool spell,
