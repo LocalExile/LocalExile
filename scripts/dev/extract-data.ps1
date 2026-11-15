@@ -54,9 +54,10 @@ $manifest = @(
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), and every contact frame of a clip: when each of a multi-strike skill''s strikes lands' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
-    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
-       UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+    # v5 adds monster-stances.json: a stanced .act's (the Rogue Exiles') skill animation pools per weapon stance.
+    @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json', 'data\monster-stances.json'); Runner = 'python'
+       Args = @('scripts/re/monster_contacts.py'); Version = 5; Needs = @('tables')
+       UsedBy = 'monster projectile release timing/points, Throw-stage contacts, and when a weapon-stanced monster''s skill lands (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
