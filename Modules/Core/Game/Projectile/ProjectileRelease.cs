@@ -251,7 +251,7 @@ public static partial class Game
             : get("reclaimed_malevolence_notable_abyss_searching") != 0 ? 50 : 150;
         profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(conn).ProjectileContactCells(profile.Id) };
         if (profile.ReturnChancePercent is > 0 and < 100)
-            profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, PlayerId, repeatsLeft) };
+            profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, emitter ?? PlayerId, repeatsLeft) };
         if (get("support_parallel_projectile_number_of_points_per_side") == 0 && get("random_projectile_direction") != 0)
             return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, emitter ?? PlayerId, aim, repeatsLeft) } };
         // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
