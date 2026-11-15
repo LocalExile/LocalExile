@@ -214,11 +214,12 @@ public static partial class Game
     {
         if (conn.PlayerLife == 0) return;
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        double previous = conn.ElementalAilments.ActionFactor(now);
-        foreach (var e in added)
-            conn.ElementalAilments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
-                e.Until - e.From, now, Player, random);
-        PlayerAilmentsChangedLocked(conn, previous, now);
+        ApplyPlayerAilmentsLocked(conn, now, ailments =>
+        {
+            foreach (var e in added)
+                ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
+                    e.Until - e.From, now, Player, random);
+        });
     }
 
     /// <summary>
