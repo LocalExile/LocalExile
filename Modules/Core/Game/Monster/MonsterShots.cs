@@ -31,11 +31,12 @@ public static class MonsterShots
         "melee", "split_arrow", "fireball", "lightning_arrow", "burning_arrow", "ice_shot", "frost_bolt",
     ];
 
-    // Classes whose ctor sets byte +0x330 = 5, which the shared pierce check (0x141ba96a0) reads as pierce-all.
+    // Classes whose ctor sets the collision mask +0x330 to 5 (enemies, bit 4 pierce-all, 0x141ba96a0). Ball lightning's
+    // and the vortex's mask is 0: they meet no actor and strike by their own pulses (BallLightning, WaterVortex).
     static readonly HashSet<string> PierceAllFamilies =
     [
         "frost_bolt", "freezing_pulse", "breach_spell_barrage", "monster_snipe", "monster_fading_projectile_spell",
-        "ball_lightning", "shavronne_ball_lightning",
+        "spectral_throw", "vaal_spectral_throw", "decelerating_projectile",
     ];
 
     // monster_projectile_weapon variations whose mover (0x141b6b740) does what the server does not: 4, 8, 24, 26 and 29
@@ -83,10 +84,10 @@ public static class MonsterShots
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
             if (mortar.ClientDraws) return mortar;
-            // Where the server draws a spell mortar, its object lands as the client would place it: a nova in a ring, a
-            // cone across its angle (the shared emitter's layouts), each at its landing distance (ProjectileHostile).
+            // Where the server draws a spell mortar, its object lands as the client would place it: a nova in a ring (the
+            // shared emitter's layout), each at its landing distance (ProjectileHostile). mortar_cone_angle is read by the
+            // in-cone class alone (0x141a16f00), not by monster_mortar, whose volley fans as any other.
             if (Get("projectiles_nova") != 0) mortar = mortar with { SpreadRadians = 2 * Math.PI };
-            else if (Get("mortar_cone_angle") is > 0 and var cone) mortar = mortar with { SpreadRadians = cone * Math.PI / 180 };
             return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar row not named" };
         }
 
@@ -175,7 +176,11 @@ public static class MonsterShots
             // Families the server cannot reproduce yet: the right row as the server's object, so the hit lands on arrival.
             case "demon_female_ranged_projectile":
                 id = Row(mpv, "FemaleDemonRangedProjectile", (1, "FemaleDemonRangedProjectileBlue")); reason = "alternating hand offset"; break;
-            case "miner_throw_fire": id = Row(0, "MinerLanternFire"); reason = "flight timed by its clip"; break;
+            case "miner_throw_fire":
+                // 0x141a0f7e0: it reaches the aimed cell its clip's contact after the release, at any distance (below).
+                id = Row(0, "MinerLanternFire");
+                recipe = "Lantern";
+                break;
             case "bloodline_daemon_nova": id = Row(0, "RampageProjectile"); reason = "nova of the pack's deaths"; break;
             case "synthesis_turret_charge_projectile": id = Row(0, "SynthesisGuardian2Turret"); reason = "turret charge"; break;
             case "decelerating_projectile":                                                             // 0x141ac9c90
@@ -183,16 +188,29 @@ public static class MonsterShots
                     (3, "ToraDeceleratingArrow"), (4, "BetrayalBlackguardDeceleratingProjectile"), (5, "BetrayalRinDeceleratingProjectile"),
                     (6, "LegionTemplarDeceleratingShield"), (13, "AtlasExilesBlackguardDeceleratingProjectile"),
                     (14, "AfflictionMinionDeceleratingProjectile"));
-                reason = "decelerating mover";
+                // It slows to a stop (AcceleratingLegs with a negative rate) where its mover puts it (ClientDrawnProfile).
+                recipe = "Decelerating";
+                break;
+            case "ball_lightning":
+                // Art slot 0 at skill_art_variation (0x1413e1eb0); the ball strikes what is near it (BallLightning).
+                id = Game.Art.SkillProjectile(effect, 0, Get) ?? catalog.ProjectileFor(effect)?.Id;
+                recipe = "BallLightning";
                 break;
             case "shavronne_ball_lightning":                                                            // 0x141398f30
-                id = Row(artVariation, "ShavronneBallLightning", (1, "HarbingerBallLightning")); reason = "ball lightning pulses"; break;
+                // shortcut: the strikes the client draws during the 3 s cast (a growing radius around the caster) are not
+                // the server's; only the released balls strike.
+                id = Row(artVariation, "ShavronneBallLightning", (1, "HarbingerBallLightning"));
+                recipe = "ShavronneBallLightning";
+                break;
             case "storm_burst":                                                                         // 0x141c658f0
                 id = Row(artVariation, "StormBurst", (2, "ShavronneStormBurst"), (1, "YugulChromeProjectile")); reason = "storm burst orbs"; break;
             case "water_vortex":                                                                        // 0x14133b070
+                // Its mover (0x141c6cc80) sends it to the L1 diamond of radius 128 × (1 + spell action distance) around
+                // the caster in the aim's direction (MonsterProjectileAim.WaterVortexTarget); it strikes every 0.2 s.
                 id = Row(artVariation, "WaterVortex", (1, "WaterVortexArtVariation"), (2, "PusWaterVortex"), (3, "WaterVortexRed"),
                     (4, "IncursionMapDeviceWaterVortex"));
-                reason = "vortex pulses";
+                recipe = "WaterVortex";
+                if (artVariation == 4) reason = "map device vortex mover";
                 break;
             case "freezing_pulse":
                 id = Row(artVariation, "FreezingPulse", (1, "UndyingFreezingPulse"), (2, "FreezingPulseMTX")); reason = "pulse decay"; break;
@@ -210,8 +228,12 @@ public static class MonsterShots
                     (8, "RigwaldMoonbendersWing"), (9, "SpectralThrowEbonyMTXNew"), (10, "BreachChaosThrownWeapon"), (11, "KitavaThrownWeapon"),
                     (12, "TripleBladeThrownWeapon"), (13, "ElderGuardianHolySpectralThrowLeft"), (14, "ElderGuardianHolySpectralThrowRight"),
                     (15, "KitavaThrownWeaponMtx"));
-                if (family == "spectral_throw") recipe = "SpectralThrow";
-                reason = family == "spectral_throw" ? "thrown weapon's deceleration" : "thrown weapon spiral";
+                // Out slowing to a stop and back to the thrower (ThrownWeaponLegs); Vaal Thrown Weapon's spiral out
+                // (SpiralThrowLegs). Vaal Spectral Throw's spiral of throws is the shared spiral (LaunchMonsterProjectile).
+                recipe = family == "vaal_thrown_weapon" ? "SpiralThrow" : "SpectralThrow";
+                // The Elder Guardian's holy throws (skill_behaviour_variation 2) come back at a constant speed and stop at
+                // their first hit on the way back, which these legs do not fly.
+                if (recipe == "SpectralThrow" && catalog.BehaviourVariation(effect) == 2) reason = "constant-speed return";
                 break;
             case "ethereal_knives":                                                                     // 0x1419f2d50
                 // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
@@ -338,9 +360,12 @@ public static class MonsterShots
             // A totem's or a trap's form places the totem or throws the trap, which then fires (SpellTotems: is_totem
             // describes the placement); the server places neither, so its object flies from the monster.
             if (Get("is_totem") != 0 || Get("is_trap") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
-            // A spiral fires its projectiles one by one over projectile_spiral_nova_time_ms, which the shot's one
-            // volley does not.
-            else if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
+            // A spiral fires its projectiles one step at a time over projectile_spiral_nova_time_ms through the shared
+            // release (0x141bb3c00): LaunchMonsterProjectile flies its steps. Mortars and the spray and flame classes
+            // run their own release.
+            else if (Get("projectile_spiral_nova_time_ms") != 0 && (lobbed || family is "incinerate_old" or "totem_fire_spray"
+                or "totem_fire_spray_triggerable" or "incinerate_channel" or "figurehead_incinerate"))
+                reason = "spiral nova";
             // The count getter (0x141ba61c0) splits the volley over the clip's contacts; the server releases it at one.
             else if (Get("distribute_projectiles_over_contact_points") != 0) reason = "projectiles over contact points";
             else if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
@@ -349,10 +374,20 @@ public static class MonsterShots
             // projectile_minimum_range moves no straight shot in these classes; only a mortar's landing.
             else if (Get("projectile_spread_radius") != 0) reason = "scattered target";
             else if (Get("active_skill_projectile_speed_+%_variation_final") != 0) reason = "speed variation";
-            else if (Get("support_parallel_projectile_number_of_points_per_side") != 0) reason = "parallel volley";
+            else if (Get("support_parallel_projectile_number_of_points_per_side") != 0)
+            {
+                // The table classes never read it (no reader in their vtables): they fan as any other volley.
+                if (family is "monster_projectile_spell" or "monster_projectile_weapon" && Stats.Key("support_parallel_projectile_number_of_points_per_side") is uint parallel)
+                    stats.Remove(parallel);
+                else reason = "parallel volley";
+            }
         }
+        // A lantern lands its clip's contact after the release (0x141a0f7e0); without the clip the server cannot time it.
+        int? lantern = recipe == "Lantern" ? catalog.Clips(id)?.Flight?.Contact : null;
+        if (recipe == "Lantern" && lantern is not > 0) reason ??= "flight clip not known";
         var shot = new SkillCatalog.MonsterProjectileInfo(id, row2.Speed, Lobbed: lobbed, Math.Max(1, catalog.ProjectileRadius(id) ?? 1))
         {
+            FixedFlight = lantern is > 0, ContactSeconds = (lantern ?? 666) / 1000.0,
             AnimationKey = animation ?? catalog.EffectAnimationKey(effect),
             ClientDraws = reason is null, ServerReason = reason, Arrows = arrows, Target = target,
             AimTranslates = aimTranslates, SkillStats = stats, EndsAtTarget = catalog.ProjectileEndsAtTarget(id), Recipe = recipe,
@@ -381,16 +416,15 @@ public static class MonsterShots
     static SkillCatalog.MonsterProjectileInfo? SpellMortar(SkillCatalog catalog, int effect, SkillCatalog.MonsterProjectileInfo mortar,
         Func<string, int> get)
     {
-        if (catalog.ActiveSkillId(effect) != "monster_mortar" || catalog.BehaviourVariation(effect) is not (> 0 and var row)
+        // SkillID 0 is MonsterMortar row 0 (MortarMolten: the Fire Elementals'), which the ctor keys by an absent
+        // skill_behaviour_variation (0x141a10750).
+        if (catalog.ActiveSkillId(effect) != "monster_mortar" || catalog.BehaviourVariation(effect) is not (>= 0 and var row)
             || catalog.MonsterMortarColumns(row) is not { } columns) return null;
         string? reason = get("monster_mortar_number_of_forks") != 0 ? "spell mortar forks"
             : get("number_of_chains") != 0 ? "spell mortar chains"
             : columns.Ground || columns.BounceScale ? "spell mortar ground effect or bounce"
-            : get("projectiles_nova") != 0 ? "spell mortar nova"
-            : get("mortar_cone_angle") != 0 ? "spell mortar cone"
             : get("projectile_swap_from_to_locations") != 0 ? "swapped ends"
             : get("projectile_uses_contact_direction") != 0 ? "projectile_uses_contact_direction"
-            : get("projectile_maximum_range_override") != 0 ? "capped range"
             : get("projectiles_barrage") != 0 || get("support_parallel_projectile_number_of_points_per_side") != 0 ? "barrage or parallel volley"
             : get("distribute_projectiles_over_contact_points") != 0 ? "projectiles over contact points"
             : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
@@ -440,8 +474,27 @@ public static class MonsterShots
     {
         int Get(string name) => Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
         if (Get("number_of_projectiles_override") is > 0 and var fixedCount) return fixedCount;
+        // A spiral's total: its steps plus every additional projectile, as the player's Vaal Spark's.
+        if (shot.ClientDraws && Spiral(shot) is { } spiral) return spiral.Steps;
         int count = GatewayProjectileDefaults.Resolve(shot.Metadata, Get, 1, attack, shot.Arrows).Count;
         return Math.Max(1, count + (splitArrow ? Get("split_arrow_number_of_additional_arrows") : 0));
+    }
+
+    /// <summary>A spiral through the shared release (0x141bb3c00, steps 0x141bb3eb0 / 0x141bb3f80): N steps (the record's
+    /// total: base_number_of_projectiles_in_spiral_nova plus the additional ones) one every time × N / (S × (N − 1)), the
+    /// first at once; step k turns the aim by k × angle / (S − 1) plus the starting offset, and its mirror arm by the
+    /// negative of that with projectile_spiral_nova_both_directions. Null for any other shot, and for a spiral the client
+    /// refuses (one step with an angle: one ordinary shot).</summary>
+    public static (int Steps, double Interval, double Step, double Offset, bool Both)? Spiral(SkillCatalog.MonsterProjectileInfo shot)
+    {
+        int s = Stat(shot, "base_number_of_projectiles_in_spiral_nova"), ms = Stat(shot, "projectile_spiral_nova_time_ms");
+        if (s <= 0 || ms <= 0 || shot.Lobbed) return null;
+        int n = Math.Max(1, s + Stat(shot, "number_of_additional_projectiles"));
+        int degrees = Stat(shot, "projectile_spiral_nova_angle");
+        if (n == 1 && degrees != 0) return null;
+        return (n, n > 1 ? ms / 1000.0 * n / (s * (n - 1.0)) : 0, s > 1 ? degrees * Math.PI / 180 / (s - 1) : 0,
+            Stat(shot, "projectile_spiral_nova_starting_angle_offset") * Math.PI / 180,
+            Stat(shot, "projectile_spiral_nova_both_directions") != 0);
     }
 
     /// <summary>The record's count stats for a shot the client draws (none for any other): the totals the action's
@@ -464,12 +517,23 @@ public static class MonsterShots
             stats.Add((lifeKey, life));
         // A burst's radius percentage (a creeping frost's, a spell mortar's landing), by which the client sizes the burst
         // it draws (0x141939aa0) as the server sizes its hit.
-        if ((shot.Recipe == "CreepingFrost" || shot.Lobbed) && Stat(shot, AreaPercent) is not 0 and var area && Stats.Key(AreaPercent) is uint areaKey)
+        if ((shot.Recipe is "CreepingFrost" or "BallLightning" or "ShavronneBallLightning" or "WaterVortex" || shot.Lobbed)
+            && Stat(shot, AreaPercent) is not 0 and var area && Stats.Key(AreaPercent) is uint areaKey)
             stats.Add((areaKey, area));
+        // A ball's strikes read active_skill_area_of_effect_radius as it stands (0x141939b60 with no override), which the
+        // client derives for no record: without it the ball strikes nothing and draws no bolt.
+        if (shot.Recipe == "BallLightning" && Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
+            stats.Add((radiusKey, (int)PulseRadius(shot, 18)));
         return stats;
     }
 
     const string AreaPercent = "total_skill_area_of_effect_radius_+%_including_final";
+
+    // A strike radius in cells: the skill's base radius (else the class's) by its radius percentage, rounded down as the
+    // client's integer radius (0x141939aa0).
+    static double PulseRadius(SkillCatalog.MonsterProjectileInfo shot, int classBase) =>
+        Math.Floor((Stat(shot, "active_skill_base_area_of_effect_radius") is > 0 and var b ? b : classBase)
+            * Math.Max(0, 100 + Stat(shot, AreaPercent)) / 100.0);
 
     /// <summary>A lobbed shot's area radius in cells: the shot's own, else its skill's base radius (the development
     /// fallback without one), by the skill's area percentage.</summary>
@@ -485,7 +549,7 @@ public static class MonsterShots
     /// with the skill's speed stats, the client's own range, contact and volley (Game.ClientDrawnProfile, seeded by the
     /// monster), and the shot's one count.</summary>
     public static ProjectileProfile ClientDrawnProfile(ClientState conn, SkillCatalog.MonsterProjectileInfo shot, bool attack,
-        ProjectileVector aim, ushort sequence, uint emitter)
+        ProjectileVector aim, ushort sequence, uint emitter, Func<ProjectileVector>? thrower = null, ProjectileVector? fromActor = null)
     {
         int Get(string name) => Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
         double speed = ProjectileSpeed.CellsPerSecond(shot.Speed, Get, Get, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
@@ -515,6 +579,38 @@ public static class MonsterShots
             };
         }
         if (shot.Recipe == "CreepingFrost") profile = CreepingFrostBurst(profile, Get);
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed);
+        if (shot.Recipe == "SpectralThrow" && thrower is not null)
+        {
+            // ThrownWeaponProjectile (ctor 0x141ab4fb0): a = 100 cells/s², or spectral_throw_deceleration_override, else
+            // scaled by spectral_throw_projectile_deceleration_+%; back at (1 + (P + R)/100) / (1 + P/100), P and R the
+            // projectile and returned projectile speed; it forgets its hits every 0.3 s (or its override, ms).
+            double a = Get("spectral_throw_deceleration_override") is > 0 and var fixedA ? fixedA
+                : 100 * Math.Max(0, 1 + Get("spectral_throw_projectile_deceleration_+%") / 100.0);
+            double p = Get("projectile_speed_+%") + Get("base_projectile_speed_+%");
+            double back = (1 + (p + Get("returned_projectile_speed_+%")) / 100.0) / Math.Max(.01, 1 + p / 100.0);
+            double forget = Get("spectral_throw_forget_hit_list_time_override") is > 0 and var forgetMs ? forgetMs / 1000.0 : .3;
+            profile = profile with
+            {
+                Legs = _ => new ThrownWeaponLegs(speed, Math.Max(1, a), back, thrower), LegLeash = 0, Returns = false,
+                HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(forget)),
+            };
+        }
+        if (shot.Recipe == "SpiralThrow")
+            // Each weapon spirals out from where it leaves (0x141a867f0) and ends one step after its first hit.
+            profile = profile with { Legs = _ => new SpiralThrowLegs(speed), LegLeash = 0, Returns = false, Pierce = 0 };
+        if (shot.Recipe == "Decelerating")
+        {
+            // 0x141ac9330: it stops where a thrown weapon of its speed would (D = v²/2a + 0.092 cells, a = 100), scaled by
+            // the Manhattan distance to its aim: a' = a × 2D / (|dx| + |dy|), from the row's speed.
+            double v = 92 * (1 + Math.Max(-99, Get("projectile_speed_+%")) / 100.0), a = 100;
+            double d = Math.Floor(v * v / (2 * a) + .092);
+            var line = fromActor ?? aim;
+            double manhattan = Math.Abs(line.X) + Math.Abs(line.Y);
+            double slowing = manhattan > 0 ? a * 2 * d / manhattan : 1e6;
+            double range = profile.Range;
+            profile = profile with { Legs = _ => new AcceleratingLegs(speed, -slowing, range), LegLeash = 0, Returns = false };
+        }
         if (shot.Recipe == "Accelerating")
         {
             // From the row's speed it gains 50 cells/s every second (0x1419f6180: s = v0·t + 25·t²) to its range.
@@ -537,6 +633,30 @@ public static class MonsterShots
             };
         }
         return profile;
+    }
+
+    // A ball or a vortex meets no actor (its collision mask is 0): it strikes everything within its radius as it flies,
+    // each target at most every 0.2 s. A ball's targets share one cooldown per cast (0x141a38a30: 0.2 s over
+    // ball_lightning_projectile_speed_and_hit_frequency_+%_final, or its time between hits); Shavronne's ball is 20
+    // cells by the area percentage (0x141b319e0); a vortex strikes all within 14 cells every 0.2 s (0x141c6cc10), each
+    // strike its own. Slow balls outlive the runtime's 10 s default.
+    static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed)
+    {
+        bool ball = shot.Recipe == "BallLightning";
+        double seconds = ball
+            ? (Get("ball_lightning_time_between_hits_ms") is > 0 and var ms ? ms : 200) / 1000.0
+                * 100 / Math.Max(1, 100 + Get("ball_lightning_projectile_speed_and_hit_frequency_+%_final"))
+            : .2;
+        double radius = PulseRadius(shot, ball ? 18 : shot.Recipe == "WaterVortex" ? 14 : 20);
+        return profile with
+        {
+            DirectDamage = false, Pierce = -1,
+            Pulse = new ProjectilePulseRecipe(shot.Recipe!.ToLowerInvariant(), radius,
+                shot.Recipe == "WaterVortex" ? ProjectileRuntime.Time(.2) : ProjectileRuntime.TickQuanta),
+            HitRule = new(shot.Recipe == "WaterVortex" ? ProjectileHitScope.Projectile : ProjectileHitScope.Emission,
+                ProjectileRepeat.Interval, ProjectileRuntime.Time(seconds)),
+            Lifetime = ProjectileRuntime.Time(profile.Range / Math.Max(.001, speed) + 1),
+        };
     }
 
     // A creeping frost's burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius
@@ -576,6 +696,7 @@ public static class MonsterShots
             };
         }
         if (shot.Recipe == "CreepingFrost") return CreepingFrostBurst(profile, Get);
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed);
         if (shot.Recipe == "SpectralThrow")
             return profile with
             {

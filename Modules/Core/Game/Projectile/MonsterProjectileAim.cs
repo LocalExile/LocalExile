@@ -8,6 +8,17 @@ public static partial class Game
         ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index) =>
         MonsterMortarTarget(actor, origin, aim, minimumRange, spread, sequence, owner, index, 0, out _);
 
+    // A water vortex's end (0x141c6cc80): on the L1 diamond of radius d around the caster's cell, in the aim's direction
+    // up to integer rounding (u : d − u = |dx| : |dy|), the caster's cell nudged one cell in x when it is the aim's.
+    public static ProjectileVector WaterVortexTarget(ProjectileVector actor, ProjectileVector aim, int d)
+    {
+        int ox = (int)actor.X, oy = (int)actor.Y, dx = (int)aim.X - ox, dy = (int)aim.Y - oy;
+        if (dx == 0 && dy == 0) dx = -1;
+        int l1 = Math.Abs(dx) + Math.Abs(dy);
+        int u = (l1 / 2 + Math.Abs(dx) * d) / l1;
+        return new(ox + Math.Sign(dx) * u, oy + (dy >= 0 ? d - u : -(d - u)));
+    }
+
     // The spell form's mover (0x141a10d50) runs the same steps, with mortar_projectile_distance_override between the
     // minimum range and the scatter: the landing rescaled to that distance from the launch (both forms, 0x141b6a017).
     // The first draw is the speed variation the spell form's flight time takes.

@@ -52,7 +52,7 @@ public static class BossKits
         List<int> usable = [];
         foreach (int effect in effects)
         {
-            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
+            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect) || MavenNucleus.ServerDoesNotUse(catalog, effect)) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                 || id.Contains("Daemon", StringComparison.Ordinal)
@@ -149,7 +149,7 @@ public static class BossKits
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.ShotFor(catalog, variety, effect, actorLevel) : null;
-        var summon = catalog.MonsterSummon(effect, actorLevel);
+        var summon = SummonsMonsters(catalog, effect) ? catalog.MonsterSummon(effect, actorLevel) : null;
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,

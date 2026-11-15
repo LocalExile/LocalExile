@@ -52,6 +52,106 @@ public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
 }
 
 /// <summary>
+/// A monster's thrown weapon as the client flies it (ThrownWeaponProjectile, per-frame 0x141ab59c0 on 0.066 s ticks):
+/// out from the release, slowing evenly by <c>a</c> (100 cells/s², or its deceleration stats) from its row's speed until
+/// it stops, or turns at 130 cells travelled; then back from rest, speeding up by <c>a</c> × the return factor toward
+/// the thrower's live cell, where it ends. A wall on the way out turns it at once; one on the way back ends it. Each leg
+/// flies one tick of that curve at the tick's average speed.
+/// shortcut: the client keeps separate outbound and return hit lists; this one flight forgets its hits on one window.
+/// </summary>
+public sealed class ThrownWeaponLegs(double speed, double deceleration, double returnFactor, Func<ProjectileVector> thrower) : IProjectileLegs
+{
+    public const double Tick = .066, TurnCells = 130;
+
+    ProjectileVector start, direction;
+    int tick, back;
+    bool returning, home;
+
+    double Covered(double t) => speed * t - deceleration * t * t / 2;
+    // When the way out ends: where it stops, or where it has flown 130 cells.
+    double OutboundSeconds => Covered(speed / deceleration) <= TurnCells ? speed / deceleration
+        : (speed - Math.Sqrt(Math.Max(0, speed * speed - 2 * deceleration * TurnCells))) / deceleration;
+
+    public bool EndsAfterLegs => true;
+
+    public double Lifetime => OutboundSeconds
+        + Math.Sqrt(2 * (Covered(OutboundSeconds) + 30) / Math.Max(.001, deceleration * returnFactor)) + 1;
+
+    public ProjectileLeg First(ProjectileVector from, ProjectileVector aim)
+    {
+        start = from;
+        direction = (aim - from).Length > 0 ? (aim - from).Unit : new(1, 0);
+        return Next(from, blocked: false);
+    }
+
+    public ProjectileLegTurn? NextTurn(ProjectileVector from, bool blocked)
+    {
+        if (home || blocked && returning) return null;
+        if (blocked) returning = true;
+        return new ProjectileLegTurn(Next(from, blocked));
+    }
+
+    public ProjectileLeg Next(ProjectileVector from, bool blocked)
+    {
+        if (!returning)
+        {
+            double end = OutboundSeconds, t0 = Math.Min(tick * Tick, end), t1 = Math.Min(++tick * Tick, end);
+            if (t1 >= end) returning = true;
+            double before = Covered(t0), after = Covered(t1);
+            return new(start + direction * after, Math.Max(.001, (after - before) / Math.Max(1e-6, t1 - t0)));
+        }
+        double legSpeed = Math.Max(.001, deceleration * returnFactor * (back++ + .5) * Tick);
+        var gap = thrower() - from;
+        if (gap.Length <= legSpeed * Tick)
+        {
+            home = true;
+            return new(from + gap, legSpeed);
+        }
+        return new(from + gap.Unit * legSpeed * Tick, legSpeed);
+    }
+}
+
+/// <summary>
+/// Vaal Thrown Weapon's weapon as the client flies it (VaalThrownWeapon, steps 0x141a86380 / 0x141a867f0): 216 steps
+/// out from its spawn cell along a spiral of four turns whose radius grows to 48 cells, each step 3/v seconds, the point
+/// at (sin θ, cos θ) × r in this class's convention. A wall ends it.
+/// </summary>
+public sealed class SpiralThrowLegs(double speed) : IProjectileLegs
+{
+    const int Steps = 216;
+    const double Radius = 48, Turns = 4;
+
+    ProjectileVector centre;
+    double heading;
+    int step;
+
+    public bool EndsAfterLegs => true;
+
+    public double Lifetime => Steps * 3 / Math.Max(.001, speed) + .5;
+
+    public ProjectileLeg First(ProjectileVector from, ProjectileVector aim)
+    {
+        centre = from;
+        var d = aim - from;
+        // shortcut: the base angle's arguments (0x140e2b840) are not traced; the throw's own direction, a quarter
+        // turn on, as the class adds 1.5707964.
+        heading = (d.Length > 0 ? Math.Atan2(d.X, d.Y) : 0) + Math.PI / 2;
+        return Next(from, blocked: false);
+    }
+
+    public ProjectileLegTurn? NextTurn(ProjectileVector from, bool blocked) =>
+        blocked || step >= Steps ? null : new ProjectileLegTurn(Next(from, blocked));
+
+    public ProjectileLeg Next(ProjectileVector from, bool blocked)
+    {
+        step++;
+        double r = Radius * step / Steps, theta = heading + step / (double)Steps * Turns * 2 * Math.PI;
+        var point = centre + new ProjectileVector((int)(Math.Sin(theta) * r), (int)(Math.Cos(theta) * r));
+        return new(point, Math.Max(.01, (point - from).Length) * speed / 3);
+    }
+}
+
+/// <summary>
 /// When the client lets Spectral Throw's weapon go. Its action plays the stance's Melee (the class ACT: SpectralThrow =
 /// "@Melee"); with a one-handed sword, mace or axe and a shield that alternates two views of doublestrike_sword_shield
 /// (the class's NoWind .ao), "attack_sword_shield_01a:attack_time=…" and then "01b". A view plays at its length over its

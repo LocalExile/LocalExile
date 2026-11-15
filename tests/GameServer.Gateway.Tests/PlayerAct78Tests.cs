@@ -76,7 +76,7 @@ public sealed class PlayerAct78Tests
             Assert.Equal(("Metadata/Projectiles/DefaultArrow", true),
                 (Shot("Metadata/Monsters/Bandits/BanditBow", "MeleeAtAnimationSpeed") is { } sniper ? (sniper.Metadata, sniper.ClientDraws) : default));
             Assert.Equal("Metadata/Projectiles/PaleKingSiphon", Shot("", "ProphecyBossEssenceDrain")!.Metadata);
-            Assert.Equal(("Metadata/Projectiles/ThrownWeapon", "SpectralThrow", false),
+            Assert.Equal(("Metadata/Projectiles/ThrownWeapon", "SpectralThrow", true),
                 (Shot("", "ExileThrownWeapon")!.Metadata, Shot("", "ExileThrownWeapon")!.Recipe, Shot("", "ExileThrownWeapon")!.ClientDraws));
             Assert.Equal(("Metadata/Projectiles/MatriachMortar", true, "RollingMagma"),
                 (Shot("", "MotherOfFlamesMagmaOrb")!.Metadata, Shot("", "MotherOfFlamesMagmaOrb")!.Lobbed, Shot("", "MotherOfFlamesMagmaOrb")!.Recipe));
@@ -88,19 +88,21 @@ public sealed class PlayerAct78Tests
             Assert.Equal((true, 10, true), (spellMortar.ClientDraws, spellMortar.Variation, spellMortar.FixedFlight));
             Assert.Equal(0.4, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
             Assert.Equal(0.496, MonsterShots.MortarFlightSeconds(Shot("", "WaterElementalMortar")!, 1), 3);
-            // ... but a nova of them is the server's: the client rings what the server lands at one aim.
-            Assert.Equal((false, "spell mortar nova"), (Shot("", "DoedreBloodProjectileNova1")!.ClientDraws, Shot("", "DoedreBloodProjectileNova1")!.ServerReason));
+            // ... and so is a nova of them, each landing turned about the launch as the client's emitter turns it.
+            Assert.True(Shot("", "DoedreBloodProjectileNova1")!.ClientDraws);
             // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record; a totem's
             // spark is the server's, which places no totem.
             var spark = Shot("", "MonsterSpark")!;
             Assert.Equal(("Metadata/Projectiles/Spark", true, "Spark"), (spark.Metadata, spark.ClientDraws, spark.Recipe));
             Assert.Contains(MonsterShots.CountStats(spark), s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 > 0);
             Assert.Equal((false, "totem, trap or mine form"), (Shot("", "BossSparkTotem")!.ClientDraws, Shot("", "BossSparkTotem")!.ServerReason));
-            // An ice spear changes form 20.199 cells out, its second form stronger; a spiral of them is the server's.
+            // An ice spear changes form 20.199 cells out, its second form stronger.
             var spear = Shot("", "MountainGoatmanIceSpear")!;
             var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);
             Assert.Equal((true, -1, 20.199, 1.25), (spear.ClientDraws, spearFlight.Pierce, spearFlight.FormChange!.Distance, spearFlight.FormChange.DamageMultiplier));
-            Assert.Equal("spiral nova", Shot("", "BeyondDemonIceSpearSpiral")!.ServerReason);
+            // A spiral's steps are the shared release's: the record carries their total, the server flies each step.
+            var spiralSpear = Shot("", "BeyondDemonIceSpearSpiral")!;
+            Assert.Equal((true, spiralSpear.Count), (spiralSpear.ClientDraws, MonsterShots.Spiral(spiralSpear)!.Value.Steps));
             // Creeping frost meets the player and bursts there, at the radius its record gives the client (Hailrake's +100%).
             var frost = Shot("", "HailrakeArcticBreath")!;
             var frostFlight = MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40);

@@ -209,7 +209,8 @@ public static partial class Game
         var projectile = rangedAttack ? MavenNucleus.ShotFor(catalog, variety, effect, level, mods.Effects.Stats) : null;
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
-        var summon = variety.GrantedEffects is [int summonEffect, ..] ? catalog.MonsterSummon(summonEffect, level) : null;
+        var summon = variety.GrantedEffects is [int summonEffect, ..] && SummonsMonsters(catalog, summonEffect)
+            ? catalog.MonsterSummon(summonEffect, level) : null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
@@ -1679,6 +1680,9 @@ public static partial class Game
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
     // and giving no experience or items when the skill says so.
+    // A Lightning Golem boss's arc carries alternate_minion 1 (a Rhoa), which no arc summons.
+    public static bool SummonsMonsters(SkillCatalog catalog, int effect) => catalog.ActiveSkillId(effect) != "lightning_golem_arc";
+
     public static async Task MonsterSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon)
     {

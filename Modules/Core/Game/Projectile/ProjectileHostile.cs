@@ -75,6 +75,18 @@ public static partial class Game
                 if (projectile.Lobbed)
                 {
                     if (!projectile.AimTranslates) translated = aim;
+                    // The release (0x141ba51a0) holds the aim at least 60 units (5.52 cells) from the caster's cell and, on
+                    // a UseTargetLocation row with a range of its own, no farther than that range.
+                    var reachFromActor = translated - from;
+                    double held = reachFromActor.Length < 60 / WorldUnits.PerCell ? 60 / WorldUnits.PerCell
+                        : projectile.EndsAtTarget && MortarRange() < 150 && reachFromActor.Length > MortarRange() ? MortarRange()
+                        : reachFromActor.Length;
+                    if (held != reachFromActor.Length)
+                    {
+                        var line = reachFromActor.Length > 0 ? reachFromActor.Unit : new ProjectileVector(1, 0);
+                        var moved = from + line * held;
+                        translated = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+                    }
                     if (projectile.Count > 1) fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
                 }
                 var arm = translated - start;
@@ -110,6 +122,9 @@ public static partial class Game
                     nativeSpeeds = [.. nativeTargets.Select((t, i) => Math.Max(.001, (t - origin).Length) / MonsterShots.MortarFlightSeconds(projectile, draws[i]))];
             }
             else if (projectile.AimTranslates) aim = translated;
+            // A water vortex ends on its diamond, whatever the aim's distance.
+            if (projectile.Recipe == "WaterVortex")
+                nativeTargets = [WaterVortexTarget(from, aim, (int)(128 * (100 + SkillStat("spell_maximum_action_distance_+%")) / 100.0))];
         }
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
@@ -134,7 +149,13 @@ public static partial class Game
         // A UseTargetLocation shot ends at the aimed cell; any other straight one flies past it.
         double straightRange = projectile.EndsAtTarget ? Math.Max(.001, (aim - origin).Length) : Math.Max(distance, a.Range) * 1.5 + 5;
         var profile = projectile is { ClientDraws: true, Lobbed: false } && !mortar
-            ? MonsterShots.ClientDrawnProfile(conn, projectile, attack: !a.Spell, aim - origin, sequence, id) with { Speed = speed }
+            ? MonsterShots.ClientDrawnProfile(conn, projectile, attack: !a.Spell, aim - origin, sequence, id,
+                thrower: () => ProjectileSession.Vector(m.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond)),
+                fromActor: aim - from) with
+                {
+                    // A lantern reaches its aim its clip's contact after the release, at any distance.
+                    Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
+                }
             : projectile.Recipe is not null ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
@@ -208,6 +229,33 @@ public static partial class Game
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
+        // A spiral the client draws: one step at a time from the monster's cell then, each turned from the aim the
+        // first step took (MonsterShots.Spiral); the steps run on once released.
+        if (projectile is { ClientDraws: true } && MonsterShots.Spiral(projectile) is { } spiral)
+        {
+            double first = releaseAt ?? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            ProjectileVector? line = null;
+            for (int k = 0; k < spiral.Steps; k++)
+            {
+                int step = k;
+                double turn = spiral.Offset + step * spiral.Step;
+                // The first step needs the action; the rest follow it once it has flown.
+                session.Schedule(ProjectileRuntime.Time(first + step * spiral.Interval),
+                    () => (step == 0 ? MonsterActionCurrent(conn, id, m, action) : line is not null) && !InGracePeriod(conn),
+                    () =>
+                    {
+                        var use = MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence);
+                        line ??= use.Aim - use.Origin;
+                        IReadOnlyList<double> arms = spiral.Both ? [turn, -turn] : [turn];
+                        return use with
+                        {
+                            Aim = use.Origin + line.Value,
+                            Profile = use.Profile with { Count = arms.Count, NativeVolley = new() { Angles = arms } },
+                        };
+                    });
+            }
+            return;
+        }
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(conn, id, m, action) && !InGracePeriod(conn),
             () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence));
