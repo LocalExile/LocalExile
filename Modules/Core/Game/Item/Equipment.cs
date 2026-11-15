@@ -90,14 +90,19 @@ public static partial class Game
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
     public static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
         WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand) is { } weapon && hand is { } active
-            ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item).ToFrozenDictionary() } : null;
+            ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item, weapon.LocalSources!).ToFrozenDictionary() } : null;
 
-    static Dictionary<string, int> QualifiedHandLocalStats(ClientState conn, Item item)
+    static Dictionary<string, int> QualifiedHandLocalStats(ClientState conn, Item item,
+        IReadOnlyDictionary<string, int>? weaponSources = null)
     {
+        var result = new Dictionary<string, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(conn).Mods));
         var local = ItemModStats.Local(item, ItemsFor(conn).Mods);
-        if (!local.Keys.Any(name => StatConditions.PlainOf(name) is not null)) return local;
+        if (!local.Keys.Any(name => StatConditions.PlainOf(name) is not null)) return result;
         var flags = conn.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(conn, ResourceEffectsTime(conn));
-        return ItemModStats.Local(item, ItemsFor(conn).Mods, new(Flags: flags), Stats.Has);
+        foreach (string name in local.Keys) result.Remove(name);
+        foreach (var (name, value) in ItemModStats.Local(item, ItemsFor(conn).Mods, new(Flags: flags), Stats.Has))
+            result[name] = value;
+        return result;
     }
 
     public static SkillCatalog.Unarmed? WeaponIn(SkillCatalog skills, ItemCatalog catalog, int classRow,

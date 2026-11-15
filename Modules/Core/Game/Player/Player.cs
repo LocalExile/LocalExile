@@ -69,7 +69,8 @@ public static partial class Game
                     ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
                 var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
                     AuraCatalog.BuffRow(effectId, stance),
-                    reservation.ManaFlat, reservation.ManaPercent, reservation.LifeFlat, reservation.LifePercent,
+                    reservation.ManaFlat, reservation.ManaPercent,
+                    LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
                     Level: supported.Level, Quality: supported.Quality, SourceBuff: conn.NextBuff++,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,

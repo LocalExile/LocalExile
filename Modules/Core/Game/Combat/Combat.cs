@@ -2305,6 +2305,16 @@ public static partial class Game
                             Blinded(conn, id), m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
                         profile = new(woven.Hit.Scale(ruthless), woven.Ignite, woven.Bleed, woven.Poison);
                     }
+                    if (!spell && repeat > 0)
+                    {
+                        double repeatMore = MeleeRepeatDamageMore(conn, skillId, repeat);
+                        profile = profile with
+                        {
+                            Ignite = RepeatAilment(profile.Ignite, repeatMore),
+                            Bleed = RepeatAilment(profile.Bleed, repeatMore),
+                            Poison = RepeatAilment(profile.Poison, repeatMore),
+                        };
+                    }
                     var contactHit = profile.Hit;
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     if (SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam")

@@ -163,8 +163,9 @@ public static partial class Game
     {
         string effectId = StanceCatalog.RuntimeEffectId(sourceEffectId, selected);
         return new(skillId, effect, effectId, name, 0, AuraCatalog.BuffRow(effectId, selected),
-            reservation.ManaFlat, reservation.ManaPercent, reservation.LifeFlat, reservation.LifePercent,
-            level, quality, SourceBuff: 0, WornGrant: supported.WornGrant,
+            reservation.ManaFlat, reservation.ManaPercent, level, quality,
+            LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
+            SourceBuff: 0, WornGrant: supported.WornGrant,
             SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
             SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: selected,
             ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);

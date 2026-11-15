@@ -3713,7 +3713,7 @@ public partial class ConditionalItemStatsTests
             var vitalityCost = global::Game.SupportedReservationCost(arrogance, vitality.Id)!.Value;
             var proposed = arrogance.Auras.Values.Append(new AuraCatalog.Aura(vitality.Id, vitality.Effect,
                 "Vitality", vitality.Name, 1, 1, vitalityCost.ManaFlat, vitalityCost.ManaPercent,
-                vitalityCost.LifeFlat, vitalityCost.LifePercent));
+                LifeFlat: vitalityCost.LifeFlat, LifePercent: vitalityCost.LifePercent));
             Assert.True(LifeReservation.RequiredSkillLife(arrogance.Pools, proposed) >= arrogance.Pools.Life,
                 $"Purity {cost.LifePercent}, Vitality {vitalityCost.LifePercent}/{vitalityCost.LifeFlat}, " +
                 $"required {LifeReservation.RequiredSkillLife(arrogance.Pools, proposed)}/{arrogance.Pools.Life}");

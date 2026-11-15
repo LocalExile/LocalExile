@@ -8,10 +8,11 @@ public static class AuraCatalog
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
-        int ManaFlat, int ManaPercent, int LifeFlat = 0, int LifePercent = 0, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
+        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
         WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
-        bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false)
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false,
+        int LifeFlat = 0, int LifePercent = 0)
     {
         public object? StanceOwner { get; init; }
     }
