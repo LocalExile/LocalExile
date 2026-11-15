@@ -116,6 +116,8 @@ public class PartyAreaTests
                 Assert.Equal(5, MapDevice.TakePortal(member.Character!, 0, opened.Run)?.Left);
                 Assert.Null(MapDevice.TakePortal(member.Character!, 1, opened.Run)); // First transfer not resolved yet.
                 MapDevice.Entered(member.Character!, mapArea, member.InstanceNumber);
+                // A real connection admits the retained run before publishing its map-dependent loot rules.
+                MapDevice.Admit(member.Instance!, 0x50415254, graveyard, member.InstanceNumber);
                 leader.QuestFlags.UnionWith(GameServer.Core.ClientTables.Table("WorldAreas")
                     .First(r => r.Int("HASH16") == town).Ints("EndQuestFlags")
                     .Select(r => GameServer.Core.ClientTables.Table("QuestFlags")[r].Text("Id")!));

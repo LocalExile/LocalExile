@@ -40,7 +40,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
-- Character-build imports validate native items and full trees, preserving secondary ascendancy and module-owned progress.
+- Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
