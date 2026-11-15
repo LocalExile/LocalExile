@@ -34,6 +34,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   counted and nobody could reach or kill.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
+- The map overlay's "X monsters remain" line: S→C 0x1a0 carries living hostile monsters, including dormant enemies,
+  excluding friendly summons and corpses. Shared-instance updates follow entry, kills, spawns and removals; emerging
+  leaves the total unchanged. The native client accepted the capped 255 count and zero after a Beach clear; the
+  1 / 0..50 / 51..255 text thresholds were verified with native `/raw` messages.
+  Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §2.
 - Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
   `MonsterMapDifficulty`, added as percentages (level 83: ×20.73 life, ×1.15 damage). The King in the Mists' humanoid
   form therefore has 45,614,731 life at level 83, matching poedb's display.
@@ -287,11 +293,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
   Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Modules/Core/Game/Monster/Monsters.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
-- The map overlay's "X monsters remain" line: S→C 0x1a0 carries the area's living monsters, sent on entry once the
-  packs are placed and again when a monster dies, joins, rises or leaves. The byte and its 1 / 0..50 / 51..255
-  thresholds were verified live with `/raw`; the count, its refresh and the line the client shows are not played yet.
-  Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
-  Docs: [14](../docs/protocol/14-monster-packs.md) §2.
+
 
 ## Not working yet
 

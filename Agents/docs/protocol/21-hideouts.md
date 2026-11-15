@@ -250,7 +250,7 @@ is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. See
 own portal, slot +0xb8 (`0x14161c0e0`) calls the text getter `0x14161ca80`: `[rcx+8]` is the component, `[+0xb0]` the
 WorldAreas row the entry's area HASH16 resolved to and `[+8]` its localized name; `cmp byte ptr [rax], r8b`
 (`0x14161caa7`) then tests one byte of the component and, when it is set, appends `ClientStrings` row `0x1fe5`
-`MapPortalsSuffixMapCompleted`, "{0} (Completed)" (`0x14161caf1`). That byte is **+0x33**, filled by bit 1 of this
+`MapPortalsSuffixMapCompleted`, "{0} (Completed)" (`0x14161caf1`). That byte is **native message +0x33**, filled by bit 1 of this
 message's flags and nothing else: the reader stores `flags & 1` at +0x32 and `(flags >> 1) & 1` at +0x33 (`0x1421a73b2`,
 `0x1421a73c1`), the dispatcher's case 0x21 hands bit 1 to the handler (`0x14218ca36`, kept at world +0xb7b), and the
 handler forwards it per listed portal as the 7th argument of slot +0xb8 (`0x14218cc2d`, call `0x14218cc4c`). Because it
