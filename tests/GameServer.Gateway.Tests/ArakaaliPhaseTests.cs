@@ -88,6 +88,10 @@ public sealed class ArakaaliPhaseTests
         var images = c.Monsters.Values.Where(m => m.Variety?.Id == Yugul.Image).ToArray();
         Assert.Equal(10, images.Length);
         Assert.True(boss.WorldHidden); Assert.DoesNotContain(id, c.MonsterViews.Keys);
+        Assert.False(LivingCollision.Blocks(boss)); Assert.False(LivingCollision.StepsWithBodies(boss));
+        var projectiles = new Game.ProjectileSession(c.Wire.Remote, wire.Stream, wire.Ciphers, c);
+        Assert.DoesNotContain(projectiles.Actors(0, 0), actor => actor.Key.Id == id);
+        Assert.Contains(projectiles.Actors(0, 0), actor => c.Monsters.TryGetValue(actor.Key.Id, out var m) && images.Contains(m));
         Assert.All(images, m => { Assert.True(m.NoRewards); Assert.Equal(id, m.SummonerId); Assert.NotEmpty(m.Kit); });
         foreach (var m in images.Take(9)) m.Life = 0;
         fight.Stop(); fight = new(id, boss, c); await fight.Bind(c); await fight.Step(c, 110); await fight.Step(c, 114);
@@ -96,6 +100,8 @@ public sealed class ArakaaliPhaseTests
         Assert.True(boss.Invulnerable); await fight.Step(c, 116.2);
         Assert.False(boss.Invulnerable); Assert.False(boss.StageRunning); Assert.Equal(1, phase.Completed);
         Assert.False(boss.WorldHidden); Assert.Contains(id, c.MonsterViews.Keys);
+        Assert.True(LivingCollision.Blocks(boss));
+        Assert.Contains(projectiles.Actors(0, 0), actor => actor.Key.Id == id);
         boss.Life = phase.Damage(boss.Life, boss.MaxLife, int.MaxValue);
         Assert.Equal((uint)((ulong)boss.MaxLife * 33 / 100), boss.Life);
         await fight.Step(c, 120); await fight.Step(c, 124);
@@ -162,6 +168,12 @@ public sealed class ArakaaliPhaseTests
         var rebound = new ArakaaliLasers.Field(c, id, boss); await rebound.Bind(c); await rebound.Step(c, 210);
         Assert.Equal(seen, c.SceneViews.Count); Assert.Equal(52, c.Instance.World.SceneObjects.Count);
         Assert.DoesNotContain(c.Instance.World.SceneObjects.Values, s => s.Object.TransitionState == 2);
+        await rebound.Step(c, 216); await rebound.Step(c, 217);
+        Assert.Equal(6, c.Instance.World.SceneObjects.Values.Count(s => s.Object.TransitionState == 2));
+        c.Instance.World.Runner = c; boss.Dead = true;
+        await ArakaaliLasers.Tick(c);
+        Assert.DoesNotContain(c.Instance.World.SceneObjects.Values, s => s.Object.TransitionState == 2);
+        boss.Dead = false;
         Assert.Equal(0, ArakaaliLasers.Field.LineDistance((5, 0), (0, 0), (10, 0)));
         Assert.True(ArakaaliLasers.Field.LineDistance((5, 8), (0, 0), (10, 0)) > ArakaaliLasers.Radius);
         rebound.Stop();

@@ -17,7 +17,7 @@ public static class ArakaaliLasers
         if (c.Layout.Id != Arakaali.Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         KeyValuePair<uint, SpawnedMonster> found;
         lock (c.Monsters) found = c.Monsters.FirstOrDefault(p => Arakaali.IsBoss(p.Value.Variety));
-        if (found.Value is null || found.Value.Dead) return;
+        if (found.Value is null) return;
         var field = Fields.GetValue(c.Instance, _ => new(c, found.Key, found.Value));
         await field.Gate.WaitAsync();
         try { await field.Bind(c); if (IsMonsterRunner(c)) await field.Step(c, c.Clock.Elapsed.TotalSeconds); }

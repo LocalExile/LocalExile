@@ -288,7 +288,7 @@ public static partial class Game
             var result = new List<ProjectileActor>(Conn.Monsters.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
-                if (monster.Dead || monster.Life == 0) continue;
+                if (monster.Dead || monster.Life == 0 || monster.WorldHidden) continue;
                 var walk = monster.Walk;
                 int size = LivingCollision.Size(monster);
                 if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
@@ -361,7 +361,7 @@ public static partial class Game
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
                 return ProjectileHitResult.Miss;
-            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
+            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
