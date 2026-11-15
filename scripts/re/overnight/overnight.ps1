@@ -148,7 +148,7 @@ function Log-Has([string]$log, [string]$pattern) { (Test-Path "$Logs\$log.log") 
 function Later-Passes([string]$proj, [string]$project, [string]$bin, [string]$file, [string]$d, [string]$tag, [string]$heap) {
     Stage "$tag-fragments" {
         Remove-Item "$Logs\$tag-fragments.log" -ErrorAction SilentlyContinue
-        & python -I -X utf8 "$PSScriptRoot\fragments.py" $file $d *>> "$Logs\$tag-fragments.log"
+        & python -I -X utf8 "$PSScriptRoot\fragments.py" $file $d 2>&1 | ForEach-Object { "$_" } | Out-File -Append -Encoding utf8 "$Logs\$tag-fragments.log"   # not *>>: UTF-16, and Ghidra's lines appended after it are ASCII
         if ((Get-Item "$d\fragment-entries.txt").Length -eq 0) { return 'no entries' }
         Ghidra-Run $proj $project $bin "$tag-fragments" 180 60 $heap '' "-postScript NightFragments.java `"$d\fragment-entries.txt`" `"$d`""
     } { (Test-Path "$d\fragment-entries.txt") -and ((Get-Item "$d\fragment-entries.txt").Length -eq 0 -or (Log-Has "$tag-fragments" 'listed, .* created')) } -retries 1
@@ -261,6 +261,15 @@ if ($Track -eq 'code') {
             }
             $a.Close(); $b.Close()
             if ($same) { Say "bin $($bin.Name): only the start of Game.exe, skipped"; continue }
+        }
+        # Another game build (a hotfix) with every function where Game.exe has it: its decompile would be Game.exe's again.
+        # Its code addresses are Game.exe's; compare_builds.py --data-map gives its moved data and lists the few real changes.
+        if ($bin.Length -eq (Get-Item "$Client\Game.exe").Length) {
+            $mask = [regex]::Match((Get-Content -Raw "$Repo\src\GameServer.Core\Protocol\ClientBuilds.cs"), "(?i)`"$GameHash`",\s*(0x[0-9a-f]+)").Groups[1].Value
+            $cmp = & python -I -X utf8 "$Repo\scripts\re\port\compare_builds.py" "$Client\Game.exe" $bin.FullName $mask 2>&1 | ForEach-Object { "$_" }
+            if ($mask -and ($cmp -match 'all starts and ends equal: True')) {
+                Say "bin $($bin.Name): same functions as Game.exe (compare_builds.py), skipped"; continue
+            }
         }
         $d = "$Root\bins\$($bin.Name)"
         Stage "bin-$($bin.Name)" {
