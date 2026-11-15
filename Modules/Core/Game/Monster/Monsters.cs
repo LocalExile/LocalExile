@@ -230,6 +230,8 @@ public static partial class Game
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
         var summon = variety.GrantedEffects is [int summonEffect, ..] ? MonsterSummonOf(catalog, summonEffect, level) : null;
+        // A totem whose body would have nothing to do is no summon: the monster would cast and nothing would rise.
+        if (summon is { Effect: >= 0 } && BossKits.BodyAttack(conn, Monsters.Find(summon.Variety.ToString()), level, summon.Effect, 0x4000) is null) summon = null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
@@ -1723,9 +1725,18 @@ public static partial class Game
             expires = now + summon.Lifetime;
         }
         if (surplus.Count > 0) await RetireSummonedMonsters(remote, stream, ciphers, conn, surplus, "makes room for a newer one");
+        // A body summoned for a skill (a totem) holds that skill alone, as its kit's slot 0x4000, and acts with it.
+        var acts = summon.Effect >= 0 ? BossKits.BodyAttack(conn, variety, m.Level, summon.Effect, 0x4000) : null;
+        if (summon.Effect >= 0 && acts is null) return;
+        IReadOnlyList<GrantedSkill>? skills = acts is null ? null
+            : BossKits.SkillsOf(conn, variety, m.Level, [new MonsterKitSkill(summon.Effect, acts, 0)]);
         for (int k = 0; k < summon.Count; k++)
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
-                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; summoned.ExpiresAt = expires; });
+                ownedSkills: skills, owned: (_, summoned) =>
+                {
+                    summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; summoned.ExpiresAt = expires;
+                    if (acts is not null) summoned.Attack = acts;
+                });
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 

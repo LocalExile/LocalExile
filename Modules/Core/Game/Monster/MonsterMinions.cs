@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core;
 using GameServer.Core.Protocol.Login;
 
 /// <summary>
@@ -18,6 +19,7 @@ public static partial class Game
     public static SkillCatalog.MonsterSummonInfo? MonsterSummonOf(SkillCatalog catalog, int effect, byte level)
     {
         if (catalog.MonsterSummon(effect, level) is { } specific) return specific;
+        if (MonsterTotemOf(catalog, effect, level) is { } totem) return totem;
         if (SummonData.ForActiveSkill(effect) is not { Corpse: false } definition) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -29,6 +31,46 @@ public static partial class Game
             Limit = definition.LimitStat.Length == 0 ? 0 : Math.Max(0, Get(definition.LimitStat)),
             Lifetime = definition.Persistent || ms <= 0 ? double.PositiveInfinity : ms / 1000.0,
             AtTarget = true,
+        };
+    }
+
+    /// <summary>Metadata/Monsters/Monster.ot: base_number_of_totems_allowed 1 (traps 3, remote mines 5), every monster's.</summary>
+    public const int MonsterTotemsAllowed = 1;
+
+    // SkillTotemVariations: (SkillTotemsKey, TotemSkinId) → MonsterVarieties row.
+    static readonly Lazy<Dictionary<(int Key, int Skin), int>> TotemSkins = new(() =>
+    {
+        var result = new Dictionary<(int, int), int>();
+        foreach (var v in ClientTables.TableOrEmpty("SkillTotemVariations"))
+            if (v.IntOrNull("MonsterVarietiesKey") is int row) result.TryAdd((v.Int("SkillTotemsKey"), v.Int("TotemSkinId")), row);
+        return result;
+    });
+
+    /// <summary>A monster's totem skill (stats is_totem, or the SummonsTotem type: Siege Ballista) as a summon of its
+    /// body, which then uses the skill (MonsterSummonInfo.Effect).
+    /// <para>The body is SkillTotemVariations' row for the skill's ActiveSkills.SkillTotemId (12 for Siege Ballista's
+    /// Snipe totems) or, for a spell whose skill names none of its keys (22, as Fireball's and Wither's do), the player's
+    /// generic spell totem key 3 (Totems.Rules: TotemVariety), at the skin <c>totem_art_variation</c> names (the Rogue
+    /// Exiles' 5: ZigguratTotem, SnipeZigguratTotem). It stands base_totem_duration (with totem_duration_+%), as many
+    /// come at once as number_of_totems_summoned_in_formation, and the summoner keeps Monster.ot's one plus the skill's
+    /// number_of_additional_totems_allowed. It rises where the summoner stands.</para></summary>
+    public static SkillCatalog.MonsterSummonInfo? MonsterTotemOf(SkillCatalog catalog, int effect, byte level)
+    {
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get("is_totem") == 0 && !catalog.HasType(effect, "SummonsTotem")) return null;
+        int? skillKey = ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("ActiveSkill") is int active
+            ? ClientTables.TableOrNull("ActiveSkills")?.Row(active)?.IntOrNull("SkillTotemId") : null;
+        int skin = Get("totem_art_variation");
+        int key = skillKey is int k && TotemSkins.Value.ContainsKey((k, skin)) ? k : catalog.IsSpell(effect) ? 3 : -1;
+        if (!TotemSkins.Value.TryGetValue((key, skin), out int body) || Monsters.Find(body.ToString()) is not { Supported: true }) return null;
+        double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
+        return new(body, Math.Max(1, Get("number_of_totems_summoned_in_formation")), 0, true, catalog.CastTimeMs(effect) / 1000.0,
+            catalog.CooldownMs(effect, catalog.MaxLevelAt(effect, level)) / 1000.0)
+        {
+            Limit = MonsterTotemsAllowed + Get("number_of_additional_totems_allowed"),
+            Lifetime = seconds > 0 ? seconds : double.PositiveInfinity,
+            Effect = effect,
         };
     }
 

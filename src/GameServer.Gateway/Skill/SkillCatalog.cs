@@ -1075,6 +1075,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>Brought where the skill aims (the player), as the player's own minion skills place theirs, rather
         /// than <see cref="Offset"/> ahead of the summoner.</summary>
         public bool AtTarget { get; init; }
+        /// <summary>The GrantedEffects row the summoned body acts with (a totem's totemified skill); -1 for a minion that
+        /// fights with its own.</summary>
+        public int Effect { get; init; } = -1;
     }
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)

@@ -121,28 +121,61 @@ public static class BossKits
             // A unique's ranged skill flies the projectile the client's art resolver picks for it, as an object of the
             // server's (a monster's action draws none of its own but a mortar's: Game.MonsterProjectileUse). One that
             // resolves to none is left out: its hit would land with nothing in flight.
-            if (unique && kit.Count > 0 && attack.Ranged && attack.Projectile is null)
+            if (unique && kit.Count > 0)
             {
-                if (ArtShot(catalog, effect, level) is not { } shot) continue;
-                attack = attack with
+                // A totem's skill is its body's to use: the summon is kept only when that body has something to do.
+                if (attack.Summon is { Effect: >= 0 } totem)
                 {
-                    Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot),
-                };
-            }
-            if (unique && kit.Count > 0 && attack.Projectile is null && attack.Summon is null)
-            {
-                // A trap or a totem is an object of its own, and Storm Call's marker is server art (StormCall.cs): the
-                // server places none of them for a monster, so the client would show the cast and nothing where it hits.
-                if (catalog.HasType(effect, "Trapped") || catalog.HasType(effect, "SummonsTotem")
-                    || catalog.EffectId(effect) is { } stormCall && MonsterSkills.Family(stormCall) == "StormCall") continue;
-                if (AreaRadius(catalog, effect, level) is double radius && !catalog.IsMelee(effect))
-                    attack = attack with { AreaRadius = radius, AreaAtSelf = catalog.HasType(effect, "Nova") };
+                    if (BodyAttack(conn, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null) continue;
+                }
+                else if (attack.Summon is null)
+                {
+                    if (Shaped(conn, variety, level, effect, attack) is not { } shaped) continue;
+                    attack = shaped;
+                }
             }
             bool acts = !attack.Damage.IsZero || attack.Summon is not null || attack.Projectile is not null;
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
         return kit;
+    }
+
+    /// <summary>A unique's skill as it plays: a ranged one flies the projectile the client's art resolver picks for it,
+    /// as an object of the server's (a monster's action draws none of its own but a mortar's: Game.MonsterProjectileUse);
+    /// an area one lands within its radius. Null for one the server cannot play: a ranged skill whose art resolves no
+    /// projectile (its hit would land with nothing in flight), a trap (an object the server does not throw for a monster
+    /// yet), Storm Call (its marker is server art: StormCall.cs).</summary>
+    public static MonsterAttack? Shaped(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack)
+    {
+        var catalog = SkillsFor(conn);
+        if (attack.Ranged && attack.Projectile is null)
+        {
+            if (ArtShot(catalog, effect, level) is not { } shot) return null;
+            return attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot) };
+        }
+        if (attack.Projectile is not null) return attack;
+        if (catalog.HasType(effect, "Trapped") || catalog.HasType(effect, "SummonsTotem") && attack.Summon is null
+            || catalog.EffectId(effect) is { } stormCall && MonsterSkills.Family(stormCall) == "StormCall") return null;
+        if (AreaRadius(catalog, effect, level) is double radius && !catalog.IsMelee(effect))
+            attack = attack with { AreaRadius = radius, AreaAtSelf = catalog.HasType(effect, "Nova") };
+        return attack;
+    }
+
+    /// <summary>What a summoned body (a monster's totem) does with the skill it was summoned for: that skill at the
+    /// summoner's level, as a unique plays it (<see cref="Shaped"/>), from as far as base_totem_range reaches when the
+    /// skill names one (cells, as the player's totems target: Game.TotemTargetRange). Null when it would do nothing.</summary>
+    public static MonsterAttack? BodyAttack(ClientState conn, MonsterCatalog.Variety? body, byte level, int effect, ushort id)
+    {
+        if (body is null) return null;
+        var catalog = SkillsFor(conn);
+        var attack = AttackFor(conn, body, level, effect, id) with { Effect = effect };
+        if (attack.Summon is not null) return null;
+        if (Shaped(conn, body, level, effect, attack) is not { } shaped) return null;
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        if (Stats.Key("base_totem_range") is uint key && stats.GetValueOrDefault(key) is > 0 and var range)
+            shaped = shaped with { Range = range };
+        return shaped.Damage.IsZero && shaped.Projectile is null ? null : shaped;
     }
 
     /// <summary>An area skill's radius (cells) from its own stats at the level (SkillArea: its base radius scaled by its
