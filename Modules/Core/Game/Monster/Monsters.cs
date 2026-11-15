@@ -33,9 +33,12 @@ public static partial class Game
     // not emit a shot. Keep simulated mortars on their own publication path.
     public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
-        if (attack.Projectile is not null) return MonsterProjectileSkillStats(conn, effect, level, attack);
         var catalog = SkillsFor(conn);
-        var own = WithBehaviourVariation(conn, effect, attack.SkillStats());
+        IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
+            catalog.ArtVariation(effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint key
+                && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
+        if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
+        var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
