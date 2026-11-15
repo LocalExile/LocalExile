@@ -1050,6 +1050,7 @@ public static partial class Game
         MonsterAiPlan plan;
         await ExpireSummonedMonsters(remote, stream, ciphers, conn);
         await MonsterTrapsTick(remote, stream, ciphers, conn);
+        await MonsterMarkersTick(remote, stream, ciphers, conn);
         if (DamageTriggers.TryGetValue(conn, out _))
             ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -1674,6 +1675,11 @@ public static partial class Game
         if (a.Trap is { } payload)
         {
             await ThrowMonsterTraps(remote, stream, ciphers, conn, id, m, a, payload, areaAim);
+            return;
+        }
+        if (a.Strike is { } strike)
+        {
+            await PlaceMonsterMarker(remote, conn, id, m, a, strike, areaAim);
             return;
         }
         if (a.Projectile is { } projectile)

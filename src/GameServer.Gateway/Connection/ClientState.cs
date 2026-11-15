@@ -28,6 +28,12 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+/// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
+/// none), how long the impact art stays, and whether the strike also calls down every other marker of the same skill
+/// its owner has out (Storm Call's).</summary>
+public sealed record MonsterDelayedStrike(double Seconds, string? MarkerArt, string? ImpactArt, double ImpactSeconds,
+    bool StrikesTogether);
+
 /// <summary>Objects a monster's skill leaves in the area: its thrown traps (Game.MonsterTraps).</summary>
 public sealed class MonsterPlacedObjects
 {
@@ -38,6 +44,13 @@ public sealed class MonsterPlacedObjects
         public bool Landed;
     }
     public readonly Dictionary<uint, Trap> Traps = [];
+
+    /// <summary>A delayed strike's marker: its object, its owner, the skill (Effect) and the hit it lands, where and when.</summary>
+    public sealed record Marker(uint Id, uint Owner, SpawnedMonster Monster, int Effect, MonsterAttack Payload,
+        MonsterDelayedStrike Strike, (int X, int Y) At, double StrikeAt);
+    public readonly Dictionary<uint, Marker> Markers = [];
+    /// <summary>Impact art objects of struck markers, and when each leaves.</summary>
+    public readonly Dictionary<uint, double> Impacts = [];
 }
 
 /// <summary>What a kit skill does beyond a hit (BossKits, MonsterSkills.cs).</summary>
@@ -83,6 +96,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A trap skill (ActiveSkillTypes Trapped): the action throws a trap at its aim, and the trap, set off,
     /// plays this attack from where it lies (Game.MonsterTraps). Null for any other skill.</summary>
     public MonsterAttack? Trap { get; init; }
+    /// <summary>A skill whose area lands later than its cast (Storm Call): the action sets a marker at its aim, and the
+    /// marker strikes with this attack's area when its time is up (Game.MonsterMarkers). Null for any other skill.</summary>
+    public MonsterDelayedStrike? Strike { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>

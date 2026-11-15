@@ -767,16 +767,24 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
     public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
     {
-        if (ProjectileFor(effectRow) is not { } found)
-        {
-            if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is not (>= 0 and var active)) return null;
-            found = default;
-            foreach (var (row, skill) in _activeSkillOfEffect.Value)
-                if (skill == active && row != effectRow && ProjectileFor(row) is { } other) { found = other; break; }
-            if (found.Id is null) return null;
-        }
-        int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == found.Id).IntOrNull("CollisionRadius") ?? 1;
-        return (found.Id, found.Speed, radius);
+        foreach (int row in SameActionEffects(effectRow))
+            if (ProjectileFor(row) is { } found)
+            {
+                int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == found.Id).IntOrNull("CollisionRadius") ?? 1;
+                return (found.Id, found.Speed, radius);
+            }
+        return null;
+    }
+
+    /// <summary>The effect itself, then every other GrantedEffects row on its ActiveSkills row in table order: the effects
+    /// whose action the client runs alike (a monster's ExileStormCall and the gem's StormCall are both storm_call). What
+    /// the server knows of one by its Id (a projectile row, a base radius, a skill family) holds for the others.</summary>
+    public IEnumerable<int> SameActionEffects(int effectRow)
+    {
+        yield return effectRow;
+        if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is not (>= 0 and var active)) yield break;
+        foreach (var (row, skill) in _activeSkillOfEffect.Value.OrderBy(p => p.Key))
+            if (skill == active && row != effectRow) yield return row;
     }
 
     sealed record SkillArt(Dictionary<int, List<int>> ByEffect, Dictionary<int, List<int>> ByActive, List<IReadOnlyList<int>> ProjectileArt,

@@ -145,8 +145,8 @@ public static class BossKits
     /// as an object of the server's (a monster's action draws none of its own but a mortar's: Game.MonsterProjectileUse);
     /// an area one lands within its radius; a trap is thrown, and plays one of those once set off (MonsterTraps). Null for
     /// one the server cannot play: a ranged skill whose art resolves no projectile (its hit would land with nothing in
-    /// flight), a trap whose set-off skill hits for nothing or has no shape, Storm Call (its marker is server art:
-    /// StormCall.cs).</summary>
+    /// flight), a trap whose set-off skill hits for nothing or has no shape. Storm Call sets a marker that strikes later
+    /// (Game.StormCallStrikeOf, MonsterMarkers).</summary>
     /// <param name="setOff">Shape what a trap of the skill plays once set off, rather than the throw.</param>
     public static MonsterAttack? Shaped(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
         bool setOff = false)
@@ -165,10 +165,12 @@ public static class BossKits
             return attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot) };
         }
         if (attack.Projectile is not null) return attack;
-        if (catalog.HasType(effect, "SummonsTotem") && attack.Summon is null
-            || catalog.EffectId(effect) is { } stormCall && MonsterSkills.Family(stormCall) == "StormCall") return null;
+        if (catalog.HasType(effect, "SummonsTotem") && attack.Summon is null) return null;
         if (AreaRadius(catalog, effect, level) is double radius && !catalog.IsMelee(effect))
             attack = attack with { AreaRadius = radius, AreaAtSelf = catalog.HasType(effect, "Nova") };
+        if (catalog.SameActionEffects(effect).Any(e => Game.IsStormCall(catalog.EffectId(e))))
+            return attack.AreaRadius > 0 && Game.StormCallStrikeOf(catalog, effect, level) is { } strike
+                ? attack with { Strike = strike } : null;
         return attack;
     }
 
@@ -195,8 +197,12 @@ public static class BossKits
         if (!catalog.HasType(effect, "Area")) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        if (Get("active_skill_base_area_of_effect_radius") <= 0) return null;
-        return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius"), Get, catalog.IsSpell(effect));
+        // A skill whose stats name no base radius has the one the player's skill of the same action has (Storm Call's
+        // 20, Fire Trap's 15: SkillArea.KnownBaseRadius); one with none known has no area the server can name.
+        int? baseRadius = Get("active_skill_base_area_of_effect_radius") is > 0 and var own ? own
+            : catalog.SameActionEffects(effect).Select(e => SkillArea.KnownBaseRadius(catalog.EffectId(e))).FirstOrDefault(r => r is not null);
+        if (baseRadius is not int radius) return null;
+        return SkillArea.Radius(radius, Get, catalog.IsSpell(effect));
     }
 
     /// <summary>A skill's projectile as the client resolves its art (SkillCatalog.SkillArtProjectile), else the row its

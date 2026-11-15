@@ -17,11 +17,15 @@ public static class SkillArea
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<string, int> get) =>
-        get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius
-            : effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+        get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+
+    /// <summary>The base radius of a player skill whose stats name none, by its effect Id; null for one not listed (the
+    /// generic 12 is no evidence of the skill's own, so a monster's skill does not take it: BossKits.AreaRadius).</summary>
+    public static int? KnownBaseRadius(string? effect) =>
+        effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
-            : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
+            : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : null;
 
     static readonly string[] MoreArea =
     [
