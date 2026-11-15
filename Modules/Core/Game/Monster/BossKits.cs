@@ -103,7 +103,8 @@ public static class BossKits
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             ushort id = (ushort)(0x4000 + kit.Count);
-            var attack = kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id);
+            var attack = (kit.Count == 0 && defaultAttack is not null ? defaultAttack with { SkillId = id } : AttackFor(conn, variety, level, effect, id))
+                with { Effect = effect };
             if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
             {
                 // A travel reaches as far as it carries the monster; a buff or a curse is used from where it sees the player.

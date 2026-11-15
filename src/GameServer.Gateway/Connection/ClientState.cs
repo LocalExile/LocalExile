@@ -59,6 +59,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public MonsterRelease? Release { get; init; }
     /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
     public int? ReleaseEffect { get; init; }
+    /// <summary>The kit skill's granted effect (BossKits): a weapon-stanced monster times its contact by the clip its stance
+    /// plays for the effect's action (SkillAnimations, Program.StanceContact).</summary>
+    public int? Effect { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>

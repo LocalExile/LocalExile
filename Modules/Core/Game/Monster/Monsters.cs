@@ -90,12 +90,32 @@ public static partial class Game
         var catalog = SkillsFor(conn);
         var stats = catalog.EffectStats(effect, level);
         bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
+        // A weapon-stanced monster (a Rogue Exile) plays its stance's clip for the skill's own row: Igna Phoenix's
+        // Fireball is the Staff stance's SpellProjectileFire, not a root pool. The stance clips carry no position.
+        if (SkillAnimations.IsStanced(variety.Id) && SkillAnimations.Key(catalog, effect, DualWields(variety)) is { } key
+            && SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence) is { ContactFraction: double at } stanced)
+            return new(stanced.Animation, at, null, Has("action_should_face_away_from_target"));
         var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
         if (clip is null) return null;
         var point = Has("projectile_uses_contact_position") ? clip.Point : null;
         if (point is { } p && Has("use_scaled_contact_offset")) point = p.Scaled(variety.ModelScale);
         return new(clip.Animation, clip.ContactFraction ?? 0.5, point, Has("action_should_face_away_from_target"));
     }
+
+    /// <summary>When a weapon-stanced monster's (a Rogue Exile's) kit skill lands, as a fraction of its action: the contact
+    /// of the clip its stance plays for the skill's Animation row (SkillAnimations; Leap Slam's hit_ground), chosen with the
+    /// action's sequence as the client chooses it. <paramref name="key"/> names the row instead (a walk-up swing's
+    /// Melee). Null for any other monster, or without a pool for the row.</summary>
+    public static double? StanceContact(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence, string? key = null)
+    {
+        if (m.Variety is not { } variety || !SkillAnimations.IsStanced(variety.Id)) return null;
+        key ??= a.Effect is int effect ? SkillAnimations.Key(SkillsFor(conn), effect, DualWields(variety)) : null;
+        return key is null ? null
+            : SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence)?.ContactFraction;
+    }
+
+    /// <summary>It holds a weapon in each hand: its off hand is no shield (ItemStances 10) or quiver (9).</summary>
+    static bool DualWields(MonsterCatalog.Variety variety) => variety.Weapons.Any(w => w.Slot == 1 && w.Stance is not (9 or 10));
 
     // The native selector seeds the clip from this action (0x141e9fa80). Keep its contact and launch point together;
     // another action may start on the actor while this shot is in flight. Scripted releases retain their own recipe.
@@ -1580,7 +1600,8 @@ public static partial class Game
                 begunSeq = m.Sequence;
             }
             if (ServerTrace.Ai) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) swings at the player from its walk-up, begun {conn.Clock.Elapsed.TotalSeconds - begun:0.000} s ago, attack time {begunSeconds:0.00} s");
-            double begunContact = (m.Variety is { } v ? SkillsFor(conn).MonsterContact(v.Id, "Melee", begunSeq)?.ContactFraction : null) ?? 0.5;
+            double begunContact = StanceContact(conn, m, a, begunSeq, "Melee")
+                ?? (m.Variety is { } v ? SkillsFor(conn).MonsterContact(v.Id, "Melee", begunSeq)?.ContactFraction : null) ?? 0.5;
             if (!await WaitMonsterActionTime(conn, id, m, action, begun + begunSeconds * begunContact)) return;
             await MonsterContact(remote, stream, ciphers, conn, id, m, action, begunSeq, a);
             return;
@@ -1627,7 +1648,7 @@ public static partial class Game
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
         // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
         // their clip too), half the attack time without rig data.
-        double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
+        double contact = a.Release?.Fraction ?? StanceContact(conn, m, a, seq) ?? (walkUp && m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
         if (conn.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
         {

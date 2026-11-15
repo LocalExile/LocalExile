@@ -302,7 +302,7 @@ public static partial class MonsterSkills
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags,
                 targetObjectId: use.Shape == MonsterSkillShape.Curse ? PlayerId : null);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4}, {seconds:0.00} s")) return;
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * 0.6)) return;
+        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (StanceContact(conn, m, a, seq) ?? .6))) return;
         switch (use.Shape)
         {
             case MonsterSkillShape.Travel:
@@ -339,7 +339,7 @@ public static partial class MonsterSkills
             return InstanceProtocol.ActionStarted(id, order.From.X, order.From.Y, corpseAt.X, corpseAt.Y, a.SkillId, seq,
                 conn.MonsterOrderFlags, targetObjectId: corpseId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4} on a corpse, {seconds:0.00} s")) return;
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * 0.6)) return;
+        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * (StanceContact(conn, m, a, seq) ?? .6))) return;
         var corpses = await Consume(conn, corpseId, use);
         if (corpses.Count == 0) return;
         if (use.Shape == MonsterSkillShape.Travel)
