@@ -200,6 +200,9 @@ public sealed record ProjectileProfile(string Id)
     /// <summary>Reuse each projectile's resolved <see cref="Range"/> for ground-chain bounces instead of
     /// <see cref="GroundBounceDistance"/>.</summary>
     public bool GroundBounceKeepsRange { get; init; }
+    /// <summary>When positive, each ground-chain bounce takes this many seconds whatever its length (its speed is set to
+    /// fit); zero keeps the flight's speed.</summary>
+    public double GroundBounceSeconds { get; init; }
     public ProjectileCountConsumer CountConsumer { get; init; }
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }

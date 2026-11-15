@@ -583,6 +583,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.GroundChains--;
             p.GroundBounces++;
             p.Remaining = Math.Max(.001, p.Profile.GroundBounceKeepsRange ? p.Profile.Range : p.Profile.GroundBounceDistance);
+            if (p.Profile.GroundBounceSeconds > 0) p.Speed = p.Remaining / p.Profile.GroundBounceSeconds;
             Publish(ProjectileEventKind.Redirect, p);
             return;
         }

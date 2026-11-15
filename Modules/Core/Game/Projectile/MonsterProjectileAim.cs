@@ -85,9 +85,10 @@ public static partial class Game
     // The spell form's mover (0x141a10d50) runs the same steps, with mortar_projectile_distance_override between the
     // minimum range and the scatter: the landing rescaled to that distance from the launch (both forms, 0x141b6a017).
     // The first draw is the speed variation the spell form's flight time takes.
+    // A spirit mortar's mover (0x141a09390) draws its scatter from a second key (scatterKey) instead.
     public static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
         ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index, int distanceOverride,
-        out float speedDraw)
+        out float speedDraw, uint[]? scatterKey = null)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, (uint)(index + 2), owner, 0, 0, 0, 0, 0]);
         speedDraw = random.Range(0, 2);
@@ -115,13 +116,9 @@ public static partial class Game
             x = ox + RoundHalfUp((x - ox) * scale); y = oy + RoundHalfUp((y - oy) * scale);
         }
         if (spread <= 0) return new(x, y);
+        if (scatterKey is not null) random = new(scatterKey);
         dx = x - ox; dy = y - oy;
-        if (dx * dx + dy * dy >= spread * spread)
-        {
-            float angle = random.Range(0, 6.2831855f);
-            float radius = MathF.Sqrt(random.Range(0, spread * spread));
-            return new(x + (int)(MathF.Sin(angle) * radius), y - (int)(MathF.Cos(angle) * radius));
-        }
+        if (dx * dx + dy * dy >= spread * spread) return Scatter(ref random, x, y, spread);
         // The close-target branch samples the two chords from the launch cell, rather than scattering behind it.
         if (dx == 0 && dy == 0) dx = 1;
         float factor = spread / MathF.Sqrt(dx * dx + dy * dy);
@@ -140,5 +137,59 @@ public static partial class Game
         int vx = (int)(cx - px) - ox, vy = (int)(cy + py) - oy;
         float u = random.Range(0, 1), v = random.Range(0, 1);
         return new(ox + RoundHalfUp(ux * u) + RoundHalfUp(vx * v), oy + RoundHalfUp(uy * u) + RoundHalfUp(vy * v));
+    }
+
+    // A point uniform in the disc of the spread's radius about (x, y): an angle, then the radius's square.
+    static ProjectileVector Scatter(ref AnimationVariantSelector.NativeRandom random, int x, int y, float spread)
+    {
+        float angle = random.Range(0, 6.2831855f);
+        float radius = MathF.Sqrt(random.Range(0, spread * spread));
+        return new(x + (int)(MathF.Sin(angle) * radius), y - (int)(MathF.Cos(angle) * radius));
+    }
+
+    /// <summary>A Labyrinth spirit mortar's launch (0x141a09390): 5 cells out along its line.</summary>
+    public static ProjectileVector SpiritMortarLaunch(ProjectileVector origin, ProjectileVector aim)
+    {
+        var moved = origin + ((aim - origin).Length > 0 ? (aim - origin).Unit : new ProjectileVector(0, -1)) * 5;
+        return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+    }
+
+    /// <summary>A Labyrinth spirit mortar's landing (0x141a09390): the mortar mover's steps from its launch with the
+    /// minimum range measured from the caster, its scatter drawn from the second key [sequence, index + 2, owner, 0]
+    /// (the index is the attack form's, not traced for this class).</summary>
+    public static ProjectileVector SpiritMortarTarget(ProjectileVector actor, ProjectileVector launch, ProjectileVector aim,
+        int minimumRange, int spread, ushort sequence, uint owner, int index, out float speedDraw) =>
+        MonsterMortarTarget(actor, launch, aim, minimumRange, spread, sequence, owner, index, 0, out speedDraw,
+            [sequence, (uint)(index + 2), owner, 0]);
+
+    /// <summary>An in-line mortar's landing (0x141a15550, Breach and Kitava): max(15, d − in front) cells from the caster
+    /// along its line to the target, scattered uniformly within the spread (cells). Its key's order is not traced: the
+    /// server's object takes the mortar mover's key, whose first draw is the speed draw as the client's.</summary>
+    public static ProjectileVector InLineMortarTarget(ProjectileVector actor, ProjectileVector aim, double inFront, float spread,
+        ushort sequence, uint owner, int index, out float speedDraw)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, (uint)(index + 2), owner, 0, 0, 0, 0, 0]);
+        speedDraw = random.Range(0, 2);
+        var line = aim - actor;
+        var landed = actor + (line.Length > 0 ? line.Unit : new ProjectileVector(0, -1)) * Math.Max(15, line.Length - inFront);
+        return spread > 0 ? Scatter(ref random, RoundHalfUp((float)landed.X), RoundHalfUp((float)landed.Y), spread)
+            : new(Math.Floor(landed.X + .5), Math.Floor(landed.Y + .5));
+    }
+
+    /// <summary>A ring of mortars around the caster (0x141a12620): one seeded base angle, projectile i turned i × 2π / n
+    /// from it, each at its own distance from the minimum range to the spread (world units, so × 0.092 cells). The key's
+    /// order is not traced.</summary>
+    public static ProjectileVector[] AroundCasterTargets(ProjectileVector caster, int count, int minimum, int spread,
+        ushort sequence, uint owner, uint ordinal)
+    {
+        var random = new AnimationVariantSelector.NativeRandom([sequence, ordinal, 0, owner]);
+        float start = random.Range(0, 6.2831855f);
+        var targets = new ProjectileVector[count];
+        for (int i = 0; i < count; i++)
+        {
+            float angle = start + i * (6.28318f / count), radius = random.Range(minimum, Math.Max(minimum, spread)) * .092f;
+            targets[i] = new((int)caster.X + (int)(MathF.Sin(angle) * radius), (int)caster.Y - (int)(MathF.Cos(angle) * radius));
+        }
+        return targets;
     }
 }

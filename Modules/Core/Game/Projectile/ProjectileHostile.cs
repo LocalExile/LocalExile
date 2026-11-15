@@ -61,6 +61,18 @@ public static partial class Game
                 aim = origin + h * Math.Max(distance, 60 / WorldUnits.PerCell);
             }
         }
+        // The release (0x141ba51a0) holds the aim at least 60 units (5.52 cells) from the caster's cell and, on a
+        // UseTargetLocation row with a range of its own, no farther than that range.
+        ProjectileVector Held(ProjectileVector point)
+        {
+            var reach = point - from;
+            double held = reach.Length < 60 / WorldUnits.PerCell ? 60 / WorldUnits.PerCell
+                : projectile.EndsAtTarget && MortarRange() < 150 && reach.Length > MortarRange() ? MortarRange()
+                : reach.Length;
+            if (held == reach.Length) return point;
+            var moved = from + (reach.Length > 0 ? reach.Unit : new ProjectileVector(1, 0)) * held;
+            return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+        }
         ProjectileVector[]? nativeTargets = null;
         double[]? nativeSpeeds = null;
         string contactRow = projectile.Metadata;
@@ -92,18 +104,7 @@ public static partial class Game
                 if (projectile.Lobbed)
                 {
                     if (!projectile.AimTranslates) translated = aim;
-                    // The release (0x141ba51a0) holds the aim at least 60 units (5.52 cells) from the caster's cell and, on
-                    // a UseTargetLocation row with a range of its own, no farther than that range.
-                    var reachFromActor = translated - from;
-                    double held = reachFromActor.Length < 60 / WorldUnits.PerCell ? 60 / WorldUnits.PerCell
-                        : projectile.EndsAtTarget && MortarRange() < 150 && reachFromActor.Length > MortarRange() ? MortarRange()
-                        : reachFromActor.Length;
-                    if (held != reachFromActor.Length)
-                    {
-                        var line = reachFromActor.Length > 0 ? reachFromActor.Unit : new ProjectileVector(1, 0);
-                        var moved = from + line * held;
-                        translated = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
-                    }
+                    translated = Held(translated);
                     if (projectile.Count > 1) fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
                 }
                 var arm = translated - start;
@@ -215,6 +216,31 @@ public static partial class Game
         }
         // The server's own object turns by its contact too.
         if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
+        if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster")
+        {
+            // The server's object lands each projectile where its class's mover would (MonsterShots' landing recipes),
+            // fanned about the line to the aim as the shared emitter fans it, and flies the fixed time that mover gives it.
+            var fan = projectile.Count > 1 ? NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley : null;
+            var line = aim - from;
+            ProjectileVector Fanned(int i) => fan is null || line.Length <= 0 ? aim
+                : from + line.Unit.Rotate(fan.Angle(i, projectile.Count, line.Length)) * line.Length;
+            int spread = SkillStat("projectile_spread_radius") + (projectile.Count - 1) * SkillStat("projectile_spread_radius_per_additional_projectile");
+            var draws = Enumerable.Repeat(1f, projectile.Count).ToArray();
+            if (projectile.Recipe == "SpiritMortar") origin = SpiritMortarLaunch(origin, aim);
+            nativeTargets = projectile.Recipe == "AroundCaster"
+                ? AroundCasterTargets(from, projectile.Count, SkillStat("projectile_minimum_range"), spread, sequence, id, ordinal)
+                : [.. Enumerable.Range(0, projectile.Count).Select(i => projectile.Recipe switch
+                {
+                    "InLine" => InLineMortarTarget(from, Fanned(i), SkillStat("mortar_distance_in_front_of_target"), spread * .092f,
+                        sequence, id, i, out draws[i]),
+                    "SpiritMortar" => SpiritMortarTarget(from, origin, Fanned(i), SkillStat("projectile_minimum_range"), spread,
+                        sequence, id, i, out draws[i]),
+                    // A fire mortar lands on its held aim (0x141a0e1e0 with no scatter).
+                    _ => Held(Fanned(i)),
+                })];
+            if (projectile.FixedFlight)
+                nativeSpeeds = [.. nativeTargets.Select((t, i) => Math.Max(.001, (t - origin).Length) / MonsterShots.MortarFlightSeconds(projectile, draws[i]))];
+        }
         if (projectile.Recipe == "BreachBarrage")
         {
             // The server's barrage spreads as the client's: 150 cells from the caster's cell in the seeded cone about the
@@ -255,13 +281,33 @@ public static partial class Game
                     // A lantern reaches its aim its clip's contact after the release, at any distance.
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
                 }
-            : projectile.Recipe is not (null or "BreachBarrage") ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
+            : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster")
+                ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(contactRow) };
+        if (projectile is { ClientDraws: false, Recipe: "FireMortar" } && SkillStat("number_of_chains") > 0
+            && nativeTargets is [var landed, ..] && (landed - origin).Length > 0)
+        {
+            // A fire mortar that chains hops once on along its line (0x141a0e4f0), in the same fixed time: 2S + 3 cells,
+            // else back toward S cells to the first walkable cell, else not at all. Its hop hits for less (HostileHit).
+            var (hop, least) = MonsterShots.FireMortarHop(projectile);
+            var way = (landed - origin).Unit;
+            bool Walkable(int x, int y) => conn.Layout.Walkable is not { } floor || floor(x, y) && !conn.Barrier.Contains((x, y));
+            int reach = Enumerable.Range(least, hop - least + 1).Reverse().FirstOrDefault(k =>
+                Walkable((int)Math.Floor(landed.X + way.X * k + .5), (int)Math.Floor(landed.Y + way.Y * k + .5)));
+            if (reach > 0)
+                profile = profile with
+                {
+                    GroundChains = 1, GroundBounceDistance = reach,
+                    GroundBounceSeconds = projectile.FixedFlight ? MonsterShots.MortarFlightSeconds(projectile, 1) : 0,
+                };
+        }
         var owner = session.ActorKey(id, m);
         double flightCells = projectile.Lobbed ? landing : (aim - origin).Length;
-        var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);
+        double flightSeconds = nativeSpeeds is [var firstSpeed, ..] && nativeTargets is [var firstTarget, ..]
+            ? (firstTarget - origin).Length / firstSpeed : flightCells / speed;
+        var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightSeconds);
         if (release?.Point is { } launch) presentation = (presentation ?? new ProjectilePresentation()) with { LaunchHeight = launch.HeightSteps };
         Console.WriteLine($"[gateway] {session.remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
             + $" ({ahead:0.0} cells toward the aim, {(release?.Point is { } up ? up.HeightSteps.ToString() : "default")} steps up"
@@ -366,8 +412,12 @@ public static partial class Game
     public static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var conn = session.Conn;
-        // The flight's own damage multiplier (an ice spear's second form, a burst's or a bounce's) scales the attack's hit.
-        if (contact.Multiplier != 1) shot = shot with { Attack = shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) } };
+        // The flight's own damage multiplier (an ice spear's second form, a burst's or a bounce's) scales the attack's hit,
+        // and a fire mortar's hop hits by fire_mortar_second_hit_damage_+%_final (0x141a0e4f0).
+        double multiplier = contact.Multiplier;
+        if (contact.Projectile.GroundBounces > 0 && shot.Attack.Projectile is { } fired)
+            multiplier *= Math.Max(0, 1 + MonsterShots.Stat(fired, "fire_mortar_second_hit_damage_+%_final") / 100.0);
+        if (multiplier != 1) shot = shot with { Attack = shot.Attack with { Damage = shot.Attack.Damage.Scale(multiplier) } };
         if (OwnedFighter(conn, contact.Target.Id) is { } golem)
         {
             bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,

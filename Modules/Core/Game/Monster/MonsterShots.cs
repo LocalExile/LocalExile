@@ -66,6 +66,10 @@ public static class MonsterShots
             && Stats.Key(AreaPercent) is uint areaKey)
             stats[areaKey] = areaPercent;
         bool aimTranslates = Get("maintain_projectile_direction_when_using_contact_position") != 0;
+        // projectile_uses_contact_direction turns the shot by the clip's contact (ContactTurn), which the server needs
+        // from every clip the action may play under its animation key.
+        bool ContactsKnown(string key) => variety is not null && catalog.MonsterContactPool(variety.Id, key) is { Length: > 0 } pool
+            && pool.All(c => c.Point is not null && (c.Contacts is null || c.Contacts.All(f => f.Point is not null)));
 
         if (catalog.MonsterProjectile(effect) is { } mortar)
         {
@@ -80,11 +84,17 @@ public static class MonsterShots
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
             if (mortar.ClientDraws) return mortar;
+            // A spell mortar whose MonsterMortar key the variety's ACT lacks plays its effect's own key (the Harvest
+            // spawner's SpellAreaOfEffect, the only one of the two its ACT has).
+            if (variety is not null && mortar.AnimationKey is { } key && catalog.MonsterContactPool(variety.Id, key) is null
+                && catalog.EffectAnimationKey(effect) is { } own && catalog.MonsterContactPool(variety.Id, own) is not null)
+                mortar = mortar with { AnimationKey = own };
             // Where the server draws a spell mortar, its object lands as the client would place it: a nova in a ring (the
             // shared emitter's layout), each at its landing distance (ProjectileHostile). mortar_cone_angle is read by the
             // in-cone class alone (0x141a16f00), not by monster_mortar, whose volley fans as any other.
             if (Get("projectiles_nova") != 0) mortar = mortar with { SpreadRadians = 2 * Math.PI };
-            return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar row not named" };
+            return SpellMortar(catalog, effect, mortar, Get, ContactsKnown(mortar.AnimationKey ?? "Melee"))
+                ?? mortar with { ServerReason = "spell mortar row not named" };
         }
 
         string? family = catalog.ActiveSkillId(effect);
@@ -268,19 +278,29 @@ public static class MonsterShots
                 else if (Get("projectile_spiral_nova_time_ms") == 0) recipe = "Spray";
                 break;
 
-            // Lobbed families: the server's object lands on the aim and hits the area there.
+            // Lobbed families: the server's object lands and hits the area there: where the class's mover puts it (a
+            // landing recipe in ProjectileHostile, drawn from the server's own seed where the client's is not traced),
+            // else on the aim.
             case "matriach_fire_mortar":
+                // 0x141a0f250. It lands on the aim and hops once along its line (0x141a0e4f0) when the client's action
+                // counts a chain, which it reads from virtual_number_of_chains_for_projectiles: not checked on our record.
                 id = Row(artVariation, "FireMortar", (1, "MatriachMortar"), (2, "MatriarchFireMortar1"), (3, "MatriarchFireMortar2"));
-                (lobbed, reason) = (true, "mortar landing");
+                (lobbed, recipe, reason) = (true, "FireMortar", "fire mortar hop not checked on the record");
                 break;
             case "kaom_volcano_mortar": (id, lobbed, reason) = (Row(0, "KaomMortarMolten"), true, "mortar landing"); break;
-            case "lb_boss_spirit_mortar": (id, lobbed, reason) = (Row(0, "LbBossSpiritMortar"), true, "mortar landing"); break;
-            case "monster_mortar_around_caster": (id, lobbed, reason) = (Row(0, "MortarLightning"), true, "mortar ring"); break;
+            case "lb_boss_spirit_mortar":
+                // 0x141a09390: the mortar mover's steps from a launch 5 cells out, its scatter by a second key whose index
+                // is not traced (the Goddess of Justice's volley flies the same rule hidden).
+                (id, lobbed, recipe, reason) = (Row(0, "LbBossSpiritMortar"), true, "SpiritMortar", "scatter key not traced");
+                break;
+            case "monster_mortar_around_caster":
+                (id, lobbed, recipe, reason) = (Row(0, "MortarLightning"), true, "AroundCaster", "mortar ring");
+                break;
             case "breach_mortar_in_line":                                                               // 0x141a15cf0
                 if (mpv is < 0 or > 8) return null;
                 id = Row(mpv, "BreachChaosMortar", (2, "KitavaDemonMortar"), (3, "YugulMortar"), (4, "Maligaro2Mortar"), (5, "FigureheadMortar"),
                     (6, "ElderProjectileDoom"), (7, "VilentaXMortar"), (8, "VilentaXMortarFire"));
-                (lobbed, reason) = (true, "mortar landing");
+                (lobbed, recipe, reason) = (true, "InLine", "mortar landing");
                 break;
             case "mortar_with_ground_effects":                                                          // 0x1419eae30
                 if (mpv is < 0 or > 10) return null;
@@ -382,11 +402,7 @@ public static class MonsterShots
             else if (Get("projectile_spiral_nova_time_ms") != 0 && (lobbed || family is "incinerate_old" or "totem_fire_spray"
                 or "totem_fire_spray_triggerable" or "incinerate_channel" or "figurehead_incinerate"))
                 reason = "spiral nova";
-            // projectile_uses_contact_direction turns the shot by the clip's contact (MonsterShots.ContactTurn), which the
-            // server needs from every clip the action may play.
-            else if (Get("projectile_uses_contact_direction") != 0 && !(variety is not null
-                && catalog.MonsterContactPool(variety.Id, animation ?? catalog.EffectAnimationKey(effect) ?? "Melee") is { Length: > 0 } pool
-                && pool.All(c => c.Point is not null && (c.Contacts is null || c.Contacts.All(f => f.Point is not null)))))
+            else if (Get("projectile_uses_contact_direction") != 0 && !ContactsKnown(animation ?? catalog.EffectAnimationKey(effect) ?? "Melee"))
                 reason = "contact direction without the clip's contact";
             else if (Get("projectile_ballistic_angle_from_reference_event") != 0 || Get("projectile_ballistic_angle_from_target_distance") != 0)
                 reason = "ballistic arc";
@@ -402,11 +418,22 @@ public static class MonsterShots
             }
         }
         // A lantern lands its clip's contact after the release (0x141a0f7e0); without the clip the server cannot time it.
-        int? lantern = recipe == "Lantern" ? catalog.Clips(id)?.Flight?.Contact : null;
-        if (recipe == "Lantern" && lantern is not > 0) reason ??= "flight clip not known";
+        // The lobbed recipes' movers time their flight by the same contact over a speed multiplier (MortarFlightSeconds):
+        // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a0e1e0), an in-line mortar's the spell mortar's terms
+        // (0x141a15550), a spirit mortar's its speed variation (0x141a09390), a ring's none (0x141a12c10).
+        int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster"
+            ? catalog.Clips(id)?.Flight?.Contact : null;
+        if (recipe == "Lantern" && contact is not > 0) reason ??= "flight clip not known";
+        (int, int) mortarSpeed = recipe switch
+        {
+            "FireMortar" => (25 + Get("projectile_speed_+%"), 0),
+            "InLine" => (Get("monster_mortar_additional_speed_+%"), Get("projectile_speed_variation_+%")),
+            "SpiritMortar" => (0, Get("projectile_speed_variation_+%")),
+            _ => (0, 0),
+        };
         var shot = new SkillCatalog.MonsterProjectileInfo(id, row2.Speed, Lobbed: lobbed, Math.Max(1, catalog.ProjectileRadius(id) ?? 1))
         {
-            FixedFlight = lantern is > 0, ContactSeconds = (lantern ?? 666) / 1000.0,
+            FixedFlight = contact is > 0, ContactSeconds = (contact ?? 666) / 1000.0, MortarSpeed = mortarSpeed,
             AnimationKey = animation ?? catalog.EffectAnimationKey(effect),
             ClientDraws = reason is null, ServerReason = reason, Arrows = arrows, Target = target,
             AimTranslates = aimTranslates, SkillStats = stats, EndsAtTarget = catalog.ProjectileEndsAtTarget(id), Recipe = recipe,
@@ -428,14 +455,13 @@ public static class MonsterShots
     /// form, and lands it a fixed time after the release: its flight clip's contact (666 ms on most mortar rigs, from 166 ms
     /// to over a second on the rest) over a speed multiplier, at any distance; with
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c> it flies at its row's speed instead. A
-    /// <c>__col5</c> row fires one. What the server does not reproduce keeps its object (a reason): forks, chains, a
-    /// ground effect or a bounce on landing, and what the shared emitter (0x141bb13a0) does with the landings the
-    /// server puts at one aim: a nova's ring (0x141bb33f0 reads projectiles_nova, 0x141bb9500 turns each target), a
-    /// cone, swapped ends, the contact direction and a capped range. Null for no row (around_caster is its own action,
-    /// MonsterShots' switch).
+    /// <c>__col5</c> row fires one. A ground effect on landing (<c>__col12</c>, impact slot 0x1413e83a0) is a visual the
+    /// client makes for itself. What the server does not reproduce keeps its object (a reason): forks, chains, a bounce,
+    /// swapped ends and the contact direction of a clip whose contact the data lacks. Null for no row (around_caster is
+    /// its own action, MonsterShots' switch).
     /// </summary>
     static SkillCatalog.MonsterProjectileInfo? SpellMortar(SkillCatalog catalog, int effect, SkillCatalog.MonsterProjectileInfo mortar,
-        Func<string, int> get)
+        Func<string, int> get, bool contactsKnown)
     {
         // SkillID 0 is MonsterMortar row 0 (MortarMolten: the Fire Elementals'), which the ctor keys by an absent
         // skill_behaviour_variation (0x141a10750).
@@ -443,9 +469,9 @@ public static class MonsterShots
             || catalog.MonsterMortarColumns(row) is not { } columns) return null;
         string? reason = get("monster_mortar_number_of_forks") != 0 ? "spell mortar forks"
             : get("number_of_chains") != 0 ? "spell mortar chains"
-            : columns.Ground || columns.BounceScale ? "spell mortar ground effect or bounce"
+            : columns.BounceScale ? "spell mortar bounce"
             : get("projectile_swap_from_to_locations") != 0 ? "swapped ends"
-            : get("projectile_uses_contact_direction") != 0 ? "projectile_uses_contact_direction"
+            : get("projectile_uses_contact_direction") != 0 && !contactsKnown ? "contact direction without the clip's contact"
             : get("projectiles_barrage") != 0 || get("support_parallel_projectile_number_of_points_per_side") != 0 ? "barrage or parallel volley"
             : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
         // Its fixed flight is its rig's flight clip's contact (projectile-clips): without that clip the server cannot
@@ -573,7 +599,7 @@ public static class MonsterShots
             : (Stat(shot, "active_skill_base_area_of_effect_radius") is > 0 and var radius ? radius : fallback)
                 * Math.Max(0, 1 + Stat(shot, AreaPercent) / 100.0);
 
-    static int Stat(SkillCatalog.MonsterProjectileInfo shot, string name) =>
+    internal static int Stat(SkillCatalog.MonsterProjectileInfo shot, string name) =>
         Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
 
     /// <summary>The hidden flight of a shot the client draws: the shared straight-flight profile at the row's speed
@@ -735,6 +761,14 @@ public static class MonsterShots
                 ReturnSpeedMultiplier = profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier,
             };
         return profile;
+    }
+
+    /// <summary>A fire mortar's hop in cells (0x141a0e4f0): 2S + 3 with S = max(1, round(10 × (100 + projectile_speed_+%) / 100)),
+    /// and S, the nearest it walks back to for a walkable cell.</summary>
+    public static (int Hop, int Least) FireMortarHop(SkillCatalog.MonsterProjectileInfo shot)
+    {
+        int least = Math.Max(1, (int)Math.Floor(10 * (100 + Stat(shot, "projectile_speed_+%")) / 100.0 + .5));
+        return (2 * least + 3, least);
     }
 
     static double MagmaSpeed(SkillCatalog.MonsterProjectileInfo shot) =>

@@ -90,6 +90,30 @@ public sealed class PlayerAct78Tests
             Assert.Equal(0.496, MonsterShots.MortarFlightSeconds(Shot("", "WaterElementalMortar")!, 1), 3);
             // ... and so is a nova of them, each landing turned about the launch as the client's emitter turns it.
             Assert.True(Shot("", "DoedreBloodProjectileNova1")!.ClientDraws);
+            // A ground effect on landing is the client's own visual (an Affliction spiker's death spikes, a flesh pustule);
+            // a spray turned by each contact of its clip is the client's where the clip's contacts are known (the Harvest
+            // spawner's from its effect's key, which its ACT has).
+            Assert.Equal((true, true), (Shot("", "AfflictionSpikerDeathSpike")!.ClientDraws, Shot("", "MMSHellscapeFleshPustule")!.ClientDraws));
+            var spore = Shot("Metadata/Monsters/LeagueHarvest/Red/HarvestInsectSpawnerT3", "MMSHarvestInsectSpawnerSporeBarrageMortar")!;
+            Assert.Equal((true, "SpellAreaOfEffect"), (spore.ClientDraws, spore.AnimationKey));
+            Assert.True(Shot("Metadata/Monsters/LeagueAffliction/AfflictionDemonBossPhysical", "AfflictionBossPhysMortarSpray")!.ClientDraws);
+            // The server's own lobbed objects land where their class's mover would, in its fixed time: a fire mortar on
+            // its aim in 0.533 s, hopping 23 cells; an in-line mortar along its line; a spirit mortar 15 cells out at
+            // least, scattered by its second key; a ring around its caster.
+            var fireMortar = Shot("", "MatriachFireMortarZombie")!;
+            Assert.Equal(("FireMortar", false, true, (23, 10)), (fireMortar.Recipe, fireMortar.ClientDraws, fireMortar.FixedFlight,
+                MonsterShots.FireMortarHop(fireMortar)));
+            Assert.Equal(0.5328, MonsterShots.MortarFlightSeconds(fireMortar, 1), 4);
+            var inLine = Shot("", "KitavaBossXMortar")!;
+            Assert.Equal(("InLine", 3, true), (inLine.Recipe, inLine.Count, inLine.FixedFlight));
+            Assert.Equal(new(137, 89), Game.InLineMortarTarget(new(100, 100), new(130, 100), 0, 27.6f, 0x8001, 0x40, 0, out float inLineDraw));
+            Assert.Equal(0.3373, inLineDraw, 4);
+            var spirit = Shot("", "LabyrinthSpiritMortarMap")!;
+            Assert.Equal(("SpiritMortar", 0.666), (spirit.Recipe, MonsterShots.MortarFlightSeconds(spirit, 1)));
+            var spiritLaunch = Game.SpiritMortarLaunch(new(100, 100), new(110, 100));
+            Assert.Equal((new(105, 100), new(126, 98)), (spiritLaunch,
+                Game.SpiritMortarTarget(new(100, 100), spiritLaunch, new(110, 100), 15, 20, 0x8001, 0x40, 0, out _)));
+            Assert.Equal([new(88, 101), new(112, 99)], Game.AroundCasterTargets(new(100, 100), 2, 125, 350, 0x8001, 0x40, 0));
             // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record; a totem's
             // spark is the server's, which places no totem.
             var spark = Shot("", "MonsterSpark")!;
