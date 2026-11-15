@@ -32,6 +32,15 @@ sealed class RogueExiles
         return allowed.Count == 0 ? null : allowed[rng.Next(allowed.Count)];
     }
 
+    /// <summary>As <see cref="Pick"/>, among the exiles that have a gigantified variety.</summary>
+    public MonsterCatalog.Variety? PickWithGiant(int level, Random rng, bool anyLevel = false, IReadOnlyCollection<string>? besides = null)
+    {
+        var allowed = _data.Value.Wild.Where(e => (anyLevel || e.MinLevel <= level) && _data.Value.Giants.ContainsKey(e.Variety.Id))
+            .Select(e => e.Variety).ToList();
+        if (besides is { Count: > 0 } && allowed.Where(v => !besides.Contains(v.Id)).ToList() is { Count: > 0 } fresh) allowed = fresh;
+        return allowed.Count == 0 ? Pick(level, rng, anyLevel, besides) : allowed[rng.Next(allowed.Count)];
+    }
+
     /// <summary>One of the Faridun exiles; null when the tables have none the server can create.</summary>
     public MonsterCatalog.Variety? PickFaridun(Random rng) =>
         _data.Value.Faridun.Count == 0 ? null : _data.Value.Faridun[rng.Next(_data.Value.Faridun.Count)];

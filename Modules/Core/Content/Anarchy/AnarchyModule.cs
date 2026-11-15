@@ -61,7 +61,9 @@ public sealed class AnarchyModule : IModule
         for (int i = S("map_contains_X_additional_strongboxes_essences_shrines_or_rogue_exiles"); i > 0; i--)
             if (rng.Next(4) == 0) count++;
         int exceptional = S("map_contains_x_additional_exceptional_rogue_exiles");
-        count = Math.Min(count + exceptional, MostExiles);
+        // MapSupporterRogueGiants: "Area contains {0} Gigantic Rogue Exiles", each one more, gigantified.
+        int giants = S("map_contains_X_rogue_giants");
+        count = Math.Min(count + giants + exceptional, MostExiles);
         var taken = area.Taken.ToList();
         var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         List<string> used = [];
@@ -70,13 +72,16 @@ public sealed class AnarchyModule : IModule
             if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
                 is not { } at) break;
             taken.Add(at);
-            // The exceptional ones come last, so a capped count keeps the ones the scarab promised first.
+            // The exceptional ones come last, so a capped count keeps the ones the scarab promised first; the gigantic
+            // ones before them.
             bool isExceptional = i >= count - exceptional;
+            bool isGiant = !isExceptional && i >= count - exceptional - giants;
             bool paired = S("map_rogue_exiles_are_doubled") > 0 || Chance(S("map_rogue_exiles_are_doubled_chance_%"));
             for (int n = 0; n < (paired ? 2 : 1); n++)
             {
                 var spot = n == 0 ? at : (at.X + 5, at.Y);
-                if (await SpawnExile(module, conn, area.Level, spot, stats, rng, used, isExceptional && n == 0, placed, "wild") is null) return;
+                if (await SpawnExile(module, conn, area.Level, spot, stats, rng, used, isExceptional && n == 0, placed, "wild",
+                    giant: isGiant && n == 0) is null) return;
             }
         }
         await GuardBosses(module, conn, area.Level, stats, rng, used, placed);
@@ -109,19 +114,21 @@ public sealed class AnarchyModule : IModule
     /// <summary>One exile: which (Faridun's, a gigantified one), its stats from the map, and its spawn. Null when none can
     /// spawn here (the caller places no more).</summary>
     static async Task<uint?> SpawnExile(IModuleContext module, ClientState conn, byte level, (int X, int Y) at,
-        Dictionary<string, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false)
+        Dictionary<string, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false,
+        bool giant = false)
     {
         int S(string name) => stats.GetValueOrDefault(name);
         bool anyLevel = S("map_override_rogue_exile_min_level") > 0;
         var exile = rng.Next(100) < S("map_rogue_exile_%_chance_to_be_faridun") ? RogueExiles.Current.PickFaridun(rng) : null;
-        exile ??= RogueExiles.Current.Pick(level, rng, anyLevel, used);
+        // A gigantic one is of the exiles that have a gigantified variety (RogueExileGiants).
+        exile ??= giant ? RogueExiles.Current.PickWithGiant(level, rng, anyLevel, used) : RogueExiles.Current.Pick(level, rng, anyLevel, used);
         if (exile is null)
         {
             module.Log($"{conn.Layout.Id}: no Rogue Exile can spawn at level {level}");
             return null;
         }
         used.Add(exile.Id);
-        bool giant = rng.Next(100) < S("map_rogue_exile_gigantify_chance_%") && RogueExiles.Current.Giant(exile) is not null;
+        giant = (giant || rng.Next(100) < S("map_rogue_exile_gigantify_chance_%")) && RogueExiles.Current.Giant(exile) is not null;
         if (giant) exile = RogueExiles.Current.Giant(exile)!;
         bool special = rng.Next(100) < S("map_wild_rogue_exiles_have_special_reward_chance_%");
         // Their more life: the level's (RogueExileLifeScalingPerLevel), times Rogue Trader's on the special ones.
