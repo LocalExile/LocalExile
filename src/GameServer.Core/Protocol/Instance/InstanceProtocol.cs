@@ -397,6 +397,26 @@ public static class InstanceProtocol
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
 
+    public const ushort MonstersRemainingId = 0x1a0;
+
+    /// <summary>
+    /// S→C 0x1a0 (instance group, class 0x14346cd80, read 0x140e27980, dispatcher case 0x7e at 0x14215718b): the map
+    /// overlay's "X monsters remain" line. One payload byte, <c>byte [msg+0x10]</c>, which the handler copies to
+    /// <c>instance+0xd7cd</c> (the dispatcher's <c>r13</c> is the instance + 8: <c>mov byte ptr [r13+0xd7c5]</c>, then
+    /// notifies the observers that invalidate the overlay). That byte is the only input of the line and 0x1a0 its only
+    /// writer in the client: the instance constructor (0x14214b4a0, at 0x14214e686) starts the word at
+    /// <c>instance+0xd7cc</c> at 0xff00, so with nobody sending this the count always read 255, and the text builder
+    /// (0x1406b24e0, called by the overlay builder 0x1406b25f0 at 0x1406b279b) picks ClientStrings 0x1ab6
+    /// "1 monster remains" for 1, 0x1ab7 "{0} monsters remain" for 0..50 and 0x1ab8 "More than 50 monsters remain" for
+    /// 51..255. Nothing on the client counts monsters, so the count only changes when a server sends this again.
+    /// Live 2026-11-14 with <c>/raw</c> (an area entered, so the instance exists): <c>01a0 05</c> → "5 monsters remain",
+    /// <c>01a0 01</c> → "1 monster remains", <c>01a0 00</c> → "0 monsters remain", <c>01a0 33</c> → "More than 50
+    /// monsters remain" (51..255 all read so; 0xff is not special-cased). <paramref name="remaining"/> is clamped to the
+    /// byte: 51..255 render alike and a bigger area must be sent as 255, not wrapped.
+    /// </summary>
+    public static byte[] MonstersRemaining(int remaining) =>
+        new LoginWriter().U16(MonstersRemainingId).U8((byte)Math.Min(Math.Max(remaining, 0), byte.MaxValue)).ToArray();
+
     public const ushort TeleportId = 0x1b7, MoveToId = 0x1ba, EnterWakeZoneId = 0x1a9, LeaveWakeZoneId = 0x1aa;
 
     /// <summary>
