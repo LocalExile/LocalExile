@@ -906,6 +906,69 @@ public class LockstepMonsterTests : IDisposable
         }
     }
 
+    // A Goatman Shaman's fireball is the client's own in both modes, as on GGG's servers (3.30.0b: no object, the
+    // hit arriving later with distance at the Fireball row's speed). The server flies it hidden toward the ordered cell:
+    // nothing at the release, a near and a far target hit at release + distance / speed, a target that walks off the
+    // cell after the order is missed, a wall ends the shot, and one projectile hits once.
+    [Fact]
+    public void A_client_drawn_monster_shot_hits_when_it_arrives_and_misses_a_dodge_or_a_wall()
+    {
+        var skills = new SkillCatalog("data");
+        var shaman = new MonsterCatalog().Find("Metadata/Monsters/Goatman/GoatmanShamanFireball")!;
+        int effect = skills.EffectRow("MonsterFireballContactPos");
+        var shot = MonsterShots.Resolve(skills, shaman, effect, 7)!;
+        Assert.Equal(("Metadata/Projectiles/Fireball", true, 1), (shot.Metadata, shot.ClientDraws, shot.Count));
+        foreach (bool lockstep in new[] { false, true })
+        {
+            var conn = Connection(lockstep);
+            conn.Clock.Stop();
+            var source = new SpawnedMonster("Shaman", new(100, 100, 20), 60, 2, 30) { Variety = shaman, Level = 7 };
+            var attack = new MonsterAttack(0x4000, 1, 60, DamagePacket.Empty) { Ranged = true, Spell = true, Projectile = shot };
+            var session = new Game.ProjectileSession("shaman", null!, null!, conn);
+            try
+            {
+                double? HitAt(int distance, bool dodge = false, double? wallX = null)
+                {
+                    conn.Walk.Teleport(100 + distance, 100, 0);
+                    var use = Game.MonsterProjectileUse(session, 0x8000040, source, attack, shot, 0, orderedAim: (100 + distance, 100));
+                    Assert.True(use.Profile.HideVisual);
+                    Assert.Equal(1, use.Profile.Count);
+                    var world = new ShotWorld(new(100 + distance, 100), dodge, wallX);
+                    var runtime = new ProjectileRuntime(world);
+                    runtime.Release(use);
+                    runtime.AdvanceTo(0);
+                    Assert.Empty(world.Hits);                             // no damage at the release
+                    runtime.AdvanceTo(ProjectileRuntime.Time(3));
+                    Assert.True(world.Hits.Count <= 1);                   // one projectile, one hit
+                    return world.Hits.Count == 1 ? world.Hits[0] / (double)ProjectileRuntime.QuantaPerSecond : null;
+                }
+                double speed = use0Speed(session, source, attack, shot);
+                double near = HitAt(10)!.Value, far = HitAt(40)!.Value;
+                Assert.True(far > near);
+                Assert.Equal(30 / speed, far - near, 1);              // the flight's time over the 30 cells between them
+                Assert.Null(HitAt(40, dodge: true));
+                Assert.Null(HitAt(40, wallX: 120));
+            }
+            finally { session.Invalidate(); }
+        }
+
+        static double use0Speed(Game.ProjectileSession session, SpawnedMonster source, MonsterAttack attack, SkillCatalog.MonsterProjectileInfo shot) =>
+            Game.MonsterProjectileUse(session, 0x8000040, source, attack, shot, 0, orderedAim: (140, 100)).Profile.Speed;
+    }
+
+    // One target that stands on its cell or walks off it at 40 cells/s (a dodge), and an optional wall along x.
+    sealed class ShotWorld(ProjectileVector at, bool dodge, double? wallX) : IProjectileWorld
+    {
+        public readonly List<long> Hits = [];
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until) =>
+            [new(new(1), 1, t => new(at.X, at.Y + (dodge ? 40 * t / (double)ProjectileRuntime.QuantaPerSecond : 0)), 0) { Size = 1 }];
+        public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
+            wallX is double x && (from.X - x) * (to.X - x) <= 0 && from.X != to.X
+                ? new TerrainContact((x - from.X) / (to.X - from.X), new(-1, 0)) : null;
+        public ProjectileHitResult Hit(ProjectileDamage damage) { Hits.Add(damage.At); return ProjectileHitResult.Hit; }
+        public void Publish(ProjectileEvent value) { }
+    }
+
     sealed class MortarContactWorld(bool dodge) : IProjectileWorld
     {
         public int Hits;

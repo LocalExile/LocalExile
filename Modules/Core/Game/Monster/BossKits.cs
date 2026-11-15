@@ -94,7 +94,8 @@ public static class BossKits
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
             // default attack is kept whatever it is: it is the attack it had before the kit.
-            bool acts = !attack.Damage.IsZero || attack.Summon is not null || attack.Projectile is not null;
+            // A shot acts by the hit it carries; a mortar or a named shot does by itself (its landing area, the Maven's orbs).
+            bool acts = !attack.Damage.IsZero || attack.Summon is not null || MavenNucleus.Shot(catalog, effect) is not null;
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
@@ -147,7 +148,7 @@ public static class BossKits
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
-        var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
+        var projectile = ranged ? MavenNucleus.ShotFor(catalog, variety, effect, actorLevel) : null;
         var summon = catalog.MonsterSummon(effect, actorLevel);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {

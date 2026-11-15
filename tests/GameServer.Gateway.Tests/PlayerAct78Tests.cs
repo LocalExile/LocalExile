@@ -4,40 +4,69 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class PlayerAct78Tests
 {
+    // Every monster shot has one drawer (issue 1004). One the client draws carries its count on the actor record and the
+    // server flies the same count hidden; one the server draws carries no count and flies visible. The families resolve
+    // to the rows the client's actions fire, which the hit timing on GGG's 3.30.0b servers matches (MonsterShots).
     [Fact]
-    public void Native_shots_receive_final_counts_without_changing_simulated_mortars()
+    public void Every_monster_shot_has_one_drawer_and_its_record_count_is_its_flight_count()
     {
         InGame(conn =>
         {
             var catalog = Game.SkillsFor(conn);
-            foreach (string id in new[] { "Metadata/Monsters/Guardians/GuardianFire",
-                "Metadata/Monsters/Skeletons/SkeletonCasterKnightFire",
-                "Metadata/Monsters/incaminion/Fragment2", "Metadata/Monsters/Skeletons/SkeletonBow3" })
+            int clientDrawn = 0, serverDrawn = 0;
+            foreach (var variety in Game.Monsters.All)
             {
-                var variety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find(id));
                 int effect = Game.MavenNucleus.CombatEffect(catalog, variety);
-                var attack = BossKits.AttackFor(conn, variety, 58, effect, 0x4000) with { Ranged = true };
+                if (effect < 0 || !Game.MonsterAttackIsRanged(catalog, variety, effect)
+                    || Game.MavenNucleus.ShotFor(catalog, variety, effect, 58) is not { } shot) continue;
+                var attack = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
+                    { Ranged = true, Spell = catalog.IsSpell(effect), Projectile = shot };
                 var stats = Game.MonsterActionSkillStats(conn, effect, 58, attack).ToDictionary(s => s.Item1, s => s.Item2);
-                Assert.True(stats[StatKeys.VirtualTotalProjectiles] >= 1);
-                Assert.Equal(stats[StatKeys.VirtualTotalProjectiles], stats[StatKeys.TotalProjectilesToFire]);
-                Assert.Equal(stats[StatKeys.VirtualTotalProjectiles], stats[StatKeys.VirtualTotalArrows]);
-                var raw = catalog.EffectStats(effect, 58);
-                int Raw(string name) => Program.Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-                int expected = Raw("number_of_projectiles_override") is > 0 and var n ? n
-                    : Math.Max(1, Raw("base_number_of_projectiles")) + Raw("number_of_additional_projectiles");
-                Assert.Equal(Math.Max(1, expected), stats[StatKeys.VirtualTotalProjectiles]);
-                // Native secondary projectile/skill settings must survive the final-count publication.
-                foreach (var stat in raw.Where(s => s.Item1 != StatKeys.BaseSpellCastTimeMs
-                    && s.Item1 != StatKeys.VirtualBaseSpellCastTimeMs && s.Item1 != StatKeys.HundredTimesCastsPerSecond))
-                    if (Program.Stats.Name(stat.Item1) is not ("base_mana_cost" or "mana_cost")
-                        && stat.Item1 != StatKeys.CastingSpell && !attack.Stats().Any(s => s.Item1 == stat.Item1))
-                        Assert.True(stats.ContainsKey(stat.Item1));
+                string label = $"{variety.Id} {catalog.EffectId(effect)}";
+                // A resolved shot keeps the effect's SkillID as the client's own builder adds it, but a spell mortar's.
+                if (catalog.BehaviourVariation(effect) is > 0 and var skillId && shot is { Variation: 0, SkillStats: not null })
+                    Assert.Equal(catalog.MonsterProjectile(effect) is null ? skillId : 0, stats.GetValueOrDefault(StatKeys.SkillBehaviourVariation));
+                if (shot.ClientDraws)
+                {
+                    clientDrawn++;
+                    Assert.True(shot.Count >= 1, label);
+                    Assert.Equal(shot.Count, stats[StatKeys.VirtualTotalProjectiles]);
+                    Assert.Equal(shot.Count, stats[StatKeys.TotalProjectilesToFire]);
+                    Assert.Equal(shot.Count, stats[StatKeys.VirtualTotalArrows]);
+                    var flight = shot.Target == SkillCatalog.MonsterShotTarget.MortarScatter
+                        ? Game.MonsterProjectileProfile(shot, 50, 20, 60)
+                        : MonsterShots.ClientDrawnProfile(conn, shot, !attack.Spell, new(20, 0), 0x8001, 0x40);
+                    Assert.True(flight.HideVisual, label);
+                    Assert.Equal(shot.Count, flight.Count);
+                }
+                else
+                {
+                    serverDrawn++;
+                    Assert.False(stats.ContainsKey(StatKeys.VirtualTotalProjectiles), label);
+                    Assert.False(Game.MonsterProjectileProfile(shot, 50, 20, 60).HideVisual, label);
+                }
             }
-            var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
-                { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)
-                    { Count = 3, Variation = 183 } };
-            Assert.Equal(Game.MonsterProjectileSkillStats(conn, 35, 58, mortar),
-                Game.MonsterActionSkillStats(conn, 35, 58, mortar));
+            Assert.True(clientDrawn > 800 && serverDrawn > 0, $"{clientDrawn} client-drawn, {serverDrawn} server-drawn");
+
+            SkillCatalog.MonsterProjectileInfo? Shot(string variety, string effect) =>
+                MonsterShots.Resolve(catalog, variety.Length > 0 ? Game.Monsters.Find(variety) : null, catalog.EffectRow(effect), 10);
+            // The families seen on GGG's servers, each the row whose speed their hits fit.
+            Assert.Equal(("Metadata/Projectiles/SandspitterMortarProjectile", 183, true),
+                (Shot("Metadata/Monsters/SandSpitters/SandSpitter", "MMASandSpitterProjectile")!.Metadata,
+                    Shot("Metadata/Monsters/SandSpitters/SandSpitter", "MMASandSpitterProjectile")!.Variation,
+                    Shot("Metadata/Monsters/SandSpitters/SandSpitter", "MMASandSpitterProjectile")!.ClientDraws));
+            Assert.Equal("Metadata/Projectiles/Fireball", Shot("Metadata/Monsters/Goatman/GoatmanShamanFireball", "MonsterFireballContactPos")!.Metadata);
+            Assert.Equal("Metadata/Projectiles/Snake", Shot("Metadata/Monsters/Snake/SnakeMeleeSpitForest", "SnakeProjectileSlow")!.Metadata);
+            Assert.Equal("Metadata/Projectiles/SkeletonProjectileCold", Shot("Metadata/Monsters/Skeletons/SkeletonCasterCold", "SkeletonProjectileCold")!.Metadata);
+            var arrow = Shot("Metadata/Monsters/Skeletons/SkeletonBow", "MeleeAtAnimationSpeed")!;
+            Assert.Equal(("Metadata/Projectiles/DefaultArrow", true), (arrow.Metadata, arrow.Arrows));
+            // The issue's bosses: the Lieutenant's six arrows fly; the Elder's volley is the server's (its contact
+            // direction is not reproduced); the Shaper's accelerating mover is not traced, so it keeps its contact.
+            var split = Shot("", "LieutenantSplitArrow")!;
+            Assert.Equal(("Metadata/Projectiles/SplitArrowDefault", 6, true), (split.Metadata, split.Count, split.ClientDraws));
+            var elder = Shot("", "ElderProjectileSpellcast1")!;
+            Assert.Equal(("Metadata/Projectiles/ElderProjectileLarge", 3, false), (elder.Metadata, elder.Count, elder.ClientDraws));
+            Assert.Null(Shot("", "AtlasBossAcceleratingProjectiles"));
         });
     }
 

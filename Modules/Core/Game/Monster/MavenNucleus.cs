@@ -101,6 +101,14 @@ public static partial class Game
             };
         }
 
+        /// <summary>The shot an attack built from <paramref name="effect"/> flies: the Maven's named shots as above (the
+        /// server's objects), else what the client's action fires (MonsterShots). <see cref="Shot"/> stays the narrower
+        /// test CombatEffect picks an effect by, so resolving more shots does not change which effect a monster uses.</summary>
+        public static SkillCatalog.MonsterProjectileInfo? ShotFor(SkillCatalog skills, MonsterCatalog.Variety? variety, int effect, int level,
+            IReadOnlyDictionary<string, int>? monsterStats = null) =>
+            Shot(skills, effect) is { Variation: 0 } named && skills.MonsterProjectile(effect) is null ? named
+                : MonsterShots.Resolve(skills, variety, effect, level, monsterStats);
+
         static SkillCatalog.MonsterProjectileInfo Named(string id, int speed) =>
             new($"Metadata/Projectiles/{id}", speed, false, 1) { AnimationKey = "SpellProjectile" };
 

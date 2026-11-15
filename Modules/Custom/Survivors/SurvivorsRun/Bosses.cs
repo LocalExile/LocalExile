@@ -220,7 +220,10 @@ static partial class SurvivorsRunRules
                 if (effect < 0 || catalog.MonsterProjectile(effect) is not { } shot) continue;
                 // A lobbed shot lands on one aim and cannot fan or ring; the generic straight projectile can.
                 if (shot.Lobbed) continue;
-                return shot with { Count = count, SpreadRadians = spread };
+                // The fan is the boss's own, which no record of its skill describes: the server's objects are what the
+                // player sees (a mortar attack's shot is otherwise the client's, hidden, and its fan was invisible).
+                return shot with { Count = count, SpreadRadians = spread, ClientDraws = false,
+                    Target = SkillCatalog.MonsterShotTarget.AtRelease };
             }
             return GenericProjectile(kit.Damage, count, spread);
         }

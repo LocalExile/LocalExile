@@ -12,13 +12,13 @@ public static partial class Game
         double.TryParse(Environment.GetEnvironmentVariable("Game_MONSTER_MORTAR_RADIUS"), out double radius) && radius > 0
             ? radius : MonsterMortarRadiusCells;
 
-    /// <summary>The use for a monster's ranged attack released now: native straight mortars retain their ordered aim;
-    /// other shots target the player's current cell. A
-    /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
-    /// actors) are in its way, never the other monsters. A monster's action releases a projectile of the client's own only
-    /// with a count on its skill record (the mortar attack's release, 0x141ba7c30): a <c>monster_mortar_attack</c>
-    /// record carries one and the client draws it (MonsterProjectileProfile); any other shot's, a spell mortar's included,
-    /// carries none, and the server's object is the projectile the player sees.</summary>
+    /// <summary>The use for a monster's ranged attack released now. A shot the client draws (its record carries the
+    /// count, MonsterShots.CountStats; the release 0x141ba7c30 fires nothing without one) keeps the order's aim and flies
+    /// hidden: a mortar attack to its scattered landing cells, any other straight shot by the client's own range,
+    /// contact and volley (MonsterShots.ClientDrawnProfile). Any other shot, a spell mortar's included, carries no count,
+    /// targets the player's cell at release, and the server's object is the projectile the player sees. A lobbed shot
+    /// lands and damages the area there; a straight shot flies on past its aim. Team 2, so only the player (and friendly
+    /// actors) are in its way, never the other monsters.</summary>
     public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
         (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence)
@@ -28,7 +28,10 @@ public static partial class Game
         var from = ProjectileSession.Vector(m.Walk.Position(now));
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(conn, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now)));
-        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
+        // The row's speed with the shot's speed stats (the skill's base_projectile_speed_+%: the Root Spider's spit flies
+        // twice as fast; the monster's projectile_speed_+%), as the client's speed getter reads them (0x141bb38d0).
+        int SkillStat(string name) => Stats.Key(name) is uint key && projectile.SkillStats is { } own ? own.GetValueOrDefault(key) : 0;
+        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, SkillStat, SkillStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
         var toward = (aim - from).Unit;
@@ -42,7 +45,8 @@ public static partial class Game
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
         ProjectileVector[]? nativeTargets = null;
-        if (projectile is { Variation: > 0, Lobbed: false })
+        bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
+        if (projectile is { ClientDraws: true, Lobbed: false })
         {
             // The contact offset is rotated with the facing model, then quantized to Positioned cells.
             // maintain_projectile_direction_when_using_contact_position translates the aim by the same offset.
@@ -50,14 +54,20 @@ public static partial class Game
             origin += new ProjectileVector(toward.Y, -toward.X) * lateral;
             origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
             var translated = aim + origin - from;
-            nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin, translated,
-                projectile.MinimumRange, projectile.SpreadRadius, sequence, id, i)).ToArray();
+            if (mortar)
+                nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin, translated,
+                    projectile.MinimumRange, projectile.SpreadRadius, sequence, id, i)).ToArray();
+            else if (projectile.AimTranslates) aim = translated;
         }
         // Retain the legacy landing model for server-created lobbed skills. Native straight mortar attacks use
         // their cell-based minimum range and scattered destinations above, not this untraced lob model.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
-        var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+        // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
+        // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
+        var profile = projectile is { ClientDraws: true, Lobbed: false } && !mortar
+            ? MonsterShots.ClientDrawnProfile(conn, projectile, attack: !a.Spell, aim - origin, sequence, id) with { Speed = speed }
+            : MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(projectile.Metadata) };
         var owner = session.ActorKey(id, m);
@@ -88,7 +98,7 @@ public static partial class Game
         EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", projectile.AreaRadius > 0 ? projectile.AreaRadius : MonsterMortarRadius()) : null,
         EndAreaReasons = projectile.Lobbed
             ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
-        HideVisual = projectile.Variation > 0,
+        HideVisual = projectile.ClientDraws,
     };
 
     /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even

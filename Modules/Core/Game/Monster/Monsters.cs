@@ -52,14 +52,16 @@ public static partial class Game
     public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
         var own = attack.InPlaceSkillStats();
-        // A mortar attack is the client's own: its action fires only with a count on the record and draws the MonsterMortar
-        // row skill_behaviour_variation names (StatKeys). GGG's base Spitter records carry row 183 and the three counts at
-        // its skill's 1, on lockstep and predictive, and its server creates no projectile object; the Gateway's then sends
-        // none (MonsterProjectileProfile). The count is the skill's (SkillCatalog.MonsterProjectile), so the client draws as
-        // many as the server lands.
-        if (attack.Projectile is { Variation: > 0 } mortar)
-            own = [.. own, (StatKeys.SkillBehaviourVariation, mortar.Variation), (StatKeys.TotalProjectilesToFire, mortar.Count),
-                (StatKeys.VirtualTotalProjectiles, mortar.Count), (StatKeys.VirtualTotalArrows, mortar.Count)];
+        // A shot the client draws is its own: its action fires only with a count on the record (and a mortar draws the
+        // MonsterMortar row skill_behaviour_variation names). GGG's records carry them, on lockstep and predictive, and its
+        // server creates no projectile object; the Gateway's then sends none (MonsterProjectileProfile). The count is the
+        // shot's one count (MonsterShots.Count), so the client draws as many as the server lands. A shot the server draws
+        // carries none.
+        own = [.. own, .. MonsterShots.CountStats(attack.Projectile)];
+        // Any other resolved shot's record keeps the SkillID the client's own skill-stat builder adds (WithBehaviourVariation),
+        // as it had while it hit at the contact; only a spell mortar's is sent without it (its action is not traced).
+        if (attack.Projectile is { SkillStats: not null, Variation: 0 } && SkillsFor(conn).MonsterProjectile(effect) is null)
+            own = WithBehaviourVariation(conn, effect, own);
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
         return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
@@ -195,11 +197,10 @@ public static partial class Game
         bool rangedAttack = kingActor
             ? effect >= 0 && (catalog.IsRangedAttack(effect) || variety.RangedWeapon && catalog.IsAttack(effect))
             : MonsterAttackIsRanged(catalog, variety, effect);
-        // A mortar skill's projectile (Sand Spitter): the shot flies and lands its hit; other ranged skills keep the
-        // instant contact until their projectile is known (SkillCatalog.MonsterProjectile). Its release time and point
-        // come from the clip the client plays for it (MonsterReleaseFor). MavenProjectile and the Nucleus barrages are
-        // monster_projectile_spell rows (not mortars): MavenNucleus.Shot names their Projectiles.dat art.
-        var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect) : null;
+        // A ranged skill's shot (MonsterShots: the row the client's action fires): it flies and lands its hit when it
+        // reaches the player; a skill whose shot the server cannot name keeps the instant contact. Its release time and
+        // point come from the clip the client plays for it (MonsterReleaseFor). The Maven's named shots stay the server's.
+        var projectile = rangedAttack ? MavenNucleus.ShotFor(catalog, variety, effect, level, mods.Effects.Stats) : null;
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
         var summon = variety.GrantedEffects is [int summonEffect, ..] ? catalog.MonsterSummon(summonEffect, level) : null;
@@ -1612,9 +1613,10 @@ public static partial class Game
             if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             var (from, player) = (order.From, order.Player);
-            // The client-drawn straight mortar retains the action order's aim throughout its windup
-            // (141ba7c30 -> 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
-            if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
+            // A shot the client draws keeps the action order's aim through its windup: the client stores the target's
+            // grid when the 0x1ab arrives and releases toward it (0x141938bf0 -> 0x141ba51a0; the mortar 141ba7c30 ->
+            // 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
+            if (a.Projectile is { ClientDraws: true, Target: not SkillCatalog.MonsterShotTarget.AtRelease }) projectileAim = player;
             if (walkUp && !conn.LockstepClient) seq = m.NextSequence();
             a = MonsterAttackForSequence(conn, m, a, seq);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
@@ -1628,12 +1630,14 @@ public static partial class Game
         // their clip too), half the attack time without rig data.
         double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
-        if (conn.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
+        if (a.Projectile is { ClientDraws: true, Lobbed: false } nativeProjectile)
         {
-            // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
-            // Starting between frames lets the server hit a moving player before the visible flight reaches them.
+            // The client's own shot leaves at the clip's contact: a lockstep client's at the end of the frame that crosses
+            // it, like the player's native shot (starting between frames lets the server hit a moving player before the
+            // visible flight reaches them), a predictive client's at the contact itself. The runtime releases it then,
+            // if the action is still the monster's current one (LaunchMonsterProjectile).
             LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, nativeProjectile, action, projectileAim,
-                LockstepShotAt(startedAt, seconds * contact), seq);
+                conn.LockstepClient ? LockstepShotAt(startedAt, seconds * contact) : startedAt + seconds * contact, seq);
             return;
         }
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
