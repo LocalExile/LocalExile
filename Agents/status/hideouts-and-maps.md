@@ -51,7 +51,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
   the town side checks that Auth still has the destination instance; there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
-  a map's portal gets no portal back: an entry through that map's device portals arrives at it, also after a death, #1002;
+  a map's portal gets no portal back: an entry through that map's device portals arrives at it, also after a death, and it
+  replaces the map's own portal back there, #1002;
   while the server runs, being tested 2026-10-23).
   Code: Gateway (`UsePortalScroll`, `UseMapReturnPortal`).
   Docs: [21](../docs/protocol/21-hideouts.md) §5.

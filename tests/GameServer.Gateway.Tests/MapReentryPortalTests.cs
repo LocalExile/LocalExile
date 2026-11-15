@@ -33,8 +33,16 @@ public sealed class MapReentryPortalTests
             Assert.Equal(portal, PortalsFeature.MapEntrySpot(owner, entered));
             Assert.Null(PortalsFeature.MapEntrySpot(guest, entered));   // each player's entry goes to their own portal
 
-            // Back in that instance, the portal stands at its cell again, in place of the map's own portal back.
+            // Resurrect at Checkpoint in the map leaves it for the device it was entered from, as the official servers do.
+            var exit = Game.MapCheckpointExit(inMap)!;
+            Assert.Equal((device.Area, device.Instance, (int?)device.X, (int?)device.Y),
+                (exit.Area, exit.Instance, exit.ArriveAt?.X, exit.ArriveAt?.Y));
+
+            // Back in that instance, the portal stands at its cell again, in place of the map's own portal back: one
+            // portal per player, none by the map's start.
             var back = Player(instance, 987700);
+            await PortalsFeature.SpawnMapReturnPortal("map-reentry-back", wire.Stream, wire.Ciphers, back);
+            Assert.Null(back.ReturnPortal);
             await PortalsFeature.SpawnTownPortals("map-reentry-back", wire.Stream, wire.Ciphers, back);
             Assert.Equal(portal, (back.ReturnPortal!.Value.X, back.ReturnPortal!.Value.Y));
 
@@ -42,6 +50,11 @@ public sealed class MapReentryPortalTests
             var replacement = MapDevice.Activate(owner, area, entrance: device);
             MapDevice.Entered(replacement, 987701);
             Assert.Null(PortalsFeature.MapEntrySpot(owner, MapDevice.OpenOf(owner)!));
+
+            // Outside maps the checkpoint is in the area.
+            var coast = new ClientState(new(0x7ad2, "1_1_2", 300, 300, 10, 10, null, []), 0, 1)
+                { Character = owner, Instance = new InstanceState(), InstanceNumber = 5 };
+            Assert.Null(Game.MapCheckpointExit(coast));
         }
         finally
         {

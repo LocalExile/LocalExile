@@ -16,6 +16,9 @@ static class PortalsFeature
         var origin = MapReturnOrigin(conn);
         var hideout = HomeHideout(conn);
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
+        // The player's own portal in this instance stands instead (SpawnTownPortals): one portal per player.
+        if (MapTownPortals.TryGetValue(CharacterName(conn), out var own) && own.Area == conn.Layout.Hash
+            && own.Instance == conn.InstanceNumber) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         uint id = conn.TakeObjectId();
