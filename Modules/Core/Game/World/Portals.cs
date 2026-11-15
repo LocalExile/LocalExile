@@ -1,9 +1,65 @@
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    // The map device's portal labels (21-hideouts.md Â§5): the client's own nametag over each portal says
+    // "<area> (Completed)" once that run's map boss is dead, and nothing before. Kept by character: an area change is a new
+    // connection of the same character, and the list is re-sent from the new one (the hideout), so a mark kept on the
+    // connection would be lost exactly when the label needs it. Putting a map in the device clears it.
+    static readonly ConcurrentDictionary<string, string> CompletedRuns = new(StringComparer.Ordinal);
+    static readonly ConcurrentDictionary<string, DateTime> RunChecks = new(StringComparer.Ordinal);
+
+    /// <summary>Records that the area's map boss died: its portals read " (Completed)" from now on.</summary>
+    public static void MarkRunBossKilled(ClientState conn, string areaId)
+    {
+        string character = CharacterName(conn);
+        if (character.Length == 0) return;
+        if (!CompletedRuns.TryGetValue(character, out var done) || !string.Equals(done, areaId, StringComparison.Ordinal))
+            Console.WriteLine($"[gateway] {character} map run completed: {areaId} (its portals read completed)");
+        CompletedRuns[character] = areaId;
+    }
+
+    /// <summary>A map went into the device: its run has not had its boss killed yet.</summary>
+    public static void ResetRunCompleted(ClientState conn) => CompletedRuns.TryRemove(CharacterName(conn), out _);
+
+    /// <summary>Whether this character's run of the area is done: its boss died, which its portals' labels show.</summary>
+    public static bool RunBossKilled(ClientState conn, string areaId) =>
+        CompletedRuns.TryGetValue(CharacterName(conn), out var done) && string.Equals(done, areaId, StringComparison.Ordinal);
+
+    /// <summary>A boss by the test <c>/kill boss</c> uses: unique, the big boss health bar, or a boss stage.</summary>
+    public static bool MapBoss(SpawnedMonster m) =>
+        m.Rarity == MonsterRarity.Unique || m.Variety?.BossHealthBar == true || m.Stage is not null;
+
+    /// <summary>The tick: in the map the device opened, once every boss of it is dead the run is marked. Reading the roster
+    /// rather than the kill covers the kills no hook reports (a minion's, a projectile's) and a boss that died before this
+    /// was loaded. Four checks a second at most, and none outside the device's own area.</summary>
+    public static void TickMapRunBoss(ClientState conn)
+    {
+        if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
+        string character = CharacterName(conn);
+        if (character.Length == 0) return;
+        var now = DateTime.UtcNow;
+        if (RunChecks.TryGetValue(character, out var checkedAt) && now - checkedAt < TimeSpan.FromMilliseconds(250)) return;
+        RunChecks[character] = now;
+        if (MapDevice.OpenOf(character) is not { } open || !string.Equals(open.Area.Id, conn.Layout.Id, StringComparison.Ordinal)) return;
+        lock (conn.Monsters)
+        {
+            bool any = false;
+            foreach (var m in conn.Monsters.Values)
+            {
+                if (!MapBoss(m)) continue;
+                any = true;
+                if (!m.Dead && m.Life > 0) return;
+            }
+            if (!any) return;
+        }
+        MarkRunBossKilled(conn, open.Area.Id);
+    }
+
+
     public static (uint Id, int X, int Y, bool Campaign)? MapDeviceHere(ClientState conn)
     {
         if (conn.Layout.Id == MapDevice.CampaignDeviceArea)
@@ -31,7 +87,7 @@ public static partial class Game
     }
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
-    // town portal): object id → the area it leads to, for the connection that made them.
+    // town portal): object id â†’ the area it leads to, for the connection that made them.
     static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
 
     /// <summary>
@@ -64,7 +120,7 @@ public static partial class Game
 
     /// <summary>
     /// The effect one portal is drawn with. The Portal slot has two choices that are no cosmetic
-    /// (MicrotransactionSlotAdditionalDefaultOptions; C→S 0x1f9 with record 0 and the option): 1 "Use one random
+    /// (MicrotransactionSlotAdditionalDefaultOptions; Câ†’S 0x1f9 with record 0 and the option): 1 "Use one random
     /// variation for every portal" and 2 "Use random variations for all portals". The pick is kept, per area visit for
     /// 1 and per portal for 2, so a portal listed again keeps its effect. Otherwise the worn effect.
     /// </summary>
@@ -93,7 +149,7 @@ public static partial class Game
         return true;
     }
 
-    // S→C 0x8f: the device's portals and where they lead (21-hideouts.md §5). Without it the client never draws them; a
+    // Sâ†’C 0x8f: the device's portals and where they lead (21-hideouts.md Â§5). Without it the client never draws them; a
     // portal listed with area 0 (one just taken) closes.
     public static async Task SendMapPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint deviceId, ushort area, uint closed = 0)
     {
@@ -105,7 +161,7 @@ public static partial class Game
         var list = (closed == 0 ? [] : new List<InstanceMapDevice.Portal> { new(closed, 0) })
             .Concat(ids.Select(p => new InstanceMapDevice.Portal(p.Id, area, owner, style,
                 run is null ? PortalVariation(conn, p.Id) : MapPortalVariation(run, p.Index)))).ToList();
-        await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, list),
+        await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, list, run is not null && RunBossKilled(conn, run.Area.Id)),
             $"0x008f map device 0x{deviceId:x} portals: {ids.Count} open to 0x{area:x4}{(closed == 0 ? "" : $", 0x{closed:x} closed")}");
     }
 

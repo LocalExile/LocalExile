@@ -93,11 +93,23 @@ public static class InstanceMapDevice
     /// handler gives each listed portal object (it must exist already) its destination through PortalClient vtable +0xb8
     /// (0x14161c0e0: the area, its model, rendering on) and runs the device's on_map_portal_opened; an entry whose area
     /// became 0 closes its portal (+0xc0) and runs on_map_portal_closed. A portal object never listed here is not drawn.
+    /// <para>
+    /// The label floating over the player's own portal is the Portal component's own nametag: slot +0xb8 calls the text
+    /// getter 0x14161ca80, which takes the WorldAreas row the entry's area HASH16 resolved to ([component+0xb0], then its
+    /// +8, the localized area name) and then tests a byte of the component (<c>0x14161caa7</c>); set, the label is
+    /// ClientStrings 0x1fe5 <c>MapPortalsSuffixMapCompleted</c>, "{0} (Completed)" (<c>0x14161caf1</c>). That byte is
+    /// +0x33, which only bit 1 of this message's flags fills (reader <c>0x1421a73c1</c>): the dispatcher passes it to the
+    /// handler (<c>0x14218ca36</c>) and the handler forwards it, per listed portal, as the 7th argument of +0xb8
+    /// (<c>0x14218cc2d</c>). It re-runs +0xb8 for every portal on every 0x008f, so a re-sent list relabels them.
+    /// <paramref name="completed"/> sets that bit 1 and nothing else: bit 0 (0x01) is a different byte, +0x32, and
+    /// selects the "just opened" render path, so it stays clear.
+    /// </para>
     /// </summary>
-    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals)
+    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals, bool completed = false)
     {
-        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8(0).U8(0).U8(0).U32(deviceId).U16(0).U8(0).U8(0)
-            .U8((byte)portals.Count);
+        // The flags byte: bit 1 (0x02) is the completed label, 0 is a plain one.
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8((byte)(completed ? 0x02 : 0x00)).U8(0).U8(0)
+            .U32(deviceId).U16(0).U8(0).U8(0).U8((byte)portals.Count);
         foreach (var p in portals)
         {
             w.U32(p.ObjectId).U16(p.Area);

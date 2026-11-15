@@ -10,7 +10,7 @@ static class PortalsFeature
         MapDevice.ForInstance(conn) is { } map ? map.ReturnTo ?? map.Entrance : null;
 
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
-    // a device once the world is active (21-hideouts.md §5). It is not used up.
+    // a device once the world is active (21-hideouts.md Â§5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var origin = MapReturnOrigin(conn);
@@ -28,7 +28,7 @@ static class PortalsFeature
         global::Game.ListPortal(remote, stream, ciphers, conn, id, destination, "the return portal", MapPortalEntryMs);
     }
 
-    // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
+    // A click on a map portal (Câ†’S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
     // instance for the first portal and that same instance for the others.
     internal static async Task UseMapPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y, int Index) at, double requestedAt)
@@ -61,7 +61,7 @@ static class PortalsFeature
         }, $"map portal to {map.Area.Name}");
     }
 
-    // C→S 0x00d8, the map device window's Activate (21-hideouts.md §5): one map (its affixes and the scarabs/fragments)
+    // Câ†’S 0x00d8, the map device window's Activate (21-hideouts.md Â§5): one map (its affixes and the scarabs/fragments)
     // or a MapDeviceRecipes set with no map. Then one item from each slot's stack is consumed, the area opens (the first
     // portal taken makes its instance) and its portals appear around the device, replacing any open before. Otherwise the chat says why.
     internal static async Task ActivateMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Target, byte Index) activate)
@@ -73,7 +73,7 @@ static class PortalsFeature
             $"{string.Join(", ", slots.Select(i =>
             {
                 string name = Items.ByHash(i.Item.TypeHash)?.Name ?? $"0x{i.Item.TypeHash:x8}";
-                return i.Item.StackSize > 1 ? $"{name} ×{i.Item.StackSize}" : name;
+                return i.Item.StackSize > 1 ? $"{name} Ã—{i.Item.StackSize}" : name;
             }).DefaultIfEmpty("empty"))}");
         Task Tell(string text) => Send(remote, stream, ciphers, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
@@ -118,6 +118,7 @@ static class PortalsFeature
             $"0x00bf inventory {PlayerInventories.InventoryId(PlayerInventories.MapDevice)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = conn.Layout.Near((device.Value.X, device.Value.Y));
+        ResetRunCompleted(conn);
         var open = MapDevice.Activate(CharacterName(conn), area, opening.Mods, opening.ItemRow,
             device.Value.Campaign || request.ReturnToSource ? new(conn.Layout.Hash, conn.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(conn.Layout.Hash, conn.InstanceNumber, entrance.X, entrance.Y));
@@ -140,7 +141,7 @@ static class PortalsFeature
         }
     }
 
-    // A click on the portal back (C→S 0x24, the map's own or a Portal Scroll's): walk there, then to the hideout next to its
+    // A click on the portal back (Câ†’S 0x24, the map's own or a Portal Scroll's): walk there, then to the hideout next to its
     // waypoint, or to the town the scroll's portal leads to (ReturnPortalTo), at its spawn.
     internal static async Task UseMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, (int X, int Y) at, double requestedAt)
@@ -159,7 +160,7 @@ static class PortalsFeature
             await WarpToHideout(remote, stream, ciphers, conn, "map portal back");
     }
 
-    // A click on the map device (C→S 0x24): walk there, then S→C 0x7b kind 5 opens the map device window (21-hideouts.md §4).
+    // A click on the map device (Câ†’S 0x24): walk there, then Sâ†’C 0x7b kind 5 opens the map device window (21-hideouts.md Â§4).
     // Its slots and the activation are not served yet.
     internal static async Task UseMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, HideoutCatalog.Doodad device, double requestedAt)
@@ -173,9 +174,9 @@ static class PortalsFeature
             "0x007b open the map device window", still: () => PlayerActionCurrent(conn, action));
     }
 
-    // C→S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
+    // Câ†’S 0xe8: Ctrl + click with the Atlas map device open. A map/fragment in the inventory goes into Map1's first
     // free cell; an item already in the slots goes back to the inventory. The client only sends this after the window's
-    // +0x10b8 check (0x14030e970 → 0x14216e750).
+    // +0x10b8 check (0x14030e970 â†’ 0x14216e750).
     internal static async Task MoveToMapDevice(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceMapDevice.Move request)
     {
@@ -227,7 +228,7 @@ static class PortalsFeature
         global::Game.ListPortal(remote, stream, ciphers, conn, id, open.Area, "the portal back", MapPortalListMs);
     }
 
-    // A Portal Scroll used (C→S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
+    // A Portal Scroll used (Câ†’S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
     // stands, replacing the one there was (the scroll's earlier one, or a map's own portal back). From a map it leads to the
     // hideout (the player came through its map device), anywhere else to the character's last town. In a town or a hideout
     // nothing happens and nothing is spent.
@@ -285,12 +286,12 @@ static class PortalsFeature
         // Map return portals never create an extra entrance beside the device: re-entry spends its shared six portals.
         if (toHideout) OpenPortals.TryRemove(owner, out _);
         else OpenPortals[owner] = new OpenPortal(here, conn.InstanceNumber, x, y, leadsTo);
-        Console.WriteLine($"[gateway] {remote} {why}: town portal at ({x}, {y}) of 0x{here:x4} instance {conn.InstanceNumber} → 0x{leadsTo:x4}");
+        Console.WriteLine($"[gateway] {remote} {why}: town portal at ({x}, {y}) of 0x{here:x4} instance {conn.InstanceNumber} â†’ 0x{leadsTo:x4}");
         // 0x8f only reaches a portal the client has finished creating (Game.ListPortal).
         global::Game.ListPortal(remote, stream, ciphers, conn, id, leadsTo,
             $"the Portal Scroll's portal, to {(toHideout ? "the hideout" : "the last town")}", MapPortalListMs);
     }
-    // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
+    // Câ†’S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
     // what the next generic map key opens.
     internal static async Task SelectAtlasMap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Area, byte Mode) picked)
     {
