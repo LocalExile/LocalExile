@@ -472,7 +472,7 @@ public static class ShrineManager
             if (ShrineCatalog.Find(id) is not { } definition) continue;
             bool taken;
             lock (conn.Monsters) taken = state.Buffs.ContainsKey(definition.BuffRow);
-            if (!taken) await Grant(conn, NewInstance(definition, 0, 0, 0, null), ctx, itemSource: id);
+            if (!taken) await Grant(conn, ItemInstance(definition), ctx, itemSource: id);
         }
         (string Id, double Seconds)[] gained;
         lock (conn.Monsters)
@@ -481,7 +481,17 @@ public static class ShrineManager
             gained = [.. pending]; pending.Clear();
         }
         foreach (var (id, seconds) in gained)
-            if (ShrineCatalog.Find(id) is { } definition) await Grant(conn, NewInstance(definition, 0, 0, 0, null), ctx, seconds);
+            if (ShrineCatalog.Find(id) is { } definition) await Grant(conn, ItemInstance(definition), ctx, seconds);
+    }
+
+    /// <summary>A shrine buff with no shrine object: claimed already, so its effects run around the player (a claimed
+    /// Lightning shrine's novas), not around a standing shrine at the origin (live 2026-11-15: The Golden Charlatan's
+    /// Lightning buff cast its novas at (0, 0)).</summary>
+    static ShrineInstance ItemInstance(ShrineCatalog.ShrineDefinition definition)
+    {
+        var shrine = NewInstance(definition, 0, 0, 0, null);
+        shrine.State = ShrineState.Used;
+        return shrine;
     }
 
     /// <summary>"Gain a random Shrine Buff for X seconds when you Kill a Rare or Unique Enemy" (The Golden Charlatan): one of
