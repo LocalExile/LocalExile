@@ -80,7 +80,9 @@ public static class ArakaaliLasers
         {
             if (!c.MonsterViews.ContainsKey(bossId) || c.AsleepMonsters.Contains(bossId)) return;
             players.Add(c);
-            foreach (var s in instance.World.SceneObjects.Where(p => p.Key.StartsWith(Prefix, StringComparison.Ordinal)).Select(p => p.Value).ToArray())
+            (uint Id, string Type, QuestObject Object)[] scenes;
+            lock (c.Monsters) scenes = [.. instance.World.SceneObjects.Where(p => p.Key.StartsWith(Prefix, StringComparison.Ordinal)).Select(p => p.Value)];
+            foreach (var s in scenes)
             {
                 lock (c.Monsters) if (c.SceneViews.Contains(s.Id)) continue;
                 var w = c.Wire;
@@ -130,7 +132,7 @@ public static class ArakaaliLasers
             {
                 lock (p.Monsters)
                 {
-                    if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p) || boss.Dead || boss.StageRunning) return null;
+                    if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p) || boss.Dead || boss.Life == 0 || boss.StageRunning || boss.LifePhases?.Active == true) return null;
                     double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
                     var minionAttack = attack with { Damage = attack.Damage.Scale(.5) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())

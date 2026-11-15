@@ -234,7 +234,7 @@ a8q3: 9 `a8q23-QuestsReceived` · 8 `a8q1-KilledBoss` · 7 `MaramoaOnSunOrb` · 
 `SilverFrog.ot` dispatches `reappear` when `mirror_images` becomes 0. `FrogGodHide` is the Hide action (8455),
 separate from `FrogGodSplit` (6796), a leap-style attack. Frog's native `jump_into` lasts 3166 ms and `jump_out` 1166 ms.
 The campaign controller uses the reference 66%/33% mirror intervals and ten native image-spawner positions;
-all images must die before the emergence finishes and damage resumes. The boss is absent from world views while
+all images must die before the emergence finishes and damage resumes. The boss has no view or collision body while
 submerged; its instance state keeps the wave from being generated twice on rule reload. Pool hazards and orb/totem
 cadence remain separate from these mirror intervals.
 
