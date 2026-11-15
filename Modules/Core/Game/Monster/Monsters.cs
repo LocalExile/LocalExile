@@ -1049,6 +1049,7 @@ public static partial class Game
     {
         MonsterAiPlan plan;
         await ExpireSummonedMonsters(remote, stream, ciphers, conn);
+        await MonsterTrapsTick(remote, stream, ciphers, conn);
         if (DamageTriggers.TryGetValue(conn, out _))
             ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -1670,6 +1671,11 @@ public static partial class Game
             await MonsterSummon(remote, stream, ciphers, conn, id, m, summon);
             return;
         }
+        if (a.Trap is { } payload)
+        {
+            await ThrowMonsterTraps(remote, stream, ciphers, conn, id, m, a, payload, areaAim);
+            return;
+        }
         if (a.Projectile is { } projectile)
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
@@ -1768,19 +1774,45 @@ public static partial class Game
     {
         MonsterHitOutcome? outcome = null;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
-        {
-            if (InGracePeriod(conn)) return null;
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            var here = conn.Walk.Position(now);
-            foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
-                if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
-                    GolemTakeHitLocked(conn, golem, id, m, a, now, area: true);
-            double dx = here.X - aim.X, dy = here.Y - aim.Y;
-            if (dx * dx + dy * dy > radius * radius) return null;
-            outcome = CommitMonsterHitLocked(remote, conn, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
-            return outcome?.HitPacket;
-        }, $"0x01af monster 0x{id:x} area hit on the player")) return;
+            (outcome = AreaHitLocked(remote, conn, id, m, a, aim, radius, sequence))?.HitPacket,
+            $"0x01af monster 0x{id:x} area hit on the player")) return;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+    }
+
+    /// <summary>A monster skill's area hit that no longer belongs to the monster's own action: a trap of its going off,
+    /// a strike that lands after the cast. It is gated on <paramref name="still"/> (its source still there) at the send
+    /// gate instead of on the monster's current swing; the monster's stats and damage pipeline still make the hit.</summary>
+    public static async Task MonsterDetachedAreaHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster m, MonsterAttack a, (int X, int Y) aim, double radius, ushort sequence, Func<bool> still)
+    {
+        MonsterHitOutcome? outcome = null;
+        await SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x01af monster 0x{id:x} ({m.Label}) area hit on the player",
+            atGate: () =>
+            {
+                using (ProjectileMutation(conn, phase: "send"))
+                {
+                    if (!still() || conn.Paused || conn.PlayerLife == 0) return null;
+                    var bytes = (outcome = AreaHitLocked(remote, conn, id, m, a, aim, radius, sequence))?.HitPacket;
+                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    return bytes;
+                }
+            });
+        if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+    }
+
+    // At the send gate: every golem and the player within radius of aim take the hit; the player's outcome, or null.
+    static MonsterHitOutcome? AreaHitLocked(string remote, ClientState conn, uint id, SpawnedMonster m, MonsterAttack a,
+        (int X, int Y) aim, double radius, ushort sequence)
+    {
+        if (InGracePeriod(conn)) return null;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        var here = conn.Walk.Position(now);
+        foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
+            if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
+                GolemTakeHitLocked(conn, golem, id, m, a, now, area: true);
+        double dx = here.X - aim.X, dy = here.Y - aim.Y;
+        if (dx * dx + dy * dy > radius * radius) return null;
+        return CommitMonsterHitLocked(remote, conn, id, m, a, now, here, aim, checkRange: false, sequence: sequence);
     }
 
     // A melee contact at the clip's keyframe: committed at the actual send gate under the monster's action, so a

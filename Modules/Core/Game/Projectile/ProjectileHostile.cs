@@ -21,11 +21,12 @@ public static partial class Game
     /// carries none, and the server's object is the projectile the player sees.</summary>
     public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
-        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence)
+        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        var from = ProjectileSession.Vector(m.Walk.Position(now));
+        // A shot released from an object of the monster's (its trap) leaves that object, not the monster's hand.
+        var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(conn, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now)));
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
@@ -38,7 +39,8 @@ public static partial class Game
         // monster toward the aim (maintain_projectile_direction_when_using_contact_position). Native straight mortar
         // attacks also rotate the lateral contact offset below.
         var release = a.Release;
-        double ahead = release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
+        double ahead = releasedFrom is not null ? 0
+            : release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
         ProjectileVector[]? nativeTargets = null;
@@ -119,6 +121,20 @@ public static partial class Game
 
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
+    /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
+    /// from <paramref name="origin"/> toward the player while <paramref name="still"/> holds; its flight then lands the
+    /// monster's hit as any of its shots does.</summary>
+    public static void LaunchDetachedMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, (int X, int Y) origin,
+        Func<bool> still, ushort sequence)
+    {
+        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        session.Advance();
+        int action = m.ActionGeneration;
+        session.Schedule(session.Runtime.Now, () => still() && conn.PlayerLife > 0 && !InGracePeriod(conn),
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, sequence: sequence, releasedFrom: origin));
+    }
+
     public static void LaunchMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)

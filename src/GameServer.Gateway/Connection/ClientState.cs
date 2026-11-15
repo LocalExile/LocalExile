@@ -28,6 +28,18 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+/// <summary>Objects a monster's skill leaves in the area: its thrown traps (Game.MonsterTraps).</summary>
+public sealed class MonsterPlacedObjects
+{
+    /// <summary>A monster's trap: its object, its owner, what it plays when set off, and its throw's times.</summary>
+    public sealed record Trap(uint Id, uint Owner, SpawnedMonster Monster, MonsterAttack Payload, (int X, int Y) At,
+        double LandAt, double Armed, double Until, double TriggerRadius)
+    {
+        public bool Landed;
+    }
+    public readonly Dictionary<uint, Trap> Traps = [];
+}
+
 /// <summary>What a kit skill does beyond a hit (BossKits, MonsterSkills.cs).</summary>
 public enum MonsterSkillShape
 {
@@ -68,6 +80,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public double AreaRadius { get; init; }
     /// <summary>The area is around the user (a nova: ActiveSkillTypes Nova), not where the action aims.</summary>
     public bool AreaAtSelf { get; init; }
+    /// <summary>A trap skill (ActiveSkillTypes Trapped): the action throws a trap at its aim, and the trap, set off,
+    /// plays this attack from where it lies (Game.MonsterTraps). Null for any other skill.</summary>
+    public MonsterAttack? Trap { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>

@@ -86,4 +86,6 @@ public sealed partial class ClientState
 {
     SummonedMinions? summons;
     public SummonedMinions Summons => System.Threading.LazyInitializer.EnsureInitialized(ref summons);
+    MonsterPlacedObjects? monsterPlaced;
+    public MonsterPlacedObjects MonsterPlaced => System.Threading.LazyInitializer.EnsureInitialized(ref monsterPlaced);
 }

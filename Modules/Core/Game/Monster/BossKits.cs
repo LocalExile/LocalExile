@@ -143,19 +143,29 @@ public static class BossKits
 
     /// <summary>A unique's skill as it plays: a ranged one flies the projectile the client's art resolver picks for it,
     /// as an object of the server's (a monster's action draws none of its own but a mortar's: Game.MonsterProjectileUse);
-    /// an area one lands within its radius. Null for one the server cannot play: a ranged skill whose art resolves no
-    /// projectile (its hit would land with nothing in flight), a trap (an object the server does not throw for a monster
-    /// yet), Storm Call (its marker is server art: StormCall.cs).</summary>
-    public static MonsterAttack? Shaped(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack)
+    /// an area one lands within its radius; a trap is thrown, and plays one of those once set off (MonsterTraps). Null for
+    /// one the server cannot play: a ranged skill whose art resolves no projectile (its hit would land with nothing in
+    /// flight), a trap whose set-off skill hits for nothing or has no shape, Storm Call (its marker is server art:
+    /// StormCall.cs).</summary>
+    /// <param name="setOff">Shape what a trap of the skill plays once set off, rather than the throw.</param>
+    public static MonsterAttack? Shaped(ClientState conn, MonsterCatalog.Variety variety, byte level, int effect, MonsterAttack attack,
+        bool setOff = false)
     {
         var catalog = SkillsFor(conn);
+        if (catalog.HasType(effect, "Trapped") && !setOff)
+        {
+            // A trap is thrown at the aim; what it plays when set off is the skill as any other use of it plays.
+            if (Shaped(conn, variety, level, effect, attack, setOff: true) is not { } payload) return null;
+            if (payload.Damage.IsZero || payload.Projectile is null && payload.AreaRadius <= 0) return null;
+            return attack with { Trap = payload, Projectile = null, Release = null, ReleaseEffect = null, AreaRadius = 0 };
+        }
         if (attack.Ranged && attack.Projectile is null)
         {
             if (ArtShot(catalog, effect, level) is not { } shot) return null;
             return attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot) };
         }
         if (attack.Projectile is not null) return attack;
-        if (catalog.HasType(effect, "Trapped") || catalog.HasType(effect, "SummonsTotem") && attack.Summon is null
+        if (catalog.HasType(effect, "SummonsTotem") && attack.Summon is null
             || catalog.EffectId(effect) is { } stormCall && MonsterSkills.Family(stormCall) == "StormCall") return null;
         if (AreaRadius(catalog, effect, level) is double radius && !catalog.IsMelee(effect))
             attack = attack with { AreaRadius = radius, AreaAtSelf = catalog.HasType(effect, "Nova") };
@@ -200,7 +210,9 @@ public static class BossKits
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
-        return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count) };
+        // A nova (projectiles_nova: Lightning Trap's) fires its projectiles around the full turn.
+        bool nova = Stats.Key("projectiles_nova") is uint novaKey && stats.GetValueOrDefault(novaKey) != 0;
+        return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : Math.PI / 6 };
     }
 
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
