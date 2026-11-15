@@ -114,7 +114,7 @@ public static class CharacterBuildImports
     static Dictionary<string, string>? MergeModuleData(Dictionary<string, string>? current, Dictionary<string, string>? incoming)
     {
         var next = (current ?? []).Where(kv => kv.Key != "Game.Golems").ToDictionary(kv => kv.Key, kv => kv.Value);
-        foreach (var pair in incoming ?? []) next[pair.Key] = pair.Value;
+        foreach (var pair in incoming ?? []) if (pair.Key != "Game.Golems") next[pair.Key] = pair.Value;
         return next.Count == 0 ? null : next;
     }
 

@@ -14,7 +14,7 @@ public sealed class CharacterBuildImportTests
         var current = new CharacterSaves.Save([], Descendancy: 4, DescendancyNodes: [123], QuestFlags: ["KeepQuest"],
             ModuleData: new() { ["PersonalSetting"] = "keep", ["Game.Golems"] = "old" });
         var build = new CharacterSaves.Save([], Descendancy: 11, DescendancyNodes: [35011],
-            ModuleData: new() { [ImportedProgress.BanditKey] = "Alira", [ImportedProgress.PointsKey] = "24" });
+            ModuleData: new() { [ImportedProgress.BanditKey] = "Alira", [ImportedProgress.PointsKey] = "24", ["Game.Golems"] = "foreign session" });
         var merged = CharacterBuildImports.Merge(current, build);
         Assert.Equal((byte)11, merged.Descendancy);
         Assert.Equal(new ushort[] { 35011 }, merged.DescendancyNodes);
@@ -32,6 +32,11 @@ public sealed class CharacterBuildImportTests
             Assert.Equal("keep", normalized.ModuleData!["PersonalSetting"]);
         }
         var cleared = CharacterBuildImports.Merge(merged, new CharacterSaves.Save([]));
+        var character = new Character(Guid.NewGuid(), Guid.NewGuid(), "ValidateOverrides", CharacterClass.Witch, 90,
+            "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        Game.ValidateImportedBuild(character, new CharacterSaves.Save([], Tattoos: new() { [21678] = "Tattoo of the Hinekora Warmonger" }));
+        Assert.Throws<InvalidDataException>(() => Game.ValidateImportedBuild(character,
+            new CharacterSaves.Save([], Tattoos: new() { [21301] = "Tattoo of the Hinekora Warmonger" })));
         Assert.Null(cleared.Descendancy);
         Assert.Null(cleared.DescendancyNodes);
         Assert.Equal(current.QuestFlags, cleared.QuestFlags);
