@@ -146,7 +146,10 @@ public static class SolarisLunaris
                 if (now < deadline) return;
                 active = 1 - active; await Activate(c, now); return;
             }
-            if (!Alive(Body(1 - active).Monster) || now < nextSwap || now < Body(active).Monster.BusyUntil) return;
+            if (!Alive(Body(1 - active).Monster) || now < nextSwap) return;
+            // Stop admitting new AI orders while the current action finishes, or continuous attacks can starve the handoff.
+            lock (c.Monsters) Body(active).Monster.EntranceGrace = true;
+            if (now < Body(active).Monster.BusyUntil) return;
             var (id, body) = Body(active);
             Hold(c, body, true, now); await State(c, active, 3);
             var at = body.Walk.Position(now);

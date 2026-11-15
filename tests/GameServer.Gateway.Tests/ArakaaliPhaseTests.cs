@@ -196,9 +196,12 @@ public sealed class ArakaaliPhaseTests
         Assert.True(moon.WorldHidden); Assert.DoesNotContain(mid, c.MonsterViews.Keys);
         Assert.Equal(4, c.Instance.World.MonsterOrigins[mid].Object.TransitionState);
         Assert.Single(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
+        sun.BusyUntil = 124;
         await fight.Step(c, 123);
         Assert.True(sun.Invulnerable); Assert.True(moon.Invulnerable);
-        await fight.Step(c, 125); await fight.Step(c, 127);
+        Assert.True(SolarisLunaris.Held(c, sun));
+        Assert.Equal(2, c.Instance.World.MonsterOrigins[sid].Object.TransitionState);
+        await fight.Step(c, 124.1); await fight.Step(c, 126); await fight.Step(c, 128);
         Assert.True(sun.Invulnerable); Assert.False(moon.Invulnerable);
         Assert.True(sun.WorldHidden); Assert.False(moon.WorldHidden);
         Assert.Single(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
