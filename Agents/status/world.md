@@ -58,7 +58,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
-  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
+  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it; in a map
+  it leaves the map for the map device's area it was entered from, as the official servers do (3.30.0b; #1002).
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
@@ -83,8 +84,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [16](../docs/protocol/16-waypoints.md).
 - Pause: the Escape menu outside towns and hideouts pauses the area (C→S 0x1d4 → S→C 0x1d3): the Gateway's clock
   stops, monsters neither move nor swing, regeneration and flasks wait, and the client pauses its world;
-  closing the menu resumes.
-  Code: `InstancePause.cs`, Gateway (`SetPaused`).
+  closing the menu resumes, and so does the pausing player leaving or another player arriving (#991).
+  Code: `InstancePause.cs`, Gateway (`SetPaused`, `EndEscapePause`).
   Docs: [22](../docs/protocol/22-pause.md).
 
 - Instance framing retains split 0x020a and 0x0059 messages at their primary-writer lengths of 3 and 16 bytes.
