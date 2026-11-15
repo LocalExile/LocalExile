@@ -69,20 +69,20 @@ KB applies `active_skill_area_damage_+%_final` only at the explosion stage. Skil
 maximum-mana physical addition enter the common attack damage construction, before stage multipliers.
 
 Each group chooses a random initial rotation and divides the circle into N equal sectors for its resolved explosion
-count. One angle is sampled independently inside each sector, visited counter-clockwise. Centers lie on the fixed
-placement circle: 20 cells for normal KB and 28 for Clustering before area scaling. Blast and placement radii scale
+count, sampling one angle inside each sector. Normal KB visits the sectors in random order with each distance uniform
+between half the placement radius and its edge; Clustering visits them counter-clockwise with slot i in the i-th
+of N equal distance bands (an outward spiral). Placement radius: 20 cells for normal KB and 28 for Clustering before
+area scaling. Blast and placement radii scale
 separately. Terrain-blocked center paths are omitted without replacement or redistribution and consume no time slots.
 Centers and terrain admission are captured at impact/stop; actors and defenses resolve at each later blast.
-The fixed-circle geometry is a development approximation, not a measured official distribution. Unusual target sizes
+This geometry is a development approximation, not a measured official distribution. Unusual target sizes
 can overlap geometrically; Core supports actor radii while the Gateway currently uses monster centers of radius zero.
 Shared area scaling preserves the blast/placement ratio, not the hit count on a stationary nearby target.
-For example, normal KB's inner uncovered distance grows from 6 to 12 cells when both radii double.
 More area therefore increases overall coverage without guaranteeing single-target or nearby-target overlap.
 
-`ClusterDelaySeconds = 0` and `ClusterIntervalSeconds = 1d / 30` are separate recipe parameters.
-Slot i generates its native effect and commits its damage at trigger + delay + i * interval (zero-based i), so four
-slots run at 0, 1/30, 2/30 and 3/30 seconds. The first blast is immediate and each later interval is exactly 4000
-simulation quanta, without rounding to integer milliseconds. These are user-tuned feel values for development,
+`ClusterDelaySeconds = 0`, `ClusterIntervalSeconds = 1d / 20` and `ClusterIntervalJitterSeconds = 1d / 25` are
+separate recipe parameters. The first blast is immediate; each later gap is 1/20 s plus a uniform 0 to 1/25 s, so a
+four-blast cluster finishes in 0.15 to 0.27 seconds. These are user-tuned feel values for development,
 not frame measurements or established official timings. After terrain rejection, i indexes only surviving centers:
 the first surviving blast is immediate and later blasts follow at consecutive intervals without timing gaps.
 Pending blasts survive parent continuation/removal, retain the trigger phase and share the simulation pause/teardown.

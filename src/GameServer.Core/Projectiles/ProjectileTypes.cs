@@ -43,6 +43,12 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public long Delay { get; init; }
     /// <summary>Simulation quanta between generated areas; terrain-skipped centres consume no time.</summary>
     public long Interval { get; init; }
+    /// <summary>Up to this many extra quanta, sampled per gap, added to <see cref="Interval"/>.</summary>
+    public long IntervalJitter { get; init; }
+    /// <summary>Visit the sectors in a random order instead of counter-clockwise.</summary>
+    public bool ShuffleOrder { get; init; }
+    /// <summary>Slot i samples its distance in the i-th of Count equal bands between the radii (an outward spiral).</summary>
+    public bool Spiral { get; init; }
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,

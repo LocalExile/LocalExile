@@ -6,7 +6,9 @@ public static class GatewayProjectileSkillProfiles
 {
     // User-tuned feel values, not official timings or frame measurements. Keep fractional milliseconds.
     public const double ClusterDelaySeconds = 0;
-    public const double ClusterIntervalSeconds = 1d / 30;
+    public const double ClusterIntervalSeconds = 1d / 20;
+    // Each gap gains up to this much extra time, so a cluster pops unevenly instead of in one flash.
+    public const double ClusterIntervalJitterSeconds = 1d / 25;
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
@@ -52,7 +54,10 @@ public static class GatewayProjectileSkillProfiles
                 ContactArea = new("kinetic-blast", 0, count, Multiplier: Math.Max(0, multiplier))
                     { SectorPlacement = true, RespectTerrain = true, ExcludeContactTarget = true,
                         Delay = ProjectileRuntime.Time(ClusterDelaySeconds),
-                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds) },
+                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds),
+                        IntervalJitter = ProjectileRuntime.Time(ClusterIntervalJitterSeconds),
+                        // Normal KB pops in random order; Clustering spirals outward around the impact.
+                        ShuffleOrder = !clustering, Spiral = clustering },
                 EndAreaReasons = NonContactStops, EndAreaOnReturnTurnaround = true
             };
         }
@@ -284,8 +289,8 @@ public static class GatewayProjectileSkillProfiles
             bool clustering = effect == "KineticBlastAltX";
             int blast = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", clustering ? 19 : 14), get, spell);
             int placement = SkillArea.Radius(Value("active_skill_base_secondary_area_of_effect_radius", clustering ? 28 : 20), get, spell);
-            // Centers lie on the scaled placement circle; only the angle is sampled within each sector.
-            var area = contact with { Radius = blast, Offset = placement, MinimumOffset = placement };
+            // Centers fall between half the scaled placement radius and its edge, one per angular sector.
+            var area = contact with { Radius = blast, Offset = placement, MinimumOffset = placement / 2.0 };
             return p with { ContactArea = area, EndArea = area };
         }
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)

@@ -93,25 +93,33 @@ public sealed partial class ProjectileRuntime
         var context = recipe.Delay > 0 || recipe.Interval > 0 ? p.AreaSnapshot() : p;
         double sector = Math.Tau / Math.Max(1, recipe.Count);
         double rotation = recipe.SectorPlacement ? p.Random.NextDouble() * Math.Tau : 0;
+        var order = new int[Math.Max(0, recipe.Count)];
+        for (int i = 0; i < order.Length; i++) order[i] = i;
+        if (recipe.ShuffleOrder) p.Random.Shuffle(order);
         int areaIndex = 0;
-        for (int i = 0; i < recipe.Count; i++)
+        long elapsed = recipe.Delay;
+        for (int i = 0; i < order.Length; i++)
         {
+            int slot = order[i];
             // Independent area events can overlap; only the terminal collision victim shares direct admission.
             long areaId = ++sequence;
             var centre = p.Position;
             if (recipe.Offset > 0)
             {
-                double angle = recipe.SectorPlacement ? rotation + sector * (i + p.Random.NextDouble())
+                double angle = recipe.SectorPlacement ? rotation + sector * (slot + p.Random.NextDouble())
                     : p.Random.NextDouble() * Math.Tau;
                 double minimum = Math.Clamp(recipe.MinimumOffset, 0, recipe.Offset);
-                centre += new ProjectileVector(1, 0).Rotate(angle)
-                    * (minimum + (recipe.Offset - minimum) * p.Random.NextDouble());
+                double band = recipe.Spiral ? (slot + p.Random.NextDouble()) / order.Length : p.Random.NextDouble();
+                centre += new ProjectileVector(1, 0).Rotate(angle) * (minimum + (recipe.Offset - minimum) * band);
                 // A collision centre may be exactly on a wall. Test from the incident side of that surface.
                 if (recipe.RespectTerrain && world.TraceTerrain(p.Position - p.Direction * .001, centre) is not null)
                     continue;
             }
             // Rejected centres consume their spatial sample, but no time in the surviving sequence.
-            long at = checked(Now + recipe.Delay + areaIndex++ * recipe.Interval);
+            if (areaIndex++ > 0)
+                elapsed = checked(elapsed + recipe.Interval
+                    + (recipe.IntervalJitter > 0 ? p.Random.NextInt64(recipe.IntervalJitter + 1) : 0));
+            long at = checked(Now + elapsed);
             if (at == Now) ResolveArea(context, recipe, centre, victim, areaId);
             else
             {
