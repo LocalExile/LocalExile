@@ -48,6 +48,7 @@ public sealed class MapDevice
         IReadOnlyList<MapArea?>? worldAreas = null)
     {
         _byItemType = new(byItemType);
+        // Retained for callers that query fragment destinations. Activation always requires a recipe in runs.
         _byFragment = byFragment is null ? [] : new(byFragment);
         _atlas = atlas;
         _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
@@ -62,7 +63,6 @@ public sealed class MapDevice
     public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
     {
         var byType = new Dictionary<uint, MapArea>();
-        var byFragment = new Dictionary<uint, MapArea>();
         if (ClientTables.Has("Maps") && ClientTables.Has("WorldAreas"))
         {
             var m = ClientTables.Table("Maps");
@@ -80,24 +80,16 @@ public sealed class MapDevice
                     Level = wa.Int("AreaLevel"),
                 });
             }
-            // A map fragment may open an area by itself: An Audience With The King opens the Crux of Nothingness.
-            // The fragment's BaseItemTypes row is the map-device slot's type hash, not a Maps.dat row.
-            if (catalog?.Find("Metadata/Items/MapFragments/RitualBossFragment") is { } fragment)
-                for (int i = 0; i < areaCount; i++)
-                    if (a[i].Text("Id") == "AzmeriLeagueBoss")
-                    {
-                        var wa = a[i];
-                        byFragment[fragment.Hash] = new MapArea((ushort)wa.Int("HASH16"),
-                            wa.Text("Id") ?? "", wa.Text("Name") ?? "", 0)
-                        {
-                            Level = wa.Int("AreaLevel"),
-                        };
-                        break;
-                    }
         }
         var worldAreas = LoadWorldAreas(folder);
-        return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder), byFragment,
-            MapRunCatalog.Load(folder), worldAreas);
+        var runs = MapRunCatalog.Load(folder);
+        var device = new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
+            runs: runs, worldAreas: worldAreas);
+        foreach (var recipe in runs.Recipes.Where(r => r.AnyOne || r.Items.Count == 1))
+            if (device.AreaOfWorld(recipe) is { } area)
+                foreach (int item in recipe.Items)
+                    if (hashOfRow(item) is uint hash) device._byFragment.TryAdd(hash, area);
+        return device;
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
@@ -127,7 +119,8 @@ public sealed class MapDevice
 
     public MapArea? AreaOf(uint itemType) => _byItemType.GetValueOrDefault(itemType);
 
-    /// <summary>The area a fragment opens by itself, or null (An Audience With The King opens Crux of Nothingness).</summary>
+    /// <summary>The destination of a single-item recipe, or an explicitly supplied fragment lookup.
+    /// A lookup alone does not authorize activation: the complete inputs must match a recipe.</summary>
     public MapArea? AreaOfFragment(uint itemType) => _byFragment.GetValueOrDefault(itemType);
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
@@ -187,13 +180,6 @@ public sealed class MapDevice
             return null;
         }
         var maps = slots.Where(s => s.IsMap).ToList();
-        if (maps.Count == 0)
-        {
-            // A fragment alone may open its area (An Audience With The King).
-            var fragments = slots.Where(s => s.Class == FragmentClass).ToList();
-            if (fragments.Count == 1 && AreaOfFragment(fragments[0].TypeHash) is { } fragmentArea)
-                return new Opening(fragmentArea, MapMods.None);
-        }
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
         if (maps.Count == 1)
         {
