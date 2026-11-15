@@ -246,15 +246,10 @@ public static partial class Game
             double a = new AnimationVariantSelector.NativeRandom(key).Range(-MathF.PI / 4, MathF.PI / 4);
             u = new(Math.Floor(u.X * Math.Cos(a) - u.Y * Math.Sin(a) + .5), Math.Floor(u.X * Math.Sin(a) + u.Y * Math.Cos(a) + .5));
         }
-        var end = caster + u;
-        int steps = (int)Math.Ceiling(Math.Max(Math.Abs(u.X), Math.Abs(u.Y)));
-        for (int k = 1; k <= steps; k++)
-        {
-            var cell = caster + u * (k / (double)steps);
-            int x = (int)Math.Floor(cell.X + .5), y = (int)Math.Floor(cell.Y + .5);
-            if (!conn.Layout.WalkableFor(x, y, size) || conn.Barrier.Contains((x, y)))
-                return caster + u * ((k - 1) / (double)steps);
-        }
-        return end;
+        // The client's line (0x141d87160): the wave stops at the last open cell before one it cannot cross.
+        (int X, int Y) start = ((int)caster.X, (int)caster.Y), end = ((int)(caster.X + u.X), (int)(caster.Y + u.Y));
+        return GameServer.Core.World.ClientPathfinder.LineBelow(start, end,
+            (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)) ? 1 : 0, 1, out var last)
+            ? new ProjectileVector(last.X, last.Y) : new ProjectileVector(end.X, end.Y);
     }
 }

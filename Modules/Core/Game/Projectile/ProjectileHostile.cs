@@ -133,7 +133,7 @@ public static partial class Game
                 {
                     var turned = TargetOf(i);
                     nativeTargets[i] = MonsterMortarTarget(from, LaunchOf(turned), turned, minimum, projectile.SpreadRadius,
-                        sequence, id, i, projectile.DistanceOverride, out draws[i]);
+                        sequence, id, (int)Derived(i) - 2, projectile.DistanceOverride, out draws[i]);
                 }
                 // A spell mortar lands a fixed time after its release, at any distance: each projectile at its own speed.
                 if (projectile.FixedFlight)
@@ -316,6 +316,9 @@ public static partial class Game
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(contactRow) };
+        // A summoning mortar brings its monsters where it lands (SummonLanded); whether its landing also hurts is not
+        // known, so it hits nothing, as the summon did before it flew.
+        if (projectile.Recipe == "SummonMortar") profile = profile with { EndArea = null, EndAreaReasons = null, DirectDamage = false };
         if (orbEvery > 0) profile = profile with { Count = nativeTargets!.Length, SequentialDelay = orbEvery };
         if (projectile is { ClientDraws: false, Recipe: "FireMortar" } && SkillStat("number_of_chains") > 0
             && nativeTargets is [var landed, ..] && (landed - origin).Length > 0)
@@ -416,7 +419,9 @@ public static partial class Game
                 int step = k;
                 double turn = spiral.Offset + step * spiral.Step;
                 // The first step needs the action; the rest follow it once it has flown.
-                session.Schedule(ProjectileRuntime.Time(first + step * spiral.Interval),
+                // A lockstep client counts the steps down by its frames: each fires on the frame that crosses its time.
+                double stepAt = step == 0 ? first : conn.LockstepClient ? LockstepShotAt(first, step * spiral.Interval) : first + step * spiral.Interval;
+                session.Schedule(ProjectileRuntime.Time(stepAt),
                     () => (step == 0 ? MonsterActionCurrent(conn, id, m, action) : line is not null) && !InGracePeriod(conn),
                     () =>
                     {

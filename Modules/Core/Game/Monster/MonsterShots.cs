@@ -427,8 +427,10 @@ public static class MonsterShots
             // A spiral fires its projectiles one step at a time over projectile_spiral_nova_time_ms through the shared
             // release (0x141bb3c00): LaunchMonsterProjectile flies its steps. Mortars and the spray and flame classes
             // run their own release.
+            // A shot whose every projectile has an end of its own (knives, weapon jitter, a vortex) is not stepped either.
             else if (Get("projectile_spiral_nova_time_ms") != 0 && (lobbed || family is "incinerate_old" or "totem_fire_spray"
-                or "totem_fire_spray_triggerable" or "incinerate_channel" or "figurehead_incinerate"))
+                or "totem_fire_spray_triggerable" or "incinerate_channel" or "figurehead_incinerate"
+                || recipe is "Knives" or "WeaponJitter" or "IceElementalSpear" or "WaterVortex"))
                 reason = "spiral nova";
             else if (Get("projectile_uses_contact_direction") != 0 && !ContactsKnown(animation ?? catalog.EffectAnimationKey(effect) ?? "Melee"))
                 reason = "contact direction without the clip's contact";
@@ -471,7 +473,9 @@ public static class MonsterShots
         };
         // A spark with skill_behaviour_variation 2 fires one (0x141b363a0); a riptide is one wave.
         if (family == "spark" && catalog.BehaviourVariation(effect) == 2 || recipe == "Riptide") return shot with { Count = 1 };
-        return shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
+        shot = shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
+        // A volley of vortices would each take its own diamond end, which the server does not lay out.
+        return shot is { Recipe: "WaterVortex", ClientDraws: true, Count: > 1 } ? shot with { ClientDraws = false, ServerReason = "vortex volley" } : shot;
     }
 
     /// <summary>
@@ -657,7 +661,7 @@ public static class MonsterShots
         if (shot.Recipe == "CreepingFrost") profile = CreepingFrostBurst(profile, Get);
         // Lunaris's orb meets no actor: only its ground hurts.
         if (shot.Recipe == "Maelstrom") profile = profile with { DirectDamage = false, Pierce = -1 };
-        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed);
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed, conn.LockstepClient);
         // skill_behaviour_variation 2 (the Elder Guardian's holy throws) comes back at a constant speed.
         bool constantReturn = Get("skill_behaviour_variation") == 2;
         if (shot.Recipe == "SpectralThrow" && (thrower is not null || constantReturn))
@@ -733,7 +737,8 @@ public static class MonsterShots
     // ball_lightning_projectile_speed_and_hit_frequency_+%_final, or its time between hits); Shavronne's ball is 20
     // cells by the area percentage (0x141b319e0); a vortex strikes all within 14 cells every 0.2 s (0x141c6cc10), each
     // strike its own. Slow balls outlive the runtime's 10 s default.
-    static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed)
+    static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed,
+        bool lockstep)
     {
         bool ball = shot.Recipe == "BallLightning";
         double seconds = ball
@@ -746,9 +751,13 @@ public static class MonsterShots
             DirectDamage = false, Pierce = -1,
             Pulse = new ProjectilePulseRecipe(shot.Recipe!.ToLowerInvariant(), radius,
                 shot.Recipe == "WaterVortex" ? ProjectileRuntime.Time(.2) : ProjectileRuntime.TickQuanta),
+            // A ball's per-target timer restarts at its full time after each strike and counts down by the frame (no
+            // remainder carried): on a lockstep client's 33 ms frames a strike waits for the frame that ends it.
             HitRule = new(shot.Recipe == "WaterVortex" ? ProjectileHitScope.Projectile : ProjectileHitScope.Emission,
-                ProjectileRepeat.Interval, ProjectileRuntime.Time(seconds)),
-            Lifetime = ProjectileRuntime.Time(profile.Range / Math.Max(.001, speed) + 1),
+                ProjectileRepeat.Interval, ProjectileRuntime.Time(ball && lockstep
+                    ? Math.Ceiling(seconds / (Program.FrameMs / 1000d) - 1e-6) * Program.FrameMs / 1000d : seconds)),
+            // A vortex flies on to its diamond (up to 128 cells), whatever its aim.
+            Lifetime = ProjectileRuntime.Time(Math.Max(profile.Range, shot.Recipe == "WaterVortex" ? 150 : 0) / Math.Max(.001, speed) + 1),
         };
     }
 
@@ -789,7 +798,7 @@ public static class MonsterShots
             };
         }
         if (shot.Recipe == "CreepingFrost") return CreepingFrostBurst(profile, Get);
-        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed);
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed, false);
         if (shot.Recipe == "Riptide")
         {
             // 0x141b3a170: from its delay on it moves at (10 + 30 t) × (1 + projectile_speed_+% / 100), taken here as cells a

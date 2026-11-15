@@ -1684,7 +1684,8 @@ public static partial class Game
         }
         if (a.ReleaseEffect is int arc && SkillsFor(conn).ActiveSkillId(arc) == "lightning_golem_arc")
         {
-            _ = LightningArc(remote, stream, ciphers, conn, id, m, a, arc, orderFrom, orderPlayer, startedAt + seconds * contact, seq);
+            _ = LightningArc(remote, stream, ciphers, conn, id, m, a, arc, orderFrom, orderPlayer,
+                conn.LockstepClient ? LockstepShotAt(startedAt, seconds * contact) : startedAt + seconds * contact, seq);
             return;
         }
         if (a.Projectile is { } projectile)
@@ -1822,9 +1823,12 @@ public static partial class Game
         double length = Math.Sqrt(dx * dx + dy * dy);
         var centre = length > 0 ? ((int)Math.Floor(target.X + dx / length * 15 + .5), (int)Math.Floor(target.Y + dy / length * 15 + .5)) : target;
         uint? last = null;
-        for (int k = 1; k <= ms / 400; k++)
+        // Its zap timer restarts at 0.4 s after each zap and counts down by the frame (0x141c3f0c0, no remainder carried):
+        // on a lockstep client's 33 ms frames a zap waits for the frame that ends it.
+        double frame = Program.FrameMs / 1000d, period = conn.LockstepClient ? Math.Ceiling(.4 / frame - 1e-6) * frame : .4;
+        for (int k = 1; k <= (int)(ms / 1000.0 / period); k++)
         {
-            if (!await WaitMonsterActionTime(conn, id, m, 0, contactAt + .4 * k, outlivesAction: true)) return;
+            if (!await WaitMonsterActionTime(conn, id, m, 0, contactAt + period * k, outlivesAction: true)) return;
             MonsterHitOutcome? outcome = null;
             bool minion = false;
             await SendMonsterAction(remote, stream, ciphers, conn, id, m, 0, () =>
