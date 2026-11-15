@@ -96,6 +96,15 @@ public sealed class PlayerAct78Tests
             Assert.Equal(("Metadata/Projectiles/Spark", true, "Spark"), (spark.Metadata, spark.ClientDraws, spark.Recipe));
             Assert.Contains(MonsterShots.CountStats(spark), s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 > 0);
             Assert.Equal((false, "totem, trap or mine form"), (Shot("", "BossSparkTotem")!.ClientDraws, Shot("", "BossSparkTotem")!.ServerReason));
+            // Hand-cast ethereal knives are the client's: each knife's end is jittered by its seed and stretched to its range
+            // from the launch; the trap form stays the server's.
+            foreach (var (effect, row, count) in new[] { ("WraithEtherealKnives", "EbonyEtherealKnvies", 10),
+                ("DaemonEtherealKnives", "ShadowProjectile", 24), ("AutonomousEtherealKnivesTrap", "ShadowProjectile", 10) })
+                Assert.Equal(("Metadata/Projectiles/" + row, count, true, "Knives"),
+                    (Shot("", effect)!.Metadata, Shot("", effect)!.Count, Shot("", effect)!.ClientDraws, Shot("", effect)!.Recipe));
+            Assert.False(Shot("", "TalismanT2TrapEtherealKnives")?.ClientDraws ?? false);
+            Assert.Equal(new(249, 98), Game.ShadowKnifeEnd(new(160, 100), new(100, 100), 0xffff, 2, 0, 150));
+            Assert.Equal(new(249, 127), Game.ShadowKnifeEnd(new(157, 103), new(102, 100), 0x80bc, 5, 0, 150));
             // An ice spear changes form 20.199 cells out, its second form stronger.
             var spear = Shot("", "MountainGoatmanIceSpear")!;
             var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);

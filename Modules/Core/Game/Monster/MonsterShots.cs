@@ -237,9 +237,11 @@ public static class MonsterShots
                 break;
             case "ethereal_knives":                                                                     // 0x1419f2d50
                 // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
+                // A hand-cast volley is the client's: each knife's mover jitters its end (MonsterProjectileUse, ShadowKnifeEnd).
                 id = mpv != 0 ? Row(0, "MaligaroEtherealKnives") : Row(artVariation, "ShadowProjectile", (1, "ShadowProjectileStar"),
                     (2, "SpiderEtherealKnives"), (3, "EbonyEtherealKnvies"), (5, "EtherealKnivesSawBlade"));
-                reason = Get("is_trap") != 0 || Get("is_totem") != 0 ? "totem, trap or mine form" : "seeded knife jitter";
+                if (Get("is_trap") != 0 || Get("is_totem") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
+                else recipe = "Knives";
                 break;
             case "incinerate_old" or "incinerate_channel" or "figurehead_incinerate":                  // 0x141b834b0
                 id = Row(artVariation, "Flamethrower1", (1, "FlamethrowerBlue1"), (2, "IncinerateHoly"), (3, "GhostProjectile"),
