@@ -67,6 +67,16 @@ public sealed class PlayerAct78Tests
             var elder = Shot("", "ElderProjectileSpellcast1")!;
             Assert.Equal(("Metadata/Projectiles/ElderProjectileLarge", 3, false), (elder.Metadata, elder.Count, elder.ClientDraws));
             Assert.Null(Shot("", "AtlasBossAcceleratingProjectiles"));
+            // Actions that name their row in code: an archer known by its bow class, a siphon by its art, a throw that comes
+            // back by the player's recipe, a bouncing magma orb, a fixed lightning mortar ring.
+            Assert.Equal(("Metadata/Projectiles/DefaultArrow", true),
+                (Shot("Metadata/Monsters/Bandits/BanditBow", "MeleeAtAnimationSpeed") is { } sniper ? (sniper.Metadata, sniper.ClientDraws) : default));
+            Assert.Equal("Metadata/Projectiles/PaleKingSiphon", Shot("", "ProphecyBossEssenceDrain")!.Metadata);
+            Assert.Equal(("Metadata/Projectiles/ThrownWeapon", "SpectralThrow", false),
+                (Shot("", "ExileThrownWeapon")!.Metadata, Shot("", "ExileThrownWeapon")!.Recipe, Shot("", "ExileThrownWeapon")!.ClientDraws));
+            Assert.Equal(("Metadata/Projectiles/MatriachMortar", true, "RollingMagma"),
+                (Shot("", "MotherOfFlamesMagmaOrb")!.Metadata, Shot("", "MotherOfFlamesMagmaOrb")!.Lobbed, Shot("", "MotherOfFlamesMagmaOrb")!.Recipe));
+            Assert.Equal("Metadata/Projectiles/MortarLightning", Shot("", "EssenceWrathMortarProjectile")!.Metadata);
         });
     }
 

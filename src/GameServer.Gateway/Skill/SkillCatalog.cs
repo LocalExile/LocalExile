@@ -828,6 +828,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A Projectiles.dat row's CollisionRadius (world units), or null without the row.</summary>
     public int? ProjectileRadius(string id) => _projectiles.Value.TryGetValue(id, out var row) ? row.Radius : null;
 
+    /// <summary>A Projectiles.dat row's UseTargetLocation: the client's flight ends at the aimed cell (the finalizer
+    /// 0x141ba99d0 keeps the aim) instead of flying its full range.</summary>
+    public bool ProjectileEndsAtTarget(string id) => _projectiles.Value.TryGetValue(id, out var row) && row.EndsAtTarget;
+
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
     /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
     public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
@@ -843,14 +847,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
-    private readonly Lazy<Dictionary<string, (int Speed, int Radius)>> _projectiles = new(() =>
+    private readonly Lazy<Dictionary<string, (int Speed, int Radius, bool EndsAtTarget)>> _projectiles = new(() =>
     {
-        var result = new Dictionary<string, (int, int)>();
+        var result = new Dictionary<string, (int, int, bool)>();
         if (!ClientTables.Has("Projectiles")) return result;
         var d = ClientTables.Table("Projectiles");
         foreach (var r in d)
             if (r.Text("Id") is { } id)
-                result.TryAdd(id, (r.IntOrNull("ProjectileSpeed") is int v ? v : 0, r.IntOrNull("CollisionRadius") ?? 1));
+                result.TryAdd(id, (r.IntOrNull("ProjectileSpeed") is int v ? v : 0, r.IntOrNull("CollisionRadius") ?? 1,
+                    r.BoolOrNull("UseTargetLocation") ?? false));
         return result;
     });
 
@@ -946,6 +951,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>Why a resolved shot is the server's object rather than the client's (a behaviour the server does not
         /// reproduce yet), for the logs; null when the client draws it or it is a scripted literal.</summary>
         public string? ServerReason { get; init; }
+        /// <summary>The row's UseTargetLocation: the shot ends at the aimed cell.</summary>
+        public bool EndsAtTarget { get; init; }
+        /// <summary>The player skill whose flight recipe the server flies this shot with (its Gateway profile: Rolling
+        /// Magma's bouncing lob, Spectral Throw's return), or null for a plain flight.</summary>
+        public string? Recipe { get; init; }
     }
 
     /// <summary>Where a monster's shot flies (<see cref="MonsterProjectileInfo.Target"/>).</summary>
@@ -1130,7 +1140,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         var active = ClientTables.Table("ActiveSkills");
         var mortarSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") is { } name
-                && name.StartsWith("monster_mortar", StringComparison.Ordinal))
+                && name.StartsWith("monster_mortar", StringComparison.Ordinal) && name != "monster_mortar_around_caster")
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
         var effects = ClientTables.Table("GrantedEffects");
         int row = -1;

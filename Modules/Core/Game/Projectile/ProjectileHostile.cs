@@ -65,9 +65,12 @@ public static partial class Game
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
         // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
+        // A UseTargetLocation shot ends at the aimed cell; any other straight one flies past it.
+        double straightRange = projectile.EndsAtTarget ? Math.Max(.001, (aim - origin).Length) : Math.Max(distance, a.Range) * 1.5 + 5;
         var profile = projectile is { ClientDraws: true, Lobbed: false } && !mortar
             ? MonsterShots.ClientDrawnProfile(conn, projectile, attack: !a.Spell, aim - origin, sequence, id) with { Speed = speed }
-            : MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+            : projectile.Recipe is not null ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
+            : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(projectile.Metadata) };
         var owner = session.ActorKey(id, m);

@@ -9,9 +9,10 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 public static partial class Game
 {
     // A monster's combat granted effect (MavenNucleus.CombatEffect: skip teleports/daemons). Weapon-polymorphic Melee
-    // still counts as ranged when the variety's art is a bow or wand.
+    // still counts as ranged when the variety holds a bow or a wand: its art, or the main hand's item class, which the
+    // client's ranged Melee action tests (0x141ac9e70).
     public static bool MonsterAttackIsRanged(SkillCatalog skills, MonsterCatalog.Variety variety, int effect) =>
-        MavenNucleus.AttackIsRanged(skills, effect) || variety.RangedWeapon && skills.IsAttack(effect);
+        MavenNucleus.AttackIsRanged(skills, effect) || MonsterShots.Shoots(variety) && skills.IsAttack(effect);
 
     // A projectile skill's own stats go to the client with the attack's numbers: the client derives none itself
     // (11-skills.md §4), and without them a Sand Spitter's action faces its target like a melee swing instead of turning
@@ -62,6 +63,10 @@ public static partial class Game
         // as it had while it hit at the contact; only a spell mortar's is sent without it (its action is not traced).
         if (attack.Projectile is { SkillStats: not null, Variation: 0 } && SkillsFor(conn).MonsterProjectile(effect) is null)
             own = WithBehaviourVariation(conn, effect, own);
+        // ... and its skill_art_variation (GrantedEffects __col23), by which the action picks its row as the server did.
+        if (attack.Projectile is { SkillStats: not null } && SkillsFor(conn).ArtVariation(effect) is > 0 and var art
+            && Stats.Key("skill_art_variation") is uint artKey && own.All(s => s.Item1 != artKey))
+            own = [.. own, (artKey, art)];
         var taken = own.Select(s => s.Item1).ToHashSet();
         foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
         return [.. SkillsFor(conn).EffectStats(effect, level).Where(s => !taken.Contains(s.Item1)), .. own];
