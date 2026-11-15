@@ -68,6 +68,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::MonsterGrounds.Tick(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::MonsterGrounds.Leaving(conn));
+        module.Lifetime.Own(global::MonsterGrounds.CleanupOnUnload());
     }
 }
 

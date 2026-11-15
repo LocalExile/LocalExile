@@ -192,6 +192,33 @@ public sealed class PlayerAct78Tests
             var frostFlight = MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40);
             Assert.Equal((true, true, 30.0), (frost.ClientDraws, frostFlight.DirectDamage, frostFlight.EndArea!.Radius));
             Assert.Contains(MonsterShots.CountStats(frost), s => Program.Stats.Name(s.Item1) == "total_skill_area_of_effect_radius_+%_including_final" && s.Item2 == 100);
+            // Lunaris's dark orb and the Shaper-influence frost bolt are the client's, to the aimed cell (the orb hits nothing),
+            // and leave a vortex there that hurts for the skill's duration; a caustic or Malachai mortar stays the server's,
+            // scattered about its aim (a web put 30 cells from its launch), and leaves its degenerating ground. A web leaves
+            // no damage.
+            var orb = Shot("", "LunarisDarkProjectile")!;
+            var orbFlight = MonsterShots.ClientDrawnProfile(conn, orb, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal(("Metadata/Projectiles/LunarisDarkProjectile", true, "Maelstrom", false, 30.0),
+                (orb.Metadata, orb.ClientDraws, orb.Recipe, orbFlight.DirectDamage, orbFlight.Range));
+            var bolt = Shot("", "AtlasFrostboltVortexInfluenceDaemon")!;
+            var boltFlight = MonsterShots.ClientDrawnProfile(conn, bolt, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal(("Metadata/Projectiles/AtlastFrostBoltBlackHole", true, "AtlasVortex", true, -1),
+                (bolt.Metadata, bolt.ClientDraws, bolt.Recipe, boltFlight.DirectDamage, boltFlight.Pierce));
+            var causticMortar = Shot("", "BestiarySpiderPlagueMortarElementalClone")!;
+            Assert.Equal((false, true, "GroundMortar"), (causticMortar.ClientDraws, causticMortar.Lobbed, causticMortar.Recipe));
+            static (string, double, double, ushort?, string?) Ground(MonsterGrounds.Kind? g) =>
+                g is null ? default : (g.Type, Math.Round(g.Radius, 2), g.Seconds, g.Buff, g.PerSecond.Components.Single().Type.ToString());
+            Assert.Equal(("Maelstorm", 14.26, 7.0, (ushort?)713, "Cold"), Ground(MonsterGrounds.Of(orb)));
+            Assert.Equal(("Maelstorm", 15.36, 7.5, (ushort?)713, "Cold"), Ground(MonsterGrounds.Of(bolt)));
+            Assert.Equal(("CausticCloud", 11.04, 3.0, (ushort?)484, "Chaos"), Ground(MonsterGrounds.Of(causticMortar)));
+            var malachai = MonsterGrounds.Of(Shot("", "MalachaiMortarWithDegen")!)!;
+            Assert.Equal(("Degen", 5.0, GameServer.Core.World.DamageType.Physical, (ushort?)null),
+                (malachai.Type, malachai.Seconds, malachai.PerSecond.Components.Single().Type, malachai.Buff));
+            Assert.Null(MonsterGrounds.Of(Shot("", "BestiarySpiderPlagueWebMortar")!));
+            var web = Game.GroundMortarTarget(conn, new(100, 100), new(100, 100), new(120, 100), 10, 30, 0x8001, 0x40, 0, out _);
+            Assert.Equal(30, (web - new GameServer.Core.Projectiles.ProjectileVector(100, 100)).Length, 0);
+            Assert.True((Game.GroundMortarTarget(conn, new(100, 100), new(100, 100), new(130, 100), 10, 0, 0x8001, 0x40, 0, out _)
+                - new GameServer.Core.Projectiles.ProjectileVector(130, 100)).Length <= 10);
             // A simulated mortar's record keeps its own publication and gains the effect's native art.
             var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
                 { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)

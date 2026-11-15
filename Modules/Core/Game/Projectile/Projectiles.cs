@@ -484,6 +484,10 @@ public static partial class Game
             if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
+            // A monster's shot that leaves a ground leaves it where it comes down.
+            if (value.Kind == ProjectileEventKind.End && p.Use.Payload is HostileProjectileOffense hostile
+                && value.Reason is ProjectileEndReason.Distance or ProjectileEndReason.Landing or ProjectileEndReason.Terrain)
+                MonsterGrounds.Landed(this, hostile, value.Position);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
@@ -600,7 +604,7 @@ public static partial class Game
                 Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
         }
 
-        void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
+        internal void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0)
         {

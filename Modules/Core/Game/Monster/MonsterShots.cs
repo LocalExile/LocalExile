@@ -228,7 +228,15 @@ public static class MonsterShots
                 recipe = "IceElementalSpear";
                 if (Get("skill_repeat_count") != 0) reason = "repeated cast";
                 break;
-            case "atlas_aoe_projectile": id = Row(0, "AtlastFrostBoltBlackHole"); reason = "vortex at the end"; break;
+            case "atlas_aoe_projectile":
+                // 0x141a36900: a pierce-all bolt to the aimed cell, where the server leaves its vortex (MonsterGrounds).
+                (id, recipe) = (Row(0, "AtlastFrostBoltBlackHole"), "AtlasVortex");
+                break;
+            case "lunaris_dark_projectile":
+                // 0x141a10290: an orb to the aimed cell that hits nothing; it pulses there 7 s on its own while the server's
+                // ground under it hurts (MonsterGrounds). Its ActiveSkill has no Projectile type, so the default drops it.
+                (id, recipe) = (Row(0, "LunarisDarkProjectile"), "Maelstrom");
+                break;
             case "breach_spell_barrage":
                 // Each projectile's mover sends it 150 cells out in a seeded cone about the caster's facing
                 // (BreachBarrageEnd). The facing turns toward the target during the cast at a rate the server does not
@@ -306,7 +314,8 @@ public static class MonsterShots
                 if (mpv is < 0 or > 10) return null;
                 id = Row(mpv, "MalachaiMortar", (2, "TarMortar"), (5, "NetMortar"), (6, "WebMortar"), (10, "WebMortar"), (7, "CausticMortar"),
                     (8, "BloodMortar"), (9, "ElderGuardianCausticMortar"));
-                (lobbed, reason) = (true, "mortar landing");
+                // Its landing scatters about the aim (GroundMortarTarget), then the server leaves its ground (MonsterGrounds).
+                (lobbed, recipe, reason) = (true, "GroundMortar", "ground mortar speed and key not traced");
                 break;
             case "breach_bone_mortar":                                                                  // 0x141a17400
                 if (mpv is < 0 or > 5) return null;
@@ -421,7 +430,7 @@ public static class MonsterShots
         // The lobbed recipes' movers time their flight by the same contact over a speed multiplier (MortarFlightSeconds):
         // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a0e1e0), an in-line mortar's the spell mortar's terms
         // (0x141a15550), a spirit mortar's its speed variation (0x141a09390), a ring's none (0x141a12c10).
-        int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster"
+        int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
             ? catalog.Clips(id)?.Flight?.Contact : null;
         if (recipe == "Lantern" && contact is not > 0) reason ??= "flight clip not known";
         (int, int) mortarSpeed = recipe switch
@@ -636,6 +645,8 @@ public static class MonsterShots
             };
         }
         if (shot.Recipe == "CreepingFrost") profile = CreepingFrostBurst(profile, Get);
+        // Lunaris's orb meets no actor: only its ground hurts.
+        if (shot.Recipe == "Maelstrom") profile = profile with { DirectDamage = false, Pierce = -1 };
         if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed);
         if (shot.Recipe == "SpectralThrow" && thrower is not null)
         {

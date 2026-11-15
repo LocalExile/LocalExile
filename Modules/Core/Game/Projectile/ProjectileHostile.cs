@@ -216,7 +216,7 @@ public static partial class Game
         }
         // The server's own object turns by its contact too.
         if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
-        if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster")
+        if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar")
         {
             // The server's object lands each projectile where its class's mover would (MonsterShots' landing recipes),
             // fanned about the line to the aim as the shared emitter fans it, and flies the fixed time that mover gives it.
@@ -234,6 +234,8 @@ public static partial class Game
                     "InLine" => InLineMortarTarget(from, Fanned(i), SkillStat("mortar_distance_in_front_of_target"), spread * .092f,
                         sequence, id, i, out draws[i]),
                     "SpiritMortar" => SpiritMortarTarget(from, origin, Fanned(i), SkillStat("projectile_minimum_range"), spread,
+                        sequence, id, i, out draws[i]),
+                    "GroundMortar" => GroundMortarTarget(conn, from, origin, Fanned(i), spread, SkillStat("projectile_distance_override"),
                         sequence, id, i, out draws[i]),
                     // A fire mortar lands on its held aim (0x141a0e1e0 with no scatter).
                     _ => Held(Fanned(i)),
@@ -281,7 +283,7 @@ public static partial class Game
                     // A lantern reaches its aim its clip's contact after the release, at any distance.
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
                 }
-            : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster")
+            : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar")
                 ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)

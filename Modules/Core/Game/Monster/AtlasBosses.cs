@@ -262,12 +262,17 @@ static class AtlasBosses
     internal static DamagePacket DamageOverTime(ClientState conn, int effect, int level)
     {
         var stats = Game.SkillsFor(conn).EffectStats(effect, level);
-        int Get(string name)
+        return DamageOverTime(name =>
         {
             if (Stats.Key(name) is not uint key) return 0;
             foreach (var (id, value) in stats) if (id == key) return value;
             return 0;
-        }
+        });
+    }
+
+    /// <summary>The same from any stats (a monster shot's, MonsterGrounds).</summary>
+    internal static DamagePacket DamageOverTime(Func<string, int> get)
+    {
         var packet = DamagePacket.Empty;
         foreach (var (type, name) in new[]
         {
@@ -278,7 +283,7 @@ static class AtlasBosses
             (DamageType.Chaos, "base_chaos_damage_to_deal_per_minute"),
         })
         {
-            double perSecond = Get(name) / 60.0;
+            double perSecond = get(name) / 60.0;
             if (perSecond < 1) continue;
             packet = packet.Add(type, new DamageRange(Math.Floor(perSecond), Math.Ceiling(perSecond)));
         }

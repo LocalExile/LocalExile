@@ -176,6 +176,21 @@ public static partial class Game
             : new(Math.Floor(landed.X + .5), Math.Floor(landed.Y + .5));
     }
 
+    /// <summary>A ground mortar's landing (mortar_with_ground_effects): the aim scattered within the spread by the mortar
+    /// mover's draws (the minimum range is not read), the aim itself where that cell is not walkable, then put
+    /// <c>projectile_distance_override</c> cells from its launch on the same line. The client retries the scatter up to 10
+    /// times and keys it by the action's release counter too; the server's object takes one draw on the mortar's key.</summary>
+    public static ProjectileVector GroundMortarTarget(ClientState conn, ProjectileVector actor, ProjectileVector launch,
+        ProjectileVector aim, int spread, int distanceOverride, ushort sequence, uint owner, int index, out float speedDraw)
+    {
+        var landed = MonsterMortarTarget(actor, launch, aim, 0, spread, sequence, owner, index, 0, out speedDraw);
+        if (conn.Layout.Walkable is { } walk && !walk((int)landed.X, (int)landed.Y)) landed = aim;
+        var line = landed - launch;
+        if (distanceOverride <= 0 || line.Length <= 0) return landed;
+        var moved = launch + line.Unit * distanceOverride;
+        return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+    }
+
     /// <summary>A ring of mortars around the caster (0x141a12620): one seeded base angle, projectile i turned i × 2π / n
     /// from it, each at its own distance from the minimum range to the spread (world units, so × 0.092 cells). The key's
     /// order is not traced.</summary>
