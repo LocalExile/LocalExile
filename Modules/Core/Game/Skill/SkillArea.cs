@@ -19,13 +19,23 @@ public static class SkillArea
     public static int BaseRadius(string? effect, Func<string, int> get) =>
         get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
-    /// <summary>The base radius of a player skill whose stats name none, by its effect Id; null for one not listed (the
-    /// generic 12 is no evidence of the skill's own, so a monster's skill does not take it: BossKits.AreaRadius).</summary>
-    public static int? KnownBaseRadius(string? effect) =>
+    static int? KnownBaseRadius(string? effect) =>
         effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : null;
+
+    /// <summary>What an action class adds to active_skill_base_area_of_effect_radius before the area modifiers scale it,
+    /// by its ActionTypes Id, for the classes whose client code names one (3.29.3c: each calls the area scaler
+    /// FUN_14193f1f0 with stat 0x4875 + the constant: ColdSnap FUN_14130bc40 +15, CorpseErruption FUN_141adbae0 +15,
+    /// StormCall FUN_1414d2b80 +20, LightningWarp FUN_14138f120 +16). Null for any other class.</summary>
+    public static int? ActionBaseRadius(string? actionType) => actionType switch
+    {
+        "ColdSnap" or "CorpseErruption" => 15,
+        "StormCall" => 20,
+        "LightningWarp" => 16,
+        _ => null,
+    };
 
     static readonly string[] MoreArea =
     [

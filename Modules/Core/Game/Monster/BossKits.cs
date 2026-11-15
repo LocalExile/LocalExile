@@ -197,11 +197,10 @@ public static class BossKits
         if (!catalog.HasType(effect, "Area")) return null;
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        // A skill whose stats name no base radius has the one the player's skill of the same action has (Storm Call's
-        // 20, Fire Trap's 15: SkillArea.KnownBaseRadius); one with none known has no area the server can name.
-        int? baseRadius = Get("active_skill_base_area_of_effect_radius") is > 0 and var own ? own
-            : catalog.SameActionEffects(effect).Select(e => SkillArea.KnownBaseRadius(catalog.EffectId(e))).FirstOrDefault(r => r is not null);
-        if (baseRadius is not int radius) return null;
+        // The action class may add its own radius to the stat's (SkillArea.ActionBaseRadius: Cold Snap's 15, Storm
+        // Call's 20); a skill with neither has no area the server can name.
+        int radius = Get("active_skill_base_area_of_effect_radius") + (SkillArea.ActionBaseRadius(SkillCatalog.ActionTypeId(effect)) ?? 0);
+        if (radius <= 0) return null;
         return SkillArea.Radius(radius, Get, catalog.IsSpell(effect));
     }
 
