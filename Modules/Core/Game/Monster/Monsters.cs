@@ -10,7 +10,7 @@ public static partial class Game
 {
     // A monster's combat granted effect (MavenNucleus.CombatEffect: skip teleports/daemons). Weapon-polymorphic Melee
     // still counts as ranged when the variety holds a bow or a wand: its art, or the main hand's item class, which the
-    // client's ranged Melee action tests (0x141ac9e70).
+    // client's ranged Melee action tests (0x141acc8d0).
     public static bool MonsterAttackIsRanged(SkillCatalog skills, MonsterCatalog.Variety variety, int effect) =>
         MavenNucleus.AttackIsRanged(skills, effect) || MonsterShots.Shoots(variety) && skills.IsAttack(effect);
 
@@ -1648,8 +1648,8 @@ public static partial class Game
             var (from, player) = (order.From, order.Player);
             (orderFrom, orderPlayer) = (from, player);
             // A shot the client draws keeps the action order's aim through its windup: the client stores the target's
-            // grid when the 0x1ab arrives and releases toward it (0x141938bf0 -> 0x141ba51a0; the mortar 141ba7c30 ->
-            // 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
+            // grid when the 0x1ab arrives and releases toward it (0x14193e340 -> 0x141ba7c30, for the mortar on to
+            // 0x141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { ClientDraws: true, Target: not SkillCatalog.MonsterShotTarget.AtRelease }) projectileAim = player;
             if (walkUp && !conn.LockstepClient) seq = m.NextSequence();
             a = MonsterAttackForSequence(conn, m, a, seq);
@@ -1670,7 +1670,7 @@ public static partial class Game
             // it, like the player's native shot (starting between frames lets the server hit a moving player before the
             // visible flight reaches them), a predictive client's at the contact itself. The runtime releases it then,
             // if the action is still the monster's current one (LaunchMonsterProjectile). A clip with several contacts
-            // releases on each, and distribute_projectiles_over_contact_points shares the count among them (0x141ba61c0).
+            // releases on each, and distribute_projectiles_over_contact_points shares the count among them (0x141ba8c50).
             foreach (var (release, shot) in ReleasesOf(a, nativeProjectile))
                 LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a with { Release = release }, shot, action, projectileAim,
                     conn.LockstepClient ? LockstepShotAt(startedAt, seconds * (release?.Fraction ?? contact))

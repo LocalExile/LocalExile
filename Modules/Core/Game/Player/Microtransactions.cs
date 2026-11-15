@@ -268,11 +268,11 @@ public sealed class SkillArt
     }
 
     /// <summary>
-    /// The projectile a skill's action flies when its class names none (the shared resolver 0x141ba43e0 falls back to
+    /// The projectile a skill's action flies when its class names none (the shared resolver 0x141ba6e70 falls back to
     /// art slot <paramref name="slot"/>): its SkillArtVariations candidates, the GrantedEffect's rows and then its
-    /// ActiveSkill's, each in row order (0x1419401e0 → 0x14193faf0), each read at <paramref name="slot"/> of its
+    /// ActiveSkill's, each in row order (0x141945930 → 0x141945240), each read at <paramref name="slot"/> of its
     /// ProjectileArt and at the variant its own stat holds (<c>skill_art_variation</c>, <c>arrow_projectile_variation</c>
-    /// for <c>default_ranged</c>), the first that the ProjectilesArtVariations directory has (0x141f73180; a missing
+    /// for <c>default_ranged</c>), the first that the ProjectilesArtVariations directory has (0x141f79a50; a missing
     /// entry goes on to the next candidate, no retry at variant 0). Null when none has one
     /// (resource-selection.md §2–3). <paramref name="get"/> reads the skill's stats by name.
     /// </summary>

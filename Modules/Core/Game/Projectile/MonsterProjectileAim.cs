@@ -8,7 +8,7 @@ public static partial class Game
         ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index) =>
         MonsterMortarTarget(actor, origin, aim, minimumRange, spread, sequence, owner, index, 0, out _);
 
-    // A water vortex's end (0x141c6cc80): on the L1 diamond of radius d around the caster's cell, in the aim's direction
+    // A water vortex's end (0x141c6f710): on the L1 diamond of radius d around the caster's cell, in the aim's direction
     // up to integer rounding (u : d − u = |dx| : |dy|), the caster's cell nudged one cell in x when it is the aim's.
     public static ProjectileVector WaterVortexTarget(ProjectileVector actor, ProjectileVector aim, int d)
     {
@@ -82,10 +82,10 @@ public static partial class Game
         return new((int)caster.X - (int)(MathF.Sin(a) * 150f), (int)caster.Y - (int)(MathF.Cos(a) * -150f));
     }
 
-    // The spell form's mover (0x141a10d50) runs the same steps, with mortar_projectile_distance_override between the
-    // minimum range and the scatter: the landing rescaled to that distance from the launch (both forms, 0x141b6a017).
+    // The spell form's mover (0x141a13760) runs the same steps, with mortar_projectile_distance_override between the
+    // minimum range and the scatter: the landing rescaled to that distance from the launch (both forms, 0x141b6caa7).
     // The first draw is the speed variation the spell form's flight time takes.
-    // A spirit mortar's mover (0x141a09390) draws its scatter from a second key (scatterKey) instead.
+    // A spirit mortar's mover (0x141a0bda0) draws its scatter from a second key (scatterKey) instead.
     public static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
         ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index, int distanceOverride,
         out float speedDraw, uint[]? scatterKey = null)
@@ -147,14 +147,14 @@ public static partial class Game
         return new(x + (int)(MathF.Sin(angle) * radius), y - (int)(MathF.Cos(angle) * radius));
     }
 
-    /// <summary>A Labyrinth spirit mortar's launch (0x141a09390): 5 cells out along its line.</summary>
+    /// <summary>A Labyrinth spirit mortar's launch (0x141a0bda0): 5 cells out along its line.</summary>
     public static ProjectileVector SpiritMortarLaunch(ProjectileVector origin, ProjectileVector aim)
     {
         var moved = origin + ((aim - origin).Length > 0 ? (aim - origin).Unit : new ProjectileVector(0, -1)) * 5;
         return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
     }
 
-    /// <summary>A Labyrinth spirit mortar's landing (0x141a09390): the mortar mover's steps from its launch with the
+    /// <summary>A Labyrinth spirit mortar's landing (0x141a0bda0): the mortar mover's steps from its launch with the
     /// minimum range measured from the caster, its scatter drawn from the second key [sequence, index + 2, owner, 0]
     /// (the index is the attack form's, not traced for this class).</summary>
     public static ProjectileVector SpiritMortarTarget(ProjectileVector actor, ProjectileVector launch, ProjectileVector aim,
@@ -162,7 +162,7 @@ public static partial class Game
         MonsterMortarTarget(actor, launch, aim, minimumRange, spread, sequence, owner, index, 0, out speedDraw,
             [sequence, (uint)(index + 2), owner, 0]);
 
-    /// <summary>An in-line mortar's landing (0x141a15550, Breach and Kitava): max(15, d − in front) cells from the caster
+    /// <summary>An in-line mortar's landing (0x141a17f60, Breach and Kitava): max(15, d − in front) cells from the caster
     /// along its line to the target, scattered uniformly within the spread (cells). Its key's order is not traced: the
     /// server's object takes the mortar mover's key, whose first draw is the speed draw as the client's.</summary>
     public static ProjectileVector InLineMortarTarget(ProjectileVector actor, ProjectileVector aim, double inFront, float spread,
@@ -191,7 +191,7 @@ public static partial class Game
         return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
     }
 
-    /// <summary>A ring of mortars around the caster (0x141a12620): one seeded base angle, projectile i turned i × 2π / n
+    /// <summary>A ring of mortars around the caster (0x141a15030): one seeded base angle, projectile i turned i × 2π / n
     /// from it, each at its own distance from the minimum range to the spread (world units, so × 0.092 cells). The key's
     /// order is not traced.</summary>
     public static ProjectileVector[] AroundCasterTargets(ProjectileVector caster, int count, int minimum, int spread,
@@ -246,7 +246,7 @@ public static partial class Game
             double a = new AnimationVariantSelector.NativeRandom(key).Range(-MathF.PI / 4, MathF.PI / 4);
             u = new(Math.Floor(u.X * Math.Cos(a) - u.Y * Math.Sin(a) + .5), Math.Floor(u.X * Math.Sin(a) + u.Y * Math.Cos(a) + .5));
         }
-        // The client's line (0x141d87160): the wave stops at the last open cell before one it cannot cross.
+        // The client's line (0x141d8a7f0): the wave stops at the last open cell before one it cannot cross.
         (int X, int Y) start = ((int)caster.X, (int)caster.Y), end = ((int)(caster.X + u.X), (int)(caster.Y + u.Y));
         return GameServer.Core.World.ClientPathfinder.LineBelow(start, end,
             (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)) ? 1 : 0, 1, out var last)

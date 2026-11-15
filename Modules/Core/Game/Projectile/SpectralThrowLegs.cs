@@ -52,7 +52,7 @@ public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
 }
 
 /// <summary>
-/// A monster's thrown weapon as the client flies it (ThrownWeaponProjectile, per-frame 0x141ab59c0 on 0.066 s ticks):
+/// A monster's thrown weapon as the client flies it (ThrownWeaponProjectile, per-frame 0x141ab83d0 on 0.066 s ticks):
 /// out from the release, slowing evenly by <c>a</c> (100 cells/s², or its deceleration stats) from its row's speed until
 /// it stops, or turns at 130 cells travelled; then back from rest, speeding up by <c>a</c> × the return factor toward
 /// the thrower's live cell, where it ends. A wall on the way out turns it at once; one on the way back ends it. Each leg
@@ -122,7 +122,7 @@ public sealed class ThrownWeaponLegs(double speed, double deceleration, double r
 }
 
 /// <summary>
-/// Vaal Thrown Weapon's weapon as the client flies it (VaalThrownWeapon, steps 0x141a86380 / 0x141a867f0): 216 steps
+/// Vaal Thrown Weapon's weapon as the client flies it (VaalThrownWeapon, steps 0x141a88d90 / 0x141a89200): 216 steps
 /// out from its spawn cell along a spiral of four turns whose radius grows to 48 cells, each step 3/v seconds, the point
 /// at (sin θ, cos θ) × r in this class's convention. A wall ends it.
 /// </summary>
@@ -143,7 +143,7 @@ public sealed class SpiralThrowLegs(double speed) : IProjectileLegs
     {
         centre = from;
         var d = aim - from;
-        // shortcut: the base angle's arguments (0x140e2b840) are not traced; the throw's own direction, a quarter
+        // shortcut: the base angle's arguments (0x140e2daf0) are not traced; the throw's own direction, a quarter
         // turn on, as the class adds 1.5707964.
         heading = (d.Length > 0 ? Math.Atan2(d.X, d.Y) : 0) + Math.PI / 2;
         return Next(from, blocked: false);

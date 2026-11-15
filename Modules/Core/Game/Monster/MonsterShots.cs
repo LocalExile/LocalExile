@@ -4,8 +4,8 @@ using GameServer.Core.Projectiles;
 /// Every monster shot from one place: which Projectiles row a monster's projectile skill fires, how many, whether the
 /// client draws it, and the hidden or visible flight the server simulates for its hit (issue 1004).
 ///
-/// The row is the one the client's action fires (static RE of the action classes, 3.29.3b; the shared flight resolver
-/// 0x141ba43e0 takes the class's own row from vtable +0x508, else art slot 0):
+/// The row is the one the client's action fires (static RE of the action classes; the shared flight resolver
+/// 0x141ba6e70 takes the class's own row from vtable +0x508, else art slot 0):
 /// <c>monster_mortar_attack</c> its MonsterMortar row (SkillID); <c>monster_projectile_spell</c> and
 /// <c>monster_projectile_weapon</c> the MonsterProjectileSpell / MonsterProjectileAttack row its
 /// <c>monster_projectile_variation</c> names; <c>skeleton_projectile_*</c> its fixed SkeletonProjectile row; a ranged
@@ -31,7 +31,7 @@ public static class MonsterShots
         "melee", "split_arrow", "fireball", "lightning_arrow", "burning_arrow", "ice_shot", "frost_bolt",
     ];
 
-    // Classes whose ctor sets the collision mask +0x330 to 5 (enemies, bit 4 pierce-all, 0x141ba96a0). Ball lightning's
+    // Classes whose ctor sets the collision mask +0x330 to 5 (enemies, bit 4 pierce-all, 0x141bac130). Ball lightning's
     // and the vortex's mask is 0: they meet no actor and strike by their own pulses (BallLightning, WaterVortex).
     static readonly HashSet<string> PierceAllFamilies =
     [
@@ -79,7 +79,7 @@ public static class MonsterShots
                 AimTranslates = aimTranslates, SkillStats = stats,
                 Count = mortar.Count + (monsterStats?.GetValueOrDefault("number_of_additional_projectiles") ?? 0),
                 DistanceOverride = Get("mortar_projectile_distance_override"),
-                // The row's UseTargetLocation: a fanned volley keeps the aim's distance only with it (0x141bb9730).
+                // The row's UseTargetLocation: a fanned volley keeps the aim's distance only with it (0x141bbc1c0).
                 EndsAtTarget = catalog.ProjectileEndsAtTarget(mortar.Metadata),
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
@@ -91,7 +91,7 @@ public static class MonsterShots
                 mortar = mortar with { AnimationKey = own };
             // Where the server draws a spell mortar, its object lands as the client would place it: a nova in a ring (the
             // shared emitter's layout), each at its landing distance (ProjectileHostile). mortar_cone_angle is read by the
-            // in-cone class alone (0x141a16f00), not by monster_mortar, whose volley fans as any other.
+            // in-cone class alone (0x141a19910), not by monster_mortar, whose volley fans as any other.
             if (Get("projectiles_nova") != 0) mortar = mortar with { SpreadRadians = 2 * Math.PI };
             return SpellMortar(catalog, effect, mortar, Get, ContactsKnown(mortar.AnimationKey ?? "Melee"))
                 ?? mortar with { ServerReason = "spell mortar row not named" };
@@ -111,21 +111,21 @@ public static class MonsterShots
         {
             // Families whose class names its row in code (+0x508) and flies a plain straight shot the server reproduces.
             case "spark":
-                // 0x141b35540: the spark_monster art by monster_projectile_variation where the skill has one, else the
+                // 0x141b37fd0: the spark_monster art by monster_projectile_variation where the skill has one, else the
                 // spark art at skill_art_variation. Its legs are the client's seeded wander (SparkLegs, the player's).
                 id = mpv > 0 ? Row(mpv, "BookTornado", (2, "FireTornado"), (3, "AfflictionFlamenado"), (4, "SanctumFlamenado"))
                     : Game.Art.SkillProjectile(effect, 0, Get);
                 recipe = "Spark";
                 break;
             case "ice_spear":
-                // Art slot 0 (IceSpear). It changes form once along its flight (0x141a07b00 / 0x141a07db0).
+                // Art slot 0 (IceSpear). It changes form once along its flight (0x141a0a510 / 0x141a0a7c0).
                 id = Game.Art.SkillProjectile(effect, 0, Get);
                 recipe = "IceSpear";
                 if (Get("projectile_random_angle_based_on_distance_to_target_location_%") != 0) reason = "distance-based angle jitter";
                 else if (Get("skill_behaviour_variation") != 0) reason = "ice spear release variant";
                 break;
             case "creeping_frost":
-                // 0x141a33b90: art slot 2 for a volley of more than five with a behaviour variation, else the slot it names.
+                // 0x141a365a0: art slot 2 for a volley of more than five with a behaviour variation, else the slot it names.
                 {
                     int frostBehaviour = Get("skill_behaviour_variation");
                     int volley = Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
@@ -138,20 +138,20 @@ public static class MonsterShots
                 id = Game.Art.SkillProjectile(effect, 0, Get);
                 if (Get("frostbolt_projectile_acceleration") != 0) reason = "frost bolt acceleration";
                 break;
-            case "atziri_spear_throw": id = Row(0, "AtziriSpear"); break;                             // 0x141376e30
-            case "stormflay_lightning_strike": id = Row(0, "StormflayLightningSlash"); break;         // 0x141c65aa0
-            case "monster_snipe":                                                                       // 0x141b6c000
+            case "atziri_spear_throw": id = Row(0, "AtziriSpear"); break;                             // 0x141379200
+            case "stormflay_lightning_strike": id = Row(0, "StormflayLightningSlash"); break;         // 0x141c68530
+            case "monster_snipe":                                                                       // 0x141b6ea90
                 id = Row(artVariation, "NightwaneSnipeArrow", (1, "HydraSnipeArrow"), (2, "StagBanditSnipe"), (3, "LunarisSnipeDash"),
                     (4, "ElderGuardianChaosSnipe"));
                 break;
-            case "monster_fading_projectile_spell":                                                     // 0x1413e6730
+            case "monster_fading_projectile_spell":                                                     // 0x1413e8b20
                 id = Row(mpv, "SummonPhantasmFadingProjectile", (2, "BetrayalPhantasmProjectile"), (3, "AtlasExileCrusaderJudgeNova"));
                 break;
-            case "essence_drain":                                                                       // 0x141b32820
+            case "essence_drain":                                                                       // 0x141b352b0
                 id = Row(artVariation, "Siphon", (1, "RigwaldSiphon"), (2, "SiphonMicrotransaction1"), (3, "PaleKingSiphon"),
                     (4, "CelestialSiphon"), (5, "ScientistSiphon"), (6, "ProjectSiphon"), (7, "SunprismSiphon"));
                 break;
-            case "insect_spawner_spit":                                                                 // 0x141332700
+            case "insect_spawner_spit":                                                                 // 0x141334a90
                 id = Row(artVariation, "InsectSpawnerSpit", (1, "InsectSpawnerSpitParasiteBoss"));
                 break;
             case "monster_projectile_spell_ally" or "monster_projectile_spell_self":
@@ -161,7 +161,7 @@ public static class MonsterShots
                 if (family == "monster_projectile_spell_self") reason = "self-cast aim";
                 break;
             case "monster_puncture" or "elemental_hit_monster":
-                // 0x141b70b00 / 0x141acb370: a real bow's arrow, any other ranged hand's wand bolt; a melee hand swings.
+                // 0x141b73590 / 0x141acddd0: a real bow's arrow, any other ranged hand's wand bolt; a melee hand swings.
                 if (variety is null || !(HoldsBow(variety) || HoldsWand(variety))) return null;
                 arrows = HoldsBow(variety);
                 if (family == "monster_puncture")
@@ -183,13 +183,13 @@ public static class MonsterShots
             case "demon_female_ranged_projectile":
                 id = Row(mpv, "FemaleDemonRangedProjectile", (1, "FemaleDemonRangedProjectileBlue")); reason = "alternating hand offset"; break;
             case "miner_throw_fire":
-                // 0x141a0f7e0: it reaches the aimed cell its clip's contact after the release, at any distance (below).
+                // 0x141a121f0: it reaches the aimed cell its clip's contact after the release, at any distance (below).
                 id = Row(0, "MinerLanternFire");
                 recipe = "Lantern";
                 break;
             case "bloodline_daemon_nova": id = Row(0, "RampageProjectile"); reason = "nova of the pack's deaths"; break;
             case "synthesis_turret_charge_projectile": id = Row(0, "SynthesisGuardian2Turret"); reason = "turret charge"; break;
-            case "decelerating_projectile":                                                             // 0x141ac9c90
+            case "decelerating_projectile":                                                             // 0x141acc6f0
                 id = Row(artVariation, "DeceleratingProjectilesTriggerNova", (1, "DeceleratingProjectilesKitava"), (2, "ZanaRoseSpectralThrow"),
                     (3, "ToraDeceleratingArrow"), (4, "BetrayalBlackguardDeceleratingProjectile"), (5, "BetrayalRinDeceleratingProjectile"),
                     (6, "LegionTemplarDeceleratingShield"), (13, "AtlasExilesBlackguardDeceleratingProjectile"),
@@ -198,24 +198,24 @@ public static class MonsterShots
                 recipe = "Decelerating";
                 break;
             case "ball_lightning":
-                // Art slot 0 at skill_art_variation (0x1413e1eb0); the ball strikes what is near it (BallLightning).
+                // Art slot 0 at skill_art_variation (0x1413e42a0); the ball strikes what is near it (BallLightning).
                 id = Game.Art.SkillProjectile(effect, 0, Get) ?? catalog.ProjectileFor(effect)?.Id;
                 recipe = "BallLightning";
                 break;
-            case "shavronne_ball_lightning":                                                            // 0x141398f30
+            case "shavronne_ball_lightning":                                                            // 0x14139b300
                 // shortcut: the strikes the client draws during the 3 s cast (a growing radius around the caster) are not
                 // the server's; only the released balls strike.
                 id = Row(artVariation, "ShavronneBallLightning", (1, "HarbingerBallLightning"));
                 recipe = "ShavronneBallLightning";
                 break;
-            case "storm_burst":                                                                         // 0x141c658f0
+            case "storm_burst":                                                                         // 0x141c68380
                 // Its orbs meet no actor and burst where they are when the action ends (RecipeProfile, ProjectileHostile).
                 // Two words of their key and the clip span that times them are not checked: the server's orbs fly.
                 id = Row(artVariation, "StormBurst", (2, "ShavronneStormBurst"), (1, "YugulChromeProjectile"));
                 (recipe, reason) = ("StormBurst", "storm burst orbs");
                 break;
-            case "water_vortex":                                                                        // 0x14133b070
-                // Its mover (0x141c6cc80) sends it to the L1 diamond of radius 128 × (1 + spell action distance) around
+            case "water_vortex":                                                                        // 0x14133d400
+                // Its mover (0x141c6f710) sends it to the L1 diamond of radius 128 × (1 + spell action distance) around
                 // the caster in the aim's direction (MonsterProjectileAim.WaterVortexTarget); it strikes every 0.2 s.
                 id = Row(artVariation, "WaterVortex", (1, "WaterVortexArtVariation"), (2, "PusWaterVortex"), (3, "WaterVortexRed"),
                     (4, "IncursionMapDeviceWaterVortex"));
@@ -224,7 +224,7 @@ public static class MonsterShots
                 break;
             case "freezing_pulse":
                 id = Row(artVariation, "FreezingPulse", (1, "UndyingFreezingPulse"), (2, "FreezingPulseMTX")); reason = "pulse decay"; break;
-            case "ice_elemental_spear":                                                                 // 0x141244f10
+            case "ice_elemental_spear":                                                                 // 0x1412472d0
                 id = Row(mpv, "IceElementalProjectile", (1, "PuiTotemProjectile"), (2, "IceElementalSwordProjectile"),
                     (3, "ElderGuardianObsidianGolemProjectile"));
                 // Each spear's mover jitters its end by its seed (MonsterProjectileUse, IceElementalSpearEnd); a repeated
@@ -248,7 +248,7 @@ public static class MonsterShots
                 (id, recipe, reason) = (Row(0, "BreachSpellBarrage"), "BreachBarrage", "facing turns during the barrage");
                 break;
             case "spectral_throw" or "vaal_spectral_throw" or "vaal_thrown_weapon":
-                // 0x141ab6480: the thrown weapon by skill_art_variation. Spectral Throw comes back (the player's recipe).
+                // 0x141ab8e90: the thrown weapon by skill_art_variation. Spectral Throw comes back (the player's recipe).
                 id = Row(artVariation, "ThrownWeapon", (1, "SpectralThrowGold"), (2, "SpectralThrowEbony"), (3, "SpectralThrowBoomerang"),
                     (4, "SpectralThrowFairgraves"), (5, "TormentSpectralThrow"), (6, "NoEffectsSpectralThrow"), (7, "HandfingerFireThrownWeapon"),
                     (8, "RigwaldMoonbendersWing"), (9, "SpectralThrowEbonyMTXNew"), (10, "BreachChaosThrownWeapon"), (11, "KitavaThrownWeapon"),
@@ -258,7 +258,7 @@ public static class MonsterShots
                 // (SpiralThrowLegs). Vaal Spectral Throw's spiral of throws is the shared spiral (LaunchMonsterProjectile).
                 recipe = family == "vaal_thrown_weapon" ? "SpiralThrow" : "SpectralThrow";
                 break;
-            case "ethereal_knives":                                                                     // 0x1419f2d50
+            case "ethereal_knives":                                                                     // 0x1419f5760
                 // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
                 // A hand-cast volley is the client's: each knife's mover jitters its end (MonsterProjectileUse, SeededEnd).
                 id = mpv != 0 ? Row(0, "MaligaroEtherealKnives") : Row(artVariation, "ShadowProjectile", (1, "ShadowProjectileStar"),
@@ -266,7 +266,7 @@ public static class MonsterShots
                 if (Get("is_trap") != 0 || Get("is_totem") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
                 else recipe = "Knives";
                 break;
-            case "incinerate_old" or "incinerate_channel" or "figurehead_incinerate":                  // 0x141b834b0
+            case "incinerate_old" or "incinerate_channel" or "figurehead_incinerate":                  // 0x141b85f40
                 id = Row(artVariation, "Flamethrower1", (1, "FlamethrowerBlue1"), (2, "IncinerateHoly"), (3, "GhostProjectile"),
                     (4, family == "figurehead_incinerate" ? "AbyssLichFigureHeadIncinerate" : "IncinerateKitavaMinion"));
                 // Each flame's mover turns it by its seed and the stage its recent casts built (MonsterProjectileUse,
@@ -276,7 +276,7 @@ public static class MonsterShots
                 else if (family == "figurehead_incinerate" && artVariation == 4) reason = "flame height draw";
                 else if (Get("projectile_spiral_nova_time_ms") == 0) recipe = family == "figurehead_incinerate" ? "FigureheadFlames" : "Flames";
                 break;
-            case "totem_fire_spray" or "totem_fire_spray_triggerable":                                 // 0x141b84e00
+            case "totem_fire_spray" or "totem_fire_spray_triggerable":                                 // 0x141b87890
                 id = Row(artVariation, "TotemFireSpray", (1, "FlameBearerFireSpray"), (2, "SnakeFireSpray"), (3, "SnakeLightningSpray"),
                     (4, "FireElementalSpray"), (5, "GhostFlameTotemFireSpray"), (6, "FlameBearerFireSprayGold"));
                 // It aims at its target's cell at release (0x141c6b980); each flame's mover jitters its end and its speed
@@ -291,40 +291,40 @@ public static class MonsterShots
             // landing recipe in ProjectileHostile, drawn from the server's own seed where the client's is not traced),
             // else on the aim.
             case "matriach_fire_mortar":
-                // 0x141a0f250. It lands on the aim and hops once along its line (0x141a0e4f0) when the client's action
+                // 0x141a11c60. It lands on the aim and hops once along its line (0x141a10f00) when the client's action
                 // counts a chain, which it reads from virtual_number_of_chains_for_projectiles: not checked on our record.
                 id = Row(artVariation, "FireMortar", (1, "MatriachMortar"), (2, "MatriarchFireMortar1"), (3, "MatriarchFireMortar2"));
                 (lobbed, recipe, reason) = (true, "FireMortar", "fire mortar hop not checked on the record");
                 break;
             case "kaom_volcano_mortar": (id, lobbed, reason) = (Row(0, "KaomMortarMolten"), true, "mortar landing"); break;
             case "lb_boss_spirit_mortar":
-                // 0x141a09390: the mortar mover's steps from a launch 5 cells out, its scatter by a second key whose index
+                // 0x141a0bda0: the mortar mover's steps from a launch 5 cells out, its scatter by a second key whose index
                 // is not traced (the Goddess of Justice's volley flies the same rule hidden).
                 (id, lobbed, recipe, reason) = (Row(0, "LbBossSpiritMortar"), true, "SpiritMortar", "scatter key not traced");
                 break;
             case "monster_mortar_around_caster":
                 (id, lobbed, recipe, reason) = (Row(0, "MortarLightning"), true, "AroundCaster", "mortar ring");
                 break;
-            case "breach_mortar_in_line":                                                               // 0x141a15cf0
+            case "breach_mortar_in_line":                                                               // 0x141a18700
                 if (mpv is < 0 or > 8) return null;
                 id = Row(mpv, "BreachChaosMortar", (2, "KitavaDemonMortar"), (3, "YugulMortar"), (4, "Maligaro2Mortar"), (5, "FigureheadMortar"),
                     (6, "ElderProjectileDoom"), (7, "VilentaXMortar"), (8, "VilentaXMortarFire"));
                 (lobbed, recipe, reason) = (true, "InLine", "mortar landing");
                 break;
-            case "mortar_with_ground_effects":                                                          // 0x1419eae30
+            case "mortar_with_ground_effects":                                                          // 0x1419ed840
                 if (mpv is < 0 or > 10) return null;
                 id = Row(mpv, "MalachaiMortar", (2, "TarMortar"), (5, "NetMortar"), (6, "WebMortar"), (10, "WebMortar"), (7, "CausticMortar"),
                     (8, "BloodMortar"), (9, "ElderGuardianCausticMortar"));
                 // Its landing scatters about the aim (GroundMortarTarget), then the server leaves its ground (MonsterGrounds).
                 (lobbed, recipe, reason) = (true, "GroundMortar", "ground mortar speed and key not traced");
                 break;
-            case "breach_bone_mortar":                                                                  // 0x141a17400
+            case "breach_bone_mortar":                                                                  // 0x141a19e10
                 if (mpv is < 0 or > 5) return null;
                 id = Row(mpv, "BoneGoreMortar", (1, "FireMortar"), (2, "Maligaro2Mortar"), (3, "BoneMortar"), (5, "BoneMortar"),
                     (4, "ClockworkGolemLightningMortar"));
                 (lobbed, reason) = (true, "mortar landing");
                 break;
-            case "rolling_magma":                                                                       // 0x141b81650
+            case "rolling_magma":                                                                       // 0x141b840e0
                 id = Row(artVariation, "FireMortar", (1, "MagmaOrbConcoctionProjectile"), (3, "BloodMortar"), (4, "SplashMortar"),
                     (5, "MatriachMortar"), (6, "HarbingerFireMortar"), (7, "MatriarchFireMortar1"), (8, "MatriarchFireMortar2"),
                     (9, "FlameBileMortar"), (10, "IncursionNovasoulMagmaOrb"), (11, "KitavaCasterMortarProjectile"));
@@ -363,13 +363,13 @@ public static class MonsterShots
                 if (catalog.MonsterProjectileRow(spell, variation) is not { } row) return null;
                 id = row.Projectile;
                 animation = row.AnimationKey;
-                // The movers (0x141a13830, 0x141b6b740) move the aim on along the shot by a column's cells; the other
+                // The movers (0x141a16240, 0x141b6e1d0) move the aim on along the shot by a column's cells; the other
                 // columns are an end height and flags that do not change where the shot flies.
                 aimOffset = spell ? row.Extra[2] : row.Extra[3];
                 if (spell && artVariation == 20) reason = "MonsterProjectileSpell art 20 branch";
                 // The mover (0x141b6e1d0) turns 4, 8, 24, 26 and 29 by their seed (MonsterProjectileUse, SeededEnd).
                 if (!spell && variation is 4 or 8 or 24 or 26 or 29) recipe = "WeaponJitter";
-                // BoneSpear and IcicleBurstTriggered start at the target's own position at release (0x141b6b2f0).
+                // BoneSpear and IcicleBurstTriggered start at the target's own position at release (0x141b6dd80).
                 if (!spell && variation is 15 or 38) target = SkillCatalog.MonsterShotTarget.AtRelease;
                 break;
             }
@@ -378,21 +378,21 @@ public static class MonsterShots
                 break;
             case "skeleton_projectile_cold" or "skeleton_projectile_fire" or "skeleton_projectile_lightning":
             {
-                // 0x141b329e0 / 0x141b32ab0 / 0x141b32b80: a fixed row, the player-skill one at skill_art_variation 1.
+                // 0x141b35470 / 0x141b35540 / 0x141b35610: a fixed row, the player-skill one at skill_art_variation 1.
                 string element = family["skeleton_projectile_".Length..];
                 id = $"Metadata/Projectiles/SkeletonProjectile{char.ToUpperInvariant(element[0])}{element[1..]}"
                     + (Get("skill_art_variation") == 1 ? "PlayerSkill" : "");
                 break;
             }
             case "melee":
-                // A ranged melee attack (0x141ac9e70): a bow's default_ranged art by arrow_projectile_variation, else
+                // A ranged melee attack (0x141acc8d0): a bow's default_ranged art by arrow_projectile_variation, else
                 // the wand's bolt. Only a monster that holds a bow or a wand shoots with it.
                 if (variety is null || !Shoots(variety)) return null;
                 arrows = HoldsBow(variety);
                 id = arrows ? Game.Art.SkillProjectile(effect, 0, Get) : "Metadata/Projectiles/WandProjectile";
                 break;
             case "split_arrow":
-                // 0x141ab0700: without a bow the wand's bolt; with one, art slot 1 when it forks after a distance.
+                // 0x141ab3110: without a bow the wand's bolt; with one, art slot 1 when it forks after a distance.
                 arrows = BowShot(variety);
                 id = arrows ? Game.Art.SkillProjectile(effect, Get("projectiles_fork_after_traveling_X_units_distance") != 0 ? 1 : 0, Get)
                     : "Metadata/Projectiles/WandProjectile";
@@ -425,7 +425,7 @@ public static class MonsterShots
             // describes the placement); the server places neither, so its object flies from the monster.
             if (Get("is_totem") != 0 || Get("is_trap") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
             // A spiral fires its projectiles one step at a time over projectile_spiral_nova_time_ms through the shared
-            // release (0x141bb3c00): LaunchMonsterProjectile flies its steps. Mortars and the spray and flame classes
+            // release (0x141bb6690): LaunchMonsterProjectile flies its steps. Mortars and the spray and flame classes
             // run their own release.
             // A shot whose every projectile has an end of its own (knives, weapon jitter, a vortex) is not stepped either.
             else if (Get("projectile_spiral_nova_time_ms") != 0 && (lobbed || family is "incinerate_old" or "totem_fire_spray"
@@ -447,10 +447,10 @@ public static class MonsterShots
                 else reason = "parallel volley";
             }
         }
-        // A lantern lands its clip's contact after the release (0x141a0f7e0); without the clip the server cannot time it.
+        // A lantern lands its clip's contact after the release (0x141a121f0); without the clip the server cannot time it.
         // The lobbed recipes' movers time their flight by the same contact over a speed multiplier (MortarFlightSeconds):
-        // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a0e1e0), an in-line mortar's the spell mortar's terms
-        // (0x141a15550), a spirit mortar's its speed variation (0x141a09390), a ring's none (0x141a12c10).
+        // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a10bf0), an in-line mortar's the spell mortar's terms
+        // (0x141a17f60), a spirit mortar's its speed variation (0x141a0bda0), a ring's none (0x141a15620).
         int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar" or "SummonMortar"
             ? catalog.Clips(id)?.Flight?.Contact : null;
         if (recipe == "Lantern" && contact is not > 0) reason ??= "flight clip not known";
@@ -471,7 +471,7 @@ public static class MonsterShots
                 // The weapon class's ctor sets the pierce-all mask for these variations (0x141b6d950).
                 || family == "monster_projectile_weapon" && mpv is 2 or 4 or 12 or 20 or 23 or 24 or 26,
         };
-        // A spark with skill_behaviour_variation 2 fires one (0x141b363a0); a riptide is one wave.
+        // A spark with skill_behaviour_variation 2 fires one (0x141b38e30); a riptide is one wave.
         if (family == "spark" && catalog.BehaviourVariation(effect) == 2 || recipe == "Riptide") return shot with { Count = 1 };
         shot = shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
         // A volley of vortices would each take its own diamond end, which the server does not lay out.
@@ -479,15 +479,15 @@ public static class MonsterShots
     }
 
     /// <summary>
-    /// A spell mortar (<c>monster_mortar</c>, ActionTypes MonsterMortar, ctor 0x141a10750) as the client draws it: the same
+    /// A spell mortar (<c>monster_mortar</c>, ActionTypes MonsterMortar, ctor 0x141a13160) as the client draws it: the same
     /// MonsterMortar row as the attack form, by <c>skill_behaviour_variation</c> (the effect's SkillID, which the record
-    /// carries), so the client draws it from its count as it does the Sand Spitter's. Its mover (0x141a10d50) moves the
+    /// carries), so the client draws it from its count as it does the Sand Spitter's. Its mover (0x141a13760) moves the
     /// launch <c>__col9</c> cells toward the target, pushes the landing out to the minimum range (plus <c>__col9</c>) from
     /// the actor, rescales it to <c>mortar_projectile_distance_override</c> from the launch, scatters it like the attack
     /// form, and lands it a fixed time after the release: its flight clip's contact (666 ms on most mortar rigs, from 166 ms
     /// to over a second on the rest) over a speed multiplier, at any distance; with
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c> it flies at its row's speed instead. A
-    /// <c>__col5</c> row fires one. A ground effect on landing (<c>__col12</c>, impact slot 0x1413e83a0) is a visual the
+    /// <c>__col5</c> row fires one. A ground effect on landing (<c>__col12</c>, impact slot 0x1413ea790) is a visual the
     /// client makes for itself. What the server does not reproduce keeps its object (a reason): forks, chains, a bounce,
     /// swapped ends and the contact direction of a clip whose contact the data lacks. Null for no row (around_caster is
     /// its own action, MonsterShots' switch).
@@ -496,7 +496,7 @@ public static class MonsterShots
         Func<string, int> get, bool contactsKnown)
     {
         // SkillID 0 is MonsterMortar row 0 (MortarMolten: the Fire Elementals'), which the ctor keys by an absent
-        // skill_behaviour_variation (0x141a10750).
+        // skill_behaviour_variation (0x141a13160).
         if (catalog.ActiveSkillId(effect) != "monster_mortar" || catalog.BehaviourVariation(effect) is not (>= 0 and var row)
             || catalog.MonsterMortarColumns(row) is not { } columns) return null;
         string? reason = get("monster_mortar_number_of_forks") != 0 ? "spell mortar forks"
@@ -511,7 +511,7 @@ public static class MonsterShots
         bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
         int? contact = catalog.Clips(mortar.Metadata)?.Flight?.Contact;
         if (reason is null && !scaled && contact is not > 0) reason = "spell mortar flight clip not known";
-        // A flight whose candidate clips (drawn by the action's seed, 0x141ba5d20) land at different contacts.
+        // A flight whose candidate clips (drawn by the action's seed, 0x141ba87b0) land at different contacts.
         if (reason is null && !scaled && catalog.Clips(mortar.Metadata)?.Flight is { Varies: true }) reason = "seeded flight clip";
         // The server's object still lands where the mover would put it (ProjectileHostile): its start offset too.
         if (reason is not null)
@@ -523,7 +523,7 @@ public static class MonsterShots
         {
             ClientDraws = true, ServerReason = null, Variation = row, Target = SkillCatalog.MonsterShotTarget.MortarScatter,
             Count = count, StartOffset = columns.StartOffset,
-            // 0x141bab4e0: the spread grows by its per-projectile part for every projectile past the first.
+            // 0x141badf70: the spread grows by its per-projectile part for every projectile past the first.
             SpreadRadius = mortar.SpreadRadius + (count - 1) * get("projectile_spread_radius_per_additional_projectile"),
             FixedFlight = !scaled, ContactSeconds = (contact ?? 666) / 1000.0,
             MortarSpeed = (speedPercent, columns.SpeedVariation),
@@ -531,7 +531,7 @@ public static class MonsterShots
     }
 
 
-    /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: its flight clip's contact over the multiplier
+    /// <summary>The seconds a fixed-time spell mortar flies (0x141a13760: its flight clip's contact over the multiplier
     /// max(0.01, 1 + (fixed + variation × (draw − 1)) / 100), with the draw in [0, 2] the action's first).</summary>
     public static double MortarFlightSeconds(SkillCatalog.MonsterProjectileInfo shot, float draw) =>
         shot.ContactSeconds / Math.Max(0.01, 1 + (shot.MortarSpeed.Fixed + shot.MortarSpeed.Variation * (draw - 1)) / 100.0);
@@ -549,7 +549,7 @@ public static class MonsterShots
         return Math.Max(1, count + (splitArrow ? Get("split_arrow_number_of_additional_arrows") : 0));
     }
 
-    /// <summary>A spiral through the shared release (0x141bb3c00, steps 0x141bb3eb0 / 0x141bb3f80): N steps (the record's
+    /// <summary>A spiral through the shared release (0x141bb6690, steps 0x141bb6940 / 0x141bb6a10): N steps (the record's
     /// total: base_number_of_projectiles_in_spiral_nova plus the additional ones) one every time × N / (S × (N − 1)), the
     /// first at once; step k turns the aim by k × angle / (S − 1) plus the starting offset, and its mirror arm by the
     /// negative of that with projectile_spiral_nova_both_directions. Null for any other shot, and for a spiral the client
@@ -596,11 +596,11 @@ public static class MonsterShots
         if (shot.Recipe == "Spark" && Stat(shot, "base_skill_effect_duration") is > 0 and var life && Stats.Key("skill_effect_duration") is uint lifeKey)
             stats.Add((lifeKey, life));
         // A burst's radius percentage (a creeping frost's, a spell mortar's landing), by which the client sizes the burst
-        // it draws (0x141939aa0) as the server sizes its hit.
+        // it draws (0x14193f1f0) as the server sizes its hit.
         if ((shot.Recipe is "CreepingFrost" or "BallLightning" or "ShavronneBallLightning" or "WaterVortex" || shot.Lobbed)
             && Stat(shot, AreaPercent) is not 0 and var area && Stats.Key(AreaPercent) is uint areaKey)
             stats.Add((areaKey, area));
-        // A ball's strikes read active_skill_area_of_effect_radius as it stands (0x141939b60 with no override), which the
+        // A ball's strikes read active_skill_area_of_effect_radius as it stands (0x14193f2b0 with no override), which the
         // client derives for no record: without it the ball strikes nothing and draws no bolt.
         if (shot.Recipe == "BallLightning" && Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
             stats.Add((radiusKey, (int)PulseRadius(shot, 18)));
@@ -610,7 +610,7 @@ public static class MonsterShots
     const string AreaPercent = "total_skill_area_of_effect_radius_+%_including_final";
 
     // A strike radius in cells: the skill's base radius (else the class's) by its radius percentage, rounded down as the
-    // client's integer radius (0x141939aa0).
+    // client's integer radius (0x14193f1f0).
     static double PulseRadius(SkillCatalog.MonsterProjectileInfo shot, int classBase) =>
         Math.Floor((Stat(shot, "active_skill_base_area_of_effect_radius") is > 0 and var b ? b : classBase)
             * Math.Max(0, 100 + Stat(shot, AreaPercent)) / 100.0);
@@ -639,7 +639,7 @@ public static class MonsterShots
         };
         if (shot.PiercesAll && Get("virtual_projectiles_cannot_pierce") == 0) profile = profile with { Pierce = -1 };
         profile = Game.ClientDrawnProfile(conn, profile, Get, sequence, aim, emitter: emitter);
-        // A UseTargetLocation row's flight ends at the aimed cell (0x141ba99d0 keeps the aim); a column's aim offset
+        // A UseTargetLocation row's flight ends at the aimed cell (0x141bac460 keeps the aim); a column's aim offset
         // lengthens the flight by as much.
         profile = shot.EndsAtTarget ? profile with { Range = Math.Max(.001, aim.Length) }
             : shot.AimOffset != 0 ? profile with { Range = profile.Range + shot.AimOffset } : profile;
@@ -666,7 +666,7 @@ public static class MonsterShots
         bool constantReturn = Get("skill_behaviour_variation") == 2;
         if (shot.Recipe == "SpectralThrow" && (thrower is not null || constantReturn))
         {
-            // ThrownWeaponProjectile (ctor 0x141ab4fb0): a = 100 cells/s², or spectral_throw_deceleration_override, else
+            // ThrownWeaponProjectile (ctor 0x141ab79c0): a = 100 cells/s², or spectral_throw_deceleration_override, else
             // scaled by spectral_throw_projectile_deceleration_+%; back at (1 + (P + R)/100) / (1 + P/100), P and R the
             // projectile and returned projectile speed, a fifth of that for the holy art (13, 14); it forgets its hits
             // every 0.3 s (or its override, ms).
@@ -694,11 +694,11 @@ public static class MonsterShots
                 };
         }
         if (shot.Recipe == "SpiralThrow")
-            // Each weapon spirals out from where it leaves (0x141a867f0) and ends one step after its first hit.
+            // Each weapon spirals out from where it leaves (0x141a89200) and ends one step after its first hit.
             profile = profile with { Legs = _ => new SpiralThrowLegs(speed), LegLeash = 0, Returns = false, Pierce = 0 };
         if (shot.Recipe == "Decelerating")
         {
-            // 0x141ac9330: it stops where a thrown weapon of its speed would (D = v²/2a + 0.092 cells, a = 100), scaled by
+            // 0x141acbd90: it stops where a thrown weapon of its speed would (D = v²/2a + 0.092 cells, a = 100), scaled by
             // the Manhattan distance to its aim: a' = a × 2D / (|dx| + |dy|), from the row's speed.
             double v = 92 * (1 + Math.Max(-99, Get("projectile_speed_+%")) / 100.0), a = 100;
             double d = Math.Floor(v * v / (2 * a) + .092);
@@ -716,9 +716,9 @@ public static class MonsterShots
         }
         if (shot.Recipe == "Spark")
         {
-            // The client's wander (0x141b35a10 seeds [sequence, 2 + index, repeats, owner]): life from the record's
+            // The client's wander (0x141b384a0 seeds [sequence, 2 + index, repeats, owner]): life from the record's
             // skill_effect_duration and spark_random_duration_%; it forgets its hits every 0.66 s and ends 150 cells
-            // out, but every 0.1 s with no leash at skill_behaviour_variation 1, 2 or 4 (0x141b36170).
+            // out, but every 0.1 s with no leash at skill_behaviour_variation 1, 2 or 4 (0x141b38c00).
             double life = Math.Max(.05, Get("base_skill_effect_duration") / 1000.0);
             int behaviour = Get("skill_behaviour_variation");
             bool fast = behaviour is 1 or 2 or 4;
@@ -735,7 +735,7 @@ public static class MonsterShots
     // A ball or a vortex meets no actor (its collision mask is 0): it strikes everything within its radius as it flies,
     // each target at most every 0.2 s. A ball's targets share one cooldown per cast (0x141a38a30: 0.2 s over
     // ball_lightning_projectile_speed_and_hit_frequency_+%_final, or its time between hits); Shavronne's ball is 20
-    // cells by the area percentage (0x141b319e0); a vortex strikes all within 14 cells every 0.2 s (0x141c6cc10), each
+    // cells by the area percentage (0x141b319e0); a vortex strikes all within 14 cells every 0.2 s (0x141c6f6a0), each
     // strike its own. Slow balls outlive the runtime's 10 s default.
     static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed,
         bool lockstep)
@@ -761,7 +761,7 @@ public static class MonsterShots
         };
     }
 
-    // A creeping frost's burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius
+    // A creeping frost's burst where it ends or meets the player (0x1413e2940): active_skill_base_area_of_effect_radius
     // (15) by the radius percentage the record carries. It meets the player as a Fireball does: the contact ends it and
     // the burst is the one hit (the burst passes over the actor the contact hit); the chilled ground it leaves is not
     // modelled.
@@ -777,7 +777,7 @@ public static class MonsterShots
     /// <summary>The server's flight of a shot it draws itself by a player skill's recipe (Rolling Magma's bouncing lob
     /// and its landing explosions, Spectral Throw's piercing throw that comes back, a riptide's wave), at the shot's speed and count; the
     /// explosions of a monster's magma are 14 cells plus active_skill_base_radius_+ across its radius percentage (the
-    /// client's 0x141b80880), and each bounce lands 2S + 3 cells on (0x141b80a30: S = round(10 × (1 + chaining range)
+    /// client's 0x141b83310), and each bounce lands 2S + 3 cells on (0x141b834c0: S = round(10 × (1 + chaining range)
     /// × (1 + projectile speed)), 23 cells at base). Each bounce's own scatter is not modelled.</summary>
     public static ProjectileProfile RecipeProfile(SkillCatalog.MonsterProjectileInfo shot, double speed, double landing, bool attack)
     {
@@ -830,7 +830,7 @@ public static class MonsterShots
         return profile;
     }
 
-    /// <summary>A fire mortar's hop in cells (0x141a0e4f0): 2S + 3 with S = max(1, round(10 × (100 + projectile_speed_+%) / 100)),
+    /// <summary>A fire mortar's hop in cells (0x141a10f00): 2S + 3 with S = max(1, round(10 × (100 + projectile_speed_+%) / 100)),
     /// and S, the nearest it walks back to for a walkable cell.</summary>
     public static (int Hop, int Least) FireMortarHop(SkillCatalog.MonsterProjectileInfo shot)
     {
@@ -841,7 +841,7 @@ public static class MonsterShots
     static double MagmaSpeed(SkillCatalog.MonsterProjectileInfo shot) =>
         1 + (Stat(shot, "projectile_speed_+%") + Stat(shot, "base_projectile_speed_+%")) / 100.0;
 
-    /// <summary>A monster magma orb's first landing, in cells from the caster (0x141b80fa0): its aim's, pushed out to 9 and
+    /// <summary>A monster magma orb's first landing, in cells from the caster (0x141b83a30): its aim's, pushed out to 9 and
     /// held within 50 cells, both by the shot's projectile speed.</summary>
     public static double MagmaLanding(SkillCatalog.MonsterProjectileInfo shot, double cells) =>
         Math.Clamp(cells, Math.Floor(9 * MagmaSpeed(shot) + .5), Math.Max(1, Math.Floor(50 * MagmaSpeed(shot) + .5)));

@@ -1,9 +1,9 @@
 using GameServer.Core.Projectiles;
 
 /// <summary>
-/// A straight flight whose speed changes evenly: the Shaper's accelerating projectiles (mover 0x1419f3620, frame hook
-/// 0x1419f3770: covered(t) = v0·t + a·t²/2 from the release toward the aim, a = 50 cells/s²) and the decelerating
-/// projectiles that stop where their speed runs out (0x141ac9330, frame hook 0x141ac9710: a negative a, the flight ending
+/// A straight flight whose speed changes evenly: the Shaper's accelerating projectiles (mover 0x1419f6030, frame hook
+/// 0x1419f6180: covered(t) = v0·t + a·t²/2 from the release toward the aim, a = 50 cells/s²) and the decelerating
+/// projectiles that stop where their speed runs out (0x141acbd90, frame hook 0x141acc170: a negative a, the flight ending
 /// at v0/|a|). Each leg flies one <see cref="Step"/> of it at that step's average speed, so every leg ends on the
 /// client's curve; an accelerating one ends on the profile's leash at its range, a decelerating one where it stops.
 /// </summary>

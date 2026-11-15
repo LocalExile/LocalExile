@@ -29,7 +29,7 @@ public static partial class Game
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(conn, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : conn.Walk.Position(now)));
         // The row's speed with the shot's speed stats (the skill's base_projectile_speed_+%: the Root Spider's spit flies
-        // twice as fast; the monster's projectile_speed_+%), as the client's speed getter reads them (0x141bb38d0).
+        // twice as fast; the monster's projectile_speed_+%), as the client's speed getter reads them (0x141bb6360).
         int SkillStat(string name) => Stats.Key(name) is uint key && projectile.SkillStats is { } own ? own.GetValueOrDefault(key) : 0;
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, SkillStat, SkillStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
@@ -61,7 +61,7 @@ public static partial class Game
                 aim = origin + h * Math.Max(distance, 60 / WorldUnits.PerCell);
             }
         }
-        // The release (0x141ba51a0) holds the aim at least 60 units (5.52 cells) from the caster's cell and, on a
+        // The release (0x141ba7c30) holds the aim at least 60 units (5.52 cells) from the caster's cell and, on a
         // UseTargetLocation row with a range of its own, no farther than that range.
         ProjectileVector Held(ProjectileVector point)
         {
@@ -95,10 +95,10 @@ public static partial class Game
             if (mortar)
             {
                 // A spell mortar's aim moves with the release only by the stat that says so. Its volley fans about the
-                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target), and a row without
-                // UseTargetLocation puts it at the skill's range (0x141ba99d0); each target is rounded to its cell. Then
+                // launch as any other (the shared emitter's fan 0x141bbc1c0 turns each target), and a row without
+                // UseTargetLocation puts it at the skill's range (0x141bac460); each target is rounded to its cell. Then
                 // each projectile's own launch moves __col9 cells toward its own target, from which its mover measures the
-                // distance override and the scatter (0x141a10d50).
+                // distance override and the scatter (0x141a13760).
                 ProjectileNativeVolley? fan = null;
                 var start = origin;
                 if (projectile.Lobbed)
@@ -125,7 +125,7 @@ public static partial class Game
                 }
                 // The use flies from the unturned launch; each landing is its own projectile's.
                 origin = LaunchOf(translated);
-                // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
+                // The minimum range grows by the start offset only where the skill has one (0x141a13760).
                 int minimum = projectile.MinimumRange != 0 ? projectile.MinimumRange + projectile.StartOffset : 0;
                 var draws = new float[projectile.Count];
                 nativeTargets = new ProjectileVector[projectile.Count];
@@ -241,7 +241,7 @@ public static partial class Game
                     // A summoning mortar's mover (0x141c6a340) is the mortar attack's: pushed out to the minimum range, scattered.
                     "SummonMortar" => MonsterMortarTarget(from, origin, Fanned(i), SkillStat("projectile_minimum_range"), spread,
                         sequence, id, i, 0, out draws[i]),
-                    // A fire mortar lands on its held aim (0x141a0e1e0 with no scatter).
+                    // A fire mortar lands on its held aim (0x141a10bf0 with no scatter).
                     _ => Held(Fanned(i)),
                 })];
             if (projectile.FixedFlight)
@@ -282,7 +282,7 @@ public static partial class Game
         }
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
-        // its range) or, without UseTargetLocation, its range from the release (0x141ba99d0); then (0x141a10d50) pushed
+        // its range) or, without UseTargetLocation, its range from the release (0x141bac460); then (0x141a13760) pushed
         // out to the minimum range plus __col9 from the actor, or its distance override from the launch __col9 cells out
         // (a Doedre nova's ring around her, not on the player). Native mortars use their scattered destinations above.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange - ahead));
@@ -298,7 +298,7 @@ public static partial class Game
         var target = projectile.Lobbed ? origin + heading * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
         // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
-        // A spark's wander starts from the monster's own cell (0x141b35a10).
+        // A spark's wander starts from the monster's own cell (0x141b384a0).
         if (projectile.Recipe == "Spark") origin = from;
         // A UseTargetLocation shot ends at the aimed cell; any other straight one flies past it.
         double straightRange = projectile.EndsAtTarget ? Math.Max(.001, (aim - origin).Length) : Math.Max(distance, a.Range) * 1.5 + 5;
@@ -323,7 +323,7 @@ public static partial class Game
         if (projectile is { ClientDraws: false, Recipe: "FireMortar" } && SkillStat("number_of_chains") > 0
             && nativeTargets is [var landed, ..] && (landed - origin).Length > 0)
         {
-            // A fire mortar that chains hops once on along its line (0x141a0e4f0), in the same fixed time: 2S + 3 cells,
+            // A fire mortar that chains hops once on along its line (0x141a10f00), in the same fixed time: 2S + 3 cells,
             // else back toward S cells to the first walkable cell, else not at all. Its hop hits for less (HostileHit).
             var (hop, least) = MonsterShots.FireMortarHop(projectile);
             var way = (landed - origin).Unit;
@@ -452,7 +452,7 @@ public static partial class Game
     {
         var conn = session.Conn;
         // The flight's own damage multiplier (an ice spear's second form, a burst's or a bounce's) scales the attack's hit,
-        // and a fire mortar's hop hits by fire_mortar_second_hit_damage_+%_final (0x141a0e4f0).
+        // and a fire mortar's hop hits by fire_mortar_second_hit_damage_+%_final (0x141a10f00).
         double multiplier = contact.Multiplier;
         if (contact.Projectile.GroundBounces > 0 && shot.Attack.Projectile is { } fired)
             multiplier *= Math.Max(0, 1 + MonsterShots.Stat(fired, "fire_mortar_second_hit_damage_+%_final") / 100.0);

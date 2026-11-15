@@ -829,7 +829,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public int? ProjectileRadius(string id) => _projectiles.Value.TryGetValue(id, out var row) ? row.Radius : null;
 
     /// <summary>A Projectiles.dat row's UseTargetLocation: the client's flight ends at the aimed cell (the finalizer
-    /// 0x141ba99d0 keeps the aim) instead of flying its full range.</summary>
+    /// 0x141bac460 keeps the aim) instead of flying its full range.</summary>
     public bool ProjectileEndsAtTarget(string id) => _projectiles.Value.TryGetValue(id, out var row) && row.EndsAtTarget;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
@@ -946,7 +946,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The shot is a bow's arrows: the record's count also goes on the arrow totals, and arrow modifiers apply.</summary>
         public bool Arrows { get; init; }
         /// <summary>Where the shot flies: the cell the action was ordered at (the client stores the target's grid when the
-        /// 0x1ab arrives and releases toward it, 0x141938bf0 → 0x141ba51a0), the target's cell at release, or a mortar's
+        /// 0x1ab arrives and releases toward it, 0x14193e340 → 0x141ba7c30), the target's cell at release, or a mortar's
         /// scattered landing cells (MonsterMortarTarget).</summary>
         public MonsterShotTarget Target { get; init; }
         /// <summary><c>maintain_projectile_direction_when_using_contact_position</c>: the aim moves with the release's
@@ -963,7 +963,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// Magma's bouncing lob, Spectral Throw's return), or null for a plain flight.</summary>
         public string? Recipe { get; init; }
         /// <summary>A spell mortar's flight lasts a fixed time instead of flying at its row's speed (the client's mover
-        /// 0x141a10d50: <see cref="ContactSeconds"/> over the speed multiplier); false for every other shot.</summary>
+        /// 0x141a13760: <see cref="ContactSeconds"/> over the speed multiplier); false for every other shot.</summary>
         public bool FixedFlight { get; init; }
         /// <summary>A fixed-time spell mortar's flight at a multiplier of 1: its flight clip's first contact (666 ms on most
         /// mortar rigs), else the clip's length (<see cref="ProjectileClip.Contact"/>).</summary>
@@ -989,7 +989,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A MonsterProjectileSpell (<paramref name="spell"/>) or MonsterProjectileAttack row by its Id, the
     /// variation a <c>monster_projectile_spell</c> or <c>monster_projectile_weapon</c> skill's
-    /// <c>monster_projectile_variation</c> names (0x141a13060, 0x141b6be00; both tables' Id equals the row): its
+    /// <c>monster_projectile_variation</c> names (0x141a15a70, 0x141b6e890; both tables' Id equals the row): its
     /// Projectiles row, the spell row's Animation (the ACT key its clips are in), and the unnamed trailing columns
     /// (<c>__col3</c>–<c>__col5</c>; the client's movers read them as end height and lateral offsets). Null for a
     /// variation the table lacks (the client throws "Variation not recognized").</summary>
@@ -1013,7 +1013,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     }
 
-    /// <summary>A MonsterMortar row's columns the client's spell mortar reads (0x141a10d50, dat64 offsets +0x34..+0x4e):
+    /// <summary>A MonsterMortar row's columns the client's spell mortar reads (0x141a13760, dat64 offsets +0x34..+0x4e):
     /// the speed variation % (<c>__col4</c>), one projectile only (<c>__col5</c>), the launch's start offset in cells
     /// (<c>__col9</c>), the speed % (<c>__col11</c>), a ground effect on landing (<c>__col12</c>), the speed modifier
     /// applies (<c>__col14</c>), a per-bounce speed scale (<c>__col15</c>). Null for an unknown row.</summary>

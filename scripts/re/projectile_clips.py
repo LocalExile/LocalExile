@@ -5,7 +5,7 @@
 # otherwise (the client's Projectile component is inert for it, 11-skills.md): the wand bolt's .ao has
 # default_animation = projectile_01 and flies visibly, the Sand Spitter mortar's has none, so without a 0x1b2 for its
 # "proj" clip the object was invisible (live 2026-10-29). The flight clip's "contact" also times a spell mortar: the
-# client lands it that long after its release over its speed multiplier (mover 0x141a10d50); a clip without one ends at
+# client lands it that long after its release over its speed multiplier (mover 0x141a13760); a clip without one ends at
 # its length (the client's second lookup, hash 0, finds the record that ends every clip). A flight name may be an .ao
 # view of a clip (anim_contacts.ao_views: the Sanctum candles' animate_01..10, the first 830 ms of "animate"), a group
 # of clips the client picks one of by its seed (the Anger beam mortars' mortar_01..04), or a name the .ao does not

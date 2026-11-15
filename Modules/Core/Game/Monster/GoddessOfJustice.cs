@@ -231,7 +231,7 @@ static class GoddessOfJustice
         var to = ProjectileSession.Vector(target);
         if (spirit is { } s)
         {
-            // A Spirit Mortar's launch and landing (0x141a09390), one projectile a release.
+            // A Spirit Mortar's launch and landing (0x141a0bda0), one projectile a release.
             var actor = from;
             from = SpiritMortarLaunch(actor, to);
             to = SpiritMortarTarget(actor, from, to, s.Minimum, s.Spread, s.Sequence, id, s.Index, out _);
