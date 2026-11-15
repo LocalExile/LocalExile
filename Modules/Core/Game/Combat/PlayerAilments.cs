@@ -5,23 +5,44 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<string, int> get) => new(
+        get("always_ignite") != 0 ? 100 : get("base_chance_to_ignite_%"),
+        get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
+        get("always_shock") != 0 ? 100 : get("base_chance_to_shock_%"),
+        get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
+        get("active_skill_ignite_damage_+%_final"));
+
     public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
-        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
+        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
+        ApplyPlayerAilmentsLocked(conn, baseHit, taken, critical, blocked, now, stats, default, source);
+
+    public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
+        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats,
+        PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
-        if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
+        if (blocked || conn.Immune || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && Get("all_damage_taken_can_chill") == 0) return;
+        // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
+        // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
+        int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
+        var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+        ApplyPlayerAilmentsLocked(conn, now, ailments =>
+            ailments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, settings, source));
+    }
+
+    /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their
+    /// own admission, magnitude and duration rules; accepted changes share flask events, recent freeze and movement.</summary>
+    public static void ApplyPlayerAilmentsLocked(ClientState conn, double now, Action<PlayerElementalAilments> apply)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
         double previousFreeze = conn.ElementalAilments.FreezeUntil(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
-        // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
-        // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
-        int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
-        var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
-        conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, source);
+        apply(conn.ElementalAilments);
         if (conn.ElementalAilments.FreezeUntil(now) > previousFreeze)
             conn.RecentEvents.Record(StatConditions.BeenFrozen, now);
         QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));

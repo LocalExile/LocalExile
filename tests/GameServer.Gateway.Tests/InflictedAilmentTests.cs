@@ -1,5 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
@@ -201,5 +202,99 @@ public class InflictedAilmentTests
         // The freeze copy ends with its source; the chill's lasts.
         Game.MonsterAilmentChangesLocked(conn, now: .7);
         Assert.Equal((19.0, 0.0), (near.Ailments.Magnitude(Chill, .7), near.Ailments.Magnitude(Freeze, .7)));
+
+        // Reflected and ordinary ailments enter the same player lifecycle: newly applied ailments trigger flasks,
+        // a freeze records its recent event, refreshes do not retrigger flasks, and immunity admits neither effect.
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        try
+        {
+            var reflected = new ClientState(new(1, "reflected", 300, 300, 100, 100, null, []), 1, 1)
+                { PlayerLife = 1000, Pools = new(10, 1000, 100, 1, 0) };
+            double now = reflected.Clock.Elapsed.TotalSeconds;
+            MonsterElementalAilments.Effect[] incoming = [new(Freeze, 0, 1, 100), new(Shock, 0, 2, 20)];
+            lock (reflected.Monsters)
+            {
+                Game.ReflectAilmentsLocked(reflected, incoming, now, Raw(), new Random(1));
+                Assert.True(reflected.ElementalAilments.Snapshot(now).Freeze);
+                Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now));
+                Assert.Equal(new[] { FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
+                    reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
+                reflected.FlaskAutomation.Discard();
+                Game.ReflectAilmentsLocked(reflected, incoming, now + .1, Raw(), new Random(1));
+                Assert.Empty(reflected.FlaskAutomation.Events);
+
+                reflected.ElementalAilments.Clear(); reflected.RecentEvents.Clear();
+                Game.ReflectAilmentsLocked(reflected, incoming, now + .2,
+                    Raw(("cannot_be_frozen", 1), ("cannot_be_shocked", 1)), new Random(1));
+                Assert.False(reflected.ElementalAilments.HasEffects);
+                Assert.False(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .2));
+                Assert.Empty(reflected.FlaskAutomation.Events);
+
+                var ordinary = Taken(cold: 100, lightning: 100);
+                Game.ApplyPlayerAilmentsLocked(reflected, ordinary, ordinary, true, false, now + .3, Raw());
+                Assert.True(reflected.RecentEvents.Happened(StatConditions.BeenFrozen, now + .3));
+                Assert.Equal(new[] { FlaskEnchantments.Trigger.Chill, FlaskEnchantments.Trigger.Freeze, FlaskEnchantments.Trigger.Shock },
+                    reflected.FlaskAutomation.Events.Select(e => e.Trigger).ToArray());
+                reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
+
+                // The Oversoul's non-critical laser supplies its own guaranteed shock, but uses the same events.
+                var oversoul = new SpawnedMonster("Vaal Oversoul", new(100, 100, 0), 0, 0, 1000)
+                    { Variety = Game.Monsters.Find(VaalOversoul.Boss)!, Level = 23 };
+                var lightning = Taken(lightning: 100);
+                var attack = VaalOversoul.Attack(reflected, oversoul.Variety!, 23, VaalOversoul.Laser);
+                Assert.Equal(100, attack.Ailments.ShockChance);
+                Assert.Equal(100, attack.Ailments.ShockDurationFinalPct);
+                void Laser(bool critical, bool blocked, double at, IReadOnlyDictionary<uint, int> stats) =>
+                    Game.ApplyPlayerAilmentsLocked(reflected, lightning, lightning, critical, blocked, at, stats, attack.Ailments);
+                Laser(false, true, now + .4, Raw());
+                Assert.False(reflected.ElementalAilments.HasEffects);
+                Assert.Empty(reflected.FlaskAutomation.Events);
+                Laser(false, false, now + .4, Raw());
+                Assert.True(reflected.ElementalAilments.Snapshot(now + .4).Shock > 0);
+                Assert.Equal(FlaskEnchantments.Trigger.Shock, Assert.Single(reflected.FlaskAutomation.Events).Trigger);
+                reflected.FlaskAutomation.Discard();
+                Laser(false, false, now + .5, Raw());
+                Assert.Empty(reflected.FlaskAutomation.Events);
+                reflected.ElementalAilments.Clear();
+                Laser(false, false, now + .6, Raw(("cannot_be_shocked", 1)));
+                Assert.False(reflected.ElementalAilments.HasEffects);
+                Assert.Empty(reflected.FlaskAutomation.Events);
+                foreach (bool critical in new[] { false, true })
+                {
+                    var accepted = new AilmentRolls(99); reflected.IncomingHitRandom = accepted;
+                    Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
+                    Assert.Equal(1, accepted.ChanceRolls);
+                    Assert.True(reflected.ElementalAilments.Snapshot(now + 4.99).Shock > 0);
+                    Assert.Equal(0, reflected.ElementalAilments.Snapshot(now + 5).Shock); // Native +100%: four seconds.
+                    Assert.Equal(FlaskEnchantments.Trigger.Shock, Assert.Single(reflected.FlaskAutomation.Events).Trigger);
+                    reflected.FlaskAutomation.Discard(); reflected.ElementalAilments.Clear();
+                    var avoided = new AilmentRolls(0); reflected.IncomingHitRandom = avoided;
+                    Laser(critical, false, now + 1, Raw(("avoid_shock_%", 50)));
+                    Assert.Equal(1, avoided.ChanceRolls);
+                    Assert.False(reflected.ElementalAilments.HasEffects);
+                    Assert.Empty(reflected.FlaskAutomation.Events);
+                }
+
+                reflected.Closed = true;
+                Game.ReflectAilmentsLocked(reflected, incoming, now + .7, Raw(), new Random(1));
+                Assert.False(reflected.ElementalAilments.HasEffects);
+                Assert.Empty(reflected.FlaskAutomation.Events);
+            }
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+        }
+    }
+    sealed class AilmentRolls(int chanceRoll) : Random
+    {
+        public int ChanceRolls { get; private set; }
+        public override int Next(int minValue, int maxValue) { ChanceRolls++; return chanceRoll; }
     }
 }

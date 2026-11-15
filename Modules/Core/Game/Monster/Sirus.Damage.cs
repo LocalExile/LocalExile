@@ -5,9 +5,10 @@ using static Program;
 
 static partial class Sirus
 {
-    // The beam variants carry these effects in their own stat sets, independently of a critical strike.
-    internal static void OnHit(ClientState c, SpawnedMonster m, MonsterAttack attack, DamagePacket baseHit,
-        DamagePacket taken, bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
+    // Elemental ailments travel with the attack's native settings through the ordinary incoming-hit application.
+    // Corrupted blood is the beam's separate stacking debuff.
+    internal static void ApplyCorruptedBloodOnHit(ClientState c, SpawnedMonster m, MonsterAttack attack, DamagePacket baseHit,
+        bool blocked, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (!IsActor(m.Variety) || blocked || c.Immune || c.PlayerLife == 0 || InGracePeriod(c)) return;
         int index = attack.SkillId - 0x4000;
@@ -16,23 +17,6 @@ static partial class Sirus
         int effect = effects[index];
         int Native(string name) => Stat(c, effect, m.Level, name);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        double previousAction = c.ElementalAilments.ActionFactor(now);
-        if (Native("always_ignite") != 0 && !critical)
-            c.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Ignite,
-                (baseHit[DamageType.Fire].Min + baseHit[DamageType.Fire].Max) * .5 * .9, 4, now, Get, c.IncomingHitRandom);
-        double cold = taken[DamageType.Cold].Min / Math.Max(1, c.PlayerMaxLife);
-        if (Native("always_freeze") != 0)
-            c.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Freeze, 100, Math.Min(3, 6 * cold), now, Get, c.IncomingHitRandom);
-        if (Native("active_skill_chill_effect_+%_final") != 0)
-            c.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Chill,
-                50 * Math.Pow(cold, .4) * Math.Max(0, 1 + Native("active_skill_chill_effect_+%_final") / 100d),
-                2, now, Get, c.IncomingHitRandom);
-        if (Native("always_shock") != 0)
-            c.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock,
-                50 * Math.Pow(taken[DamageType.Lightning].Min / Math.Max(1, c.PlayerMaxLife), .4),
-                2 * Math.Max(0, 1 + Native("active_skill_shock_duration_+%_final") / 100d), now, Get, c.IncomingHitRandom);
-        PlayerAilmentsChangedLocked(c, previousAction, now);
-
         int stacks = Native("corrupted_blood_on_hit_num_stacks");
         if (stacks == 0 || BloodImmune(Get) || RandomRolls.Chance(Get("avoid_corrupted_blood_%_chance"), 100, c.IncomingHitRandom)) return;
         var e = Exposures.GetValue(c, _ => new());
