@@ -83,8 +83,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [16](../docs/protocol/16-waypoints.md).
 - Pause: the Escape menu outside towns and hideouts pauses the area (C→S 0x1d4 → S→C 0x1d3): the Gateway's clock
   stops, monsters neither move nor swing, regeneration and flasks wait, and the client pauses its world;
-  closing the menu resumes.
-  Code: `InstancePause.cs`, Gateway (`SetPaused`).
+  closing the menu resumes, and so does the pausing player leaving or another player arriving (#991).
+  Code: `InstancePause.cs`, Gateway (`SetPaused`, `EndEscapePause`).
   Docs: [22](../docs/protocol/22-pause.md).
 
 - Instance framing retains split 0x020a and 0x0059 messages at their primary-writer lengths of 3 and 16 bytes.
