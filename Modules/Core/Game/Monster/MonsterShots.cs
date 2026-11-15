@@ -502,13 +502,13 @@ public static class MonsterShots
             : get("projectile_uses_contact_direction") != 0 && !contactsKnown ? "contact direction without the clip's contact"
             : get("projectiles_barrage") != 0 || get("support_parallel_projectile_number_of_points_per_side") != 0 ? "barrage or parallel volley"
             : get("is_totem") != 0 || get("is_trap") != 0 || get("is_mine") != 0 ? "totem, trap or mine form" : null;
-        // Its fixed flight is its rig's flight clip's contact (projectile-clips): without that clip the server cannot
-        // time it (the Sanctum candles' views, an undefined clip).
+        // Its fixed flight is its rig's flight clip's contact (projectile-clips, through .ao views and groups): without
+        // that clip the server cannot time it.
         bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
         int? contact = catalog.Clips(mortar.Metadata)?.Flight?.Contact;
         if (reason is null && !scaled && contact is not > 0) reason = "spell mortar flight clip not known";
-        // A row of several flight clips draws one by the action's seed (0x141ba5d20), each with its own contact.
-        if (reason is null && !scaled && FlightClips.Value.GetValueOrDefault(mortar.Metadata) > 1) reason = "seeded flight clip";
+        // A flight whose candidate clips (drawn by the action's seed, 0x141ba5d20) land at different contacts.
+        if (reason is null && !scaled && catalog.Clips(mortar.Metadata)?.Flight is { Varies: true }) reason = "seeded flight clip";
         // The server's object still lands where the mover would put it (ProjectileHostile): its start offset too.
         if (reason is not null)
             return mortar with { ServerReason = reason, StartOffset = columns.StartOffset, Target = SkillCatalog.MonsterShotTarget.MortarScatter };
@@ -526,15 +526,6 @@ public static class MonsterShots
         };
     }
 
-    // How many flight clips each Projectiles row names (LoopAnimationIds).
-    static readonly Lazy<Dictionary<string, int>> FlightClips = new(() =>
-    {
-        var result = new Dictionary<string, int>();
-        if (GameServer.Core.ClientTables.TableOrNull("Projectiles") is { } rows)
-            for (int i = 0; i < rows.Count; i++)
-                if (rows[i].TextOrNull("Id") is { } id) result.TryAdd(id, rows[i].Texts("LoopAnimationIds").Length);
-        return result;
-    });
 
     /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: its flight clip's contact over the multiplier
     /// max(0.01, 1 + (fixed + variation × (draw − 1)) / 100), with the draw in [0, 2] the action's first).</summary>

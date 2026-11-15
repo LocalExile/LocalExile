@@ -65,9 +65,9 @@ $manifest = @(
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
     # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise). v3: the flight
-    # clip's contact, which times a spell mortar's landing.
+    # clip's contact, which times a spell mortar's landing; v4: flights named by an .ao view, group or default animation.
     @{ Name = 'projectile-clips'; Outputs = @('data\projectile-clips.json'); Runner = 'python'
-       Args = @('scripts/re/projectile_clips.py'); Version = 3; Needs = @('tables')
+       Args = @('scripts/re/projectile_clips.py'); Version = 4; Needs = @('tables')
        UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, the flight clip''s contact (a spell mortar''s landing time), and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 6; Needs = @('tables')

@@ -886,7 +886,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
     /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
     /// first "contact" in ms (its length without one), by which the client times a spell mortar's landing.</summary>
-    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null);
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null)
+    {
+        /// <summary>The flight's candidate clips (a group, several names) land at different contacts.</summary>
+        public bool Varies { get; init; }
+    }
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
     /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
@@ -904,7 +908,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             ProjectileClip? Clip(string key) =>
                 r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
-                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact")) : null;
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact"))
+                        { Varies = r.BoolOrNull(key + "_varies") ?? false } : null;
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
