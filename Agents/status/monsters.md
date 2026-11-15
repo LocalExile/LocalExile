@@ -173,12 +173,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
-  Arakaali's arena-laser activators stay out until an encounter supplies their required turret objects; calling them
-  without those objects crashes the client.
-  Her Silk transition and stance-specific attacks run across reentry and wake-up; turret patterns remain missing.
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
-  his two mirror intervals hide the body until ten images die; pool/orb/totem control remains incomplete.
-  Solaris/Lunaris hand off corporeal/celestial forms; official cadence and complete celestial hazards remain unverified.
+  his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
+  fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.
+  Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
+  have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the

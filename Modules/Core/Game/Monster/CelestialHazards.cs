@@ -1,0 +1,215 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using static Game;
+using static Program;
+using static ArenaHazards;
+
+/// <summary>The bridge's celestial attacks, with server-owned visible footprints and contacts on the same clock.</summary>
+internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, ClientState owner, Func<bool> current)
+{
+    const string Art = "Metadata/Effects/Spells/monsters_effects/Solaris_and_Lunaris/";
+    readonly HashSet<ClientState> players = [];
+    readonly Dictionary<ClientState, Exposure> exposures = [];
+    readonly Dictionary<uint, Visual> visuals = [];
+    readonly List<Patch> patches = [];
+    readonly List<Impact> impacts = [];
+    readonly List<Meteor> meteors = [];
+    Beam? beam;
+    double nextCast, nextGround;
+    int cast;
+    bool stopped;
+    record Visual(uint Id, EffectObject Object, double Until, ushort? Clip = null, float Speed = 1);
+    record Patch((int X, int Y) At, double Radius, int Effect, double Until);
+    record Impact(double At, (int X, int Y) From, (int X, int Y) To, int Effect, double Inner, double Outer, bool Cone);
+    record Meteor(double At, (int X, int Y) Position);
+    sealed class Beam((int X, int Y) from, (int X, int Y) to, double starts, uint visual)
+    {
+        internal readonly (int X, int Y) From = from, To = to;
+        internal readonly double Starts = starts;
+        internal readonly uint Visual = visual;
+        internal double NextPatch;
+    }
+    bool Current => !stopped && CurrentGameWork && current() && !caster.Dead && caster.Life > 0;
+    IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+    internal async Task Bind(ClientState p)
+    {
+        players.Add(p);
+        foreach (var v in visuals.Values.ToArray()) await Show(p, v);
+    }
+    async Task Show(ClientState p, Visual v)
+    {
+        lock (p.Monsters) if (p.SceneViews.Contains(v.Id)) return;
+        var w = p.Wire;
+        if (await SendWorldCreate(p, v.Id, () => CreateEffectObject(v.Id, v.Object), "[Celestial] arena effect", wake: true, transport: w))
+        {
+            lock (p.Monsters) p.SceneViews.Add(v.Id);
+            if (v.Clip is { } clip) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, v.Id,
+                InstanceProtocol.AnimationUpdate(v.Id, 0, clip, v.Speed), "[Celestial] effect animation");
+        }
+    }
+    async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double until, float rotation = 0, float scale = 1,
+        ushort? clip = null, float speed = 1)
+    {
+        uint id = c.Instance.World.TakeObjectId();
+        var v = new Visual(id, new(at.X, at.Y, Art + art) { Rotation = rotation, Scale = scale,
+            AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation }, until, clip, speed);
+        visuals[id] = v;
+        foreach (var p in Present.ToArray()) await Show(p, v);
+        return id;
+    }
+    async Task Drop(uint id)
+    {
+        if (!visuals.Remove(id)) return;
+        foreach (var p in Present.ToArray())
+        {
+            bool shown; lock (p.Monsters) shown = p.SceneViews.Remove(id);
+            if (shown) { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, id, "[Celestial] arena effect ends"); }
+        }
+    }
+    internal static bool ConeContains((int X, int Y) at, (int X, int Y) origin, (int X, int Y) aim, double inner, double outer)
+    {
+        double distance = Distance(at, origin);
+        if (distance <= inner || distance > outer) return false;
+        double facing = Math.Atan2(aim.Y - origin.Y, aim.X - origin.X), angle = Math.Atan2(at.Y - origin.Y, at.X - origin.X);
+        return Math.Abs(Math.IEEERemainder(angle - facing, Math.Tau)) <= .567232; // Native flare's 32.5-degree half angle.
+    }
+    internal static (int X, int Y) CascadePoint((int X, int Y) origin, double facing, int index, int a, int b, int degrees)
+    {
+        double angle = index * degrees * Math.PI / 180d, radius = Math.Max(0, a + b * angle);
+        return ((int)Math.Round(origin.X + Math.Cos(facing + angle) * radius),
+            (int)Math.Round(origin.Y + Math.Sin(facing + angle) * radius));
+    }
+    internal async Task Step(ClientState c, double now)
+    {
+        if (c.Paused || stopped) return;
+        if (!Current) { await Clear(); return; }
+        if (!Present.Any(p => p.PlayerLife > 0 && p.MonsterViews.ContainsKey(casterId) && !p.AsleepMonsters.Contains(casterId))) return;
+        foreach (var p in Present.ToArray()) await Bind(p);
+        foreach (var v in visuals.Values.Where(v => now >= v.Until).ToArray()) await Drop(v.Id);
+        patches.RemoveAll(p => now >= p.Until);
+        if (beam is { } sweep && now >= sweep.Starts)
+        {
+            double t = Math.Clamp((now - sweep.Starts) / 2, 0, 1);
+            var at = ((int)Math.Round(sweep.From.X + (sweep.To.X - sweep.From.X) * t),
+                (int)Math.Round(sweep.From.Y + (sweep.To.Y - sweep.From.Y) * t));
+            if (visuals.TryGetValue(sweep.Visual, out var v))
+            {
+                visuals[sweep.Visual] = v with { Object = v.Object with { GridX = at.Item1, GridY = at.Item2 } };
+                foreach (var p in Present.ToArray())
+                { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, v.Id,
+                    InstanceProtocol.MoveTo(v.Id, at.Item1, at.Item2, 30, InstanceProtocol.FollowTerrain), "[Celestial] solar beam sweeps"); }
+            }
+            if (now <= sweep.Starts + 2.25 && now >= sweep.NextPatch)
+            {
+                sweep.NextPatch = now + .25;
+                double until = now + Stat(c, 6464, caster.Level, "base_skill_effect_duration") / 1000d;
+                patches.Add(new(at, 10.8, 6464, until));
+                await Effect(c, at, "Solaris_e/solarbeam_groundfire_01.ao", until, clip: 2);
+            }
+            if (t == 1) beam = null;
+        }
+        foreach (var meteor in meteors.Where(m => now >= m.At).ToArray())
+        {
+            meteors.Remove(meteor);
+            double delay = Stat(c, 6472, caster.Level, "fire_storm_fireball_delay_ms") / 1000d;
+            // Meteor_v01_01.amd contacts at 999/4966 ms; fit that contact to the native skill's 300 ms delay.
+            float speed = (float)(.999 / Math.Max(.01, delay));
+            await Effect(c, meteor.Position, "Lunaris_e/meteor_fall_01.ao", now + 4.966 / speed, clip: 0, speed: speed);
+            impacts.Add(new(now + delay, meteor.Position, meteor.Position, 6472, 0, 8, false));
+        }
+        foreach (var hit in impacts.Where(h => now >= h.At).ToArray())
+        {
+            impacts.Remove(hit);
+            if (hit.Effect == 6473)
+            {
+                double until = hit.At + Stat(c, 6473, caster.Level, "base_skill_effect_duration") / 1000d;
+                if (now >= until) continue;
+                patches.Add(new(hit.To, 12, hit.Effect, until));
+                await Effect(c, hit.To, "Lunaris_e/ground_darkness_01.ao", until, clip: 2);
+                continue;
+            }
+            var attack = BossKits.AttackFor(c, caster.Variety!, caster.Level, hit.Effect, 0x4fe0) with { Spell = true, Scripted = true };
+            foreach (var p in Present.ToArray())
+                await Hit(p, casterId, caster, attack,
+                    at => hit.Cone ? ConeContains(at, hit.From, hit.To, hit.Inner, hit.Outer) : Distance(at, hit.To) <= hit.Outer,
+                    () => Current, Math.Max(0, 1 + Stat(c, hit.Effect, caster.Level,
+                        "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d));
+        }
+        if (now >= nextGround)
+        {
+            nextGround = now + .25;
+            foreach (var p in Present.ToArray())
+            {
+                if (!exposures.TryGetValue(p, out var e)) exposures[p] = e = new();
+                await Ground(p, e, now, (at, minion) =>
+                {
+                    var packet = DamagePacket.Empty;
+                    foreach (int effect in patches.Where(h => now < h.Until && Distance(at, h.At) <= h.Radius).Select(h => h.Effect).Distinct())
+                        packet = packet.Add(Dot(p, effect, caster.Level, minion));
+                    return packet;
+                }, () => Current);
+            }
+        }
+        if (now < nextCast) return;
+        var target = Present.Where(p => p.PlayerLife > 0).MinBy(p => Distance(caster.Walk.Position(now), p.Walk.Position(now)));
+        if (target is null) return;
+        bool solar = caster.Variety!.Id == SolarisLunaris.Sun + "CelestialForm";
+        int effectId = solar ? (cast % 2 == 0 ? 6464 : 6477) : (cast % 2 == 0 ? 6473 : 8433); cast++;
+        var cat = SkillsFor(c);
+        var origin = caster.Walk.Position(now); var aim = target.Walk.Position(now);
+        double facing = Math.Atan2(aim.Y - origin.Y, aim.X - origin.X);
+        double seconds = cat.CastTimeMs(effectId) / 1000d;
+        double release = now + seconds * .299 / .966;
+        nextCast = now + Math.Max(seconds, cat.CooldownMs(effectId, cat.MaxLevelAt(effectId, caster.Level)) / 1000d);
+        foreach (var p in Present.ToArray())
+        { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, casterId,
+            InstanceProtocol.AnimationUpdate(casterId, 0, solar ? effectId == 6477 ? (ushort)5 : (ushort)4 : (ushort)3,
+                effectId == 6477 ? 1 : (float)(.966 / Math.Max(.01, seconds))), "[Celestial] cast"); }
+        if (effectId == 6464)
+        {
+            var from = ((int)Math.Round(aim.X - Math.Sin(facing) * 30), (int)Math.Round(aim.Y + Math.Cos(facing) * 30));
+            var to = ((int)Math.Round(aim.X + Math.Sin(facing) * 30), (int)Math.Round(aim.Y - Math.Cos(facing) * 30));
+            uint visual = await Effect(c, from, "Solaris_e/solarbeam_impact.ao", release + 2);
+            beam = new(from, to, release, visual);
+        }
+        else if (effectId == 6477)
+        {
+            double charge = Stat(c, effectId, caster.Level, "base_skill_effect_duration") / 1000d;
+            await Effect(c, origin, "Solaris_e/Sunflare.ao", now + 5.791, (float)facing, 1.4f, clip: 0);
+            for (int i = 0; i < 5; i++)
+                impacts.Add(new(now + .5 + charge + i * .2, origin, aim, effectId,
+                    i == 0 ? 0 : (23 + 57 * (i - 1) / 4d) * 1.4, (23 + 57 * i / 4d) * 1.4, true));
+        }
+        else if (effectId == 6473)
+        {
+            double flight = Distance(origin, aim) / (750d / WorldUnits.PerCell);
+            await Effect(c, aim, "Lunaris_e/orb_of_darkness.ao", release + flight, clip: 0,
+                speed: (float)(3.708 / Math.Max(.01, release + flight - now)));
+            impacts.Add(new(release + flight, origin, aim, effectId, 0, 12, false));
+        }
+        else
+        {
+            int count = Stat(c, effectId, caster.Level, "trigger_cascade_number_of_spikes");
+            double interval = Stat(c, effectId, caster.Level, "trigger_cascade_ms_between_spikes") / 1000d;
+            int a = Stat(c, effectId, caster.Level, "trigger_cascade_A"), b = Stat(c, effectId, caster.Level, "trigger_cascade_B"),
+                degrees = Stat(c, effectId, caster.Level, "trigger_cascade_angle");
+            for (int i = 0; i < count; i++) meteors.Add(new(release + i * interval, CascadePoint(aim, facing, i, a, b, degrees)));
+        }
+    }
+    internal async Task Clear()
+    {
+        beam = null; patches.Clear(); impacts.Clear(); meteors.Clear();
+        foreach (uint id in visuals.Keys.ToArray()) await Drop(id);
+    }
+    internal void Stop()
+    {
+        stopped = true; beam = null; patches.Clear(); impacts.Clear(); meteors.Clear();
+        foreach (var p in Present.ToArray())
+            foreach (uint id in visuals.Keys.ToArray())
+            {
+                lock (p.Monsters) p.SceneViews.Remove(id);
+                var w = p.Wire; _ = Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(id), null);
+            }
+        visuals.Clear();
+    }
+}

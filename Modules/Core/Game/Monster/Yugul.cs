@@ -48,6 +48,7 @@ public static class Yugul
     internal sealed class Fight(uint id, SpawnedMonster boss, ClientState owner)
     {
         internal readonly SemaphoreSlim Gate = new(1);
+        readonly YugulHazards hazards = new(id, boss, owner);
         readonly HashSet<ClientState> players = [];
         double deadline = double.NaN;
         bool rising, stopped;
@@ -55,6 +56,7 @@ public static class Yugul
             && ReferenceEquals(p.Instance, owner.Instance));
         public async Task Bind(ClientState c)
         {
+            await hazards.Bind(c);
             if (!players.Add(c) || !boss.LifePhases!.Active || double.IsNaN(deadline)) return;
             if (!rising) await Hide(c);
         }
@@ -81,6 +83,7 @@ public static class Yugul
         }
         public async Task Step(ClientState c, double now)
         {
+            await hazards.Step(c, now);
             if (stopped || !CurrentGameWork || c.Paused || boss.Dead || boss.Life == 0) return;
             boss.LifePhases ??= Phases(c, boss.Variety!)!;
             var phase = boss.LifePhases;
@@ -151,6 +154,6 @@ public static class Yugul
             }
             rising = true; deadline = now + RiseSeconds; boss.BusyUntil = deadline;
         }
-        public void Stop() { stopped = true; boss.StageRunning = false; }
+        public void Stop() { stopped = true; boss.StageRunning = false; hazards.Stop(); }
     }
 }

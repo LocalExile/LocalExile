@@ -2,12 +2,118 @@ using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class ArakaaliPhaseTests
 {
+    [Fact]
+    public async Task Yugul_pools_chill_without_damage_and_owned_fear_actors_leave_no_reload_duplicates()
+    {
+        using var runtime = new Runtime(); using var wire = new Wire();
+        var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1908, 1639, (_, _) => true, []), 1, 1)
+            { Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
+                Pools = new(60, 10000, 200, 1, 0), Wire = ("yugul-ground", wire.Stream, wire.Ciphers) };
+        runtime.Player = c; c.Walk.Teleport(1908, 1639, 0);
+        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, Game.Monsters.Find(Yugul.Boss)!,
+            58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
+        var boss = c.Monsters[id]; boss.Aggro = true;
+        var hazards = new YugulHazards(id, boss, c); await hazards.Bind(c);
+        await hazards.Step(c, 100); await hazards.Step(c, 100.3);
+        Assert.Equal(10000u, c.PlayerLife);
+        Assert.True(c.ElementalAilments.Snapshot(100.3).Chill > 0);
+        var ailments = new PlayerElementalAilments(); var cold = DamagePacket.Of(DamageType.Cold, 100, 100);
+        var settings = Game.IncomingAilmentSettings(name => ArenaHazards.Stat(c, 6582, 58, name));
+        ailments.Apply(cold, cold, true, 1000, 0, _ => 0, new Random(1), settings);
+        Assert.True(ailments.Snapshot(0).Chill > 0); Assert.False(ailments.Snapshot(0).Freeze);
+        ailments.Apply(cold, cold, true, 1000, 1, _ => 0, new Random(1));
+        Assert.True(ailments.Snapshot(1).Freeze);
+        Assert.Single(c.Monsters.Values, m => m.Variety?.Id.EndsWith("SilverPoolTurret") == true);
+        boss.Life = boss.LifePhases!.Damage(boss.Life, boss.MaxLife, int.MaxValue);
+        boss.LifePhases.Begin(boss.Life, boss.MaxLife); boss.LifePhases.Finish();
+        await hazards.Step(c, 101);
+        var orbs = c.Monsters.Values.Where(m => m.Variety?.Id.EndsWith("SilverOrb") == true).ToArray();
+        Assert.Equal(2, orbs.Length);
+        Assert.All(orbs, m => { Assert.True(m.Scripted); Assert.True(m.Invulnerable); Assert.True(m.NoRewards); });
+        var flights = new Game.ProjectileSession(c.Wire.Remote, wire.Stream, wire.Ciphers, c);
+        Assert.DoesNotContain(flights.Actors(0, 0), actor => c.Monsters.TryGetValue(actor.Key.Id, out var m) && ArenaHazards.Untargetable(c, m));
+        foreach (var orb in orbs) orb.Walk.Teleport(1908, 1639, 101);
+        await hazards.Step(c, 101.3);
+        Assert.True(c.PlayerLife < 10000);
+        uint afterFear = c.PlayerLife;
+        var projectile = new SkillCatalog.MonsterProjectileInfo("Metadata/Projectiles/YugulChromeProjectile", 400, false, 2);
+        var attack = new MonsterAttack(0x4ff0, 1, 150, DamagePacket.Of(DamageType.Cold, 100, 100)) { Spell = true, Projectile = projectile };
+        var use = Game.MonsterProjectileUse(flights, id, boss, attack, projectile, 0);
+        var flightWorld = new GameServer.Core.Projectiles.ProjectileRuntime(flights); flightWorld.Release(use);
+        var shot = Assert.IsType<HostileProjectileOffense>(use.Payload);
+        var contact = new GameServer.Core.Projectiles.ProjectileDamage(Assert.Single(flightWorld.Projectiles), new(0x1000), 0,
+            "burst", Game.ProjectileSession.Vector(c.Walk.Position(0)));
+        c.PlayerLife = 10000;
+        Assert.NotNull(Game.CommitHostilePlayerHitLocked(flights, contact, shot));
+        uint direct = 10000 - c.PlayerLife; Assert.True(direct > 0);
+        c.PlayerLife = 10000;
+        Assert.NotNull(Game.CommitHostilePlayerHitLocked(flights, contact with { Multiplier = 2 }, shot));
+        Assert.Equal(2 * direct, 10000 - c.PlayerLife);
+        c.PlayerLife = afterFear;
+        hazards.Stop();
+        Assert.DoesNotContain(c.Monsters.Values, m => m.SummonerId == id);
+        Assert.DoesNotContain(c.Instance.World.MonsterOrigins.Keys, key => !c.Monsters.ContainsKey(key));
+        Assert.Empty(c.SceneViews);
+        var restored = new YugulHazards(id, boss, c); await restored.Bind(c); await restored.Step(c, 102);
+        Assert.Equal(2, c.Monsters.Values.Count(m => m.Variety?.Id.EndsWith("SilverOrb") == true));
+        Assert.Equal(afterFear, c.PlayerLife); // No elapsed-time catch-up from the retired exposure.
+        restored.Stop();
+    }
+
+    [Fact]
+    public async Task Celestial_ground_contacts_follow_visible_areas_and_retire_on_handoff()
+    {
+        using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
+        var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
+            { Character = "CelestialGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
+                Pools = new(60, 10000, 200, 1, 0), Wire = ("celestial-ground", wire.Stream, wire.Ciphers) };
+        runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
+        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
+            Game.Monsters.Find(SolarisLunaris.Moon + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
+        var caster = c.Monsters[id]; bool active = true;
+        var hazards = new CelestialHazards(id, caster, c, () => active); await hazards.Bind(c);
+        await hazards.Step(c, 100); await hazards.Step(c, 100.8);
+        Assert.True(c.PlayerLife < 10000); Assert.NotEmpty(c.SceneViews);
+        uint life = c.PlayerLife;
+        c.Walk.Teleport(1100, 1100, 101); await hazards.Step(c, 101.1);
+        Assert.Equal(life, c.PlayerLife);
+        var observer = new ClientState(c.Layout, 2, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
+            Wire = ("celestial-observer", observerWire.Stream, observerWire.Ciphers) };
+        runtime.Observers.Add(observer); observer.Walk.Teleport(1100, 1100, 101); await hazards.Bind(observer);
+        Assert.Equal(c.SceneViews.Order(), observer.SceneViews.Order());
+        await hazards.Step(c, 105); await hazards.Step(c, 106);
+        await hazards.Step(c, 107.5); await hazards.Step(c, 107.81);
+        Assert.True(c.PlayerLife < life); // Later ice contacts use their own damage after leaving the dark patch.
+        active = false; await hazards.Step(c, 108);
+        Assert.Empty(c.SceneViews); Assert.Empty(observer.SceneViews);
+        Assert.True(CelestialHazards.ConeContains((50, 0), (0, 0), (100, 0), 23, 80));
+        Assert.False(CelestialHazards.ConeContains((-50, 0), (0, 0), (100, 0), 23, 80));
+        Assert.False(CelestialHazards.ConeContains((10, 0), (0, 0), (100, 0), 23, 80));
+        Assert.False(CelestialHazards.ConeContains((90, 0), (0, 0), (100, 0), 23, 80));
+        Assert.NotEqual(CelestialHazards.CascadePoint((0, 0), 0, 0, 50, -12, 15),
+            CelestialHazards.CascadePoint((0, 0), 0, 14, 50, -12, 15));
+        hazards.Stop();
+        c.Walk.Teleport(1000, 1000, 200); c.PlayerLife = 10000;
+        uint sunId = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
+            Game.Monsters.Find(SolarisLunaris.Sun + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
+        var solar = new CelestialHazards(sunId, c.Monsters[sunId], c, () => true); await solar.Bind(c);
+        await solar.Step(c, 200); await solar.Step(c, 201); await solar.Step(c, 201.93);
+        Assert.True(c.PlayerLife < 10000); // The sweeping beam leaves damaging fire.
+        c.Walk.Teleport(1050, 1000, 206); await solar.Step(c, 206);
+        life = c.PlayerLife;
+        await solar.Step(c, 209.9); await solar.Step(c, 210.1);
+        Assert.True(c.PlayerLife < life); // A subsequent flare reaches its second annulus.
+        c.Monsters[sunId].Dead = true; await solar.Step(c, 211);
+        Assert.Empty(c.SceneViews); solar.Stop();
+    }
+
     [Fact]
     public async Task Campaign_phase_changes_survive_reload_and_keep_their_own_attacks()
     {

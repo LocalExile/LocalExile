@@ -52,11 +52,12 @@ public static class SolarisLunaris
         readonly HashSet<ClientState> players = [];
         int active = owner.Instance.HasState(MoonActive) ? 1 : 0;
         bool initialized, changing, stopped, entering;
+        CelestialHazards? celestial;
         double nextSwap, deadline;
         (uint Id, SpawnedMonster Monster) Body(int index) => index == 0 ? (sunId, sun) : (moonId, moon);
         IEnumerable<ClientState> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
         static bool Alive(SpawnedMonster m) => !m.Dead && m.Life > 0;
-        public Task Bind(ClientState c) { players.Add(c); return Task.CompletedTask; }
+        public async Task Bind(ClientState c) { players.Add(c); if (celestial is not null) await celestial.Bind(c); }
         async Task State(ClientState c, int index, byte state)
         {
             var (id, m) = Body(index);
@@ -87,6 +88,7 @@ public static class SolarisLunaris
         }
         async Task RemoveOrbs(ClientState c)
         {
+            if (celestial is not null) { await celestial.Clear(); celestial.Stop(); celestial = null; }
             uint[] ids;
             lock (c.Monsters)
             {
@@ -107,8 +109,13 @@ public static class SolarisLunaris
             lock (c.Monsters) if (c.Monsters.Values.Any(m => m.Variety?.Id == type && Alive(m))) return;
             var at = body.Walk.Position(now); var w = c.Wire;
             uint id = await SpawnMonster(w.Remote, w.Stream, w.Ciphers, c, Monsters.Find(type)!, body.Level,
-                MonsterRarity.Normal, at.X, at.Y, owned: (_, m) =>
+                MonsterRarity.Normal, at.X, at.Y, scripted: true, owned: (_, m) =>
                 { m.NoRewards = true; m.EntranceGrace = true; m.Aggro = true; }, ownedCurrent: () => !stopped);
+            if (id != 0 && c.Monsters.TryGetValue(id, out var actor))
+            {
+                celestial = new(id, actor, c, () => !stopped && Alive(sun) && Alive(moon));
+                foreach (var p in Present.ToArray()) await celestial.Bind(p);
+            }
         }
         async Task Activate(ClientState c, double now)
         {
@@ -123,6 +130,7 @@ public static class SolarisLunaris
         public async Task Step(ClientState c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
+            if (celestial is not null) await celestial.Step(c, now);
             if (!Alive(sun) && !Alive(moon)) { await RemoveOrbs(c); return; }
             if (!Present.Any(p => p.PlayerLife > 0 && (p.MonsterViews.ContainsKey(sunId) || p.MonsterViews.ContainsKey(moonId)))) return;
             if (!initialized)
@@ -159,6 +167,6 @@ public static class SolarisLunaris
                     p.NextActionSequence(), 0x0800, id), "[Sisters] corporeal form submerges"); }
             changing = true; deadline = now + TransformSeconds;
         }
-        public void Stop() { stopped = true; }
+        public void Stop() { stopped = true; celestial?.Stop(); }
     }
 }
