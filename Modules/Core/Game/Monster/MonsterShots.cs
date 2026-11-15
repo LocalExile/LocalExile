@@ -78,6 +78,8 @@ public static class MonsterShots
                 AimTranslates = aimTranslates, SkillStats = stats,
                 Count = mortar.Count + (monsterStats?.GetValueOrDefault("number_of_additional_projectiles") ?? 0),
                 DistanceOverride = Get("mortar_projectile_distance_override"),
+                // The row's UseTargetLocation: a fanned volley keeps the aim's distance only with it (0x141bb9730).
+                EndsAtTarget = catalog.ProjectileEndsAtTarget(mortar.Metadata),
             };
             // The attack form is the client's (its MonsterMortar row and count on the record, traced).
             if (mortar.ClientDraws) return mortar;
@@ -212,10 +214,10 @@ public static class MonsterShots
                 reason = family == "spectral_throw" ? "thrown weapon's deceleration" : "thrown weapon spiral";
                 break;
             case "ethereal_knives":                                                                     // 0x1419f2d50
-                if (Get("is_trap") != 0 || Get("is_totem") != 0) return null;   // the trap or totem throws, not the knives
+                // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
                 id = mpv != 0 ? Row(0, "MaligaroEtherealKnives") : Row(artVariation, "ShadowProjectile", (1, "ShadowProjectileStar"),
                     (2, "SpiderEtherealKnives"), (3, "EbonyEtherealKnvies"), (5, "EtherealKnivesSawBlade"));
-                reason = "seeded knife jitter";
+                reason = Get("is_trap") != 0 || Get("is_totem") != 0 ? "totem, trap or mine form" : "seeded knife jitter";
                 break;
             case "incinerate_old" or "incinerate_channel" or "figurehead_incinerate":                  // 0x141b834b0
                 id = Row(artVariation, "Flamethrower1", (1, "FlamethrowerBlue1"), (2, "IncinerateHoly"), (3, "GhostProjectile"),
@@ -397,6 +399,8 @@ public static class MonsterShots
         bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
         int? contact = catalog.Clips(mortar.Metadata)?.Flight?.Contact;
         if (reason is null && !scaled && contact is not > 0) reason = "spell mortar flight clip not known";
+        // A row of several flight clips draws one by the action's seed (0x141ba5d20), each with its own contact.
+        if (reason is null && !scaled && FlightClips.Value.GetValueOrDefault(mortar.Metadata) > 1) reason = "seeded flight clip";
         if (reason is not null) return mortar with { ServerReason = reason };
         int speedPercent = columns.Speed + get("monster_mortar_additional_speed_+%")
             + (columns.SpeedModifier ? get("projectile_speed_+%") + get("base_projectile_speed_+%") : 0);
@@ -411,6 +415,16 @@ public static class MonsterShots
             MortarSpeed = (speedPercent, columns.SpeedVariation),
         };
     }
+
+    // How many flight clips each Projectiles row names (LoopAnimationIds).
+    static readonly Lazy<Dictionary<string, int>> FlightClips = new(() =>
+    {
+        var result = new Dictionary<string, int>();
+        if (GameServer.Core.ClientTables.TableOrNull("Projectiles") is { } rows)
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].TextOrNull("Id") is { } id) result.TryAdd(id, rows[i].Texts("LoopAnimationIds").Length);
+        return result;
+    });
 
     /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: its flight clip's contact over the multiplier
     /// max(0.01, 1 + (fixed + variation × (draw − 1)) / 100), with the draw in [0, 2] the action's first).</summary>
@@ -491,6 +505,8 @@ public static class MonsterShots
             profile = profile with
             {
                 Pierce = Get("virtual_projectiles_cannot_pierce") != 0 ? 0 : -1,
+                // shortcut: ice_spear_second_form_damage_+% is increased damage, applied here as a multiplier of the
+                // monster's finished hit (its other increased damage is already folded into that hit).
                 FormChange = new(20.199 * (100 + Get("ice_spear_distance_before_form_change_+%")) / 100.0,
                     1 + Get("ice_spear_second_form_projectile_speed_+%_final") / 100.0, pierce,
                     Math.Max(0, 1 + Get("ice_spear_second_form_damage_+%") / 100.0)),

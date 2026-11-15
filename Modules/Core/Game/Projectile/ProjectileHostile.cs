@@ -61,45 +61,55 @@ public static partial class Game
                 aim = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
             }
             var translated = aim + origin - from;
-            ProjectileNativeVolley? fan = null;
-            var fanFrom = origin;
             if (mortar)
             {
-                // A spell mortar's aim moves with the release only by the stat that says so; its volley fans about the
-                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target); its launch then moves
-                // __col9 cells toward the target, which stays where it was (0x141a10d50).
+                // A spell mortar's aim moves with the release only by the stat that says so. Its volley fans about the
+                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target: at the aim's distance on a
+                // UseTargetLocation row, else 150 units out); then each projectile's own launch moves __col9 cells toward
+                // its own target, from which its mover measures the distance override and the scatter (0x141a10d50).
+                ProjectileNativeVolley? fan = null;
+                var start = origin;
                 if (projectile.Lobbed)
                 {
                     if (!projectile.AimTranslates) translated = aim;
                     if (projectile.Count > 1) fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
-                    if (projectile.StartOffset != 0)
-                    {
-                        origin += toward * Math.Min(projectile.StartOffset, distance);
-                        origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
-                    }
                 }
+                var arm = translated - start;
+                double reach = projectile.EndsAtTarget ? arm.Length : 150 / WorldUnits.PerCell;
+                ProjectileVector TargetOf(int i) => fan is null || arm.Length <= 0 ? translated
+                    : start + arm.Unit.Rotate(fan.Angle(i, projectile.Count, arm.Length)) * reach;
+                ProjectileVector LaunchOf(ProjectileVector target)
+                {
+                    if (!projectile.Lobbed || projectile.StartOffset == 0 || (target - from).Length <= 0) return start;
+                    var moved = start + (target - from).Unit * Math.Min(projectile.StartOffset, distance);
+                    return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+                }
+                // The use flies from the unturned launch; each landing is its own projectile's.
+                origin = LaunchOf(translated);
                 // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
                 int minimum = projectile.MinimumRange != 0 ? projectile.MinimumRange + projectile.StartOffset : 0;
                 var draws = new float[projectile.Count];
-                var arm = translated - fanFrom;
-                nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin,
-                    fan is null || arm.Length <= 0 ? translated : fanFrom + arm.Rotate(fan.Angle(i, projectile.Count, arm.Length)),
-                    minimum, projectile.SpreadRadius, sequence, id, i, projectile.DistanceOverride, out draws[i])).ToArray();
+                nativeTargets = new ProjectileVector[projectile.Count];
+                for (int i = 0; i < projectile.Count; i++)
+                {
+                    var turned = TargetOf(i);
+                    nativeTargets[i] = MonsterMortarTarget(from, LaunchOf(turned), turned, minimum, projectile.SpreadRadius,
+                        sequence, id, i, projectile.DistanceOverride, out draws[i]);
+                }
                 // A spell mortar lands a fixed time after its release, at any distance: each projectile at its own speed.
                 if (projectile.FixedFlight)
                     nativeSpeeds = [.. nativeTargets.Select((t, i) => Math.Max(.001, (t - origin).Length) / MonsterShots.MortarFlightSeconds(projectile, draws[i]))];
             }
             else if (projectile.AimTranslates) aim = translated;
         }
-        // Retain the legacy landing model for server-created lobbed skills. Native straight mortar attacks use
-        // their cell-based minimum range and scattered destinations above, not this untraced lob model.
-        double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
-        // A server-drawn mortar lands at its distance override, else no farther than its capped range (a Doedre nova's ring
-        // of 8 cells around her, not on the player).
+        // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells), and at its
+        // distance override from the launch, else no farther than its capped range (a Doedre nova's ring of 8 cells
+        // around her, not on the player). Native mortars use their scattered destinations above.
+        double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange - ahead));
         if (projectile.Lobbed && nativeTargets is null)
         {
-            if (projectile.DistanceOverride > 0) landing = Math.Max(0.5, projectile.DistanceOverride - ahead);
-            else if (SkillStat("projectile_maximum_range_override") is > 0 and var most) landing = Math.Max(0.5, Math.Min(landing, most - ahead));
+            if (projectile.DistanceOverride > 0) landing = projectile.DistanceOverride;
+            else if (SkillStat("projectile_maximum_range_override") is > 0 and var most) landing = Math.Min(landing, most);
         }
         if (projectile.Recipe == "RollingMagma") landing = Math.Max(0.5, MonsterShots.MagmaLanding(projectile, landing + ahead) - ahead);
         var target = projectile.Lobbed ? origin + toward * landing : aim;
@@ -122,7 +132,8 @@ public static partial class Game
         Console.WriteLine($"[gateway] {session.remote} monster 0x{id:x} ({m.Label}) releases {projectile.Metadata} from {origin}"
             + $" ({ahead:0.0} cells toward the aim, {(release?.Point is { } up ? up.HeightSteps.ToString() : "default")} steps up"
             + $"{(release is null ? "" : $", clip {release.Clip} at {release.Fraction:0.000} of the attack{(release.FacesAway ? ", facing away" : "")}")})"
-            + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
+            + $" aim={aim}{(nativeTargets is { } landings ? $" lands at {string.Join(" ", landings.Select(t => $"({t.X:0},{t.Y:0})"))}"
+                : projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets, ProjectileSpeeds = nativeSpeeds, ReturnAnchor = profile.Returns ? owner : null,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
@@ -138,6 +149,8 @@ public static partial class Game
     {
         Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
         SpreadRadians = projectile.SpreadRadians,
+        // A ring at the client's nova angles, i × 2π / count from the aim (0x141bbbf90).
+        NativeVolley = projectile.SpreadRadians >= 2 * Math.PI ? new() { Nova = true } : null,
         Range = projectile.Lobbed ? landing : straightRange,
         DirectDamage = !projectile.Lobbed,
         EndArea = projectile.Lobbed ? new ProjectileAreaRecipe("monster mortar", MonsterShots.AreaRadius(projectile, MonsterMortarRadius())) : null,
