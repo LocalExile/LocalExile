@@ -43,6 +43,8 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>The seconds before the skill may be used again (its GrantedEffectsPerLevel Cooldown), 0 for none.</summary>
+    public double CooldownSeconds { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
@@ -213,7 +215,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
-    public double SummonReadyAt;
+    /// <summary>When the monster's own skill comes off its cooldown (a summon's, or any skill with one).</summary>
+    public double SkillReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>
