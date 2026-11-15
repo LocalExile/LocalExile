@@ -147,6 +147,9 @@ term from A+B*angle in radians. Exact heading/target distribution remains a cali
 999/4966 ms; matching the skill's 300 ms contact requires explicit playback speed. Ground art needs its `loop`
 clip (index 2); its fade-in alone does not start the damaging-ground particles. Dark-patch radius 12 and ice-hit
 radius 8 are development calibrations; damage, durations and minion penalties come from each granted effect.
+SolarisSkyBeamBeam is MiscBeams row 41, following the celestial actor and its moving impact object.
+SolarFlare's warning decal occupies its 3330 ms charge; the explosion AO starts afterward and its first particle
+contact is 480 ms into that animation. Starting the explosion alongside the warning makes its visible hit early.
 
 The two quests share their start, their fight and their end flag (`a8q23-…`), so they are one implementation.
 **Start:** Maramoa NPCTalk 1179 "Solaris and Lunaris". **Finish:** Solaris and Lunaris dead on The Harbour Bridge.

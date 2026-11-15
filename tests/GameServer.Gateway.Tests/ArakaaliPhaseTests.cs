@@ -109,6 +109,8 @@ public sealed class ArakaaliPhaseTests
         c.Walk.Teleport(1050, 1000, 206); await solar.Step(c, 206);
         life = c.PlayerLife;
         await solar.Step(c, 209.9); await solar.Step(c, 210.1);
+        Assert.Equal(life, c.PlayerLife); // No early contact before the explosion's own animation advances.
+        await solar.Step(c, 210.7);
         Assert.True(c.PlayerLife < life); // A subsequent flare reaches its second annulus.
         c.Monsters[sunId].Dead = true; await solar.Step(c, 211);
         Assert.Empty(c.SceneViews); solar.Stop();

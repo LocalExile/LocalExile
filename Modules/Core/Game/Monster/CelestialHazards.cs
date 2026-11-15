@@ -14,6 +14,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
     readonly List<Patch> patches = [];
     readonly List<Impact> impacts = [];
     readonly List<Meteor> meteors = [];
+    readonly List<Flare> flares = [];
     Beam? beam;
     double nextCast, nextGround;
     int cast;
@@ -22,6 +23,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
     record Patch((int X, int Y) At, double Radius, int Effect, double Until);
     record Impact(double At, (int X, int Y) From, (int X, int Y) To, int Effect, double Inner, double Outer, bool Cone);
     record Meteor(double At, (int X, int Y) Position);
+    record Flare(double At, (int X, int Y) Origin, (int X, int Y) Aim, float Facing);
     sealed class Beam((int X, int Y) from, (int X, int Y) to, double starts, uint visual)
     {
         internal readonly (int X, int Y) From = from, To = to;
@@ -97,6 +99,15 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         foreach (var p in Present.ToArray()) await Bind(p);
         foreach (var v in visuals.Values.Where(v => now >= v.Until).OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
         patches.RemoveAll(p => now >= p.Until);
+        foreach (var flare in flares.Where(f => now >= f.At).ToArray())
+        {
+            flares.Remove(flare);
+            await Effect(c, flare.Origin, "Solaris_e/Sunflare.ao", now + 5.791, flare.Facing, 1.4f, clip: 0);
+            // Sunflare's particle contact starts at 480 ms; the warning decal occupies the charge, not the explosion.
+            for (int i = 0; i < 5; i++)
+                impacts.Add(new(now + .480262 + i * .2, flare.Origin, flare.Aim, 6477,
+                    i == 0 ? 0 : (23 + 57 * (i - 1) / 4d) * 1.4, (23 + 57 * i / 4d) * 1.4, true));
+        }
         if (beam is { } sweep && now >= sweep.Starts)
         {
             double t = Math.Clamp((now - sweep.Starts) / 2, 0, 1);
@@ -187,10 +198,7 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
         {
             double charge = Stat(c, effectId, caster.Level, "base_skill_effect_duration") / 1000d;
             await Effect(c, origin, "Solaris_e/Sunflare_decal.ao", now + .5 + charge, (float)facing, 1.4f, clip: 0);
-            await Effect(c, origin, "Solaris_e/Sunflare.ao", now + 5.791, (float)facing, 1.4f, clip: 0);
-            for (int i = 0; i < 5; i++)
-                impacts.Add(new(now + .5 + charge + i * .2, origin, aim, effectId,
-                    i == 0 ? 0 : (23 + 57 * (i - 1) / 4d) * 1.4, (23 + 57 * i / 4d) * 1.4, true));
+            flares.Add(new(now + charge, origin, aim, (float)facing));
         }
         else if (effectId == 6473)
         {
@@ -210,12 +218,12 @@ internal sealed class CelestialHazards(uint casterId, SpawnedMonster caster, Cli
     }
     internal async Task Clear()
     {
-        beam = null; patches.Clear(); impacts.Clear(); meteors.Clear();
+        beam = null; patches.Clear(); impacts.Clear(); meteors.Clear(); flares.Clear();
         foreach (var v in visuals.Values.OrderBy(v => v.Link is null).ToArray()) await Drop(v.Id);
     }
     internal void Stop()
     {
-        stopped = true; beam = null; patches.Clear(); impacts.Clear(); meteors.Clear();
+        stopped = true; beam = null; patches.Clear(); impacts.Clear(); meteors.Clear(); flares.Clear();
         foreach (var p in Present.ToArray())
             foreach (uint id in visuals.Values.OrderBy(v => v.Link is null).Select(v => v.Id).ToArray())
             {
