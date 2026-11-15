@@ -114,13 +114,7 @@ public static class SkillAnimations
     static readonly Lazy<List<string>> StanceNames = new(() =>
         [.. ClientTables.TableOrEmpty("ItemStances").Select(r => r.Text("Id") ?? "")]);
 
-    static string? ActionType(int effect)
-    {
-        var granted = ClientTables.TableOrNull("GrantedEffects");
-        if (granted?.Row(effect)?.IntOrNull("ActiveSkill") is not int skill
-            || ClientTables.TableOrNull("ActiveSkills")?.Row(skill)?.IntOrNull("ActionType") is not int action) return null;
-        return ClientTables.TableOrNull("ActionTypes")?.Row(action)?.Text("Id");
-    }
+    static string? ActionType(int effect) => SkillCatalog.ActionTypeId(effect);
 
     static string? EffectAnimation(int effect) =>
         ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("Animation") is int row

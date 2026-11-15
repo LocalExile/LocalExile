@@ -336,6 +336,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
 
+    /// <summary>The ActionTypes Id of a GrantedEffects row's action class (ActiveSkills.ActionType), or null.</summary>
+    public static string? ActionTypeId(int effectRow)
+    {
+        if (ClientTables.TableOrNull("GrantedEffects")?.Row(effectRow)?.IntOrNull("ActiveSkill") is not int skill
+            || ClientTables.TableOrNull("ActiveSkills")?.Row(skill)?.IntOrNull("ActionType") is not int action) return null;
+        return ClientTables.TableOrNull("ActionTypes")?.Row(action)?.Text("Id");
+    }
+
     /// <summary>
     /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
     /// <c>skill_behaviour_variation</c> (0x1921; 0x141eefbe3 loads the row's +0xbe). An action takes its data row from it:
@@ -1061,6 +1069,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
     {
+        // Only the SummonSpecificMonsters action classes (SummonSpecificMonsters, ...CannotDie, ...FromMortars, ...InFront)
+        // read alternate_minion as a SummonedSpecificMonsters Id: Sawbones' 400 is SkeletonMeleeSawbones, Ryslatha's 227
+        // RyslathaEgg, Izaro's 63 IzaroSummonSkeletonCasterFire. Every other class that carries the stat holds a small
+        // variant index there (Raise Zombie, Summon Raging Spirit and the golems' monster versions all 1, the Harbingers
+        // 1 to 14), which names no SummonedSpecificMonsters row of theirs: Id 1 is a Rhoa.
+        if (ActionTypeId(effectRow)?.StartsWith("SummonSpecificMonsters", StringComparison.Ordinal) != true) return null;
         var stats = EffectStats(effectRow, level);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
