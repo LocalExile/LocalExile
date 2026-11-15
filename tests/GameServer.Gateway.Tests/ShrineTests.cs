@@ -348,6 +348,27 @@ public sealed class ShrineTests
             monster.Life = monster.MaxLife = 10000;
             await Game.ExplodeOnKill(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, 0x7071, corpse, (112, 100));
             Assert.Equal(9650u, monster.Life);
+
+            // A standing shrine's spell chills through the shared player-ailment lifecycle, flask events included.
+            var previousLogic = Program.GameLogicOrNull;
+            var previousLifetime = Game.CombatLifetime;
+            var lifetime = new ModuleLifetime("Game");
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            try
+            {
+                conn.ElementalAilments.Clear(); conn.FlaskAutomation.Discard(); conn.PlayerLife = conn.PlayerMaxLife;
+                await ShrineManager.HitPlayers(conn, (112, 100), 20, DamageType.Cold, DamagePacket.Of(DamageType.Cold, 10, 10));
+                Assert.True(conn.PlayerLife > 0);
+                Assert.True(conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds).Chill > 0);
+                Assert.Contains(conn.FlaskAutomation.Events, e => e.Trigger == FlaskEnchantments.Trigger.Chill);
+            }
+            finally
+            {
+                lifetime.Stop(ex => throw ex);
+                Game.CombatLifetime = previousLifetime;
+                Program.SetGameLogic(previousLogic!);
+            }
         }
         finally
         {

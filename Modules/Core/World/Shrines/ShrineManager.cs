@@ -483,9 +483,9 @@ public static class ShrineManager
             if (hit.Damage > 0)
             {
                 var stats = CharacterPlayerStats(conn);
-                conn.ElementalAilments.Apply(DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
-                    false, conn.PlayerMaxLife, conn.Clock.Elapsed.TotalSeconds,
-                    name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.IncomingHitRandom);
+                lock (conn.Monsters)
+                    ApplyPlayerAilmentsLocked(conn, DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
+                        false, hit.Blocked, conn.Clock.Elapsed.TotalSeconds, stats);
             }
             var (remote, stream, ciphers) = conn.Wire;
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
