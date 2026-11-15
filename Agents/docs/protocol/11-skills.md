@@ -1382,6 +1382,13 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
   See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
   late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
+  **Heavy Strike impact (2026-11-14).** Predictive Trarthus hits were observed entering `0x141e97e20`
+  with a null action and stat view, after the pathing attack had gone; skill-specific hit callbacks require an action.
+  The native `heavy_strike_02/heavy_strike_hit.ao` contains the impact mesh, particles and three sound events.
+  Heavy Strike and its transfigured variants now present that AO as a short-lived server effect at a confirmed hit.
+  Their generic immediate hit uses sequence `0xffff` to avoid a second skill impact if an action is still retained;
+  it keeps typed blood/weapon feedback, critical flags and frame ordering. Other skills keep their action sequence.
+  Impact removal uses the existing connection effect scheduler, including area retirement, rather than per-hit tasks.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
