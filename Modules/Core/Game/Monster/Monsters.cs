@@ -41,6 +41,9 @@ public static partial class Game
                 && stats.All(s => s.Item1 != key) ? [.. stats, (key, art)] : stats;
         if (attack.Projectile is not null) return Art(MonsterProjectileSkillStats(conn, effect, level, attack));
         var own = Art(WithBehaviourVariation(conn, effect, attack.SkillStats()));
+        // A golem's arc lives for the record's skill_effect_duration and zaps within its area percentage, both stats the
+        // client derives for no record (0x141c3ee50, 0x141c3f250): without the first it ends on its first tick.
+        if (catalog.ActiveSkillId(effect) == "lightning_golem_arc") own = [.. own, .. LightningArcStats(catalog, effect, level)];
         if (!attack.Ranged) return own;
         var raw = catalog.EffectStats(effect, level);
         int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
@@ -250,7 +253,7 @@ public static partial class Game
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
-            ReleaseEffect = projectile is null || effect < 0 ? null : effect,
+            ReleaseEffect = effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(conn, variety, effect, level, projectile),
         };
         var skill = effect >= 0
@@ -1162,6 +1165,13 @@ public static partial class Game
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 
+    // What outlives the action it came from (a riptide's wave, a golem's arc, a summoning mortar's landing) needs only its
+    // monster, alive, and a living player.
+    public static bool MonsterOutlivesAction(ClientState conn, uint id, SpawnedMonster m)
+    {
+        lock (conn.Monsters) return MonsterPresent(conn, id, m) && conn.PlayerLife > 0;
+    }
+
     public static bool MonsterPresent(ClientState conn, uint id, SpawnedMonster m) =>
         CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m);
@@ -1410,9 +1420,10 @@ public static partial class Game
     }
 
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null, bool outlivesAction = false)
     {
-        while (MonsterActionCurrent(conn, id, m, action))
+        bool Current() => outlivesAction ? MonsterOutlivesAction(conn, id, m) : MonsterActionCurrent(conn, id, m, action);
+        while (Current())
         {
             bool checkedAtGate = false, sent = false;
             await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
@@ -1421,7 +1432,7 @@ public static partial class Game
                 // still pending before that would read the new walk's cells as the old walk's.
                 using (ProjectileMutation(conn, phase: "send"))
                 {
-                    if (!MonsterActionCurrent(conn, id, m, action) || conn.Paused) return null;
+                    if (!Current() || conn.Paused) return null;
                     checkedAtGate = true;
                     var bytes = packet();
                     sent = bytes is not null;
@@ -1436,14 +1447,15 @@ public static partial class Game
         return false;
     }
 
-    public static async Task<bool> WaitMonsterActionTime(ClientState conn, uint id, SpawnedMonster m, int action, double until)
+    public static async Task<bool> WaitMonsterActionTime(ClientState conn, uint id, SpawnedMonster m, int action, double until,
+        bool outlivesAction = false)
     {
         if (!CurrentGameWork || !double.IsFinite(until)) return false;
         while (true)
         {
             lock (conn.Monsters)
             {
-                if (!MonsterActionCurrent(conn, id, m, action)) return false;
+                if (!(outlivesAction ? MonsterOutlivesAction(conn, id, m) : MonsterActionCurrent(conn, id, m, action))) return false;
                 if (!conn.Paused && AreaTime(conn) >= until) return true;
             }
             await AreaWait(PlayerUpdateRole.MonsterAction, 16);
@@ -1625,12 +1637,14 @@ public static partial class Game
         }
         double startedAt = 0;
         (int X, int Y)? projectileAim = null;
+        (int X, int Y) orderFrom = default, orderPlayer = default;
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
             if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn), seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             var (from, player) = (order.From, order.Player);
+            (orderFrom, orderPlayer) = (from, player);
             // A shot the client draws keeps the action order's aim through its windup: the client stores the target's
             // grid when the 0x1ab arrives and releases toward it (0x141938bf0 -> 0x141ba51a0; the mortar 141ba7c30 ->
             // 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
@@ -1662,9 +1676,15 @@ public static partial class Game
             return;
         }
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
-        if (a.Summon is { } summon)
+        // A summoning mortar's monsters come where its lob lands (SummonLanded), not at the caster.
+        if (a.Summon is { } summon && a.Projectile is not { Recipe: "SummonMortar" })
         {
             await MonsterSummon(remote, stream, ciphers, conn, id, m, summon);
+            return;
+        }
+        if (a.ReleaseEffect is int arc && SkillsFor(conn).ActiveSkillId(arc) == "lightning_golem_arc")
+        {
+            _ = LightningArc(remote, stream, ciphers, conn, id, m, a, arc, orderFrom, orderPlayer, startedAt + seconds * contact, seq);
             return;
         }
         if (a.Projectile is { } projectile)
@@ -1719,8 +1739,18 @@ public static partial class Game
     // A Lightning Golem boss's arc carries alternate_minion 1 (a Rhoa), which no arc summons.
     public static bool SummonsMonsters(SkillCatalog catalog, int effect) => catalog.ActiveSkillId(effect) != "lightning_golem_arc";
 
+    // A summoning mortar's lob came down (ProjectileSession.Publish, under the connection's lock): the skill's monsters
+    // come where it landed.
+    public static void SummonLanded(ProjectileSession session, HostileProjectileOffense shot, GameServer.Core.Projectiles.ProjectileVector at)
+    {
+        if (shot.Attack is not { Summon: { } summon, Projectile.Recipe: "SummonMortar" }) return;
+        var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
+        session.Enqueue(() => MonsterSummon(session.remote, session.stream, session.ciphers, session.Conn, shot.MonsterId, shot.Monster,
+            summon, cell));
+    }
+
     public static async Task MonsterSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
-        SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon)
+        SpawnedMonster m, SkillCatalog.MonsterSummonInfo summon, (int X, int Y)? landed = null)
     {
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {
@@ -1730,10 +1760,11 @@ public static partial class Game
         (int X, int Y) at;
         lock (conn.Monsters)
         {
+            if (landed is not null && !MonsterOutlivesAction(conn, id, m)) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
-            at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
+            at = landed ?? (length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead)));
         }
         for (int k = 0; k < summon.Count; k++)
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
@@ -1774,6 +1805,66 @@ public static partial class Game
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} area hit on the player")) return;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+    }
+
+    /// <summary>A golem's arc (LightningGolemArc; start 0x141c3ee50, tick 0x141c3f0c0, pick 0x141c3f250): from its contact it
+    /// zaps every 0.4 s for its duration, each zap at the target nearest its centre (15 cells from the target toward the
+    /// caster at the order) within 40 cells by its area percentage, the last one kept while it stays in reach. It
+    /// outlives its cast, and hits by the spell's own damage.</summary>
+    static async Task LightningArc(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster m, MonsterAttack a, int effect, (int X, int Y) from, (int X, int Y) target, double contactAt, ushort sequence)
+    {
+        var catalog = SkillsFor(conn);
+        var (ms, area) = LightningArcNumbers(catalog, effect, m.Level);
+        var damage = BossKits.SpellDamage(catalog, effect, m.Level);
+        var arc = damage.IsZero ? a : a with { Damage = m.Effects.Hit(damage) };
+        double radius = Math.Floor(Math.Max(0, 100 + area) * 40 / 100.0), dx = from.X - target.X, dy = from.Y - target.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        var centre = length > 0 ? ((int)Math.Floor(target.X + dx / length * 15 + .5), (int)Math.Floor(target.Y + dy / length * 15 + .5)) : target;
+        uint? last = null;
+        for (int k = 1; k <= ms / 400; k++)
+        {
+            if (!await WaitMonsterActionTime(conn, id, m, 0, contactAt + .4 * k, outlivesAction: true)) return;
+            MonsterHitOutcome? outcome = null;
+            bool minion = false;
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, 0, () =>
+            {
+                if (InGracePeriod(conn)) return null;
+                double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                var here = conn.Walk.Position(now);
+                var reach = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Where(g => !g.Monster.Dead)
+                    .Select(g => (g.Id, At: g.Monster.Walk.Position(now), Golem: (GolemState.Golem?)g))
+                    .Prepend((PlayerId, here, null)).Where(c => Dist(c.At, centre) <= radius).ToArray();
+                if (reach.Length == 0) { last = null; return null; }
+                var pick = reach.Any(c => c.Id == last) ? reach.First(c => c.Id == last) : reach.MinBy(c => Dist(c.At, centre));
+                last = pick.Id;
+                if (pick.Golem is { } golem)
+                {
+                    minion = GolemTakeHitLocked(conn, golem, id, m, arc, now, area: true);
+                    return null;
+                }
+                outcome = CommitMonsterHitLocked(remote, conn, id, m, arc, now, here, centre, checkRange: false, sequence: sequence);
+                return outcome?.HitPacket;
+            }, $"0x01af monster 0x{id:x} ({m.Label}) lightning arc zap", outlivesAction: true);
+            if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+            if (minion) await PublishMinionOutcomes(remote, stream, ciphers, conn);
+        }
+    }
+
+    // The arc's skill_effect_duration (its base by its duration modifier, ms) and radius percentage.
+    static (int Ms, int AreaPercent) LightningArcNumbers(SkillCatalog catalog, int effect, int level)
+    {
+        var raw = catalog.EffectStats(effect, level);
+        int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        return ((int)Math.Round(Get("base_skill_effect_duration") * Math.Max(0, 1 + Get("skill_effect_duration_+%") / 100.0)),
+            SkillArea.RadiusPercent(Get, spell: true));
+    }
+
+    static IEnumerable<(uint, int)> LightningArcStats(SkillCatalog catalog, int effect, int level)
+    {
+        var (ms, area) = LightningArcNumbers(catalog, effect, level);
+        if (ms > 0 && Stats.Key("skill_effect_duration") is uint duration) yield return (duration, ms);
+        if (area != 0 && Stats.Key("total_skill_area_of_effect_radius_+%_including_final") is uint areaKey) yield return (areaKey, area);
     }
 
     // A melee contact at the clip's keyframe: committed at the actual send gate under the monster's action, so a

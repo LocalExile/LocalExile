@@ -216,7 +216,8 @@ public static partial class Game
         }
         // The server's own object turns by its contact too.
         if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
-        if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar")
+        if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
+            or "SummonMortar")
         {
             // The server's object lands each projectile where its class's mover would (MonsterShots' landing recipes),
             // fanned about the line to the aim as the shared emitter fans it, and flies the fixed time that mover gives it.
@@ -237,6 +238,9 @@ public static partial class Game
                         sequence, id, i, out draws[i]),
                     "GroundMortar" => GroundMortarTarget(conn, from, origin, Fanned(i), spread, SkillStat("projectile_distance_override"),
                         sequence, id, i, out draws[i]),
+                    // A summoning mortar's mover (0x141c6a340) is the mortar attack's: pushed out to the minimum range, scattered.
+                    "SummonMortar" => MonsterMortarTarget(from, origin, Fanned(i), SkillStat("projectile_minimum_range"), spread,
+                        sequence, id, i, 0, out draws[i]),
                     // A fire mortar lands on its held aim (0x141a0e1e0 with no scatter).
                     _ => Held(Fanned(i)),
                 })];
@@ -252,6 +256,13 @@ public static partial class Game
             var cell = new ProjectileVector(Math.Floor(from.X), Math.Floor(from.Y));
             nativeTargets = [.. Enumerable.Range(0, projectile.Count)
                 .Select(i => BreachBarrageEnd(cell, facing, [sequence, Derived(i), 0, ordinal]))];
+        }
+        if (projectile.Recipe == "Riptide")
+        {
+            // A riptide's wave leaves the caster's cell for its end (RiptideEnd), whatever its clip's contact.
+            origin = from;
+            aim = RiptideEnd(conn, from, aim, SkillStat("skill_behaviour_variation") == 1,
+                [sequence, Derived(0), id, ordinal, 0, 0, 0, 0], LivingCollision.Size(m) + 1);
         }
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
@@ -283,7 +294,8 @@ public static partial class Game
                     // A lantern reaches its aim its clip's contact after the release, at any distance.
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
                 }
-            : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar")
+            : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
+                or "SummonMortar")
                 ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
@@ -403,8 +415,11 @@ public static partial class Game
             }
             return;
         }
-        session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
-            () => MonsterActionCurrent(conn, id, m, action) && !InGracePeriod(conn),
+        // A riptide's wave sets off 1.2 s after its release (ctor 0x141b39320: +0x524 = -1.2), whatever its caster does
+        // by then: only its caster's presence is checked then (its action was, at the release).
+        double delay = projectile.Recipe == "Riptide" ? 1.2 : 0;
+        session.Schedule((releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now) + ProjectileRuntime.Time(delay),
+            () => (delay > 0 ? MonsterOutlivesAction(conn, id, m) : MonsterActionCurrent(conn, id, m, action)) && !InGracePeriod(conn),
             () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence));
     }
 

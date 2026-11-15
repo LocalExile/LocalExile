@@ -484,10 +484,13 @@ public static partial class Game
             if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
-            // A monster's shot that leaves a ground leaves it where it comes down.
+            // A monster's shot that leaves a ground or brings monsters leaves them where it comes down.
             if (value.Kind == ProjectileEventKind.End && p.Use.Payload is HostileProjectileOffense hostile
                 && value.Reason is ProjectileEndReason.Distance or ProjectileEndReason.Landing or ProjectileEndReason.Terrain)
+            {
                 MonsterGrounds.Landed(this, hostile, value.Position);
+                SummonLanded(this, hostile, value.Position);
+            }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"

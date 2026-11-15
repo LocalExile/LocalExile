@@ -219,6 +219,30 @@ public sealed class PlayerAct78Tests
             Assert.Equal(30, (web - new GameServer.Core.Projectiles.ProjectileVector(100, 100)).Length, 0);
             Assert.True((Game.GroundMortarTarget(conn, new(100, 100), new(100, 100), new(130, 100), 10, 0, 0x8001, 0x40, 0, out _)
                 - new GameServer.Core.Projectiles.ProjectileVector(130, 100)).Length <= 10);
+            // A summoning mortar is the server's lob, landing as the mortar mover would in its rig's contact; its monsters come
+            // where it lands. Arakaali's riptide is the server's single wave, 120 cells out, speeding up from 10 cells a second.
+            var spiders = Shot("", "EssenceSummonSpiderWithMortar")!;
+            Assert.Equal(("Metadata/Projectiles/MortarSummonSpider", true, false, "SummonMortar", true, 1),
+                (spiders.Metadata, spiders.Lobbed, spiders.ClientDraws, spiders.Recipe, spiders.FixedFlight, spiders.Count));
+            Assert.Equal(2, Shot("", "AbyssLichBoss2SummonMinionsFromMortarTotem")!.Count);
+            Assert.Equal(0.7, Shot("", "BeastSummonDaemonFromMortar")!.ContactSeconds, 3);
+            Assert.NotNull(catalog.MonsterSummon(catalog.EffectRow("EssenceSummonSpiderWithMortar"), 10));
+            var riptide = Shot("", "SpiderGodRiptide")!;
+            Assert.Equal(("Metadata/Projectiles/SpiderGodRiptide", false, "Riptide", 1),
+                (riptide.Metadata, riptide.ClientDraws, riptide.Recipe, riptide.Count));
+            Assert.Equal("Metadata/Projectiles/SpiderGodRiptideBig", Shot("", "SpiderGodSuperRiptide")!.Metadata);
+            var wave = MonsterShots.RecipeProfile(riptide, 1, 120, attack: false);
+            Assert.Equal((-1, 10 * .05 + 15 * .05 * .05), (wave.Pierce, wave.Legs!(0).First(new(0, 0), new(120, 0)).Target.X));
+            Assert.Equal(new(220, 100), Game.RiptideEnd(conn, new(100, 100), new(130, 100), false, [1, 2, 3, 0, 0, 0, 0, 0], 1));
+            Assert.Equal(120, (Game.RiptideEnd(conn, new(100, 100), new(130, 100), true, [1, 2, 3, 0, 0, 0, 0, 0], 1)
+                - new GameServer.Core.Projectiles.ProjectileVector(100, 100)).Length, 0);
+            // A golem's arc is no shot: it zaps from where it starts for the record's duration, by the spell's own lightning.
+            int arcEffect = catalog.EffectRow("LightningGolemMapBossArc");
+            Assert.Null(Shot("", "LightningGolemMapBossArc"));
+            var arcRecord = Game.MonsterActionSkillStats(conn, arcEffect, 58,
+                new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty) { Ranged = true, Spell = true });
+            Assert.Contains(arcRecord, s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 == 8000);
+            Assert.Equal(GameServer.Core.World.DamageType.Lightning, BossKits.SpellDamage(catalog, arcEffect, 58).Components.Single().Type);
             // A simulated mortar's record keeps its own publication and gains the effect's native art.
             var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
                 { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)

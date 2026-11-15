@@ -128,14 +128,7 @@ public static class BossKits
         var native = GolemData.Skill(catalog, effect, actorLevel);
         int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
         bool spell = catalog.IsSpell(effect);
-        var damage = DamagePacket.Empty;
-        if (spell)
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string slug = type.ToString().ToLowerInvariant();
-                int min = Raw($"spell_minimum_base_{slug}_damage"), max = Raw($"spell_maximum_base_{slug}_damage");
-                if (max > 0) damage = damage.Add(type, new(min, max));
-            }
+        var damage = spell ? SpellDamage(catalog, effect, actorLevel) : DamagePacket.Empty;
         if (!spell)
         {
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
@@ -156,9 +149,24 @@ public static class BossKits
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
-            ReleaseEffect = projectile is null ? null : effect,
+            ReleaseEffect = effect,
             Release = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, actorLevel, projectile),
         };
+    }
+
+    /// <summary>A spell's own base hit at the actor's level: its spell_minimum/maximum_base damage of each type.</summary>
+    public static DamagePacket SpellDamage(SkillCatalog catalog, int effect, byte actorLevel)
+    {
+        var native = GolemData.Skill(catalog, effect, actorLevel);
+        var damage = DamagePacket.Empty;
+        foreach (var type in DamageTypes.ConversionOrder)
+        {
+            string slug = type.ToString().ToLowerInvariant();
+            int min = Stats.Key($"spell_minimum_base_{slug}_damage") is uint lo ? native.Stats.GetValueOrDefault(lo) : 0;
+            int max = Stats.Key($"spell_maximum_base_{slug}_damage") is uint hi ? native.Stats.GetValueOrDefault(hi) : 0;
+            if (max > 0) damage = damage.Add(type, new(min, max));
+        }
+        return damage;
     }
 
     /// <summary>The attack this boss acts with now: a ready skill of its kit that reaches the player, else the attack it

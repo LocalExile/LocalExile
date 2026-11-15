@@ -49,7 +49,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
     public MonsterRelease? Release { get; init; }
-    /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
+    /// <summary>The granted effect the attack uses; a projectile's rig contact is selected by it for each ordered action.
+    /// Null for a scripted release.</summary>
     public int? ReleaseEffect { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the

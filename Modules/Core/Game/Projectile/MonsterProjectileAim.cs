@@ -207,4 +207,29 @@ public static partial class Game
         }
         return targets;
     }
+
+    /// <summary>A riptide's end (0x141b39750): 120 cells from the caster's cell toward its target (each part rounded half
+    /// up), at skill_behaviour_variation 1 turned by a seeded angle in [−π/4, π/4], cut where the line first meets a cell
+    /// the caster cannot stand on (size: its collision size plus one). The seed's last words are not traced.</summary>
+    public static ProjectileVector RiptideEnd(ClientState conn, ProjectileVector caster, ProjectileVector target, bool turned,
+        uint[] key, int size)
+    {
+        var line = (target - caster).Length > 0 ? (target - caster).Unit : new ProjectileVector(1, 0);
+        var u = new ProjectileVector(Math.Floor(line.X * 120 + .5), Math.Floor(line.Y * 120 + .5));
+        if (turned)
+        {
+            double a = new AnimationVariantSelector.NativeRandom(key).Range(-MathF.PI / 4, MathF.PI / 4);
+            u = new(Math.Floor(u.X * Math.Cos(a) - u.Y * Math.Sin(a) + .5), Math.Floor(u.X * Math.Sin(a) + u.Y * Math.Cos(a) + .5));
+        }
+        var end = caster + u;
+        int steps = (int)Math.Ceiling(Math.Max(Math.Abs(u.X), Math.Abs(u.Y)));
+        for (int k = 1; k <= steps; k++)
+        {
+            var cell = caster + u * (k / (double)steps);
+            int x = (int)Math.Floor(cell.X + .5), y = (int)Math.Floor(cell.Y + .5);
+            if (!conn.Layout.WalkableFor(x, y, size) || conn.Barrier.Contains((x, y)))
+                return caster + u * ((k - 1) / (double)steps);
+        }
+        return end;
+    }
 }

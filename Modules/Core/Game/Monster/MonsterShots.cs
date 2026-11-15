@@ -330,10 +330,28 @@ public static class MonsterShots
                 (lobbed, recipe, reason) = (true, "RollingMagma", "magma bounces");
                 break;
 
-            // Not a flying projectile at the caster: a beam (the golem's arc), a line hazard, a totem or trap summon, a
-            // retaliation, a rotating-orb rectangle, monsters a mortar brings. They keep their own handling.
-            case "lightning_golem_arc" or "spider_god_riptide" or "lightning_clone_retaliation" or "rectangle_mortar_with_rotating_orbs"
-                or "siege_ballista" or "summon_specific_monsters_from_mortar" or "shadow_projectiles_no_los":
+            case "summon_specific_monsters_from_mortar":                                                // 0x141c69d70
+                // Its row by monster_projectile_variation (any other throws in the client). The server's lob
+                // lands where the mortar mover would put it, and the skill's monsters come there (SummonLanded); GGG's
+                // server brings them, so the server keeps the lob too.
+                if (mpv is < 0 or > 12) return null;
+                id = Row(mpv, "LbBossMortarSummon", (1, "MortarSummonSpider"), (2, "MortarSummonIceGolem"), (3, "MortarSummonSpiderGod"),
+                    (4, "YugulMortar"), (5, "TrioMortarRed"), (6, "TrioMortarPurple"), (7, "AbyssLichSummonMinionMortar"),
+                    (8, "BestiaryFireSnakeBoss"), (9, "IncursionSwordMortar"), (10, "IncursionNovasoulLightningMinionMortar"),
+                    (11, "IncursionNovasoulLightningMinionMortarMass"), (12, "AtlasBasiliskSpiderMortar"));
+                (lobbed, recipe, reason) = (true, "SummonMortar", "monsters from the landing");
+                break;
+            case "spider_god_riptide":                                                                  // 0x141b39320
+                // A wave from the caster 120 cells toward its target (RiptideEnd) that sets off 1.2 s after the release
+                // and speeds up (RecipeProfile). The units of its speed are not traced, so the server's wave flies.
+                id = Row(artVariation, "SpiderGodRiptide", (1, "SpiderGodRiptideBig"));
+                (recipe, reason) = ("Riptide", "riptide speed units not traced");
+                break;
+
+            // Not a flying projectile at the caster: a beam (the golem's arc, Monsters.LightningArc), a totem or trap
+            // summon, a retaliation, a rotating-orb rectangle. They keep their own handling.
+            case "lightning_golem_arc" or "lightning_clone_retaliation" or "rectangle_mortar_with_rotating_orbs"
+                or "siege_ballista" or "shadow_projectiles_no_los":
                 return null;
 
             case "monster_projectile_spell" or "monster_projectile_weapon":
@@ -430,7 +448,7 @@ public static class MonsterShots
         // The lobbed recipes' movers time their flight by the same contact over a speed multiplier (MortarFlightSeconds):
         // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a0e1e0), an in-line mortar's the spell mortar's terms
         // (0x141a15550), a spirit mortar's its speed variation (0x141a09390), a ring's none (0x141a12c10).
-        int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
+        int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar" or "SummonMortar"
             ? catalog.Clips(id)?.Flight?.Contact : null;
         if (recipe == "Lantern" && contact is not > 0) reason ??= "flight clip not known";
         (int, int) mortarSpeed = recipe switch
@@ -450,8 +468,8 @@ public static class MonsterShots
                 // The weapon class's ctor sets the pierce-all mask for these variations (0x141b6d950).
                 || family == "monster_projectile_weapon" && mpv is 2 or 4 or 12 or 20 or 23 or 24 or 26,
         };
-        // A spark with skill_behaviour_variation 2 fires one (0x141b363a0).
-        if (family == "spark" && catalog.BehaviourVariation(effect) == 2) return shot with { Count = 1 };
+        // A spark with skill_behaviour_variation 2 fires one (0x141b363a0); a riptide is one wave.
+        if (family == "spark" && catalog.BehaviourVariation(effect) == 2 || recipe == "Riptide") return shot with { Count = 1 };
         return shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
     }
 
@@ -741,7 +759,7 @@ public static class MonsterShots
     };
 
     /// <summary>The server's flight of a shot it draws itself by a player skill's recipe (Rolling Magma's bouncing lob
-    /// and its landing explosions, Spectral Throw's piercing throw that comes back), at the shot's speed and count; the
+    /// and its landing explosions, Spectral Throw's piercing throw that comes back, a riptide's wave), at the shot's speed and count; the
     /// explosions of a monster's magma are 14 cells plus active_skill_base_radius_+ across its radius percentage (the
     /// client's 0x141b80880), and each bounce lands 2S + 3 cells on (0x141b80a30: S = round(10 × (1 + chaining range)
     /// × (1 + projectile speed)), 23 cells at base). Each bounce's own scatter is not modelled.</summary>
@@ -765,6 +783,17 @@ public static class MonsterShots
         }
         if (shot.Recipe == "CreepingFrost") return CreepingFrostBurst(profile, Get);
         if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed);
+        if (shot.Recipe == "Riptide")
+        {
+            // 0x141b3a170: from its delay on it moves at (10 + 30 t) × (1 + projectile_speed_+% / 100), taken here as cells a
+            // second, to its end (landing: RiptideEnd's distance), through every target, each hit once.
+            double m = Math.Max(.01, 1 + Get("projectile_speed_+%") / 100.0);
+            return profile with
+            {
+                Range = landing, Legs = _ => new AcceleratingLegs(10 * m, 30 * m, landing), LegLeash = landing, Pierce = -1,
+                HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Once),
+            };
+        }
         if (shot.Recipe == "SpectralThrow")
             return profile with
             {
