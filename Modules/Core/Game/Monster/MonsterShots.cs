@@ -28,7 +28,14 @@ public static class MonsterShots
     [
         "monster_projectile_spell", "monster_projectile_weapon", "monster_throw_equipped_weapon",
         "skeleton_projectile_cold", "skeleton_projectile_fire", "skeleton_projectile_lightning",
-        "melee", "split_arrow", "fireball", "lightning_arrow", "burning_arrow", "ice_shot",
+        "melee", "split_arrow", "fireball", "lightning_arrow", "burning_arrow", "ice_shot", "frost_bolt",
+    ];
+
+    // Classes whose ctor sets byte +0x330 = 5, which the shared pierce check (0x141ba96a0) reads as pierce-all.
+    static readonly HashSet<string> PierceAllFamilies =
+    [
+        "frost_bolt", "freezing_pulse", "breach_spell_barrage", "monster_snipe", "monster_fading_projectile_spell",
+        "ball_lightning", "shavronne_ball_lightning",
     ];
 
     // monster_projectile_weapon variations whose mover (0x141b6b740) does what the server does not: 4, 8, 24, 26 and 29
@@ -52,6 +59,9 @@ public static class MonsterShots
         // most of these actions pick their row by; the record carries it too (Monsters.MonsterProjectileSkillStats).
         if (catalog.ArtVariation(effect) is > 0 and var art && Stats.Key("skill_art_variation") is uint artKey && !stats.ContainsKey(artKey))
             stats[artKey] = art;
+        // ... and its skill_behaviour_variation (its SkillID), which the record carries too (WithBehaviourVariation).
+        if (catalog.BehaviourVariation(effect) is > 0 and var behaviour && !stats.ContainsKey(StatKeys.SkillBehaviourVariation))
+            stats[StatKeys.SkillBehaviourVariation] = behaviour;
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         bool aimTranslates = Get("maintain_projectile_direction_when_using_contact_position") != 0;
 
@@ -73,6 +83,7 @@ public static class MonsterShots
         if (family is null) return null;
         string? id = null, animation = null, reason = null, recipe = null;
         bool arrows = false, lobbed = false;
+        int aimOffset = 0;
         var target = SkillCatalog.MonsterShotTarget.Ordered;
         int artVariation = Get("skill_art_variation"), mpv = Get("monster_projectile_variation");
         // The row an action names in its own code (+0x508): by a variation, else its default.
@@ -81,6 +92,18 @@ public static class MonsterShots
         switch (family)
         {
             // Families whose class names its row in code (+0x508) and flies a plain straight shot the server reproduces.
+            case "spark":
+                // 0x141b35540: the spark_monster art by monster_projectile_variation where the skill has one, else the
+                // spark art at skill_art_variation. Its legs are the client's seeded wander (SparkLegs, the player's).
+                id = mpv > 0 ? Row(mpv, "BookTornado", (2, "FireTornado"), (3, "AfflictionFlamenado"), (4, "SanctumFlamenado"))
+                    : Game.Art.SkillProjectile(effect, 0, Get);
+                recipe = "Spark";
+                break;
+            case "frost_bolt":
+                id = Game.Art.SkillProjectile(effect, 0, Get);
+                if (Get("frostbolt_projectile_acceleration") != 0) reason = "frost bolt acceleration";
+                else if (Get("projectile_spiral_nova_time_ms") != 0) reason = "spiral nova";
+                break;
             case "atziri_spear_throw": id = Row(0, "AtziriSpear"); break;                             // 0x141376e30
             case "stormflay_lightning_strike": id = Row(0, "StormflayLightningSlash"); break;         // 0x141c65aa0
             case "monster_snipe":                                                                       // 0x141b6c000
@@ -228,9 +251,11 @@ public static class MonsterShots
                 if (catalog.MonsterProjectileRow(spell, variation) is not { } row) return null;
                 id = row.Projectile;
                 animation = row.AnimationKey;
-                if (spell && row.Extra.Skip(1).Any(v => v != 0))
-                    reason = "MonsterProjectileSpell end height or lateral offset column";
-                if (!spell && (row.Extra[3] != 0 || WeaponMoverVariations.Contains(variation)))
+                // The movers (0x141a13830, 0x141b6b740) move the aim on along the shot by a column's cells; the other
+                // columns are an end height and flags that do not change where the shot flies.
+                aimOffset = spell ? row.Extra[2] : row.Extra[3];
+                if (spell && artVariation == 20) reason = "MonsterProjectileSpell art 20 branch";
+                if (!spell && WeaponMoverVariations.Contains(variation))
                     reason = $"MonsterProjectileAttack variation {variation} mover";
                 // BoneSpear and IcicleBurstTriggered start at the target's own position at release (0x141b6b2f0).
                 if (!spell && variation is 15 or 38) target = SkillCatalog.MonsterShotTarget.AtRelease;
@@ -279,7 +304,8 @@ public static class MonsterShots
             if (Get("projectile_uses_contact_direction") != 0) reason = "projectile_uses_contact_direction";
             else if (Get("projectile_ballistic_angle_from_reference_event") != 0 || Get("projectile_ballistic_angle_from_target_distance") != 0)
                 reason = "ballistic arc";
-            else if (Get("projectile_spread_radius") != 0 || Get("projectile_minimum_range") != 0) reason = "scattered target";
+            // projectile_minimum_range moves no straight shot in these classes; only a mortar's landing.
+            else if (Get("projectile_spread_radius") != 0) reason = "scattered target";
             else if (Get("active_skill_projectile_speed_+%_variation_final") != 0) reason = "speed variation";
             else if (Get("support_parallel_projectile_number_of_points_per_side") != 0) reason = "parallel volley";
         }
@@ -288,7 +314,10 @@ public static class MonsterShots
             AnimationKey = animation ?? catalog.EffectAnimationKey(effect),
             ClientDraws = reason is null, ServerReason = reason, Arrows = arrows, Target = target,
             AimTranslates = aimTranslates, SkillStats = stats, EndsAtTarget = catalog.ProjectileEndsAtTarget(id), Recipe = recipe,
+            AimOffset = aimOffset, PiercesAll = PierceAllFamilies.Contains(family),
         };
+        // A spark with skill_behaviour_variation 2 fires one (0x141b363a0).
+        if (family == "spark" && catalog.BehaviourVariation(effect) == 2) return shot with { Count = 1 };
         return shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
     }
 
@@ -348,6 +377,11 @@ public static class MonsterShots
     {
         if (shot is not { ClientDraws: true }) return [];
         int n = Math.Max(1, shot.Count);
+        // A spark's life is the record's skill_effect_duration (a virtual stat the client derives nothing for: without it
+        // a spark dies on its first tick).
+        if (shot.Recipe == "Spark" && Stat(shot, "base_skill_effect_duration") is > 0 and var life && Stats.Key("skill_effect_duration") is uint lifeKey)
+            return [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
+                (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n), (lifeKey, life)];
         // A mortar attack's record as GGG's Spitter's; any other shot with the four totals PR 983 checked live (the
         // Flame Sentinel's fireball fan), the arrow ones read only by a bow's arrows.
         return shot.Variation > 0
@@ -356,6 +390,9 @@ public static class MonsterShots
             : [(StatKeys.TotalProjectilesToFire, n), (StatKeys.VirtualTotalProjectiles, n),
                 (StatKeys.TotalArrowsToFire, n), (StatKeys.VirtualTotalArrows, n)];
     }
+
+    static int Stat(SkillCatalog.MonsterProjectileInfo shot, string name) =>
+        Stats.Key(name) is uint key && shot.SkillStats is { } s ? s.GetValueOrDefault(key) : 0;
 
     /// <summary>The hidden flight of a shot the client draws: the shared straight-flight profile at the row's speed
     /// with the skill's speed stats, the client's own range, contact and volley (Game.ClientDrawnProfile, seeded by the
@@ -369,9 +406,28 @@ public static class MonsterShots
         {
             Count = Math.Max(1, shot.Count), Radius = shot.CollisionRadius, DirectDamage = true, HideVisual = true,
         };
+        if (shot.PiercesAll && Get("virtual_projectiles_cannot_pierce") == 0) profile = profile with { Pierce = -1 };
         profile = Game.ClientDrawnProfile(conn, profile, Get, sequence, aim, emitter: emitter);
-        // A UseTargetLocation row's flight ends at the aimed cell (0x141ba99d0 keeps the aim).
-        return shot.EndsAtTarget ? profile with { Range = Math.Max(.001, aim.Length) } : profile;
+        // A UseTargetLocation row's flight ends at the aimed cell (0x141ba99d0 keeps the aim); a column's aim offset
+        // lengthens the flight by as much.
+        profile = shot.EndsAtTarget ? profile with { Range = Math.Max(.001, aim.Length) }
+            : shot.AimOffset != 0 ? profile with { Range = profile.Range + shot.AimOffset } : profile;
+        if (shot.Recipe == "Spark")
+        {
+            // The client's wander (0x141b35a10 seeds [sequence, 2 + index, repeats, owner]): life from the record's
+            // skill_effect_duration and spark_random_duration_%; it forgets its hits every 0.66 s and ends 150 cells
+            // out, but every 0.1 s with no leash at skill_behaviour_variation 1, 2 or 4 (0x141b36170).
+            double life = Math.Max(.05, Get("base_skill_effect_duration") / 1000.0);
+            int behaviour = Get("skill_behaviour_variation");
+            bool fast = behaviour is 1 or 2 or 4;
+            profile = profile with
+            {
+                Legs = i => new SparkLegs(sequence, i, emitter, life, Get("spark_random_duration_%"), speed, 0),
+                LegLeash = fast ? 0 : 150,
+                HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(fast ? 0.1 : 0.66)),
+            };
+        }
+        return profile;
     }
 
     /// <summary>The server's flight of a shot it draws itself by a player skill's recipe (Rolling Magma's bouncing lob

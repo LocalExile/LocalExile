@@ -57,6 +57,12 @@ public static partial class Game
             origin += new ProjectileVector(toward.Y, -toward.X) * lateral;
             origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
             var translated = aim + origin - from;
+            // A table column moves the aim on along the shot (aim + N × unit(aim − release), rounded half up).
+            if (!mortar && projectile.AimOffset != 0 && (aim - origin).Length > 0)
+            {
+                var moved = aim + (aim - origin).Unit * projectile.AimOffset;
+                aim = new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
+            }
             if (mortar)
             {
                 // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
@@ -76,6 +82,8 @@ public static partial class Game
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         // A straight shot the client draws flies by the client's own rules (MonsterShots.ClientDrawnProfile: its range,
         // contact, volley and count), hidden; a mortar keeps its scattered landings; anything else is the server's object.
+        // A spark's wander starts from the monster's own cell (0x141b35a10).
+        if (projectile.Recipe == "Spark") origin = from;
         // A UseTargetLocation shot ends at the aimed cell; any other straight one flies past it.
         double straightRange = projectile.EndsAtTarget ? Math.Max(.001, (aim - origin).Length) : Math.Max(distance, a.Range) * 1.5 + 5;
         var profile = projectile is { ClientDraws: true, Lobbed: false } && !mortar
@@ -113,6 +121,7 @@ public static partial class Game
         EndAreaReasons = projectile.Lobbed
             ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         HideVisual = projectile.ClientDraws,
+        Pierce = projectile.PiercesAll ? -1 : 0,
     };
 
     /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even

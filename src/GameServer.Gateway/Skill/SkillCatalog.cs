@@ -967,6 +967,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>A spell mortar's speed multiplier terms in percent: the fixed part (MonsterMortar <c>__col11</c>,
         /// <c>monster_mortar_additional_speed_+%</c>) and the seeded variation (<c>__col4</c>).</summary>
         public (int Fixed, int Variation) MortarSpeed { get; init; }
+        /// <summary>Cells the action moves its aim on along the shot (MonsterProjectileSpell <c>__col4</c>,
+        /// MonsterProjectileAttack <c>__col5</c>: aim + N × unit(aim − release)); the flight's range grows by as much.</summary>
+        public int AimOffset { get; init; }
+        /// <summary>The class pierces every target (its byte +0x330 = 5: Frost Bolt, Freezing Pulse, snipes, fading spell
+        /// projectiles, the Breach barrage), unless the target cannot be pierced.</summary>
+        public bool PiercesAll { get; init; }
     }
 
     /// <summary>Where a monster's shot flies (<see cref="MonsterProjectileInfo.Target"/>).</summary>

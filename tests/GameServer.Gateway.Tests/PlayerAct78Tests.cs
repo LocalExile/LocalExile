@@ -82,6 +82,10 @@ public sealed class PlayerAct78Tests
             var spellMortar = Shot("", "ArakaaliMortarProjectile")!;
             Assert.Equal((true, 10, true), (spellMortar.ClientDraws, spellMortar.Variation, spellMortar.FixedFlight));
             Assert.Equal(0.666, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
+            // A spark is the client's own wander (SparkLegs, seeded by the monster), its life on the record.
+            var spark = Shot("", "BossSparkTotem")!;
+            Assert.Equal(("Metadata/Projectiles/Spark", true, "Spark"), (spark.Metadata, spark.ClientDraws, spark.Recipe));
+            Assert.Contains(MonsterShots.CountStats(spark), s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 > 0);
         });
     }
 
