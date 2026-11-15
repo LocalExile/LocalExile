@@ -1896,21 +1896,14 @@ public static partial class Game
         PreventedDamageOf(conn).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = conn.PlayerMana;
-        var onBlock = blocked ? BlockRecovery(conn, stats) : default;
-        int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
-        int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+        if (blocked) RecoverOnBlockLocked(conn, stats);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(conn, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), now, stats);
         long lifeBefore = conn.PlayerLife;
         int lifeDamage = DamagePlayerHitTyped(conn, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
             ailmentTaken);
-        uint afterDamage = (uint)Math.Max(0, lifeBefore - lifeDamage);
-        conn.PlayerLife = gainedLife > 0
-            ? PetrifiedBlood.RecoverLife(conn, afterDamage, gainedLife, ref LeechOf(conn).LifeInstantCarry, minimum: 1)
-            : afterDamage;
-        conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
-        conn.EnergyShield.Recover(onBlock.EnergyShield);
+        conn.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
         TrimLeechLocked(conn);
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),

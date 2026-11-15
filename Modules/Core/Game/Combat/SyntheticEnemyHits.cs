@@ -52,9 +52,7 @@ public static partial class Game
                 conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, suppression.Effect);
             uint manaBefore = conn.PlayerMana;
-            var onBlock = blocked ? BlockRecovery(conn, stats) : default;
-            int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
-            int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+            if (blocked) RecoverOnBlockLocked(conn, stats);
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(conn, taken, now, stats);
             if (type == DamageType.Physical) PreventedDamageOf(conn).Add(now, amount - dealt);
@@ -62,9 +60,7 @@ public static partial class Game
             int lifeDamage = DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0,
                 type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0,
                 type == DamageType.Chaos ? dealt : 0, now, stats, taken);
-            conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)lifeBefore - lifeDamage + gainedLife));
-            if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
-            conn.EnergyShield.Recover(onBlock.EnergyShield);
+            conn.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(conn);
             RecordIncomingHitLocked(conn, now, spell, blocked, suppressed, lifeDamage);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
