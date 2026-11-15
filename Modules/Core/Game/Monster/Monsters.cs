@@ -266,13 +266,16 @@ public static partial class Game
             : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
+        if (skills is not null) skills = Yugul.AddSkills(conn, variety, level, skills);
+        if (skills is not null) skills = SolarisLunaris.AddSkills(conn, variety, level, skills);
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
-        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
+        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states,
+            SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
             skills, stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
@@ -356,6 +359,7 @@ public static partial class Game
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
+                StageRunning = conn.Layout.Id == SolarisLunaris.Area && SolarisLunaris.IsBody(variety),
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
@@ -364,8 +368,9 @@ public static partial class Game
                 KingGrace = !friendly && KingInMists.IsBoss(variety),
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
                 // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
-                LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Arakaali.Phases(conn, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
-                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
+                LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(conn, variety) ?? Arakaali.Phases(conn, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
+                EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
+                    || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
             if (friendly && !instanceOwned) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
@@ -654,7 +659,7 @@ public static partial class Game
                 // A lockstep client's monster takes no order before the frame after the one its hit recovery ends in
                 // (TakeHitPacket): one sent earlier waits and starts after the player's steps of that frame, or a frame
                 // or more after the estimate's walk.
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.Scripted || m.Asleep || OwnedFighter(conn, id) is not null
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.WorldHidden || m.Scripted || m.Asleep || OwnedFighter(conn, id) is not null
                     || !MonsterAiCadence.Due(double.IsNaN(plan.FrameStart) ? now : plan.FrameStart, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).

@@ -9,7 +9,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class ArakaaliPhaseTests
 {
     [Fact]
-    public async Task Silk_transition_survives_reload_and_keeps_each_stances_own_attacks()
+    public async Task Campaign_phase_changes_survive_reload_and_keep_their_own_attacks()
     {
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, Arakaali.Area, 3000, 3000, 1000, 1000, (_, _) => true, []), 1, 1)
@@ -65,6 +65,106 @@ public sealed class ArakaaliPhaseTests
         Assert.True(Arakaali.Allowed(outsideCampaign, 6555));
         var plain = c.Instance.World.MonsterOrigins[restored].Object with { ActorStance = 0 };
         Assert.Single(plain.Blob().Zip((plain with { ActorStance = 2 }).Blob()), pair => pair.First != pair.Second);
+        await TurretReferences(c, id, boss);
+        await MirrorIntervals();
+        await SisterHandoff();
+    }
+    static async Task MirrorIntervals()
+    {
+        using var runtime = new Runtime(); using var wire = new Wire();
+        var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1940, 1620, (_, _) => true, []), 1, 1)
+            { Character = "MirrorIntervalRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
+                Wire = ("mirror-phase", wire.Stream, wire.Ciphers) };
+        runtime.Player = c; c.Walk.Teleport(1940, 1620, 0);
+        var v = Game.Monsters.Find(Yugul.Boss)!;
+        uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 58,
+            MonsterRarity.Unique, 1940, 1620, unrisen: false);
+        var boss = c.Monsters[id]; var phase = Assert.IsType<LifePhaseGate>(boss.LifePhases);
+        Assert.Contains(c.Instance.World.MonsterOrigins[id].Object.Skills!, s => s.Id == Yugul.HideSkill);
+        boss.Life = phase.Damage(boss.Life, boss.MaxLife, int.MaxValue);
+        Assert.Equal((uint)((ulong)boss.MaxLife * 66 / 100), boss.Life);
+        var fight = new Yugul.Fight(id, boss, c); await fight.Bind(c); await fight.Step(c, 100);
+        Assert.True(boss.Invulnerable); await fight.Step(c, 103.2);
+        var images = c.Monsters.Values.Where(m => m.Variety?.Id == Yugul.Image).ToArray();
+        Assert.Equal(10, images.Length);
+        Assert.True(boss.WorldHidden); Assert.DoesNotContain(id, c.MonsterViews.Keys);
+        Assert.All(images, m => { Assert.True(m.NoRewards); Assert.Equal(id, m.SummonerId); Assert.NotEmpty(m.Kit); });
+        foreach (var m in images.Take(9)) m.Life = 0;
+        fight.Stop(); fight = new(id, boss, c); await fight.Bind(c); await fight.Step(c, 110); await fight.Step(c, 114);
+        Assert.Equal(10, c.Monsters.Values.Count(m => m.Variety?.Id == Yugul.Image));
+        Assert.True(boss.Invulnerable); images[^1].Life = 0; await fight.Step(c, 115);
+        Assert.True(boss.Invulnerable); await fight.Step(c, 116.2);
+        Assert.False(boss.Invulnerable); Assert.False(boss.StageRunning); Assert.Equal(1, phase.Completed);
+        Assert.False(boss.WorldHidden); Assert.Contains(id, c.MonsterViews.Keys);
+        boss.Life = phase.Damage(boss.Life, boss.MaxLife, int.MaxValue);
+        Assert.Equal((uint)((ulong)boss.MaxLife * 33 / 100), boss.Life);
+        await fight.Step(c, 120); await fight.Step(c, 124);
+        Assert.Equal(20, c.Monsters.Values.Count(m => m.Variety?.Id == Yugul.Image));
+        foreach (var m in c.Monsters.Values.Where(m => m.Variety?.Id == Yugul.Image)) m.Life = 0;
+        await fight.Step(c, 125); await fight.Step(c, 126.2);
+        Assert.Equal(2, phase.Completed); Assert.False(boss.Invulnerable);
+        Assert.Equal(0u, phase.Damage(boss.Life, boss.MaxLife, int.MaxValue));
+        Assert.Equal(2, Yugul.Phases(c, v)!.Completed);
+        Assert.Null(Yugul.Phases(new(new(1, "other", 10, 10, 1, 1, null, []), 1, 1), v));
+        fight.Stop();
+    }
+    static async Task SisterHandoff()
+    {
+        using var runtime = new Runtime(); using var wire = new Wire();
+        var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
+            { Character = "SisterHandoffRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
+                Wire = ("sister-phase", wire.Stream, wire.Ciphers) };
+        runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
+        async Task<uint> Spawn(string type, int x) => await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers,
+            c, Game.Monsters.Find(type)!, 60, MonsterRarity.Unique, x, 1000, unrisen: false);
+        uint sid = await Spawn(SolarisLunaris.Sun, 1000), mid = await Spawn(SolarisLunaris.Moon, 1010);
+        var sun = c.Monsters[sid]; var moon = c.Monsters[mid];
+        Assert.True(sun.Invulnerable); Assert.True(moon.Invulnerable);
+        Assert.Equal(1, c.Instance.World.MonsterOrigins[sid].Object.TransitionState);
+        var fight = new SolarisLunaris.Fight(sid, sun, mid, moon, c); await fight.Bind(c);
+        await fight.Step(c, 100); await fight.Step(c, 102);
+        Assert.False(sun.Invulnerable); Assert.True(moon.Invulnerable);
+        Assert.True(moon.WorldHidden); Assert.DoesNotContain(mid, c.MonsterViews.Keys);
+        Assert.Equal(4, c.Instance.World.MonsterOrigins[mid].Object.TransitionState);
+        Assert.Single(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
+        await fight.Step(c, 123);
+        Assert.True(sun.Invulnerable); Assert.True(moon.Invulnerable);
+        await fight.Step(c, 125); await fight.Step(c, 127);
+        Assert.True(sun.Invulnerable); Assert.False(moon.Invulnerable);
+        Assert.True(sun.WorldHidden); Assert.False(moon.WorldHidden);
+        Assert.Single(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
+        fight.Stop(); fight = new(sid, sun, mid, moon, c); await fight.Bind(c);
+        await fight.Step(c, 130); await fight.Step(c, 132);
+        Assert.True(sun.Invulnerable); Assert.False(moon.Invulnerable);
+        Assert.Single(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
+        moon.Life = 0; moon.Dead = true; await fight.Step(c, 133); await fight.Step(c, 135);
+        Assert.False(sun.Invulnerable); Assert.Equal(5, c.Instance.World.MonsterOrigins[sid].Object.TransitionState);
+        Assert.DoesNotContain(c.Monsters.Values, m => SolarisLunaris.IsCelestial(m.Variety));
+        sun.Life = 0; sun.Dead = true; await fight.Step(c, 136); fight.Stop();
+    }
+    static async Task TurretReferences(ClientState c, uint id, SpawnedMonster boss)
+    {
+        var field = new ArakaaliLasers.Field(c, id, boss);
+        Assert.Equal(26, field.Lanes.Count);
+        Assert.Equal(26, field.Lanes.Select(l => l.End).Distinct().Count());
+        var reference = new QuestObject(1, 2, ["Positioned"])
+            { EntityVariables = new Dictionary<uint, uint> { [ArakaaliLasers.NextVariable] = 0x04000102 } };
+        Assert.Equal(new byte[] { 0, 1, 0x5e, 0x55, 0xf4, 0x61, 0, 1, 1, 2, 1, 0, 4 }, reference.Blob()[..13]);
+        foreach (var lane in field.Lanes)
+        {
+            var source = c.Instance.World.SceneObjects[lane.Source]; var end = c.Instance.World.SceneObjects[lane.End];
+            Assert.Equal(end.Id, source.Object.EntityVariables[ArakaaliLasers.NextVariable]);
+            Assert.True(source.Object.GridX == end.Object.GridX || source.Object.GridY == end.Object.GridY);
+        }
+        await field.Bind(c); await field.Step(c, 200); await field.Step(c, 206); await field.Step(c, 207);
+        Assert.Equal(6, c.Instance.World.SceneObjects.Values.Count(s => s.Object.TransitionState == 2));
+        int seen = c.SceneViews.Count; Assert.Equal(52, seen); field.Stop();
+        var rebound = new ArakaaliLasers.Field(c, id, boss); await rebound.Bind(c); await rebound.Step(c, 210);
+        Assert.Equal(seen, c.SceneViews.Count); Assert.Equal(52, c.Instance.World.SceneObjects.Count);
+        Assert.DoesNotContain(c.Instance.World.SceneObjects.Values, s => s.Object.TransitionState == 2);
+        Assert.Equal(0, ArakaaliLasers.Field.LineDistance((5, 0), (0, 0), (10, 0)));
+        Assert.True(ArakaaliLasers.Field.LineDistance((5, 8), (0, 0), (10, 0)) > ArakaaliLasers.Radius);
+        rebound.Stop();
     }
     sealed class Runtime : IDisposable
     {
