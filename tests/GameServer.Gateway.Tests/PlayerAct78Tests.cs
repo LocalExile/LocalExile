@@ -77,6 +77,11 @@ public sealed class PlayerAct78Tests
             Assert.Equal(("Metadata/Projectiles/MatriachMortar", true, "RollingMagma"),
                 (Shot("", "MotherOfFlamesMagmaOrb")!.Metadata, Shot("", "MotherOfFlamesMagmaOrb")!.Lobbed, Shot("", "MotherOfFlamesMagmaOrb")!.Recipe));
             Assert.Equal("Metadata/Projectiles/MortarLightning", Shot("", "EssenceWrathMortarProjectile")!.Metadata);
+            // A spell mortar is the client's as the attack form is (its SkillID's MonsterMortar row on the record), and
+            // lands a fixed 0.666 s after its release at any distance.
+            var spellMortar = Shot("", "ArakaaliMortarProjectile")!;
+            Assert.Equal((true, 10, true), (spellMortar.ClientDraws, spellMortar.Variation, spellMortar.FixedFlight));
+            Assert.Equal(0.666, MonsterShots.MortarFlightSeconds(spellMortar, 1), 3);
         });
     }
 

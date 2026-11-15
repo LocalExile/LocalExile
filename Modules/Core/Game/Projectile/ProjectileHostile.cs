@@ -45,8 +45,11 @@ public static partial class Game
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
         ProjectileVector[]? nativeTargets = null;
+        double[]? nativeSpeeds = null;
         bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
-        if (projectile is { ClientDraws: true, Lobbed: false })
+        // A spell mortar's launch moves toward its target first (MonsterMortar __col9).
+        if (mortar && projectile.StartOffset != 0) origin += toward * Math.Min(projectile.StartOffset, distance);
+        if (projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))
         {
             // The contact offset is rotated with the facing model, then quantized to Positioned cells.
             // maintain_projectile_direction_when_using_contact_position translates the aim by the same offset.
@@ -55,8 +58,16 @@ public static partial class Game
             origin = new(Math.Floor(origin.X + .5), Math.Floor(origin.Y + .5));
             var translated = aim + origin - from;
             if (mortar)
+            {
+                // The minimum range grows by the start offset only where the skill has one (0x141a10d50).
+                int minimum = projectile.MinimumRange != 0 ? projectile.MinimumRange + projectile.StartOffset : 0;
+                var draws = new float[projectile.Count];
                 nativeTargets = Enumerable.Range(0, projectile.Count).Select(i => MonsterMortarTarget(from, origin, translated,
-                    projectile.MinimumRange, projectile.SpreadRadius, sequence, id, i)).ToArray();
+                    minimum, projectile.SpreadRadius, sequence, id, i, projectile.DistanceOverride, out draws[i])).ToArray();
+                // A spell mortar lands a fixed time after its release, at any distance: each projectile at its own speed.
+                if (projectile.FixedFlight)
+                    nativeSpeeds = [.. nativeTargets.Select((t, i) => Math.Max(.001, (t - origin).Length) / MonsterShots.MortarFlightSeconds(projectile, draws[i]))];
+            }
             else if (projectile.AimTranslates) aim = translated;
         }
         // Retain the legacy landing model for server-created lobbed skills. Native straight mortar attacks use
@@ -82,7 +93,7 @@ public static partial class Game
             + $"{(release is null ? "" : $", clip {release.Clip} at {release.Fraction:0.000} of the attack{(release.FacesAway ? ", facing away" : "")}")})"
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
-            { ProjectileTargets = nativeTargets,
+            { ProjectileTargets = nativeTargets, ProjectileSpeeds = nativeSpeeds,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
                     { Presentation = presentation, Sequence = sequence } };
     }

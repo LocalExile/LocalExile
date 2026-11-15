@@ -1635,7 +1635,7 @@ public static partial class Game
         // their clip too), half the attack time without rig data.
         double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
             ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
-        if (a.Projectile is { ClientDraws: true, Lobbed: false } nativeProjectile)
+        if (a.Projectile is { ClientDraws: true } nativeProjectile)
         {
             // The client's own shot leaves at the clip's contact: a lockstep client's at the end of the frame that crosses
             // it, like the player's native shot (starting between frames lets the server hit a moving player before the

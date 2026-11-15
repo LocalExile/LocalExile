@@ -5,10 +5,18 @@ public static partial class Game
     // MonsterMortarAttack's target setup (3.29.3c, 141b6c630). Minimum range is measured from the
     // actor in cells; scatter follows it. The animation-speed draw is consumed even with zero variation.
     public static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
-        ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index)
+        ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index) =>
+        MonsterMortarTarget(actor, origin, aim, minimumRange, spread, sequence, owner, index, 0, out _);
+
+    // The spell form's mover (0x141a10d50) runs the same steps, with mortar_projectile_distance_override between the
+    // minimum range and the scatter: the landing rescaled to that distance from the launch (both forms, 0x141b6a017).
+    // The first draw is the speed variation the spell form's flight time takes.
+    public static ProjectileVector MonsterMortarTarget(ProjectileVector actor, ProjectileVector origin,
+        ProjectileVector aim, int minimumRange, int spread, ushort sequence, uint owner, int index, int distanceOverride,
+        out float speedDraw)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, (uint)(index + 2), owner, 0, 0, 0, 0, 0]);
-        _ = random.Range(0, 2);
+        speedDraw = random.Range(0, 2);
         int x = (int)aim.X, y = (int)aim.Y, ax = (int)actor.X, ay = (int)actor.Y;
         int Round(float value) => (int)MathF.Floor(value + .5f);
         int dx = x - ax, dy = y - ay;
@@ -27,8 +35,13 @@ public static partial class Game
                 x = ax + Round(dx * scale); y = ay + Round(dy * scale);
             }
         }
-        if (spread <= 0) return new(x, y);
         int ox = (int)origin.X, oy = (int)origin.Y;
+        if (distanceOverride > 0 && (x != ox || y != oy))
+        {
+            float scale = distanceOverride / MathF.Sqrt((x - ox) * (x - ox) + (y - oy) * (y - oy));
+            x = ox + Round((x - ox) * scale); y = oy + Round((y - oy) * scale);
+        }
+        if (spread <= 0) return new(x, y);
         dx = x - ox; dy = y - oy;
         if (dx * dx + dy * dy >= spread * spread)
         {

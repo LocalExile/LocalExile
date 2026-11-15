@@ -956,6 +956,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The player skill whose flight recipe the server flies this shot with (its Gateway profile: Rolling
         /// Magma's bouncing lob, Spectral Throw's return), or null for a plain flight.</summary>
         public string? Recipe { get; init; }
+        /// <summary>A spell mortar's flight lasts a fixed time instead of flying at its row's speed (the client's mover
+        /// 0x141a10d50: the rig's contact event over the speed multiplier); false for every other shot.</summary>
+        public bool FixedFlight { get; init; }
+        /// <summary>A mortar's launch moves this many cells toward its target first (MonsterMortar <c>__col9</c>).</summary>
+        public int StartOffset { get; init; }
+        /// <summary>A mortar's <c>mortar_projectile_distance_override</c> in cells (0: none): its landing is rescaled to
+        /// that distance from the launch point.</summary>
+        public int DistanceOverride { get; init; }
+        /// <summary>A spell mortar's speed multiplier terms in percent: the fixed part (MonsterMortar <c>__col11</c>,
+        /// <c>monster_mortar_additional_speed_+%</c>) and the seeded variation (<c>__col4</c>).</summary>
+        public (int Fixed, int Variation) MortarSpeed { get; init; }
     }
 
     /// <summary>Where a monster's shot flies (<see cref="MonsterProjectileInfo.Target"/>).</summary>
@@ -986,6 +997,25 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         }
         return result;
     }
+
+    /// <summary>A MonsterMortar row's columns the client's spell mortar reads (0x141a10d50, dat64 offsets +0x34..+0x4e):
+    /// the speed variation % (<c>__col4</c>), one projectile only (<c>__col5</c>), the launch's start offset in cells
+    /// (<c>__col9</c>), the speed % (<c>__col11</c>), a ground effect on landing (<c>__col12</c>), the speed modifier
+    /// applies (<c>__col14</c>), a per-bounce speed scale (<c>__col15</c>). Null for an unknown row.</summary>
+    public (int SpeedVariation, bool Single, int StartOffset, int Speed, bool Ground, bool SpeedModifier, bool BounceScale)? MonsterMortarColumns(int row) =>
+        _mortarColumns.Value.TryGetValue(row, out var c) ? c : null;
+
+    private readonly Lazy<Dictionary<int, (int, bool, int, int, bool, bool, bool)>> _mortarColumns = new(() =>
+    {
+        var result = new Dictionary<int, (int, bool, int, int, bool, bool, bool)>();
+        if (ClientTables.TableOrNull("MonsterMortar") is not { } mortars) return result;
+        int I(ClientRow r, string c) => r.IntOrNull(c) ?? 0;
+        foreach (var r in mortars)
+            if (r.IntOrNull("Id") is int id)
+                result.TryAdd(id, (I(r, "__col4"), I(r, "__col5") != 0, I(r, "__col9"), I(r, "__col11"), I(r, "__col12") != 0,
+                    I(r, "__col14") != 0, I(r, "__col15") != 0));
+        return result;
+    });
 
     /// <summary>A GrantedEffects row's ActiveSkills Id (<c>monster_projectile_spell</c>, <c>fireball</c>, <c>melee</c>), or null.</summary>
     public string? ActiveSkillId(int effectRow) => _activeSkillIds.Value.GetValueOrDefault(effectRow);

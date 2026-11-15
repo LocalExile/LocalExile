@@ -56,15 +56,18 @@ public static class MonsterShots
         bool aimTranslates = Get("maintain_projectile_direction_when_using_contact_position") != 0;
 
         if (catalog.MonsterProjectile(effect) is { } mortar)
-            // The attack form is the client's (its MonsterMortar row and count on the record, traced); the spell forms keep
-            // the server's object and their landing model.
-            return mortar with
+        {
+            // The skill's count (SkillCatalog.MonsterProjectile) and the monster's own additional projectiles.
+            mortar = mortar with
             {
-                ServerReason = mortar.ClientDraws ? null : "spell mortar action not traced",
                 AimTranslates = aimTranslates, SkillStats = stats,
-                // The skill's count (SkillCatalog.MonsterProjectile) and the monster's own additional projectiles.
                 Count = mortar.Count + (monsterStats?.GetValueOrDefault("number_of_additional_projectiles") ?? 0),
+                DistanceOverride = Get("mortar_projectile_distance_override"),
             };
+            // The attack form is the client's (its MonsterMortar row and count on the record, traced).
+            if (mortar.ClientDraws) return mortar;
+            return SpellMortar(catalog, effect, mortar, Get) ?? mortar with { ServerReason = "spell mortar forks, chains or ground" };
+        }
 
         string? family = catalog.ActiveSkillId(effect);
         if (family is null) return null;
@@ -288,6 +291,44 @@ public static class MonsterShots
         };
         return shot with { Count = Count(shot, catalog.IsAttack(effect), family == "split_arrow") };
     }
+
+    /// <summary>
+    /// A spell mortar (<c>monster_mortar</c>, ActionTypes MonsterMortar, ctor 0x141a10750) as the client draws it: the same
+    /// MonsterMortar row as the attack form, by <c>skill_behaviour_variation</c> (the effect's SkillID, which the record
+    /// carries), so the client draws it from its count as it does the Sand Spitter's. Its mover (0x141a10d50) moves the
+    /// launch <c>__col9</c> cells toward the target, pushes the landing out to the minimum range (plus <c>__col9</c>) from
+    /// the actor, rescales it to <c>mortar_projectile_distance_override</c> from the launch, scatters it like the attack
+    /// form, and lands it a fixed time after the release: the rig's contact event (666 ms on every mortar rig) over a speed
+    /// multiplier, at any distance; with
+    /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c> it flies at its row's speed instead. A
+    /// <c>__col5</c> row fires one. Forks, chains and a ground effect on landing are not modelled: null keeps the server's
+    /// object (around_caster is its own action, MonsterShots' switch).
+    /// </summary>
+    static SkillCatalog.MonsterProjectileInfo? SpellMortar(SkillCatalog catalog, int effect, SkillCatalog.MonsterProjectileInfo mortar,
+        Func<string, int> get)
+    {
+        if (catalog.ActiveSkillId(effect) != "monster_mortar" || catalog.BehaviourVariation(effect) is not (> 0 and var row)
+            || catalog.MonsterMortarColumns(row) is not { } columns) return null;
+        if (get("monster_mortar_number_of_forks") != 0 || get("number_of_chains") != 0 || columns.Ground || columns.BounceScale) return null;
+        bool scaled = get("mortar_projectile_scale_animation_speed_instead_of_projectile_speed") != 0;
+        int speedPercent = columns.Speed + get("monster_mortar_additional_speed_+%")
+            + (columns.SpeedModifier ? get("projectile_speed_+%") + get("base_projectile_speed_+%") : 0);
+        int count = columns.Single ? 1 : mortar.Count;
+        return mortar with
+        {
+            ClientDraws = true, ServerReason = null, Variation = row, Target = SkillCatalog.MonsterShotTarget.MortarScatter,
+            Count = count, StartOffset = columns.StartOffset,
+            // 0x141bab4e0: the spread grows by its per-projectile part for every projectile past the first.
+            SpreadRadius = mortar.SpreadRadius + (count - 1) * get("projectile_spread_radius_per_additional_projectile"),
+            FixedFlight = !scaled,
+            MortarSpeed = (speedPercent, columns.SpeedVariation),
+        };
+    }
+
+    /// <summary>The seconds a fixed-time spell mortar flies (0x141a10d50: the contact event, 666 ms, over the multiplier
+    /// max(0.01, 1 + (fixed + variation × (draw − 1)) / 100), with the draw in [0, 2] the action's first).</summary>
+    public static double MortarFlightSeconds(SkillCatalog.MonsterProjectileInfo shot, float draw) =>
+        0.666 / Math.Max(0.01, 1 + (shot.MortarSpeed.Fixed + shot.MortarSpeed.Variation * (draw - 1)) / 100.0);
 
     /// <summary>How many projectiles one release fires: <c>number_of_projectiles_override</c> when set, else the shared
     /// count (GatewayProjectileDefaults: the base and every additional projectile, a bow's additional arrows), plus Split
