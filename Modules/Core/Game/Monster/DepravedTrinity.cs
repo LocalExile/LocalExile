@@ -13,6 +13,8 @@ public static class DepravedTrinity
     public const string Area = "2_9_10_2", Boss = "Metadata/Monsters/UnholyTrio/UnholyTrio";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act9/The_Trio/";
     public static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
+    public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
+        variety.Id == Souls[0] ? variety.StateMachine?.Set("visible", 1) : null;
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
     sealed class Routes { public readonly Dictionary<AreaTransitionObject, (int Soul, bool Return)> Gates = []; }
     static readonly RuleTable<ClientState, Routes> Routing = new();
