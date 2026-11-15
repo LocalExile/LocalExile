@@ -401,7 +401,9 @@ public static class MonsterShots
         if (reason is null && !scaled && contact is not > 0) reason = "spell mortar flight clip not known";
         // A row of several flight clips draws one by the action's seed (0x141ba5d20), each with its own contact.
         if (reason is null && !scaled && FlightClips.Value.GetValueOrDefault(mortar.Metadata) > 1) reason = "seeded flight clip";
-        if (reason is not null) return mortar with { ServerReason = reason };
+        // The server's object still lands where the mover would put it (ProjectileHostile): its start offset too.
+        if (reason is not null)
+            return mortar with { ServerReason = reason, StartOffset = columns.StartOffset, Target = SkillCatalog.MonsterShotTarget.MortarScatter };
         int speedPercent = columns.Speed + get("monster_mortar_additional_speed_+%")
             + (columns.SpeedModifier ? get("projectile_speed_+%") + get("base_projectile_speed_+%") : 0);
         int count = columns.Single ? 1 : mortar.Count;

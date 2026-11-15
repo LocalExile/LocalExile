@@ -34,6 +34,8 @@ public static partial class Game
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, SkillStat, SkillStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
+        // A mortar's range in cells (its range getter, 0x141ba62d0): projectile_maximum_range_override, else 150.
+        double MortarRange() => SkillStat("projectile_maximum_range_override") is > 0 and var most ? most : 150;
         var toward = (aim - from).Unit;
         // The release point: the clip's contact keyframe along the line to the aim (the Spitter's lies 4.2 cells behind a
         // body that faces away from its target, so toward the player, 9 steps up), else 1.5 cells ahead at the default
@@ -64,9 +66,10 @@ public static partial class Game
             if (mortar)
             {
                 // A spell mortar's aim moves with the release only by the stat that says so. Its volley fans about the
-                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target: at the aim's distance on a
-                // UseTargetLocation row, else 150 units out); then each projectile's own launch moves __col9 cells toward
-                // its own target, from which its mover measures the distance override and the scatter (0x141a10d50).
+                // launch as any other (the shared emitter's fan 0x141bb9730 turns each target), and a row without
+                // UseTargetLocation puts it at the skill's range (0x141ba99d0); each target is rounded to its cell. Then
+                // each projectile's own launch moves __col9 cells toward its own target, from which its mover measures the
+                // distance override and the scatter (0x141a10d50).
                 ProjectileNativeVolley? fan = null;
                 var start = origin;
                 if (projectile.Lobbed)
@@ -75,13 +78,19 @@ public static partial class Game
                     if (projectile.Count > 1) fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
                 }
                 var arm = translated - start;
-                double reach = projectile.EndsAtTarget ? arm.Length : 150 / WorldUnits.PerCell;
-                ProjectileVector TargetOf(int i) => fan is null || arm.Length <= 0 ? translated
-                    : start + arm.Unit.Rotate(fan.Angle(i, projectile.Count, arm.Length)) * reach;
+                double reach = projectile.EndsAtTarget ? arm.Length : MortarRange();
+                ProjectileVector TargetOf(int i)
+                {
+                    if (arm.Length <= 0 || fan is null && projectile.EndsAtTarget) return translated;
+                    var turned = start + arm.Unit.Rotate(fan?.Angle(i, projectile.Count, arm.Length) ?? 0) * reach;
+                    return new(Math.Floor(turned.X + .5), Math.Floor(turned.Y + .5));
+                }
                 ProjectileVector LaunchOf(ProjectileVector target)
                 {
-                    if (!projectile.Lobbed || projectile.StartOffset == 0 || (target - from).Length <= 0) return start;
-                    var moved = start + (target - from).Unit * Math.Min(projectile.StartOffset, distance);
+                    if (!projectile.Lobbed || projectile.StartOffset == 0) return start;
+                    // The whole column, along the actor's line to the target (+x where the two meet).
+                    var line = (target - from).Length > 0 ? (target - from).Unit : new ProjectileVector(1, 0);
+                    var moved = start + line * projectile.StartOffset;
                     return new(Math.Floor(moved.X + .5), Math.Floor(moved.Y + .5));
                 }
                 // The use flies from the unturned launch; each landing is its own projectile's.
@@ -102,14 +111,19 @@ public static partial class Game
             }
             else if (projectile.AimTranslates) aim = translated;
         }
-        // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells), and at its
-        // distance override from the launch, else no farther than its capped range (a Doedre nova's ring of 8 cells
-        // around her, not on the player). Native mortars use their scattered destinations above.
+        // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
+        // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
+        // its range) or, without UseTargetLocation, its range from the release (0x141ba99d0); then (0x141a10d50) pushed
+        // out to the minimum range plus __col9 from the actor, or its distance override from the launch __col9 cells out
+        // (a Doedre nova's ring around her, not on the player). Native mortars use their scattered destinations above.
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange - ahead));
-        if (projectile.Lobbed && nativeTargets is null)
+        if (projectile is { Lobbed: true, ClientDraws: false } && mortar)
         {
-            if (projectile.DistanceOverride > 0) landing = projectile.DistanceOverride;
-            else if (SkillStat("projectile_maximum_range_override") is > 0 and var most) landing = Math.Min(landing, most);
+            double offset = projectile.StartOffset, most = MortarRange();
+            landing = projectile.EndsAtTarget ? Math.Min((aim - origin).Length, most) : most;
+            if (projectile.MinimumRange != 0) landing = Math.Max(landing, projectile.MinimumRange + offset - ahead);
+            if (projectile.DistanceOverride > 0) landing = offset + projectile.DistanceOverride;
+            landing = Math.Max(0.5, landing);
         }
         if (projectile.Recipe == "RollingMagma") landing = Math.Max(0.5, MonsterShots.MagmaLanding(projectile, landing + ahead) - ahead);
         var target = projectile.Lobbed ? origin + toward * landing : aim;
