@@ -216,7 +216,7 @@ public static class BossKits
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
-        var summon = catalog.MonsterSummon(effect, actorLevel);
+        var summon = MonsterSummonOf(catalog, effect, actorLevel);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,

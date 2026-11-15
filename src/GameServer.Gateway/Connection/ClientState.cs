@@ -221,6 +221,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
+    /// <summary>When a summoned monster's duration runs out (MonsterSummonInfo.Lifetime): it is retired then.</summary>
+    public double ExpiresAt = double.PositiveInfinity;
     public bool NoRewards;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();

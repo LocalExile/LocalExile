@@ -10,6 +10,19 @@ public sealed class SummonCatalog(string folder = "data")
     public IReadOnlyCollection<Definition> All => all.Value.Values.ToArray();
     public Definition? Find(string? effect) => effect is null ? null : all.Value.GetValueOrDefault(effect);
 
+    /// <summary>The definition of the player skill a GrantedEffects row shares its ActiveSkills row with (a monster's
+    /// ExileSummonSkeletons is ActiveSkill summon_skeletons, as the gem's SummonSkeletons is): the base gem's, not an
+    /// AltX/AltY's, whose minion is a choice of the gem's. Null for a skill no player summon uses.</summary>
+    public Definition? ForActiveSkill(int effectRow)
+    {
+        var effects = ClientTables.TableOrNull("GrantedEffects");
+        if (effects?.Row(effectRow)?.IntOrNull("ActiveSkill") is not int skill) return null;
+        foreach (var e in effects)
+            if (e.IntOrNull("ActiveSkill") == skill && e.Text("Id") is { } id && all.Value.TryGetValue(id, out var d)
+                && !id.EndsWith("AltX", StringComparison.Ordinal) && !id.EndsWith("AltY", StringComparison.Ordinal)) return d;
+        return null;
+    }
+
     static IReadOnlyDictionary<string, Definition> Load(string folder)
     {
         var effects = ClientTables.Table("GrantedEffects");

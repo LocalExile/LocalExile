@@ -229,7 +229,7 @@ public static partial class Game
         var projectile = rangedAttack ? MavenNucleus.Shot(catalog, effect) : null;
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
-        var summon = variety.GrantedEffects is [int summonEffect, ..] ? catalog.MonsterSummon(summonEffect, level) : null;
+        var summon = variety.GrantedEffects is [int summonEffect, ..] ? MonsterSummonOf(catalog, summonEffect, level) : null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
         // not the melee attack duration; the client crashed in its cast-duration path when the actor record carried only
         // attack stats (0xc0000005, live 2026-10-31).
@@ -1046,6 +1046,7 @@ public static partial class Game
         MonsterAiCadence cadence)
     {
         MonsterAiPlan plan;
+        await ExpireSummonedMonsters(remote, stream, ciphers, conn);
         if (DamageTriggers.TryGetValue(conn, out _))
             ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -1686,14 +1687,16 @@ public static partial class Game
     /// <c>.act</c>: <c>spawn</c>, its doors opening and shutting).</summary>
     public const byte SummonAnimation = 22;
 
-    /// <summary>How many of its monsters a summoner keeps alive at once (our number: the data has no cap; the original's
-    /// Immolators keep bringing skeletons while the player is near).</summary>
+    /// <summary>How many of its monsters a summoner keeps alive at once when its skill names no limit (our number: the
+    /// SummonSpecificMonsters data has no cap; the original's Immolators keep bringing skeletons while the player is near).</summary>
     public const int MaxSummoned = 5;
 
-    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown, fewer than MaxSummoned
-    // of its monsters alive); any other attack may.
+    // Under the Monsters lock: whether a monster's summoning skill may be used now (off cooldown and, for a skill with no
+    // limit of its own, fewer than MaxSummoned of its monsters alive; one with a limit retires its oldest instead);
+    // any other attack may.
     public static bool SummonReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned;
+        a.Summon is null || now >= m.SummonReadyAt && (a.Summon.Limit > 0
+            || conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
@@ -1707,16 +1710,22 @@ public static partial class Game
             return;
         }
         (int X, int Y) at;
+        List<uint> surplus;
+        double expires;
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
-            at = length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
+            at = summon.AtTarget ? conn.Layout.Near(player)
+                : length < 1 ? from : ((int)Math.Round(from.X + dx / length * ahead), (int)Math.Round(from.Y + dy / length * ahead));
+            surplus = SurplusMinionsLocked(conn, id, summon, summon.Count);
+            expires = now + summon.Lifetime;
         }
+        if (surplus.Count > 0) await RetireSummonedMonsters(remote, stream, ciphers, conn, surplus, "makes room for a newer one");
         for (int k = 0; k < summon.Count; k++)
             await SpawnMonster(remote, stream, ciphers, conn, variety, m.Level, MonsterRarity.Normal, at.X, at.Y, alone: true,
-                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; });
+                owned: (_, summoned) => { summoned.SummonerId = id; summoned.NoRewards = summon.NoRewards; summoned.ExpiresAt = expires; });
         Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) summons {summon.Count} {variety.Name} at ({at.X}, {at.Y})");
     }
 

@@ -1065,7 +1065,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// (world units ahead of the summoner) and <c>summoned_monsters_no_drops_or_experience</c>, with the effect's cast time
     /// and cooldown (seconds). The Labyrinth's Immolator (<c>SummonLabyrinthFireSkeleton</c>): one Ember Claimant 114
     /// units ahead, a 2.17 s cast, 3 s cooldown. Null for any other skill.</summary>
-    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds);
+    public sealed record MonsterSummonInfo(int Variety, int Count, double Offset, bool NoRewards, double CastSeconds, double CooldownSeconds)
+    {
+        /// <summary>How many of them the summoner keeps (the skill's limit stat); using it past that retires the oldest.
+        /// 0 for a skill that names none.</summary>
+        public int Limit { get; init; }
+        /// <summary>Seconds each lives (the skill's duration); infinity for one that stays.</summary>
+        public double Lifetime { get; init; } = double.PositiveInfinity;
+        /// <summary>Brought where the skill aims (the player), as the player's own minion skills place theirs, rather
+        /// than <see cref="Offset"/> ahead of the summoner.</summary>
+        public bool AtTarget { get; init; }
+    }
 
     public MonsterSummonInfo? MonsterSummon(int effectRow, int level)
     {
