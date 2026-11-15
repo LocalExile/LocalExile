@@ -115,6 +115,10 @@ public static class CurrencyEffects
         return result is { } changed ? changed with { Corrupted = true } : null;
     }
 
+    // Keep the original signature callable by already compiled modules; tainted colours ignore requirements.
+    public static Item? Tainted(string id, Item item, ItemCatalog.BaseType type, ItemRolls rolls,
+        (int Str, int Dex, int Int) requirements, Random random) => Tainted(id, item, type, rolls, random);
+
     static Item? Either(Item? first, Item? second, Random random) =>
         first is null ? second : second is null ? first : random.Next(2) == 0 ? first : second;
 
@@ -145,26 +149,33 @@ public static class CurrencyEffects
         return [.. groups];
     }
 
-    /// <summary>Tainted Orb of Fusing: one link more or less on a largest linked group, 50/50. A link is added on
-    /// either side of the group (joining the next group, never to an abyssal socket); one is removed at either end.</summary>
+    /// <summary>Changes the largest linked group by one socket. An adjacent group loses only the socket joined;
+    /// joining a four-link and a two-link must produce a five-link, not jump straight to six.</summary>
     static Item? TaintedFusing(Item item, ItemCatalog.BaseType type, Random random)
     {
         int count = item.Sockets.Count;
-        if (count < 2 || count > SocketCapacity(item, type)) return null;
+        if (count < 2 || count > 6 || count > SocketCapacity(item, type)) return null;
         var edges = LinkEdges(item);
         var groups = new List<(int Start, int Size)>();
         for (int start = 0, i = 1; i <= count; i++)
             if (i == count || !edges[i - 1]) { groups.Add((start, i - start)); start = i; }
+        if (count >= 5 && groups.Count == 1) return null;
         int largest = groups.Max(g => g.Size);
         var top = groups.Where(g => g.Size == largest).ToArray();
-        bool Linkable(int e) => e >= 0 && e < count - 1 && !edges[e]
-            && item.Sockets[e].Colour != SocketColour.Abyss && item.Sockets[e + 1].Colour != SocketColour.Abyss;
-        int[] adds = [.. top.SelectMany(g => new[] { g.Start - 1, g.Start + g.Size - 1 }).Where(Linkable).Distinct()];
+        bool Linkable(int edge) => edge >= 0 && edge < count - 1 && !edges[edge]
+            && item.Sockets[edge].Colour != SocketColour.Abyss && item.Sockets[edge + 1].Colour != SocketColour.Abyss;
+        var adds = top.SelectMany(g => new[] { (Edge: g.Start - 1, Detach: g.Start - 2),
+            (Edge: g.Start + g.Size - 1, Detach: g.Start + g.Size) }).Where(a => Linkable(a.Edge)).ToArray();
         int[] removes = largest < 2 ? [] : [.. top.SelectMany(g => new[] { g.Start, g.Start + g.Size - 2 }).Distinct()];
         if (adds.Length == 0 && removes.Length == 0) return null;
         bool add = removes.Length == 0 || adds.Length > 0 && random.Next(2) == 0;
-        var choices = add ? adds : removes;
-        edges[choices[random.Next(choices.Length)]] = add;
+        if (add)
+        {
+            var choice = adds[random.Next(adds.Length)];
+            edges[choice.Edge] = true;
+            if (choice.Detach >= 0 && choice.Detach < edges.Length) edges[choice.Detach] = false;
+        }
+        else edges[removes[random.Next(removes.Length)]] = false;
         return item with { Links = LinkGroups(edges, count) };
     }
 

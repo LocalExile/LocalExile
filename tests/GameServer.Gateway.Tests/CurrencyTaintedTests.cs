@@ -81,6 +81,21 @@ public class CurrencyTaintedTests
         Assert.Contains(fused, l => l.Length == 1);
         Assert.Contains(fused, l => l.Length == 3);
 
+        foreach (byte[] layout in new byte[][] { [4, 2], [2, 4] })
+        {
+            var six = Rare(BodyArmour) with { Corrupted = true,
+                Sockets = Enumerable.Range(0, 6).Select(_ => new ItemSocket(SocketColour.Red)).ToArray(), Links = layout };
+            var outcomes = Enumerable.Range(0, 40).Select(seed => CurrencyEffects.Tainted(
+                CurrencyEffects.TaintedOrbOfFusing, six, BodyArmour, Rolls, new Random(seed))!).ToArray();
+            Assert.All(outcomes, item => Assert.Contains(item.Links!.Max(), new byte[] { 3, 5 }));
+            Assert.Contains(outcomes, item => item.Links!.Max() == 5);
+            Assert.All(outcomes, item => Assert.Equal(six.Sockets, item.Sockets));
+            Assert.Null(CurrencyEffects.Tainted(CurrencyEffects.TaintedOrbOfFusing,
+                six with { Links = [6] }, BodyArmour, Rolls, new Random(1)));
+            Assert.Null(CurrencyEffects.Tainted(CurrencyEffects.TaintedOrbOfFusing,
+                six with { Sockets = six.Sockets.Take(5).ToArray(), Links = [5] }, BodyArmour, Rolls, new Random(1)));
+        }
+
         // The Eldritch Orb of Annulment needs the Eldritch implicit, exactly like the other two Eldritch orbs: it removes
         // one explicit affix and the implicit stays.
         Assert.Null(CurrencyEffects.EldritchAnnulment(rare, Rolls, new Random(1)));
