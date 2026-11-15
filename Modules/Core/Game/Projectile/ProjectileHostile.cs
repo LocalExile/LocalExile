@@ -43,6 +43,10 @@ public static partial class Game
         // monster toward the aim (maintain_projectile_direction_when_using_contact_position). Native straight mortar
         // attacks also rotate the lateral contact offset below.
         var release = a.Release;
+        // The seed byte of projectile i of this release (the emitter's counter, which runs on across the action's releases,
+        // 0x141423e30): 2 + its place among every projectile the action has fired, past any earlier draws.
+        uint ordinal = (uint)(release?.Ordinal ?? 0);
+        uint Derived(int i, uint earlier = 0) => (uint)(2 + (earlier + ordinal * projectile.Count + i) % 254);
         double ahead = release?.Point is { } point ? point.ForwardCells * (release.FacesAway ? -1 : 1) : OrdinaryRangedAttack.ReleaseAheadCells;
         ahead = Math.Min(ahead, distance / 2);
         var origin = from + toward * ahead;
@@ -135,6 +139,23 @@ public static partial class Game
                     nativeSpeeds = [.. nativeTargets.Select((t, i) => Math.Max(.001, (t - origin).Length) / MonsterShots.MortarFlightSeconds(projectile, draws[i]))];
             }
             else if (projectile.AimTranslates) aim = translated;
+            if (projectile.Recipe is "WeaponJitter" or "IceElementalSpear")
+            {
+                // A weapon shot's or an ice spear's target is put at its range from the launch along its fanned line, on
+                // its cell (0x141bac460); then its mover turns it by its seed (SeededEnd, IceElementalSpearEnd).
+                var fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley;
+                var arm = aim - origin;
+                float turn = SkillStat("monster_projectile_variation") == 8 ? .5f : .2f;
+                nativeTargets = new ProjectileVector[projectile.Count];
+                for (int i = 0; i < projectile.Count; i++)
+                {
+                    var turned = origin + arm.Unit.Rotate(fan?.Angle(i, projectile.Count, arm.Length) ?? 0) * MortarRange();
+                    var cell = new ProjectileVector(Math.Floor(turned.X + .5), Math.Floor(turned.Y + .5));
+                    uint[] key = [sequence, Derived(i), 0, ordinal];
+                    nativeTargets[i] = projectile.Recipe == "IceElementalSpear" ? IceElementalSpearEnd(cell, origin, key)
+                        : SeededEnd(cell, origin, key, 150, turn: turn).End;
+                }
+            }
             // A water vortex ends on its diamond, whatever the aim's distance.
             if (projectile.Recipe == "WaterVortex")
                 nativeTargets = [WaterVortexTarget(from, aim, (int)(128 * (100 + SkillStat("spell_maximum_action_distance_+%")) / 100.0))];
@@ -160,12 +181,12 @@ public static partial class Game
                 var fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley!;
                 nativeTargets = new ProjectileVector[projectile.Count];
                 var speeds = new double[projectile.Count];
-                uint ordinal = (uint)(release?.Ordinal ?? 0);
                 // A flame's stage (0x141b85cd0): a cast within 0.75 s of the last release adds one, up to 100; a later one
                 // starts again at 1 and makes a stage tracker, which takes the action's next seed before the flames (the
                 // Figurehead's tracker counts its own, 0x141b81eb0). The stage's tier picks the row by which it touches.
                 int stage = 0;
                 uint trackers = 0;
+                float turn = 0;
                 if (flames)
                 {
                     var (last, until, made) = m.FlameStages.GetValueOrDefault(a.SkillId);
@@ -175,17 +196,18 @@ public static partial class Game
                     m.FlameStages[a.SkillId] = (stage, now + .75, made);
                     trackers = projectile.Recipe == "FigureheadFlames" ? 0u : (uint)made;
                     int tier = stage < 4 ? 1 : stage < 8 ? 2 : stage < 12 ? 3 : 4;
+                    turn = FlameTurn(stage);
                     if (projectile.Metadata.EndsWith("Flamethrower1") || projectile.Metadata.EndsWith("FlamethrowerBlue1"))
                         contactRow = projectile.Metadata[..^1] + tier;
                 }
                 for (int i = 0; i < projectile.Count; i++)
                 {
-                    uint derived = (uint)(2 + (trackers + ordinal * projectile.Count + i) % 254);
+                    uint derived = Derived(i, trackers);
                     var turned = arm.Rotate(fan.Angle(i, projectile.Count, arm.Length / WorldUnits.PerCell));
                     if (flames) turned = turned.Unit * MortarRange() * WorldUnits.PerCell;
                     (nativeTargets[i], float factor) = SeededEnd(Cell(spawn + turned), origin,
                         spray ? [sequence, derived, 0, ordinal] : [sequence, derived, 0], flames ? 150 : (float)MortarRange(),
-                        speedDraw: spray, flameStage: stage);
+                        speedDraw: spray, turn: turn);
                     speeds[i] = speed * factor;
                 }
                 if (spray) nativeSpeeds = speeds;
@@ -193,6 +215,16 @@ public static partial class Game
         }
         // The server's own object turns by its contact too.
         if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
+        if (projectile.Recipe == "BreachBarrage")
+        {
+            // The server's barrage spreads as the client's: 150 cells from the caster's cell in the seeded cone about the
+            // line to its target (BreachBarrageEnd), which stands in for the caster's turning facing.
+            var line = aim - from;
+            float facing = (float)(Math.Atan2(line.Y, line.X) + Math.PI / 2);
+            var cell = new ProjectileVector(Math.Floor(from.X), Math.Floor(from.Y));
+            nativeTargets = [.. Enumerable.Range(0, projectile.Count)
+                .Select(i => BreachBarrageEnd(cell, facing, [sequence, Derived(i), 0, ordinal]))];
+        }
         // A server-created lobbed shot lands at its aim, no nearer the actor than its minimum range (cells). A spell
         // mortar the server draws lands where its mover would, measured along the line to the aim: the aim (capped at
         // its range) or, without UseTargetLocation, its range from the release (0x141ba99d0); then (0x141a10d50) pushed
@@ -223,7 +255,7 @@ public static partial class Game
                     // A lantern reaches its aim its clip's contact after the release, at any distance.
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
                 }
-            : projectile.Recipe is not null ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
+            : projectile.Recipe is not (null or "BreachBarrage") ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(contactRow) };

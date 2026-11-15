@@ -39,10 +39,6 @@ public static class MonsterShots
         "spectral_throw", "vaal_spectral_throw", "decelerating_projectile",
     ];
 
-    // monster_projectile_weapon variations whose mover (0x141b6b740) does what the server does not: 4, 8, 24, 26 and 29
-    // jitter the target from the action's seeded context and rescale it to 150; 3 flies at unlimited height.
-    static readonly HashSet<int> WeaponMoverVariations = [3, 4, 8, 24, 26, 29];
-
     /// <summary>The shot a monster's granted effect fires at <paramref name="level"/>, or null when it fires none the
     /// server can name (it then keeps its contact hit). <paramref name="variety"/> decides a ranged melee attack's arrow
     /// or wand bolt; without it such an attack resolves to nothing. <paramref name="monsterStats"/> are the monster's own
@@ -217,10 +213,18 @@ public static class MonsterShots
             case "ice_elemental_spear":                                                                 // 0x141244f10
                 id = Row(mpv, "IceElementalProjectile", (1, "PuiTotemProjectile"), (2, "IceElementalSwordProjectile"),
                     (3, "ElderGuardianObsidianGolemProjectile"));
-                reason = "seeded target jitter";
+                // Each spear's mover jitters its end by its seed (MonsterProjectileUse, IceElementalSpearEnd); a repeated
+                // cast's seed takes its repeats, which the server does not run.
+                recipe = "IceElementalSpear";
+                if (Get("skill_repeat_count") != 0) reason = "repeated cast";
                 break;
             case "atlas_aoe_projectile": id = Row(0, "AtlastFrostBoltBlackHole"); reason = "vortex at the end"; break;
-            case "breach_spell_barrage": id = Row(0, "BreachSpellBarrage"); reason = "seeded barrage angles"; break;
+            case "breach_spell_barrage":
+                // Each projectile's mover sends it 150 cells out in a seeded cone about the caster's facing
+                // (BreachBarrageEnd). The facing turns toward the target during the cast at a rate the server does not
+                // model yet, so its object flies, along the client's seeded cone about the line to the target.
+                (id, recipe, reason) = (Row(0, "BreachSpellBarrage"), "BreachBarrage", "facing turns during the barrage");
+                break;
             case "spectral_throw" or "vaal_spectral_throw" or "vaal_thrown_weapon":
                 // 0x141ab6480: the thrown weapon by skill_art_variation. Spectral Throw comes back (the player's recipe).
                 id = Row(artVariation, "ThrownWeapon", (1, "SpectralThrowGold"), (2, "SpectralThrowEbony"), (3, "SpectralThrowBoomerang"),
@@ -315,8 +319,8 @@ public static class MonsterShots
                 // columns are an end height and flags that do not change where the shot flies.
                 aimOffset = spell ? row.Extra[2] : row.Extra[3];
                 if (spell && artVariation == 20) reason = "MonsterProjectileSpell art 20 branch";
-                if (!spell && WeaponMoverVariations.Contains(variation))
-                    reason = $"MonsterProjectileAttack variation {variation} mover";
+                // The mover (0x141b6e1d0) turns 4, 8, 24, 26 and 29 by their seed (MonsterProjectileUse, SeededEnd).
+                if (!spell && variation is 4 or 8 or 24 or 26 or 29) recipe = "WeaponJitter";
                 // BoneSpear and IcicleBurstTriggered start at the target's own position at release (0x141b6b2f0).
                 if (!spell && variation is 15 or 38) target = SkillCatalog.MonsterShotTarget.AtRelease;
                 break;
@@ -406,7 +410,9 @@ public static class MonsterShots
             AnimationKey = animation ?? catalog.EffectAnimationKey(effect),
             ClientDraws = reason is null, ServerReason = reason, Arrows = arrows, Target = target,
             AimTranslates = aimTranslates, SkillStats = stats, EndsAtTarget = catalog.ProjectileEndsAtTarget(id), Recipe = recipe,
-            AimOffset = aimOffset, PiercesAll = PierceAllFamilies.Contains(family) || Get("always_pierce") != 0,
+            AimOffset = aimOffset, PiercesAll = PierceAllFamilies.Contains(family) || Get("always_pierce") != 0
+                // The weapon class's ctor sets the pierce-all mask for these variations (0x141b6d950).
+                || family == "monster_projectile_weapon" && mpv is 2 or 4 or 12 or 20 or 23 or 24 or 26,
         };
         // A spark with skill_behaviour_variation 2 fires one (0x141b363a0).
         if (family == "spark" && catalog.BehaviourVariation(effect) == 2) return shot with { Count = 1 };
