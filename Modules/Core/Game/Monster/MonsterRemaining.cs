@@ -2,75 +2,80 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-// The map overlay's "X monsters remain" line, fed by S→C 0x1a0 (InstanceProtocol.MonstersRemaining has the client side:
-// one byte, instance+0xd7cd, the three thresholds, and the /raw checks that pin the wire). The client never counts
-// monsters itself, so this byte is the whole line: it is 0xff in every new instance and only changes when a server sends
-// it again. Therefore: once when the player's area is entered, with its packs already placed, and then on every event
-// that changes how many monsters of the area are alive — a kill (Game.MonsterKilled, and the two places that commit one
-// themselves: MinionOutcomes' PlayerKill and ProjectileReactions.CommitProjectileKill), a monster added (SpawnMonster: a
-// summon, a kept instance's monster), a buried one rising (Emerge.cs, it only then joins the roster) and a removal
-// (SendWorldRemoval). Never on a timer: nothing here runs on its own.
 public static partial class Game
 {
-    /// <summary>
-    /// Whether a monster still counts for the overlay. A corpse does not: the roster keeps the dead (`SpawnedMonster.Dead`
-    /// or its life at 0) until it is consumed or the area is left, so the count is not <c>Monsters.Count</c>. This is the
-    /// living test the area's own checks use (<c>!m.Dead &amp;&amp; m.Life &gt; 0</c>: the area-clear and quest guards), the
-    /// same one <c>/mobs</c> lists a monster as living by (that command is the gm-commands mod, outside this repository),
-    /// so the overlay cannot disagree with them about what is dead.
-    /// </summary>
-    public static bool MonsterLiving(SpawnedMonster m) => !m.Dead && m.Life > 0;
+    // The overlay counts enemies still in the area, including those waiting to emerge, never friendly summons.
+    public static bool MonsterLiving(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0;
 
-    /// <summary>The instance's living monsters (<see cref="MonsterLiving"/>'s rule), under the Monsters lock.</summary>
-    public static int LivingMonstersLocked(ClientState conn) => conn.Monsters.Values.Count(MonsterLiving);
+    public static int LivingMonstersLocked(ClientState conn) =>
+        conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving);
 
-    /// <summary>
-    /// Holds the recount while an area's population is placed: PopulateArea puts a whole area into the roster one monster
-    /// at a time (a kept instance's, a Sirus arena's, a Maven ring's), and neither the player nor the overlay wants every
-    /// step of that — one count after the last one is what the entry's 0x1a0 sends.
-    /// </summary>
+    sealed class RemainingDelivery
+    {
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public int Holds;
+    }
+    static readonly RuleTable<object, RemainingDelivery> RemainingDeliveries = new();
+    static RemainingDelivery RemainingOf(ClientState conn) =>
+        RemainingDeliveries.GetValue((object?)conn.Instance ?? conn, _ => new());
+
+    // Population is shared by the instance. A second entrant cannot force a partial count while it is being built.
     public static IDisposable HoldMonstersRemaining(ClientState conn)
     {
-        lock (conn.Monsters) conn.MonstersRemainingHolds++;
-        return new RemainingHold(conn);
+        var delivery = RemainingOf(conn);
+        lock (conn.Monsters) delivery.Holds++;
+        return new RemainingHold(conn, delivery);
     }
 
-    sealed class RemainingHold(ClientState conn) : IDisposable
+    sealed class RemainingHold(ClientState conn, RemainingDelivery delivery) : IDisposable
     {
-        public void Dispose() { lock (conn.Monsters) conn.MonstersRemainingHolds--; }
-    }
-
-    /// <summary>
-    /// Sends the map overlay's count (S→C 0x1a0) when it changed since this client's last one, and to the other clients
-    /// of the instance, whose overlay shows the same roster: what one of them kills, all of them count. <paramref
-    /// name="force"/> is for the area's entry, where the client's byte is 0xff again whatever the last area was sent.
-    /// </summary>
-    public static async Task SendRemainingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        bool force = false)
-    {
-        int living, total;
-        lock (conn.Monsters)
+        bool disposed;
+        public void Dispose()
         {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-            if (conn.MonstersRemainingHolds > 0 && !force) return;
-            living = LivingMonstersLocked(conn);
-            total = conn.Monsters.Count;
-            if (!force && conn.SentMonstersRemaining == living) return;
-            conn.SentMonstersRemaining = living;
+            lock (conn.Monsters)
+                if (!disposed) { disposed = true; delivery.Holds--; }
         }
-        byte[] bytes = InstanceProtocol.MonstersRemaining(living);
-        // Each send encrypts in place, so every recipient needs its own copy (Agents/docs/protocol/14-monster-packs.md §2,
-        // "Shared delivery must copy plaintext per recipient"). Outbox is the other connection's own send (Program.Send).
-        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
+    }
+
+    public static async Task SendRemainingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, bool force = false)
+    {
+        var delivery = RemainingOf(conn);
+        // Concurrent deaths and arrivals share this gate, so an older snapshot cannot overwrite a newer count.
+        await delivery.Gate.WaitAsync();
+        try
         {
-            if (peer.Owner is not { Outbox: { } outbox } other || ReferenceEquals(other, conn)) continue;
-            lock (other.Monsters)
+            int living;
+            ClientState[] recipients;
+            lock (conn.Monsters)
             {
-                if (other.Closed || other.LeavingArea || !other.PlayerSent || other.MonstersRemainingHolds > 0) continue;
-                other.SentMonstersRemaining = living;
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent || delivery.Holds > 0) return;
+                living = Math.Min(byte.MaxValue, LivingMonstersLocked(conn));
+                recipients = [conn, .. (conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
+                    .Select(p => p.Owner).OfType<ClientState>().Where(p => !ReferenceEquals(p, conn))];
             }
-            _ = outbox((byte[])bytes.Clone(), null);
+            foreach (var recipient in recipients)
+            {
+                bool own = ReferenceEquals(recipient, conn);
+                lock (conn.Monsters)
+                {
+                    if (!CurrentGameWork || recipient.Closed || recipient.LeavingArea || !recipient.PlayerSent
+                        || !ReferenceEquals(recipient.Instance, conn.Instance)
+                        || (!(force && own) && recipient.SentMonstersRemaining == living)) continue;
+                }
+                // Encryption mutates the bytes. Construct plaintext independently for every recipient.
+                byte[] bytes = InstanceProtocol.MonstersRemaining(living);
+                if (own)
+                    await Send(remote, stream, ciphers, bytes, $"0x01a0 monsters remaining {living}");
+                else if (recipient.Outbox is { } outbox)
+                {
+                    try { await outbox(bytes, null); }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException) { continue; }
+                }
+                else continue;
+                lock (conn.Monsters) recipient.SentMonstersRemaining = living;
+            }
         }
-        await Send(remote, stream, ciphers, bytes, $"0x01a0 monsters remaining {living} of {total}");
+        finally { delivery.Gate.Release(); }
     }
 }

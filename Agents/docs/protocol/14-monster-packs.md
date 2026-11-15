@@ -1,4 +1,4 @@
-# 14 — Monster packs in areas
+# 14 â€” Monster packs in areas
 
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
@@ -17,14 +17,14 @@ The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
 | Pack | Weight | Members | Placed |
 |---|---|---|---|
-| `Act1-CoastCrabs` (row 2) | 100 | 2–4 Savage / Kelp / Shore / Coconut / Spider Crabs; 80%: one large Savage Crab (row 4515) | scattered |
-| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned; `Grounds`: the beach/ocean ground types | scattered (grounds not checked) |
-| `Act1-SandspitterEmerge` (row 4) | 100 | 3–4 Gravel Eaters | scattered, buried: they rise when the player comes near ([10](10-chat-and-commands.md) §5) |
-| `1_1_2-cannibalfire` (row 620) | 0 | 2–4 Cannibals (male, female, fire throwers, Fire-eater) | room points `%area%-cannibalfire` |
-| `1_1_2-bosspack` (row 621) | 0 | 6–8 Cannibals | with the boss at `mapboss` |
+| `Act1-CoastCrabs` (row 2) | 100 | 2â€“4 Savage / Kelp / Shore / Coconut / Spider Crabs; 80%: one large Savage Crab (row 4515) | scattered |
+| `Act1-ZombieDrowned` (row 3) | 100 | 3â€“4 Drowned; `Grounds`: the beach/ocean ground types | scattered (grounds not checked) |
+| `Act1-SandspitterEmerge` (row 4) | 100 | 3â€“4 Gravel Eaters | scattered, buried: they rise when the player comes near ([10](10-chat-and-commands.md) Â§5) |
+| `1_1_2-cannibalfire` (row 620) | 0 | 2â€“4 Cannibals (male, female, fire throwers, Fire-eater) | room points `%area%-cannibalfire` |
+| `1_1_2-bosspack` (row 621) | 0 | 6â€“8 Cannibals | with the boss at `mapboss` |
 | boss: Fire Fury (row 2845, `CannibalFemaleBossWitch`) | | Unique | room point `mapboss` |
 
-Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (§3).
+Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (Â§3).
 
 **Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
@@ -37,27 +37,27 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
-`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
+`SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) Â§5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
-attack). Its mods (§5) set its life, hit, speed and defences.
+attack). Its mods (Â§5) set its life, hit, speed and defences.
 A magic or rare monster then gets its glow, a 0x1c1 buff with no optional fields (`MonsterRarityBuffs`):
 BuffDefinitions 66 `monster_magic_effect_buff` (BuffVisuals 58, `StatusAilments/monsters/champions/blue/blue.epk`)
 or 67 `monster_rare_effect_buff` (BuffVisuals 59, `champions/gold/gold.epk` and `gold_large.epk`). Both are
 invisible and cancel on death. No Mods.dat row grants them, and the rarity in ObjectMagicProperties alone drew no
 glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421e4390) set a
-per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
-`SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
+per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d â†’
+`SendPlayer` â†’ skill bar â†’ `PopulateArea`); towns and areas without a walk map get none.
 
-**The map overlay's "X monsters remain"** is S→C 0x1a0, one byte, and the client never counts monsters itself. The
+**The map overlay's "X monsters remain"** is Sâ†’C 0x1a0, one byte, and the client never counts monsters itself. The
 instance constructor (0x14214b4a0, at 0x14214e686) starts `instance+0xd7cd` at 0xff, and 0x1a0 is its only writer in
 the whole client (dispatcher case 0x7e at 0x14215718b copies `byte [msg+0x10]` there), so with nobody sending it every
 area read "More than 50 monsters remain". The text builder 0x1406b24e0, reached from the overlay builder 0x1406b25f0 at
 0x1406b279b, picks ClientStrings 0x1ab6 "1 monster remains" for 1, 0x1ab7 "{0} monsters remain" for 0..50 and 0x1ab8
 "More than 50 monsters remain" for 51..255, so an area of more than 50 living monsters is sent 255. The Gateway sends
-the byte once the area's packs are placed (after 0x21) and again whenever the count changes — a kill, a summon, a
-buried monster rising, a removal — recounting the instance's living monsters with the corpses left out, the rule
-`/mobs` lists them by (`Game.MonsterRemaining.cs`). Live 2026-11-14 with `/raw` in an entered area: `01a0 05` → "5
-monsters remain", `01a0 01` → "1 monster remains", `01a0 00` → "0 monsters remain", `01a0 33` → "More than 50 monsters
+the byte once the area's packs are placed (after 0x21) and again whenever the count changes â€” a kill, a summon, a
+buried monster rising, a removal â€” recounting the instance's living monsters with the corpses left out, the rule
+`/mobs` lists them by (`Game.MonsterRemaining.cs`). Live 2026-11-14 with `/raw` in an entered area: `01a0 05` â†’ "5
+monsters remain", `01a0 01` â†’ "1 monster remains", `01a0 00` â†’ "0 monsters remain", `01a0 33` â†’ "More than 50 monsters
 remain".
 
 **An instance keeps its monsters** (#12), as in the real game. When a connection closes, the instance
@@ -77,7 +77,7 @@ copy for each recipient, including after rewriting player identities and action 
 ## 3. Room points: where the camp is
 
 `data/room-points.json` also keeps rooms with a `default` start point, and marks each room's server objects with their
-type ([12](12-quests.md) §5). Only the client's own doodads count for the fit.
+type ([12](12-quests.md) Â§5). Only the client's own doodads count for the fit.
 
 The layout is generated by the client, so where a room landed has to be captured. Rooms (`.arm`) carry named points
 before their slot grid, e.g. `Metadata/Terrain/Act1/Area2/Rooms/scavenger_camp_2a.arm` (the "camp" node of the graph):
@@ -87,43 +87,43 @@ before their slot grid, e.g. `Metadata/Terrain/Act1/Area2/Rooms/scavenger_camp_2
 81 68 0.785398 "%area%-cannibalfire"
 ```
 
-and the bonfire rooms (`bonfire1`–`6.arm`, scattered by the master's `FillTiles` `random_fill_tiles.gft`) one or three
+and the bonfire rooms (`bonfire1`â€“`6.arm`, scattered by the master's `FillTiles` `random_fill_tiles.gft`) one or three
 `%area%-cannibalfire` points. The client does not use these points; it does place the room's **doodads**:
 
-- The tile-object loop (`0x141d82d90` → `0x142047e30`, [08](08-area-transitions.md) §7) only sees `.tmd` records; room
+- The tile-object loop (`0x141d82d90` â†’ `0x142047e30`, [08](08-area-transitions.md) Â§7) only sees `.tmd` records; room
   doodads never pass there (traced 2026-10-18: ~40 records per area, no bonfire).
 - **`0x142048bb0`(?, record, u8)** creates one client-side doodad from a record laid out like a `.tmd` record, already in
   world terms: i32 grid x, i32 grid y, f32 world x, f32 world y, f32 z (+0x10), f32 angle (+0x14), type handle +0x30,
-  `.ao` handle +0x38 (handle +8 → UTF-16 path). It runs for every doodad while the area loads, room doodads included
-  (The Coast: `beachfire_04.ao` at (1154, 656), the camp's `beach_sheet_03.ao` at (1181, 627), …).
+  `.ao` handle +0x38 (handle +8 â†’ UTF-16 path). It runs for every doodad while the area loads, room doodads included
+  (The Coast: `beachfire_04.ao` at (1154, 656), the camp's `beach_sheet_03.ao` at (1181, 627), â€¦).
 
 So:
 
 1. `scripts/re/atlas` with `room-points` writes `data/room-points.json`: per area, the rooms of its RoomSet and
-   FillTiles that have boss points (below) or `%area%-…` points, with the points and the room's doodads (room
+   FillTiles that have boss points (below) or `%area%-â€¦` points, with the points and the room's doodads (room
    cells). The room sets of the sub-graphs a graph embeds (nodes tagged `graph`, a graph file or a FileGroups group)
    count too: The Upper Prison's graph is only two sub-graphs, "Prison" and "Warden" (Brutus), and The Cavern of
    Anger embeds Merveil's arena (`_cave_river_boss1.dgr`). Before manifest version 5 these areas had no boss rooms.
    The boss points the room files write (`AreaPopulation.BossPoint`; version 6 keeps them all): `mapboss<n>` is the
    n-th of WorldAreas `Bosses_MonsterVarietiesKeys` (The Upper Prison: the Necromancer at `mapboss1`, Brutus at
    `mapboss2` in the `boss_cells_*` rooms before his arena; The Cavern of Anger: the sea witch and Merveil; The Grain
-   Gate: `mapboss1` … `mapboss7`, the seven Gemling Legionnaires; The Harvest: Malachai `mapboss1`, his second form
+   Gate: `mapboss1` â€¦ `mapboss7`, the seven Gemling Legionnaires; The Harvest: Malachai `mapboss1`, his second form
    `mapboss2` in the inner room, Doedre/Maligaro/Shavronne `mapboss3`-`5` at the organs), `mapboss<n>&<m>` two of them
    (maps), with or without a `WG` suffix (Prisoner's Gate's `bossphase1/2` rooms: `mapboss1WG` Abberath, `mapboss2WG`
    his second form; The Oasis: `mapboss1WG` Shakari in the Sand Pit, `mapboss2` her second form in the Swallowing
    Sands). `mapboss`, `force:mapboss` (Kitava's arenas, The Cathedral Rooftop and The Feeding Trough), `mapbosspack`
    (The Toxic Conduits) and `mapbossWG` take the area's bosses no other point took. Not used: `mapboss-<variety>`
-   (Shaper guardian maps) and the league points `mapbosswarband…`, `mapbossexilepack`. Before version 6 only `mapboss`
+   (Shaper guardian maps) and the league points `mapbosswarbandâ€¦`, `mapbossexilepack`. Before version 6 only `mapboss`
    and `mapboss<n>` were kept, and neither Kitava, Shakari, Abberath nor the Lingering Aberrations had a point.
    What a room places itself is in its points too (version 8 keeps them in the rooms kept for other reasons): monsters
-   by MonsterVarieties Id (`Metadata/Monsters/…`: boss arenas' daemons and guards, the Imperial Gardens trial's four
-   `RootSpiderHidden`), server spawners (`Metadata/QuestObjects/…Spawner`) and pack points `normal`, `magic` and
+   by MonsterVarieties Id (`Metadata/Monsters/â€¦`: boss arenas' daemons and guards, the Imperial Gardens trial's four
+   `RootSpiderHidden`), server spawners (`Metadata/QuestObjects/â€¦Spawner`) and pack points `normal`, `magic` and
    `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
    places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
    captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
    The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
    and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
-   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
+   or how many it has (Â§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss
@@ -147,13 +147,13 @@ So:
    **Spawner objects** (`AreaPopulation.BossSpawners`): a room's server-side spawner that stands for one of the area's
    bosses becomes that boss's point. The Quay's `boss.arm` (kept for Clarissa, a quest NPC): `TolmanBossSpawner`, Tolman
    in the stocks, who breaks out in the official game (its `spawning` states), is created as Tolman at the spawner.
-   **Map boss override** (`MapBossOverride`): an area with a `MapBossOverride…` mod (stat `map_boss_override`) lists
+   **Map boss override** (`MapBossOverride`): an area with a `MapBossOverrideâ€¦` mod (stat `map_boss_override`) lists
    every candidate boss and meets one. The Ashen Fields (`MapBossOverrideAshenFields`; Greust, Oak, Alira, Kraityn of
    `Metadata/Monsters/Ralakesh/`): the bandit lord the character spared in Act 2 (the other two
    `a2b-Killed{Str,Int,Dex}Bandit` flags set) is Ralakesh's avatar, Greust when all three died or no bandit quest was
-   done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`…Alira`/`…Kraityn`/`…Greust` and Helena's
-   `HelenaOn…Quest` ("He truly believed that if he stood against Oak…").
-   Nothing on the server sets the `a2b-Killed…Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
+   done. The client's own lines say so: Eramir's `EramirRalakeshQuestOak`/`â€¦Alira`/`â€¦Kraityn`/`â€¦Greust` and Helena's
+   `HelenaOnâ€¦Quest` ("He truly believed that if he stood against Oakâ€¦").
+   Nothing on the server sets the `a2b-Killedâ€¦Bandit` flags yet but `/quest_flag` (the campaign's quest engine sets
    them on the bandit lords' kills; their help-or-kill dialogue is not offered), and an instance's boss follows the first
    character to enter it: others who join that instance meet the same boss.
    **Not placed** (the check below lists them with the reason): Marceus the Defaced (The Marketplace) is a tile's
@@ -166,10 +166,10 @@ So:
    Rooms with a quest server object (an NPC, a `Metadata/QuestObjects/` object or a quest chest; lore objects under
    `Metadata/NPC/Info/` excepted, `RoomFile.IsQuestObject`) are kept too, without any point (version 4): Fairgraves'
    ship, Piety's room in The Upper Prison, the blocked road at Prisoner's Gate, so quests find their objects
-   ([12](12-quests.md) §5).
+   ([12](12-quests.md) Â§5).
 2. `scripts/walkmaps` (`live.ps1 -Walkmaps`) hooks `0x142048bb0` and writes `data/walkability/<area>_seed<seed>.doodads.json`.
 3. `AreaPopulation.LoadPoints` fits each candidate room: anchored on the room doodad whose model is rarest in the
-   capture, it tries each captured doodad of that model × the 8 turns/flips, and keeps a placement when ≥ 70% of the
+   capture, it tries each captured doodad of that model Ã— the 8 turns/flips, and keeps a placement when â‰¥ 70% of the
    room's doodads land within 2 cells of a captured doodad of the same model. The points go through the same placement.
    A room with a unique boss point (and The Tidal Island's `medicine_boat` rooms, `MercyMission.BoatRooms`) takes its
    actual placement instead, from `<area>_seed<seed>.rooms.json` (12-quests.md, opening encounter) or the Gateway's
@@ -189,8 +189,8 @@ So:
    Allflame's slave girl in The Ship Graveyard Cave at (666, 233), Piety in The Upper Prison at (1486, 553) and her
    blockage at Prisoner's Gate at (1275, 390), The Twilight Strand's force wall at (1403, 679) as before.
 
-The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 −1; 1 0], 32/33 doodads; `mapboss` (1135, 630),
-its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + π/2).
+The Coast seed 1 (live): `scavenger_camp_2a` at (1241, 598) turned [0 âˆ’1; 1 0], 32/33 doodads; `mapboss` (1135, 630),
+its `cannibalfire` (1173, 679); 8 bonfire rooms (12/12 or 21/21 doodads). The doodad angles agree (room angle + Ï€/2).
 Fire Fury stands at `mapboss`, about 30 cells from the campfire, with `1_1_2-bosspack` around her.
 The Tidal Island seed 1 (live 2026-10-25): `medicine_boat_1` captured at (138, 345), code 3; Hailrake stands at its
 `mapboss` (265, 437) on the shipwreck, with `1_1_2a-bosspack` at the room's `%area%-bosspack` (292, 420) (until the
@@ -207,13 +207,13 @@ shortened, and insufficient candidate/placement space can produce fewer monsters
 population. Other areas, rarity rolls, life and damage retain their existing behavior; official allocation and
 placement algorithms remain unknown.
 
-- Pack density and magic/rare chances are guesses (§1); so are the mod counts (§5).
+- Pack density and magic/rare chances are guesses (Â§1); so are the mod counts (Â§5).
 - Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
-  (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
+  (`MonsterCatalog.MapBossScaling`; level 83 is Ã—20.73 life and Ã—1.15 damage). The area level is the map level here; a
   future map-affix system may add more.
 - `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
-- Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within
-  24 cells of the player ([10](10-chat-and-commands.md) §5); the distance is ours (the official one is in the server's
+- Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders â€¦) are placed waiting and rise within
+  24 cells of the player ([10](10-chat-and-commands.md) Â§5); the distance is ours (the official one is in the server's
   AI files). The pack rule for the 161 varieties whose Id contains "Emerge": the 85 without a Transitionable are
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
@@ -223,7 +223,7 @@ placement algorithms remain unknown.
   The skill it always had stands first and still chooses on a tie, a ready skill with a cooldown goes before one without,
   the rest rotate by least recently used, and a skill that reaches nothing in range waits while the boss walks in.
   Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
-  extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+  extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md Â§6).
 - A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
   deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
   a seed nobody recorded has its boss; the room itself stays unplaced.
@@ -236,13 +236,13 @@ placement algorithms remain unknown.
   to +75% from 71, rare +33% to +100% from 71). poewiki's "Rarity" page confirms both parts: the hidden MonsterMagic2
   / MonsterRare2 "148% / 390% more maximum Life", and "Additionally magic / rare monsters receive a life multiplier
   based on their level", whose tables match these two for all 100 levels. A rare Hungry Corpse at level 70 has
-  4.9 × 2 × its base life.
+  4.9 Ã— 2 Ã— its base life.
 - **Hits:** DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion MonsterTypes row, PoB's
-  `monsterAllyDamageTable`) × DamageMultiplier × the attack time in seconds (unless MonsterTypes
-  `BaseDamageIgnoresAttackSpeed`), spread ± MonsterTypes `DamageSpread`; then the rarity's monster mods:
+  `monsterAllyDamageTable`) Ã— DamageMultiplier Ã— the attack time in seconds (unless MonsterTypes
+  `BaseDamageIgnoresAttackSpeed`), spread Â± MonsterTypes `DamageSpread`; then the rarity's monster mods:
   `monster_rarity_damage_+%_final` (magic 30, rare 50, unique 70) and
   `monster_rarity_attack_cast_speed_+%_and_damage_-%_final` (20, 33, 33: that much faster, that much less damage per
-  hit; read from the stat's name, no description exists). Hillock at level 1: 6.6–12.3 every 1.24 s.
+  hit; read from the stat's name, no description exists). Hillock at level 1: 6.6â€“12.3 every 1.24 s.
 - Kept monsters lose their corpses (a corpse stays while the player is in the area, but is not saved) and a `/spawn_mob` name.
 - Each new (area, seed) needs a `-Walkmaps` visit for its room points; without the capture there is no unique boss
   (the log says so).
@@ -258,10 +258,10 @@ tags that the monster has gives a weight above 0. The monster's tags are its Mon
 `magic` or `rare` (the client adds the same tag when it reads the mods, `0x142205d50`; many mods have `magic` 0, so
 only rares get them) and `not_part_of_pack` for a monster on its own (`/spawn_mob`). Each affix is drawn by weight
 from the allowed ones, a ModFamily once, at most Rarity.dat's MaxPrefix / MaxSuffix of each kind; every monster mod
-has a fixed value. The counts are not in the client's data: Rarity.dat's `MinMods` / `MaxMods` (1–2, 4–6) are the
+has a fixed value. The counts are not in the client's data: Rarity.dat's `MinMods` / `MaxMods` (1â€“2, 4â€“6) are the
 items', and Monster.ot, MonsterMapDifficulty and WorldAreas have no count. So they follow poewiki's "Rarity" page: a
 magic monster is "given one monster modifier", a rare one "two to four monster modifiers" (the 3.20 FAQ also balances
-around 2 to 4). The 3.19.0 patch notes gave campaign rares "only … one or two modifiers", but 3.20 replaced that mod
+around 2 to 4). The 3.19.0 patch notes gave campaign rares "only â€¦ one or two modifiers", but 3.20 replaced that mod
 system, so the current page wins; the campaign keeps fewer: below area level 68 2 at 75%, 3 at 25%, from 68 2 at 40%,
 3 at 40%, 4 at 20%. **These percentages are invented.** The magic monsters of one name share one roll per instance
 ("All monsters in an instance that are the same or very similar will have the same magic monster modifier", 3.19.0;
@@ -270,11 +270,11 @@ with a weight of 0 for its tags (Blurred on the large Savage Crab, which is `not
 Cannibal) is not given to it; the monsters of its name and tags share their own roll instead. Normal and unique
 monsters roll none.
 
-**The rarity's own mods** (Mods.dat MonsterMagic1–11, MonsterRare1–12, MonsterUnique1–10: life, damage, speed,
+**The rarity's own mods** (Mods.dat MonsterMagic1â€“11, MonsterRare1â€“12, MonsterUnique1â€“10: life, damage, speed,
 size, rewards) go with every magic, rare and unique monster in the hidden list (flags bit 11), which the client does
 not show; the server applies their stats as it does the affixes'.
 
-**What the client gets** (ObjectMagicProperties' base part, `0x142208700` as for items, [13](13-items.md) §2a): the
+**What the client gets** (ObjectMagicProperties' base part, `0x142208700` as for items, [13](13-items.md) Â§2a): the
 affixes in the explicit list (bit 5), prefixes first, and a rare monster's name as two Words.dat keys (bit 8): a
 `MONSTER_PREFIX` (word list 3) and a `MONSTER_SUFFIX` (list 4) word drawn by the same tags ("Gore" + "walker"; the
 only default-weighted words are placeholders such as " Broken"). Live, hovering a rare showed "Gorewalker" in yellow
@@ -282,36 +282,36 @@ on its life bar at the top of the screen and under it one line per affix from th
 Life", "Fire and Ignite Resistant"); a magic one showed "Quick Hungry Corpse" in blue and "Hasted". The client
 applies none of the mods itself: a rare with Fecund (40% increased life) at half its server life showed a half bar.
 So the server sends the final `maximum_life`, the rarity's life stats, `movement_velocity_+%` (the client walks a
-monster at its base × (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Corpse stepped every 0.083 s, 12
-cells/s, a normal one every 0.125–0.133 s; the server walks it at the same speed), `actor_scale_+%` and
+monster at its base Ã— (1 + value / 100), `0x141e827a0`: a Quick magic Hungry Corpse stepped every 0.083 s, 12
+cells/s, a normal one every 0.125â€“0.133 s; the server walks it at the same speed), `actor_scale_+%` and
 `life_regeneration_rate_per_minute_%`.
 
 **Effects** (`MonsterModEffects`, summed per stat over all its mods):
 
 | Stats | Effect |
 |---|---|
-| `maximum_life_+%`, `monster_life_+%_final_from_rarity`, the rarity table (§4) | its life: base × (1 + increased) × each final |
+| `maximum_life_+%`, `monster_life_+%_final_from_rarity`, the rarity table (Â§4) | its life: base Ã— (1 + increased) Ã— each final |
 | `damage_+%`, `physical_damage_+%`, the rarity's damage and attack-speed stats | its hit on the player (increased, then the rarity's more and less) |
 | `physical_damage_%_to_add_as_fire` / `_cold` / `_lightning`, `non_chaos_damage_to_add_as_chaos_damage_%` | extra damage of that type in its hit, through the player's resistances |
 | `attack_speed_+%` (`base_cast_speed_+%` is the same on every mod) | its attack time |
 | `base_movement_velocity_+%` | its walk, on the client and in the server's estimate |
 | `base_*_damage_resistance_%`, `base_resist_all_elements_%` | the player's hits, Righteous Fire's burn and the player's ignites, per type, capped at 75% |
-| `base_self_ignite_duration_-%` | the player's ignites on it last that much less (Fire and Ignite Resistant: 80%; [20](20-damage.md) §3) |
+| `base_self_ignite_duration_-%` | the player's ignites on it last that much less (Fire and Ignite Resistant: 80%; [20](20-damage.md) Â§3) |
 | `base_additional_physical_damage_reduction_%` | the physical part of the player's hits (capped at 75%) |
 | `base_damage_taken_+%`, `rare_monster_mod_spell_damage_taken_+%_final` | the player's hits (the second only spell hits: the stat has no description, so it is not taken to cover Righteous Fire's burn) |
 | `monster_base_block_%` | blocks the player's attacks: rolled before the hit, a blocked one has no damage, impale, flinch or 0x1af (the client has no block result we know); the log says "blocked" |
 | `evasion_rating_+%`, `accuracy_rating_+%` | the player's chance to hit it, its chance to hit the player |
-| `always_crit` | its critical strikes (monster attacks have no base chance; × 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_142762c00`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
+| `always_crit` | its critical strikes (monster attacks have no base chance; Ã— 130% less the player's `base_self_critical_strike_multiplier_-%`, at least 100%). An override: the client's effective chance (`FUN_142762c00`) is 10000 under `virtual_always_crit` before any increase, so reduced critical strike chance (Devout of Solaris) does not lower it |
 | `hit_damage_+%_per_10%_missing_enemy_life` | its hit on a wounded player |
 | `self_take_no_extra_damage_from_critical_strikes` | the player's critical hits deal their normal damage |
-| `cannot_have_life_leeched_from` | prevents Life-source leech from accepted player hits; does not prevent Mana/native ES leech (damage §5b) |
-| `cannot_have_energy_shield_leeched_from` | prevents native and Ghost Reaver converted ES leech; leaves Mana available (damage §5b) |
+| `cannot_have_life_leeched_from` | prevents Life-source leech from accepted player hits; does not prevent Mana/native ES leech (damage Â§5b) |
+| `cannot_have_energy_shield_leeched_from` | prevents native and Ghost Reaver converted ES leech; leaves Mana available (damage Â§5b) |
 | `life_regeneration_rate_per_minute_%` | it regains life (a 0.5 s server tick, 0x1b1); the player's `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` scales it for 4 s after each player hit ([Polytheist](../game/polytheist.md)) |
 | `base_cannot_be_stunned` | no hit reaction (the flinch is the hit's stun) |
 | `chill_effectiveness_on_self_+%`, `base_self_freeze_duration_-%` (of the Ice), `shocked_effect_on_self_+%` (of the Tempest) | the player's chill and shock effect and freeze duration on it ([20](20-damage.md#outgoing-chill-freeze-and-shock-on-monsters)) |
 | `action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base` (Unstoppable) | the player's chill and freeze do not slow or stop it |
 | `reflect_non_damaging_ailments_%_chance` (Mirrored) | the chill, freeze and shock a player hit inflicts on it act on the player too |
-| `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) §6) |
+| `monster_chance_to_not_flee_%` (the rarity's MonsterMagic7 50, MonsterRare7 and MonsterUnique7 100) | its chance to ignore a player hit's flee ([11](11-skills.md) Â§6) |
 
 **Unsupported mods do not roll.** 37 of the 111 can be honoured: 31 fully (every stat acts, or only stops what the
 server never does to monsters: Hexproof, of Congealment, Reflector's, the wither parts of the resistance mods) and 6
@@ -324,14 +324,14 @@ own; of Incision only increases a critical strike chance monster attacks do not 
 pool leaves them out and the others keep their weights against each other. `Game_MONSTER_MODS=all` rolls the whole
 pool (to see how the client shows them). `MonsterModCatalog.SupportOf` decides.
 
-**Dev:** `/mob_mods [id]` lists a monster's affixes and name; `/mob_mods [id] <mod …>` creates it again with those
+**Dev:** `/mob_mods [id]` lists a monster's affixes and name; `/mob_mods [id] <mod â€¦>` creates it again with those
 affixes (a Mods.dat Id, the Id without `MonsterMod`, or the name with `_` for spaces: `/mob_mods Quick of_Flames`);
 `/mob_mods [id] pool` lists what it could roll.
 
-**Live** (2026-10-25/26, besides the display above): Fireball dealt 11–14 to a normal level-70 Hungry Corpse and 3–4
-to one with of the Magma; the default attack dealt 8–11 to a normal one and 5 to a Carapaced one, which blocked 3 of
+**Live** (2026-10-25/26, besides the display above): Fireball dealt 11â€“14 to a normal level-70 Hungry Corpse and 3â€“4
+to one with of the Magma; the default attack dealt 8â€“11 to a normal one and 5 to a Carapaced one, which blocked 3 of
 its 12 attacks with Stalwart (no hit message, "blocked" in the log); Blurred doubled the evasion the attack rolled
-against (5 081 → 10 162: 45% → 29% to hit); of Deadliness crit on every hit and a normal monster never; of the Hydra
+against (5 081 â†’ 10 162: 45% â†’ 29% to hit); of Deadliness crit on every hit and a normal monster never; of the Hydra
 regenerated 3% per second; a kept rare came back with its name, mods and life. The monsters' accuracy is checked
 only by the tests (the player was never evaded).
 
@@ -362,9 +362,9 @@ His BeamBomb stat set gives separate per-type degeneration; its hit conversion d
 ## Maps
 
 A map's area has no MonsterPacks row of its own: its packs are the map's Maps.dat `MonsterPacksKeys` (by
-`Regular_WorldAreasKey`; Beach → `atlas-crab1`, 6–9 parasite crabs), scattered like an area's with weight
+`Regular_WorldAreasKey`; Beach â†’ `atlas-crab1`, 6â€“9 parasite crabs), scattered like an area's with weight
 `PackCatalog.MapPackWeight` (100), at the area's level (Beach 69). The boss at `mapboss` comes from WorldAreas `Bosses`
-as for any area (Beach: Glace). 21-hideouts.md §5.
+as for any area (Beach: Glace). 21-hideouts.md Â§5.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
 the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.

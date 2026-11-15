@@ -17,7 +17,7 @@ public static partial class Game
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
-    // For each, 0x2bc steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
+    // For each, 0x2bc steps its Transitionable to the transitioned state (on_transition: EnableTargetable), Sâ†’C 0x1ab gives
     // it its Emerge basic action in place, and 0x1ac at once lets the action play: the .act's Emerge clip, from the paused
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
@@ -47,7 +47,7 @@ public static partial class Game
                 }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
-                // A buried monster that rises joins the connection's monsters: the overlay's "X monsters remain" (S→C
+                // A buried monster that rises joins the connection's monsters: the overlay's "X monsters remain" (Sâ†’C
                 // 0x1a0) is one larger from now on (MonsterRemaining.cs).
                 if (risen.Count > 0) await SendRemainingMonsters(remote, stream, ciphers, conn);
                 if (!watching) return;
@@ -90,7 +90,7 @@ public static partial class Game
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable â†’ {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
             // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
