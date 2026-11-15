@@ -42,10 +42,10 @@ public sealed class ShrineInstance
 
     /// <summary>The buff's stats, by client stat key: the registered definition's or, when it names none, the Shrines
     /// row's <c>Player_ShrineBuffsKey</c> values.</summary>
-    public IReadOnlyList<(uint Key, int Value)> Stats { get; init; } = [];
+    public IReadOnlyList<(uint Key, int Value)> Stats { get; set; } = [];
 
     /// <summary>The buff's duration in seconds: the registered definition's or the Shrines row's.</summary>
-    public int Duration { get; init; }
+    public int Duration { get; set; }
 
     /// <summary>The monsters the pre-activation behaviour created (its data guard packs), if any.</summary>
     public List<uint> Guards { get; } = [];

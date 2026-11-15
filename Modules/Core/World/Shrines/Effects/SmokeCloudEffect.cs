@@ -86,7 +86,7 @@ sealed class SmokeCloudEffect : IShrineEffect
             if (_cloud == 0 || Dist(_at, at) > FollowCells)
             {
                 if (_cloud != 0) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_cloud), null));
-                _cloud = conn.NextObjectId++;
+                _cloud = conn.TakeObjectId();
                 _at = at;
                 var cloud = new EffectObject(at.X, at.Y, CloudArt) { Flags0 = EffectObject.FixedRotation };
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(_cloud,
@@ -106,7 +106,8 @@ sealed class SmokeCloudEffect : IShrineEffect
                         && Dist(m.Walk.Position(now), _at) <= reach)
                         inFog.Add((id, m));
         }
-        if (playerInFog) InflictPlayerBlind(conn, BlindSeconds);
+        if (shrine.State == ShrineState.Inactive)
+            foreach (var player in ShrineManager.NearbyPlayers(conn, _at, reach)) InflictPlayerBlind(player, BlindSeconds);
         int blinded = 0;
         foreach (var (id, m) in inFog)
             if (InflictMonsterBlind(conn, id, m, now, (100, 0, BlindSeconds))) blinded++;
@@ -123,17 +124,10 @@ sealed class SmokeCloudEffect : IShrineEffect
 
     public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine)
-    {
-        _cloud = 0;
-        _nextBlind = 0;
-        _blindedCount = -1;
-        return Task.CompletedTask;
-    }
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
     Task Clear(ClientState conn)
     {
-        if (conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         lock (conn.Monsters)
         {
             if (_cloud != 0)

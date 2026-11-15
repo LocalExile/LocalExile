@@ -56,6 +56,7 @@ public static partial class Game
         int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
             MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
             source => DamageTakenFromBlindedPct(conn, source, stats));
+        if (Get("base_cannot_be_damaged") > 0) damage = 0;
         damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
             IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
         int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,

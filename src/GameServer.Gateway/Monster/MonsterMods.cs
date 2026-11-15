@@ -146,6 +146,11 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         _ => 0,
     };
 
+    public int MaximumResistance(DamageType type) => Math.Clamp(MaxResistance
+        + this["additional_maximum_all_resistances_%"]
+        + (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning
+            ? this["additional_maximum_all_elemental_resistances_%"] : 0), 0, 90);
+
     /// <summary>Physical damage reduction (Carapaced, the god-touched mods), capped at Monster.ot's 75%.</summary>
     public int PhysicalReduction => Math.Clamp(this["base_additional_physical_damage_reduction_%"], 0, MaxPhysicalReduction);
 

@@ -405,7 +405,7 @@ public static class AreaPopulation
             // Around the shrine, never on it: the statue and its base stay clear by the shrine type's object size, and
             // the pack rings it a little further out than an ordinary pack's members stand.
             int first = spawns.Count;
-            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, visible, memberLimit: rule.Fixed ?? int.MaxValue,
+            AddPack(spawns, taken, walkable, at, guard, rule.Rarity, true, rng, PackStands(guard) ? visible : spawnable, memberLimit: rule.Fixed ?? int.MaxValue,
                 keepClear: ShrinePlacement.ObjectSize, maxRadius: ShrineGuardRadius, ring: true);
             centres.Add(at);
             var mine = spawns.Skip(first).ToList();

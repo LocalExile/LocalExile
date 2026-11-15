@@ -127,25 +127,7 @@ sealed class IceNovaEffect : IShrineEffect
         // The standing shrine's nova is the player's hazard; only the claimed one turns on the monsters around him.
         if (standing)
         {
-            if (Dist(conn.Walk.Position(now), at) > radius) return;
-            int damage = (int)((packet.MinTotal + packet.MaxTotal) / 2);
-            if (damage <= 0) return;
-            long before = conn.PlayerLife;
-            // DamagePlayerHitTyped decides what reaches Life (it drains Ward, Energy Shield and Mana itself) and returns
-            // it; the caller applies it, exactly as a monster hit does.
-            int lifeDamage = DamagePlayerHitTyped(conn, 0, damage, 0, now, CharacterPlayerStats(conn), packet);
-            conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
-            Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Ice Nova at ({at.X}, {at.Y}) hits the player for " +
-                $"{damage}: life {before} -> {conn.PlayerLife}");
-            if (conn.PlayerLife != (uint)before)
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
-                    "0x01b1 player hit by a shrine Ice Nova"));
-            await SendPlayerEnergyShield(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
-            // A shrine nova can kill: at zero life the client needs the death screen, exactly as a monster hit's lethal
-            // damage does (PlayerDied). Without it the character stays standing at 0 life with no way to act or respawn.
-            if (conn.PlayerLife == 0)
-                await PlayerDied(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
-                    $"0x0055 death screen ({conn.League ?? "?"} league, a shrine Ice Nova)");
+            await ShrineManager.HitPlayers(conn, at, radius, DamageType.Cold, packet);
             return;
         }
         foreach (var (id, m) in targets)
@@ -176,17 +158,10 @@ sealed class IceNovaEffect : IShrineEffect
 
     public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine)
-    {
-        _arts.Clear();
-        _ground = 0;
-        _nextCast = 0;
-        return Task.CompletedTask;
-    }
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
     Task Clear(ClientState conn)
     {
-        if (conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         lock (conn.Monsters)
         {
             foreach (var art in _arts) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art.Object), null));
@@ -209,7 +184,7 @@ sealed class IceNovaEffect : IShrineEffect
     {
         if (_ground != 0 && Dist(_groundAt, at) <= GroundFollowCells) return;
         if (_ground != 0) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(_ground), null));
-        _ground = conn.NextObjectId++;
+        _ground = conn.TakeObjectId();
         _groundAt = at;
         var ground = new EffectObject(at.X, at.Y, GroundArt)
         {
@@ -238,7 +213,7 @@ sealed class IceNovaEffect : IShrineEffect
     /// <summary>The nova's art object. Called under the connection's monsters lock.</summary>
     uint SpawnArt(ClientState conn, int x, int y, float scale, double until)
     {
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         var art = new EffectObject(x, y, NovaArt) { Flags0 = EffectObject.FixedRotation, Scale = scale };
         conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             art.Blob()), null));

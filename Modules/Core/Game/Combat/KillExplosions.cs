@@ -54,20 +54,17 @@ public static partial class Game
         // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
         // are separate sources on the same kill).
         int percent = generic + (bleeding ? bleedingPercent : 0);
-        var type = DamageType.Physical;
-        if (percent <= 0)
-        {
-            // The shrine's "chance to Explode" (BuffDefinitions 1313 shrine_gloom): 25% of their life as chaos damage,
-            // on its chance. A physical explosion of the build's own wins when both apply, so its type is kept.
-            int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
-            if (chance <= 0 || Random.Shared.Next(100) >= chance) return false;
-            percent = 25;
-            type = DamageType.Chaos;
-        }
-        int amount = (int)Math.Min(int.MaxValue, corpse.MaxLife * (long)percent / 100);
-        if (amount <= 0) return false;
+        int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
+        int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
+        int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
+        int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
+        if (physical == 0 && chaos == 0) return false;
+        // Both modifiers can trigger on the same kill; preserve each damage type through mitigation.
+        var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
+            .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
+        long amount = (long)physical + chaos;
+        string type = physical > 0 && chaos > 0 ? "physical and chaos" : chaos > 0 ? "chaos" : "physical";
         int radius = KillExplosionRadius;
-        var packet = DamagePacket.Of(type, amount, amount);
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
         bool removeCorpse;
@@ -93,7 +90,7 @@ public static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
-        string art = type == DamageType.Chaos ? ChaosExplosionAo : KillExplosionAo;
+        string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
         await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()),
             $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})");

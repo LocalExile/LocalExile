@@ -23,7 +23,7 @@ namespace GameServer.Modules.Shrines;
 /// <see cref="PlayerMinions"/>. The engine fights them as the AI's own allies (<c>SpawnedMonster.AlliedFighter</c>).</para>
 /// <para>Each skeleton ends after its own 30 s, whether or not the shrine's 45 s buff is still up; the shrine's own end
 /// takes the rest. The data gives no cap on how many: the daemon would raise one a second for the whole buff. We keep
-/// <see cref="MaxAlive"/> alive, as many as a Summon Skeletons gem's skeletons plus its quality.</para>
+/// <see cref="MaxAlive"/> alive, the number its own lifetime and cadence can sustain.</para>
 /// </summary>
 sealed class SkeletonSummonEffect : IShrineEffect
 {
@@ -44,8 +44,8 @@ sealed class SkeletonSummonEffect : IShrineEffect
     /// <summary>The skill's <c>base_skill_effect_duration</c> (stat set 1326): how long each skeleton lives.</summary>
     internal const double LifetimeSeconds = 30;
 
-    /// <summary>Our cap on the living skeletons (the data has none).</summary>
-    internal const int MaxAlive = 8;
+    /// <summary>The maximum population sustained by the daemon cadence and skeleton lifetime.</summary>
+    internal const int MaxAlive = (int)(LifetimeSeconds / SummonSeconds);
 
     /// <summary>The skeletons this effect brought and when each one ends (game seconds), and where each rose.</summary>
     readonly Dictionary<uint, double> _expires = [];
@@ -197,7 +197,6 @@ sealed class SkeletonSummonEffect : IShrineEffect
     /// <summary>An ended skeleton leaves the world as a summoned monster does: no corpse, no life bar.</summary>
     void End(ClientState conn, uint id)
     {
-        if (conn.Closed) return;
         lock (conn.Monsters)
         {
             _expires.Remove(id);
@@ -221,17 +220,10 @@ sealed class SkeletonSummonEffect : IShrineEffect
 
     public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine)
-    {
-        _expires.Clear();
-        _spots.Clear();
-        _nextSummon = 0;
-        return Task.CompletedTask;
-    }
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
     Task Clear(ClientState conn)
     {
-        if (conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         uint[] ids;
         lock (conn.Monsters) ids = [.. _expires.Keys];
         foreach (uint id in ids) End(conn, id);

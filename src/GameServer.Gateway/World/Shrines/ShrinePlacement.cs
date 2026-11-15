@@ -4,7 +4,7 @@ using GameServer.Data.Terrain.Generation;
 /// Where a generated area's shrines stand and which type each one is. The level generator's shrine rooms place
 /// <c>Metadata/Shrines/Shrine</c> lines in their .arm rooms (<see cref="AreaObjects.RoomObjects"/>); a line on walkable ground
 /// is a shrine, and its type comes from the area seed and the cell, so the same layout and seed always roll the same shrines
-/// (a re-entered instance keeps its shrines). Types are drawn without repeating one the layout already has, from
+/// (a re-entered instance keeps its shrines). Types may repeat, drawn from
 /// <see cref="ShrineCatalog.Standard"/>: the basic shrines, so the apparition shrines (their scarab is not implemented)
 /// and the lesser, greater, PVP, CTF, Royale and boss rows are not an area's random shrines.
 /// <para>How many shrine rooms an area gets is the game's own roll, not this file's: the generator's extra terrain features
@@ -34,32 +34,24 @@ public static class ShrinePlacement
     {
         var placed = new List<Placed>();
         if (limit <= 0 || ShrineCatalog.Standard.Count == 0) return placed;
-        var used = new HashSet<int>();
         var seen = new HashSet<(int X, int Y)>();
         foreach (var o in roomObjects)
         {
             if (!string.Equals(o.Type, Type, StringComparison.Ordinal)) continue;
             if (o.X < 0 || o.Y < 0) continue;
             if (!walkable(o.X, o.Y) || !seen.Add((o.X, o.Y))) continue;
-            var shrine = Roll(seed, o.X, o.Y, used);
-            if (shrine is null) break;   // every standard type is already on the layout
+            var shrine = Roll(seed, o.X, o.Y);
             placed.Add(new Placed(o.X, o.Y, o.Rotation, string.IsNullOrEmpty(o.Model) ? DefaultModel : o.Model, shrine));
             if (placed.Count >= limit) break;
         }
         return placed;
     }
 
-    /// <summary>The type at a cell: a seeded index into the standard shrines, skipping the rows already used.</summary>
-    static ShrineCatalog.ShrineDefinition? Roll(uint seed, int x, int y, HashSet<int> used)
+    /// <summary>The deterministic type at this cell. Repeated types do not suppress later shrine rooms.</summary>
+    static ShrineCatalog.ShrineDefinition Roll(uint seed, int x, int y)
     {
         var standard = ShrineCatalog.Standard;
         uint hash = unchecked(seed * 0x9e3779b1u ^ (uint)x * 0x85ebca77u ^ (uint)y * 0xc2b2ae3du);
-        int start = (int)(hash % (uint)standard.Count);
-        for (int i = 0; i < standard.Count; i++)
-        {
-            int index = (start + i) % standard.Count;
-            if (used.Add(index)) return standard[index];
-        }
-        return null;
+        return standard[(int)(hash % (uint)standard.Count)];
     }
 }

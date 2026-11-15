@@ -25,13 +25,6 @@ public sealed class ShrinesModule : IModule
         // The claimed shrines' buff stats join the character's own sum, so the hit, crit, armour and resistance paths
         // reading it see them; the buff's expiry takes them out again.
         module.Lifetime.Own(GameEvents.PlayerStatSources.Add(id, (conn, stats) => ShrineManager.AddStats(conn, stats)));
-        // Dev: the basic types in the area on a ring, so each type's icon, buff and tooltip can be checked in one place.
-        GameEvents.Command(id, "shrines",
-            "/shrines [Id …] (dev: place shrine types on a ring around the player; no name places every basic type)",
-            async (conn, args) =>
-            {
-                int made = await ShrineManager.SpawnAroundPlayer(conn, args);
-                await PlayerOf(conn).Tell($"Shrines: {made} created around you");
-            });
+        module.Lifetime.Own(ShrineManager.Lifetime());
     }
 }

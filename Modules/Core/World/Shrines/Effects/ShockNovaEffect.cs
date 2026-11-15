@@ -55,9 +55,7 @@ sealed class ShockNovaEffect : IShrineEffect
     /// <summary>The margin a nova object outlives its clip by.</summary>
     internal const double NovaArtMargin = 0.25;
 
-    /// <summary>BISECT: whether the shocked ground is placed at all. Off while the client desyncs on this shrine's
-    /// stream, so the nova art and its hit can be played without any of the ground the shrine lays. A method rather than a
-    /// constant, so the code it guards stays compiled while it is off.</summary>
+    /// <summary>The daemon places shocked ground as well as casting its nova.</summary>
     internal static bool GroundEnabled() => true;
 
     /// <summary>The Shocked Ground icon the client draws on the player for standing in a patch (BuffDefinitions 232). Off:
@@ -141,13 +139,20 @@ sealed class ShockNovaEffect : IShrineEffect
             // Shocked ground: a monster standing in a patch is kept under a 15% shock (base_damage_taken_+%_from_shock),
             // refreshed only when it has run low, so its buff is not re-sent every tick.
             foreach (var (_, m) in conn.Monsters)
-                if (m is { Hostile: true, Dead: false, Life: > 0 }
+                if (shrine.State != ShrineState.Inactive && m is { Hostile: true, Dead: false, Life: > 0 }
                     && _patches.Any(p => p.Until > now && Dist(p.At, m.Walk.Position(now)) <= GroundRadius)
                     && (m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now) < ShockPct
                         || m.Ailments.Remaining(MonsterElementalAilments.Kind.Shock, now) < .4))
                     m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Shock, GroundShockSeconds, now,
                         n => 0, n => m.Effects[n], 1, ShockPct);
-            MaintainPlayerBuff(conn, now);
+            if (shrine.State == ShrineState.Inactive)
+                foreach (var player in ShrineManager.NearbyPlayers(conn, shrine.At, GenericRadius * 3))
+                    if (_patches.Any(p => p.Until > now && Dist(p.At, player.Walk.Position(now)) <= GroundRadius))
+                    {
+                        var stats = CharacterPlayerStats(player);
+                        player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, ShockPct, GroundShockSeconds, now,
+                            n => Stats.Key(n) is uint key ? stats.GetValueOrDefault(key) : 0, player.IncomingHitRandom);
+                    }
             if (now < _nextCast) return;
             cast = true;
             _nextCast = now + CastSeconds(conn);
@@ -158,8 +163,6 @@ sealed class ShockNovaEffect : IShrineEffect
             var own = Own(conn);
             radius = SkillArea.Radius(GenericRadius, n => Stat(own, n), spell: true);
             nova = Nova(conn, at, radius, now);
-            // BISECT: the shocked ground (its art objects, the shock they keep on monsters and the player's ground buff)
-            // is off while the client desyncs; the nova art and its hit still run. Remove this guard to bring it back.
             if (GroundEnabled()) Place(conn, at, now, seconds);
             foreach (var (id, m) in conn.Monsters)
                 if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
@@ -173,33 +176,8 @@ sealed class ShockNovaEffect : IShrineEffect
         // damages whoever walks into it, and only the claimed one turns its nova on the monsters.
         if (shrine.State == ShrineState.Inactive)
         {
-            if (packet.MaxTotal <= 0) return;
-            // The standing shrine casts on itself, so the reach is measured from the statue (`at` is the caster's cell
-            // inside the tick's lock; recompute the radius here where that scope has closed).
-            var statue = shrine.At;
             double reach = SkillArea.Radius(GenericRadius, n => Stat(Own(conn), n), spell: true);
-            if (Dist(conn.Walk.Position(now), statue) > reach) return;
-            int damage = (int)((packet.MinTotal + packet.MaxTotal) / 2);
-            if (damage <= 0) return;
-            long before = conn.PlayerLife;
-            // DamagePlayerHitTyped only decides what reaches Life (it drains Ward, Energy Shield and Mana itself); the
-            // caller applies the returned amount, exactly as a monster hit does. Discarding it is why a hit that emptied
-            // the player's shield never touched his life.
-            int lifeDamage = DamagePlayerHitTyped(conn, 0, damage, 0, now, CharacterPlayerStats(conn), packet);
-            conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
-            Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Shock Nova at ({statue.X}, {statue.Y}) hits the player for " +
-                $"{damage}: life {before} -> {conn.PlayerLife}");
-            if (conn.PlayerLife != (uint)before)
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
-                    "0x01b1 player hit by a shrine Shock Nova"));
-            // The hit is not the player's own, so tell the client what it did to the shield pool as well: without this the
-            // shield never moves on the panel and a hit that only drained energy shield looked like it did nothing.
-            await SendPlayerEnergyShield(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
-            // A shrine nova can kill: at zero life the client needs the death screen, exactly as a monster hit's lethal
-            // damage does (PlayerDied). Without it the character stays standing at 0 life with no way to act or respawn.
-            if (conn.PlayerLife == 0)
-                await PlayerDied(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
-                    $"0x0055 death screen ({conn.League ?? "?"} league, a shrine Shock Nova)");
+            await ShrineManager.HitPlayers(conn, shrine.At, reach, DamageType.Lightning, packet);
             return;
         }
         if (packet.MaxTotal > 0)
@@ -224,15 +202,15 @@ sealed class ShockNovaEffect : IShrineEffect
             }
     }
 
-    /// <summary>The buff is expiring: the ground, its shocks and the nova arts go with it.</summary>
     /// <summary>The shrine was claimed while this instance watched it: the ground and novae of its unclaimed state go.</summary>
     public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
     public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
 
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+
     Task Clear(ClientState conn)
     {
-        if (conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         lock (conn.Monsters)
         {
             foreach (var patch in _patches) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(patch.Object), null));
@@ -259,7 +237,7 @@ sealed class ShockNovaEffect : IShrineEffect
         uint first = 0;
         foreach (string piece in (string[])[NovaArt, NovaDonutArt])
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             var art = new EffectObject(at.X, at.Y, piece)
             {
                 Flags0 = EffectObject.FixedRotation,
@@ -301,7 +279,7 @@ sealed class ShockNovaEffect : IShrineEffect
             double angle = Math.PI * 2 * i / count;
             int x = at.X + (int)Math.Round(Math.Cos(angle) * GroundRing);
             int y = at.Y + (int)Math.Round(Math.Sin(angle) * GroundRing);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             _patches.Add(new() { At = (x, y), Until = until, Object = id });
             var art = new EffectObject(x, y, GroundArt) { Flags0 = EffectObject.FixedRotation };
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),

@@ -231,7 +231,17 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
-    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
+    /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
+    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public MonsterModEffects Effects
+    {
+        get
+        {
+            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            return Curses.Effects(effects);
+        }
+    }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).

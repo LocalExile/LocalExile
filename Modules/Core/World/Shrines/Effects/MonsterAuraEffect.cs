@@ -1,87 +1,69 @@
-using GameServer.Core.Protocol.Instance;
+using System.Runtime.CompilerServices;
 using static Game;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Shrines;
 
-/// <summary>
-/// The shrine's monster-side buff on the monsters around it while it is unclaimed: the Shrines row's
-/// <c>Monster_ShrineBuffsKey</c> put on every hostile monster in the shrine's neighbourhood, and taken off again when the
-/// player claims the shrine or the monster leaves. The monster's own <see cref="SpawnedMonster.EncounterStats"/> are
-/// saved and restored, so the aura leaves nothing behind on a monster that outlives it.
-/// <para>Reusable: a shrine whose data names a monster buff and whose gameplay accelerates or weakens the monsters around
-/// it is one line in its <see cref="ShrineDefinition.BeforeActivation"/>.</para>
-/// </summary>
+/// <summary>Each aura owns its contribution. Overlapping copies of one shrine buff do not stack.</summary>
 sealed class MonsterAuraEffect : IShrineEffect
 {
-    sealed class Buffed
-    {
-        /// <summary>The monster's EncounterStats before the aura (null when it had none).</summary>
-        public IReadOnlyDictionary<string, int>? Previous;
-    }
-
-    readonly Dictionary<uint, Buffed> buffed = [];
-
-    /// <summary>Says so when the row this aura was registered for names no monster buff: then no monster can ever enter
-    /// doing anything, and the shrine is player-side only by data rather than by accident.</summary>
-    public Task OnSpawn(ShrineContext ctx, ShrineInstance shrine)
-    {
-        if (shrine.Definition.Monster is null)
-            Console.WriteLine($"[gateway] shrine {shrine.Definition.Id}: its Shrines row names no Monster_ShrineBuffsKey; " +
-                "the monster aura has nothing to apply");
-        return Task.CompletedTask;
-    }
+    static readonly ConditionalWeakTable<SpawnedMonster, Dictionary<ushort, HashSet<MonsterAuraEffect>>> Owners = new();
+    readonly Dictionary<uint, SpawnedMonster> affected = [];
+    static string Key(ushort row) => $"Shrine/{row}";
 
     public Task OnNearbyMonsterEnter(ShrineContext ctx, ShrineInstance shrine, uint monster)
     {
-        if (shrine.Definition.Monster is not { } buff || buffed.ContainsKey(monster)) return Task.CompletedTask;
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var (key, value) in buff.Stats)
-            if (key >= 1 && key <= Stats.Names.Count)
-            {
-                string name = Stats.Name(key);
-                stats[name] = stats.GetValueOrDefault(name) + value;
-            }
-        if (stats.Count == 0) return Task.CompletedTask;
+        if (shrine.Definition.Monster is not { } buff) return Task.CompletedTask;
         lock (ctx.Conn.Monsters)
         {
-            if (!ctx.Conn.Monsters.TryGetValue(monster, out var m) || m.Dead) return Task.CompletedTask;
-            var merged = new Dictionary<string, int>(StringComparer.Ordinal);
-            if (m.EncounterStats is { } previous)
-                foreach (var (name, value) in previous) merged[name] = value;
-            foreach (var (name, value) in stats) merged[name] = merged.GetValueOrDefault(name) + value;
-            buffed[monster] = new Buffed { Previous = m.EncounterStats };
-            m.EncounterStats = merged;
+            if (affected.ContainsKey(monster) || !ctx.Conn.Monsters.TryGetValue(monster, out var m) || m.Dead)
+                return Task.CompletedTask;
+            affected[monster] = m;
+            var owners = Owners.GetOrCreateValue(m);
+            if (!owners.TryGetValue(buff.BuffRow, out var sources)) owners[buff.BuffRow] = sources = [];
+            sources.Add(this);
+            if (sources.Count > 1) return Task.CompletedTask;
+            var stats = buff.Stats.Where(s => s.Key >= 1 && s.Key <= Stats.Names.Count)
+                .GroupBy(s => Stats.Name(s.Key)).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
+            Change(ctx.Conn, monster, m, () => m.TemporaryStats[Key(buff.BuffRow)] = stats);
         }
-        // No buff is sent to the client for the aura: the stats are the server's own, and a shrine buff row would draw
-        // its icon over the monster's head, which the monsters around an unclaimed shrine should not wear.
-        Console.WriteLine($"[gateway] {ctx.Conn.Wire.Remote} monster 0x{monster:x} has shrine aura {buff.Template} " +
-            $"(BuffDefinitions row {buff.BuffRow}), server-side only");
         return Task.CompletedTask;
     }
 
-    public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster) => Remove(ctx, shrine, monster);
+    public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster)
+    {
+        lock (ctx.Conn.Monsters)
+            if (affected.Remove(monster, out var m) && shrine.Definition.Monster is { } buff
+                && Owners.TryGetValue(m, out var owners) && owners.TryGetValue(buff.BuffRow, out var sources))
+            {
+                sources.Remove(this);
+                if (sources.Count == 0)
+                {
+                    owners.Remove(buff.BuffRow);
+                    Change(ctx.Conn, monster, m, () => m.TemporaryStats.Remove(Key(buff.BuffRow)));
+                }
+            }
+        return Task.CompletedTask;
+    }
 
-    /// <summary>The shrine is claimed: the monsters it accelerated lose the buff with the shrine's own activation.</summary>
+    static void Change(ClientState conn, uint id, SpawnedMonster monster, Action change)
+    {
+        int before = monster.Effects.MaxLife(100000);
+        uint oldLife = monster.MaxLife;
+        change();
+        var effects = monster.Effects;
+        uint maximum = (uint)Math.Clamp((long)oldLife * effects.MaxLife(100000) / before, 1, uint.MaxValue);
+        monster.MaxLife = maximum;
+        monster.Life = (uint)Math.Clamp(Math.Ceiling(monster.Life * (double)maximum / Math.Max(1, oldLife)), 0, maximum);
+        var stats = new List<(uint, int)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, maximum)) };
+        if (Stats.Key("actor_scale_+%") is uint scale) stats.Add((scale, effects.ActorScalePct));
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, stats), null));
+        if (maximum != oldLife) conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(id, monster.Life), null));
+    }
+
     public async Task OnActivation(ShrineContext ctx, ShrineInstance shrine)
     {
-        foreach (uint monster in buffed.Keys.ToArray()) await Remove(ctx, shrine, monster);
+        foreach (uint id in affected.Keys.ToArray()) await OnNearbyMonsterLeave(ctx, shrine, id);
     }
-
-    /// <summary>The area is going: its monsters and their buffs go with it, so nothing is sent.</summary>
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine)
-    {
-        buffed.Clear();
-        return Task.CompletedTask;
-    }
-
-    Task Remove(ShrineContext ctx, ShrineInstance shrine, uint monster)
-    {
-        if (!buffed.Remove(monster, out var entry)) return Task.CompletedTask;
-        lock (ctx.Conn.Monsters)
-            if (ctx.Conn.Monsters.TryGetValue(monster, out var m)) m.EncounterStats = entry.Previous;
-        // The other side of the enter line, so a claim (or a monster leaving) can be checked in the log.
-        if (shrine.Definition.Monster is { } buff)
-            Console.WriteLine($"[gateway] {ctx.Conn.Wire.Remote} monster 0x{monster:x} loses shrine aura {buff.Template}");
-        return Task.CompletedTask;
-    }
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => OnActivation(ctx, shrine);
 }
