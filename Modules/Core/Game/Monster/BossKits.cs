@@ -129,11 +129,31 @@ public static class BossKits
                     Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(conn, variety, effect, level, shot),
                 };
             }
+            if (unique && kit.Count > 0 && attack.Projectile is null && attack.Summon is null)
+            {
+                // A trap or a totem is an object of its own, and Storm Call's marker is server art (StormCall.cs): the
+                // server places none of them for a monster, so the client would show the cast and nothing where it hits.
+                if (catalog.HasType(effect, "Trapped") || catalog.HasType(effect, "SummonsTotem")
+                    || catalog.EffectId(effect) is { } stormCall && MonsterSkills.Family(stormCall) == "StormCall") continue;
+                if (AreaRadius(catalog, effect, level) is double radius && !catalog.IsMelee(effect))
+                    attack = attack with { AreaRadius = radius, AreaAtSelf = catalog.HasType(effect, "Nova") };
+            }
             bool acts = !attack.Damage.IsZero || attack.Summon is not null || attack.Projectile is not null;
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
         return kit;
+    }
+
+    /// <summary>An area skill's radius (cells) from its own stats at the level (SkillArea: its base radius scaled by its
+    /// area modifiers); null for a skill that is no area skill or names no radius.</summary>
+    public static double? AreaRadius(SkillCatalog catalog, int effect, byte level)
+    {
+        if (!catalog.HasType(effect, "Area")) return null;
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get("active_skill_base_area_of_effect_radius") <= 0) return null;
+        return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius"), Get, catalog.IsSpell(effect));
     }
 
     /// <summary>A skill's projectile as the client resolves its art (SkillCatalog.SkillArtProjectile), with the count its

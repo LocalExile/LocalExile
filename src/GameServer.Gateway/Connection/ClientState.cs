@@ -62,6 +62,12 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>The kit skill's granted effect (BossKits): a weapon-stanced monster times its contact by the clip its stance
     /// plays for the effect's action (SkillAnimations, Program.StanceContact).</summary>
     public int? Effect { get; init; }
+    /// <summary>An area skill without a projectile (Cold Snap, Rain of Arrows, Vortex): its hit lands at the contact within
+    /// this radius (cells, its own stats) of the point its action aims at, rather than on the player wherever they went.
+    /// 0: a plain hit.</summary>
+    public double AreaRadius { get; init; }
+    /// <summary>The area is around the user (a nova: ActiveSkillTypes Nova), not where the action aims.</summary>
+    public bool AreaAtSelf { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>

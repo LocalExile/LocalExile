@@ -1628,6 +1628,7 @@ public static partial class Game
         }
         double startedAt = 0;
         (int X, int Y)? projectileAim = null;
+        (int X, int Y) areaAim = default;
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
@@ -1637,6 +1638,8 @@ public static partial class Game
             // The client-drawn straight mortar retains the action order's aim throughout its windup
             // (141ba7c30 -> 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
+            // An area skill lands where its action aims (a nova around its user), wherever the player goes meanwhile.
+            areaAim = a.AreaAtSelf ? from : player;
             if (walkUp && !conn.LockstepClient) seq = m.NextSequence();
             a = MonsterAttackForSequence(conn, m, a, seq);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
@@ -1668,6 +1671,11 @@ public static partial class Game
         {
             // The shot leaves at the contact and flies; its hit lands when it reaches the player (Program.ProjectileHostile.cs).
             LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, projectile, action, projectileAim, sequence: seq);
+            return;
+        }
+        if (a.AreaRadius > 0 && !area)
+        {
+            await MonsterAreaHit(remote, stream, ciphers, conn, id, m, a, action, areaAim, a.AreaRadius, seq);
             return;
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }
@@ -1730,6 +1738,14 @@ public static partial class Game
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, a.SkillId, sequence, conn.MonsterOrderFlags, targetObjectId: PlayerId);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses area skill 0x{a.SkillId:x4}, radius {radius:0.#}")) return;
         if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + a.Seconds * 0.5)) return;
+        await MonsterAreaHit(remote, stream, ciphers, conn, id, m, a, action, aim, radius, sequence);
+    }
+
+    /// <summary>An area skill's hit at its contact: every golem and the player within <paramref name="radius"/> of
+    /// <paramref name="aim"/>.</summary>
+    public static async Task MonsterAreaHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster m, MonsterAttack a, int action, (int X, int Y) aim, double radius, ushort sequence)
+    {
         MonsterHitOutcome? outcome = null;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
