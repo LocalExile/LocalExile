@@ -27,7 +27,13 @@ public static class ShrineManager
         public int Token;
         /// <summary>When the buff ends, on the connection clock: the tick ends it, so no timer outlives the area.</summary>
         public double EndsAt;
+        /// <summary>The Shrines row id of an item's permanent shrine buff (Blunderbore, Screams of the Desiccated): it
+        /// lasts while the item grants it (<see cref="ItemBuffs"/>); null for a claimed or timed one.</summary>
+        public string? ItemSource;
     }
+
+    /// <summary>The random shrine buffs gained on a kill (The Golden Charlatan), granted by the next tick.</summary>
+    static readonly ConditionalWeakTable<ClientState, List<(string Id, double Seconds)>> PendingKillBuffs = new();
 
     sealed class SharedArea
     {
@@ -301,15 +307,19 @@ public static class ShrineManager
 
     /// <summary>Grants the shrine's buff for its row's duration and starts its effect. A second shrine of the same row
     /// replaces the first: its buff is removed before the new one, and the older timer cannot remove the newer buff.</summary>
-    static async Task Grant(ClientState conn, ShrineInstance shrine, ShrineContext ctx)
+    /// <param name="seconds">A fixed duration (a kill's random buff), in place of the row's scaled by shrine duration.</param>
+    /// <param name="itemSource">An item's permanent buff: no duration, until the item stops granting it.</param>
+    static async Task Grant(ClientState conn, ShrineInstance shrine, ShrineContext ctx, double? seconds = null, string? itemSource = null)
     {
         var state = Of(conn);
         var (remote, stream, ciphers) = conn.Wire;
         var definition = shrine.Definition;
         var playerStats = CharacterPlayerStats(conn);
         int Stat(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
+        bool permanent = itemSource is not null && seconds is null;
         int duration = Stat("shrine_effect_duration_+%") + (MapModsOf(conn)?.Get("map_player_shrine_effect_duration_+%") ?? 0);
-        shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
+        if (seconds is double fixedSeconds) shrine.Duration = (int)Math.Clamp(Math.Round(fixedSeconds), 0, int.MaxValue);
+        else if (!permanent) shrine.Duration = Math.Clamp(shrine.Duration * Math.Max(0L, 100L + duration) / 100, 0, int.MaxValue);
         int effectPercent = Stat("shrine_buff_effect_on_self_+%") + (MapModsOf(conn)?.Get("map_player_shrine_buff_effect_on_self_+%") ?? 0);
         if (effectPercent != 0 && (definition.Monster is not null || definition.Lesser))
             shrine.Stats = shrine.Stats.Select(s => (s.Key, Stats.Name(s.Key) is "has_shrine_effect" or "always_crit" or "base_cannot_be_damaged" or "global_knockback" or "extra_gore"
@@ -331,21 +341,25 @@ public static class ShrineManager
             state.Buffs[definition.BuffRow] = new ActiveBuff
             {
                 Shrine = shrine, Instance = instance, Token = token,
-                EndsAt = ctx.Now + shrine.Duration,
+                EndsAt = permanent ? double.PositiveInfinity : ctx.Now + shrine.Duration,
+                ItemSource = itemSource,
             };
             Console.WriteLine($"[gateway] shrine {definition.Id} grants " +
                 string.Join(", ", shrine.Stats.Select(s => $"0x{s.Key:x}={s.Value}")));
         }
         if (replaced is not null)
             await Send(remote, stream, ciphers, replaced, $"0x01c2 shrine buff {definition.BuffRow} replaced by a new shrine");
-        await Send(remote, stream, ciphers, [], $"0x01c1 shrine {definition.Id} buff {definition.BuffRow} for {shrine.Duration} s",
+        await Send(remote, stream, ciphers, [], permanent
+            ? $"0x01c1 shrine {definition.Id} buff {definition.BuffRow} from an item, without a duration"
+            : $"0x01c1 shrine {definition.Id} buff {definition.BuffRow} for {shrine.Duration} s",
             atGate: () =>
             {
                 lock (conn.Monsters)
                 {
                     if (conn.Closed || conn.LeavingArea) return null;
+                    // A permanent buff sends no duration (+0x68), as the client's other permanent buffs (auras) come.
                     var bytes = new List<byte>(InstanceEntities.AddBuff(PlayerId, instance, definition.BuffRow, PlayerId,
-                        u68: BitConverter.SingleToUInt32Bits((float)shrine.Duration)));
+                        u68: permanent ? null : BitConverter.SingleToUInt32Bits((float)shrine.Duration)));
                     // The buff's stats are in the character's sum now, so pools and the panel must follow.
                     RecomputePoolsAndSpeed(conn);
                     bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
@@ -430,8 +444,59 @@ public static class ShrineManager
             foreach (var (row, buff) in state.Buffs.ToArray())
                 if (conn.PlayerLife == 0 || buff.EndsAt <= now) await EndBuff(conn, row, buff);
                 else foreach (var effect in buff.Shrine.After) await effect.Tick(ctx, buff.Shrine);
+            await ItemBuffs(conn, state, ctx);
         }
         finally { state.Area.Gate.Release(); }
+    }
+
+    /// <summary>The shrine buffs items grant: Blunderbore's "You have Lesser Brutal/Massive Shrine Buff", Screams of the
+    /// Desiccated's "Acceleration Shrine Buff while affected by no Flasks" for as long as that holds, and The Golden
+    /// Charlatan's random shrine buff for its seconds after a rare or unique kill (<see cref="OnKill"/>). A claimed
+    /// shrine's buff of the same row is left to run out first; the item's comes back after it.</summary>
+    static async Task ItemBuffs(ClientState conn, AreaState state, ShrineContext ctx)
+    {
+        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return;
+        var stats = CharacterPlayerStats(conn);
+        int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var wanted = new List<string>();
+        if (Stat("has_unique_brutal_shrine_effect") != 0) wanted.Add("BrutalLesser");
+        if (Stat("has_unique_massive_shrine_effect") != 0) wanted.Add("MassiveLesser");
+        if (Stat("soulcord_have_acceleration_shrine_effect_if_affected_by_no_flasks") != 0 && !AnyFlaskEffect(conn))
+            wanted.Add("Acceleration");
+        ActiveBuff[] held;
+        lock (conn.Monsters) held = [.. state.Buffs.Values];
+        foreach (var buff in held)
+            if (buff.ItemSource is { } source && !wanted.Contains(source)) await EndBuff(conn, buff.Shrine.Definition.BuffRow, buff);
+        foreach (string id in wanted)
+        {
+            if (ShrineCatalog.Find(id) is not { } definition) continue;
+            bool taken;
+            lock (conn.Monsters) taken = state.Buffs.ContainsKey(definition.BuffRow);
+            if (!taken) await Grant(conn, NewInstance(definition, 0, 0, 0, null), ctx, itemSource: id);
+        }
+        (string Id, double Seconds)[] gained;
+        lock (conn.Monsters)
+        {
+            if (!PendingKillBuffs.TryGetValue(conn, out var pending) || pending.Count == 0) return;
+            gained = [.. pending]; pending.Clear();
+        }
+        foreach (var (id, seconds) in gained)
+            if (ShrineCatalog.Find(id) is { } definition) await Grant(conn, NewInstance(definition, 0, 0, 0, null), ctx, seconds);
+    }
+
+    /// <summary>"Gain a random Shrine Buff for X seconds when you Kill a Rare or Unique Enemy" (The Golden Charlatan): one of
+    /// the basic shrines (<see cref="ShrineCatalog.Standard"/>), granted by the next tick.</summary>
+    public static void OnKill(KillContext kill)
+    {
+        if (!kill.PlayerKill || kill.Monster.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique)) return;
+        var conn = kill.Conn;
+        if (conn.PlayerLife == 0) return;
+        var stats = CharacterPlayerStats(conn);
+        int centiseconds = Stats.Key("gain_shrine_buff_on_rare_or_unique_kill_centiseconds") is uint key ? stats.GetValueOrDefault(key) : 0;
+        var choices = ShrineCatalog.Standard;
+        if (centiseconds <= 0 || choices.Count == 0) return;
+        lock (conn.Monsters)
+            PendingKillBuffs.GetOrCreateValue(conn).Add((choices[Random.Shared.Next(choices.Count)].Id, centiseconds / 100.0));
     }
 
     public static async Task LeaveArea(ClientState conn)
