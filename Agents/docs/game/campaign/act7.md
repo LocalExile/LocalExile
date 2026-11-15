@@ -301,6 +301,14 @@ Sanctum (a7q2).
 
 ## a7q4 "The Mother of Spiders" (Quest row 80, main; ends the act)
 
+Native encounter notes: `ArakaaliBoss.act` defines `SpellProjectileCold` only under `stance2`.
+`VaalSpiderGod/rig.amd` clip 10 is `phase_01_transition_silk_01` (6333 ms); changing to stance2 attaches `SilkHead.ao`.
+The Tendrils granted effects select art variations 1/2/3; without `skill_art_variation` their action chooses
+`CastFast`, absent from this actor. The campaign now gates the phase at 50%, plays Silk's clip and resumes at 60%.
+These HP values are provisional reference calibration; arena corner travel and turret laser patterns remain missing.
+The live object's stance is also part of its creation snapshot, so a later observer retains the second phase.
+
+
 **Start:** YeenaTown "Silk" (cat 4, sets the quest). **Finish:** enter The Sarn Ramparts.
 **DONE flag (driver):** `Visited-8_1` (QS 854 Order 0). Optional: SinTown "Arakaali" sets `a7q4-QuestRewardTaken`
 (no item).

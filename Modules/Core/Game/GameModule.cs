@@ -41,6 +41,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Arakaali.Tick(conn));
+        module.Lifetime.Own(global::Arakaali.CleanupOnUnload());
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
