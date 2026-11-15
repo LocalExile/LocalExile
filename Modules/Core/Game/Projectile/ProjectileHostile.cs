@@ -59,6 +59,7 @@ public static partial class Game
         }
         ProjectileVector[]? nativeTargets = null;
         double[]? nativeSpeeds = null;
+        string contactRow = projectile.Metadata;
         bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
         if (projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))
         {
@@ -137,17 +138,18 @@ public static partial class Game
             // A water vortex ends on its diamond, whatever the aim's distance.
             if (projectile.Recipe == "WaterVortex")
                 nativeTargets = [WaterVortexTarget(from, aim, (int)(128 * (100 + SkillStat("spell_maximum_action_distance_+%")) / 100.0))];
-            if (projectile.Recipe is "Knives" or "Spray")
+            if (projectile.Recipe is "Knives" or "Spray" or "Flames" or "FigureheadFlames")
             {
                 // Ethereal knives (0x1419f4be0) hold the aim 60 cells from the caster's cell, a fire spray (0x141c6b980) 50
-                // cells toward its target's cell at release; every projectile leaves from 30 units ahead of the cell's
-                // centre (0x141ba7c30), not from the clip's contact, and fans about there to the aim's distance (a nova
-                // rings). Each one's mover then jitters and stretches its end (SeededEnd), a spray's at its own speed;
-                // the counter that seeds it runs on across the action's releases.
-                bool spray = projectile.Recipe == "Spray";
+                // cells toward its target's cell at release, flames 18 (0x141b85cd0); every projectile leaves from 30 units
+                // ahead of the cell's centre (0x141ba7c30), not from the clip's contact, and fans about there to the aim's
+                // distance (a nova rings), a flame's target then pushed out to the range (its row has no
+                // UseTargetLocation). Each one's mover then jitters and stretches its end (SeededEnd), a spray's at its own
+                // speed; the counter that seeds it runs on across the action's releases.
+                bool spray = projectile.Recipe == "Spray", flames = projectile.Recipe is "Flames" or "FigureheadFlames";
                 var cell = new ProjectileVector(Math.Floor(from.X), Math.Floor(from.Y));
                 var line = (aim - cell).Unit;
-                double hold = spray ? 50 : 60;
+                double hold = spray ? 50 : flames ? 18 : 60;
                 var held = cell + new ProjectileVector(Math.Floor(line.X * hold + .5), Math.Floor(line.Y * hold + .5));
                 var centre = (cell + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
                 var heldWorld = (held + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
@@ -159,11 +161,31 @@ public static partial class Game
                 nativeTargets = new ProjectileVector[projectile.Count];
                 var speeds = new double[projectile.Count];
                 uint ordinal = (uint)(release?.Ordinal ?? 0);
+                // A flame's stage (0x141b85cd0): a cast within 0.75 s of the last release adds one, up to 100; a later one
+                // starts again at 1 and makes a stage tracker, which takes the action's next seed before the flames (the
+                // Figurehead's tracker counts its own, 0x141b81eb0). The stage's tier picks the row by which it touches.
+                int stage = 0;
+                uint trackers = 0;
+                if (flames)
+                {
+                    var (last, until, made) = m.FlameStages.GetValueOrDefault(a.SkillId);
+                    if (ordinal == 0) made = 0;
+                    if (now >= until) (last, made) = (0, made + 1);
+                    stage = Math.Min(100, last + 1);
+                    m.FlameStages[a.SkillId] = (stage, now + .75, made);
+                    trackers = projectile.Recipe == "FigureheadFlames" ? 0u : (uint)made;
+                    int tier = stage < 4 ? 1 : stage < 8 ? 2 : stage < 12 ? 3 : 4;
+                    if (projectile.Metadata.EndsWith("Flamethrower1") || projectile.Metadata.EndsWith("FlamethrowerBlue1"))
+                        contactRow = projectile.Metadata[..^1] + tier;
+                }
                 for (int i = 0; i < projectile.Count; i++)
                 {
-                    uint derived = (uint)(2 + (ordinal * projectile.Count + i) % 254);
-                    (nativeTargets[i], float factor) = SeededEnd(Cell(spawn + arm.Rotate(fan.Angle(i, projectile.Count, arm.Length / WorldUnits.PerCell))),
-                        origin, spray ? [sequence, derived, 0, ordinal] : [sequence, derived, 0], (float)MortarRange(), speedDraw: spray);
+                    uint derived = (uint)(2 + (trackers + ordinal * projectile.Count + i) % 254);
+                    var turned = arm.Rotate(fan.Angle(i, projectile.Count, arm.Length / WorldUnits.PerCell));
+                    if (flames) turned = turned.Unit * MortarRange() * WorldUnits.PerCell;
+                    (nativeTargets[i], float factor) = SeededEnd(Cell(spawn + turned), origin,
+                        spray ? [sequence, derived, 0, ordinal] : [sequence, derived, 0], flames ? 150 : (float)MortarRange(),
+                        speedDraw: spray, flameStage: stage);
                     speeds[i] = speed * factor;
                 }
                 if (spray) nativeSpeeds = speeds;
@@ -204,7 +226,7 @@ public static partial class Game
             : projectile.Recipe is not null ? MonsterShots.RecipeProfile(projectile, speed, landing, attack: !a.Spell)
             : MonsterProjectileProfile(projectile, speed, landing, straightRange);
         if (nativeTargets is not null)
-            profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(projectile.Metadata) };
+            profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(contactRow) };
         var owner = session.ActorKey(id, m);
         double flightCells = projectile.Lobbed ? landing : (aim - origin).Length;
         var presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(projectile.Metadata), flightCells / speed);

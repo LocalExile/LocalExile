@@ -246,7 +246,12 @@ public static class MonsterShots
             case "incinerate_old" or "incinerate_channel" or "figurehead_incinerate":                  // 0x141b834b0
                 id = Row(artVariation, "Flamethrower1", (1, "FlamethrowerBlue1"), (2, "IncinerateHoly"), (3, "GhostProjectile"),
                     (4, family == "figurehead_incinerate" ? "AbyssLichFigureHeadIncinerate" : "IncinerateKitavaMinion"));
-                reason = "flame stage jitter";
+                // Each flame's mover turns it by its seed and the stage its recent casts built (MonsterProjectileUse,
+                // SeededEnd). A channel releases for as long as it lasts, which the server does not run; the Abyss Lich's
+                // flame draws a third time for its height; a spiral (below) keeps the server's object too.
+                if (family == "incinerate_channel") reason = "monster channel";
+                else if (family == "figurehead_incinerate" && artVariation == 4) reason = "flame height draw";
+                else if (Get("projectile_spiral_nova_time_ms") == 0) recipe = family == "figurehead_incinerate" ? "FigureheadFlames" : "Flames";
                 break;
             case "totem_fire_spray" or "totem_fire_spray_triggerable":                                 // 0x141b84e00
                 id = Row(artVariation, "TotemFireSpray", (1, "FlameBearerFireSpray"), (2, "SnakeFireSpray"), (3, "SnakeLightningSpray"),

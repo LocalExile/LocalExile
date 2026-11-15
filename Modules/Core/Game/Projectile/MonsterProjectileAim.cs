@@ -19,18 +19,28 @@ public static partial class Game
         return new(ox + Math.Sign(dx) * u, oy + (dy >= 0 ? d - u : -(d - u)));
     }
 
-    // A seeded mover's end: an ethereal knife's (0x1419f46c0, key [sequence, derived, repeats left]) or a fire spray's
-    // (0x141c6b730, key [sequence, derived, repeats left, earlier releases], which first draws its speed factor 0.6..1.4).
-    // Its fanned target moves by two draws of 0..100 (the first in y), each /5 − 10 truncated, then stretches from its
-    // launch cell to its range, truncated per axis.
+    // A seeded mover's end: an ethereal knife's (0x1419f46c0, key [sequence, derived, repeats left]), a fire spray's
+    // (0x141c6b730, key [sequence, derived, repeats left, earlier releases], which first draws its speed factor 0.6..1.4)
+    // or an incinerate flame's (0x141b85a60, 0x141b86ad0, 0x141b81b90; the knife's key, with its stage). Its fanned
+    // target moves by two draws of 0..100 (the first in y), each /5 − 10 truncated, then stretches from its launch cell
+    // to its range, truncated per axis. A flame turns instead: 100 units toward the target plus each draw − 50 truncated
+    // times 0.1, 0.2, 0.35 or 0.45 as its stage reaches 4, 8 and 12, both rounded.
     public static (ProjectileVector End, float Speed) SeededEnd(ProjectileVector target, ProjectileVector launch, uint[] key,
-        float range, bool speedDraw = false)
+        float range, bool speedDraw = false, int flameStage = 0)
     {
         var random = new AnimationVariantSelector.NativeRandom(key);
         float speed = speedDraw ? (random.Range(0, 100) * .8f + 60) / 100 : 1;
         float a = random.Range(0, 100), b = random.Range(0, 100);
         int px = (int)launch.X, py = (int)launch.Y;
         int vx = (int)target.X + (int)(b / 5 - 10) - px, vy = (int)target.Y + (int)(a / 5 - 10) - py;
+        if (flameStage > 0)
+        {
+            static int Round(float value) => (int)MathF.Floor(value + .5f);
+            int dx = (int)target.X - px, dy = (int)target.Y - py;
+            float unit = dx == 0 && dy == 0 ? 0 : 100 / MathF.Sqrt(dx * dx + dy * dy);
+            float k = flameStage < 4 ? .1f : flameStage < 8 ? .2f : flameStage < 12 ? .35f : .45f;
+            (vx, vy) = (Round(dx * unit) + Round((int)(b - 50) * k), Round(dy * unit) + Round((int)(a - 50) * k));
+        }
         float length = MathF.Sqrt(vx * vx + vy * vy);
         if (length >= .01f) (vx, vy) = ((int)(vx * (range / length)), (int)(vy * (range / length)));
         return (new(px + vx, py + vy), speed);

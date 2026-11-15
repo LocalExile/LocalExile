@@ -194,6 +194,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>A flame skill's stage by its skill id (Clock seconds it holds until, and the stage trackers its current
+    /// action has made), kept by its releases under the Monsters lock.</summary>
+    public readonly Dictionary<ushort, (int Stage, double Until, int Trackers)> FlameStages = [];
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }

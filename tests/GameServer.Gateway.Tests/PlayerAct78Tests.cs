@@ -120,6 +120,19 @@ public sealed class PlayerAct78Tests
             var (sprayEnd, sprayFactor) = Game.SeededEnd(new(150, 100), new(100, 100), [0xffff, 2, 0, 0], 150, speedDraw: true);
             Assert.Equal((new(249, 105), 1.14048), (sprayEnd, Math.Round(sprayFactor, 5)));
             Assert.Equal(new(241, 158), Game.SeededEnd(new(141, 118), new(103, 101), [0x80bc, 4, 0, 1], 150, speedDraw: true).End);
+            // Incinerate's flames are the client's: each one's end turns by its seed, the more as the stage grows. Its
+            // channel, its spirals and the Abyss Lich's height draw stay the server's.
+            foreach (var (effect, row, count, recipe) in new[] { ("AxisClericBossIncinerate", "IncinerateHoly", 11, "Flames"),
+                ("ExileIncinerate", "Flamethrower1", 1, "Flames"), ("TalismanT2IncinerateBlue", "FlamethrowerBlue1", 1, "Flames"),
+                ("FigureheadChestBossIncinerate", "GhostProjectile", 1, "FigureheadFlames") })
+                Assert.Equal(("Metadata/Projectiles/" + row, count, true, recipe, -1),
+                    (Shot("", effect)!.Metadata, Shot("", effect)!.Count, Shot("", effect)!.ClientDraws, Shot("", effect)!.Recipe,
+                        MonsterShots.ClientDrawnProfile(conn, Shot("", effect)!, false, new(30, 0), 0x8001, 0x40).Pierce));
+            Assert.Equal(("monster channel", "spiral nova", "spiral nova"), (Shot("", "IncinerateBlackguardCleric")!.ServerReason,
+                Shot("", "IncinerateSpiralDexMissionBoss")!.ServerReason, Shot("", "IncinerateSpiralStrMissionTotem")!.ServerReason));
+            Assert.Equal(new(249, 95), Game.SeededEnd(new(118, 100), new(100, 100), [0xffff, 3, 0], 150, flameStage: 1).End);
+            Assert.Equal(new(241, 154), Game.SeededEnd(new(250, 140), new(102, 100), [0x80bc, 5, 0], 150, flameStage: 9).End);
+            Assert.Equal(new(30, 231), Game.SeededEnd(new(60, 230), new(101, 99), [0x8123, 2, 0], 150, flameStage: 14).End);
             // An ice spear changes form 20.199 cells out, its second form stronger.
             var spear = Shot("", "MountainGoatmanIceSpear")!;
             var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);
