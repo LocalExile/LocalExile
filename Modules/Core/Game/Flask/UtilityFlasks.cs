@@ -82,7 +82,7 @@ public static partial class Game
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
-        return player + (MapDevice.ForInstance(conn)?.Mods.Rarity ?? 0)
+        return player + (MapModsOf(conn)?.Rarity ?? 0)
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
     }
 
@@ -96,7 +96,7 @@ public static partial class Game
         double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
         return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
             * (1 + Math.Max(0, monster?.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) ?? 0) / 10000.0)
-            * (MapDevice.ForInstance(conn)?.Mods.QuantityFactor ?? 1);
+            * (MapModsOf(conn)?.QuantityFactor ?? 1);
     }
 
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the

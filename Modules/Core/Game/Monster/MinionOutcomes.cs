@@ -93,7 +93,7 @@ public static partial class Game
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
-            int mapTier = MapDevice.ForInstance(conn) is { } openMap ? openMap.Area.Tier : 0;
+            int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));

@@ -67,6 +67,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   stays gone); guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
   Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
   `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
+  stays gone); the instance keeps the map's level and mods for its whole life (after its last portal or another
+  activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
+  the level and applies the mods with them, the tier's more monster life and damage included; `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,

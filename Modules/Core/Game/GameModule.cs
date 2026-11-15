@@ -27,6 +27,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(Program.ConnOf(kill.Player), force: true));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());

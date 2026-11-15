@@ -17,8 +17,13 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
     ushort Hash16 = 0, bool IsMapArea = false, int AreaType = 0, int Level = 1, Func<int, int>? LeagueChance = null,
     (bool Enabled, int Chance)? DiscoverableHideout = null, Func<int, (int Max, bool NeedsChance, bool Skip)>? League = null,
     string? HideoutClaim = null, Func<string, IReadOnlyList<TopologyInfo>?>? SubArea = null, bool IsLabyrinth = false,
-    bool IsLabyrinthBoss = false, string? Master = null, Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow = null)
+    bool IsLabyrinthBoss = false, string? Master = null, Func<int, IReadOnlyList<TopologyInfo>?>? SubAreaRow = null,
+    IReadOnlyDictionary<int, int>? Stats = null, RawDat? CoreLeagues = null, Func<string, RawDat>? Table = null)
 {
+    /// <summary>An area stat the server sends in 0x1d (1-based Stats ids), 0 when absent: what the generator reads through
+    /// world +0x120's lookup (<c>0x142050dc0</c> and the league rolls). Without <see cref="Stats"/> every one is 0.</summary>
+    public int Stat(int id) => Stats is { } s && s.TryGetValue(id, out int v) ? v : 0;
+
     /// <summary>The area's row and the rows it points to, from the game's tables.</summary>
     public static AreaInfo Load(Func<string, byte[]?> read, string areaId, int level)
     {
@@ -46,7 +51,8 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
             i => (leagues.I32(i, 0x8a), leagues.Bool(i, 0x8e), leagues.Bool(i, 0xa0)),
             claim < 0 ? null : areas.String(claim, 0),
             id => areas.Find(r => areas.String(r, 0) == id) is var r and >= 0 ? Tops(r) : null, areas.Bool(row, 0x171), areas.Bool(row, 0x1bb),
-            areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null);
+            areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null,
+            CoreLeagues: leagues, Table: Dat);
     }
 }
 

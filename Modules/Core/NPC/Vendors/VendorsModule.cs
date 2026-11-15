@@ -22,7 +22,7 @@ public sealed class VendorsModule : IModule
         {
             var conn = ConnOf(kill.Player);
             if (kill.Monster.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-                && MapDevice.ForInstance(conn) is { } map)
+                && global::Game.MapRunOf(conn) is { } map && map.Owner.Equals(CharacterName(conn), StringComparison.OrdinalIgnoreCase))
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });

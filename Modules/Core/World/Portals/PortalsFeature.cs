@@ -13,7 +13,7 @@ static class PortalsFeature
     // a device once the world is active (21-hideouts.md §5). It is not used up.
     internal static async Task SpawnMapReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var origin = MapReturnOrigin(conn);
+        var origin = global::Game.MapRunOf(conn)?.ReturnTo;
         var hideout = HomeHideout(conn);
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
@@ -53,6 +53,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} map portal at place {at.Index} taken: {left} left, into {(map.Instance == 0 ? "a new instance" : $"instance {map.Instance}")} of {map.Area.Name}");
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0)
         {
+            Map = MapDevice.Run.Of(character, map),
             Done = r =>
             {
                 if (r.Ok) MapDevice.Entered(map, r.Instance);
@@ -80,7 +81,10 @@ static class PortalsFeature
         if (!device.Value.Campaign && !OwnHideout(conn)) { await Tell("Only the hideout owner can activate this Map Device."); return; }
         MapDevice.Slot[] checkedSlots = [.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
-            { AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components }
+            {
+                AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
+                Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
+            }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
         var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
         var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
@@ -150,7 +154,7 @@ static class PortalsFeature
         Console.WriteLine($"[gateway] {remote} <= 0x0024 portal back 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if (MapReturnOrigin(conn) is { } origin)
+        if (global::Game.MapRunOf(conn)?.ReturnTo is { } origin)
             await ChangeArea(remote, stream, ciphers, conn,
                 new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y)), "return to the map device");
         else if (conn.ReturnPortalTo is ushort town and not 0)
