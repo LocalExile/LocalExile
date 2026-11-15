@@ -109,7 +109,28 @@ public sealed class MonsterPoisons
         return whole;
     }
 
-    public void Clear() { DiedPoisoned |= Poisoned; active.Clear(); carry = 0; }
+    public void Clear()
+    {
+        if (Poisoned) cleared = StrongestOf(active);
+        DiedPoisoned |= Poisoned; active.Clear(); carry = 0;
+    }
+
+    (double DamagePerSecond, double Until)? cleared;
+
+    /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the
+    /// poisons ended (<see cref="Clear"/>), while its time lasts: what Bino's Kitchen Knife spreads.</summary>
+    public (double DamagePerSecond, double Until)? Strongest(double now) =>
+        StrongestOf(active.Where(p => p.From <= now && now < p.Until))
+            ?? (cleared is { } c && now < c.Until ? c : null);
+
+    static (double DamagePerSecond, double Until)? StrongestOf(IEnumerable<Poison> stacks)
+    {
+        (double, double)? best = null;
+        foreach (var p in stacks)
+            if (best is not { } b || p.DamagePerSecond > b.Item1 || p.DamagePerSecond == b.Item1 && p.Until > b.Item2)
+                best = (p.DamagePerSecond, p.Until);
+        return best;
+    }
 
     public bool DiedPoisoned { get; private set; }
 }
