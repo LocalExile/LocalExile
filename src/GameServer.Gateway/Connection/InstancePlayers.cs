@@ -68,7 +68,10 @@ public static class InstanceEvents
 /// area (WorldAreas HASH16) and the map it was opened with (<see cref="InstanceState.Map"/>), null outside a map.</summary>
 public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map);
 
-public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
+public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
+{
+    public byte ActorStance { get; init; }
+}
 public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
 public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination, uint Life);
 

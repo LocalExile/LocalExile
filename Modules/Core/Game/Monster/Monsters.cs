@@ -378,7 +378,7 @@ public static partial class Game
             {
                 conn.Instance.World.MonsterOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
                 // Created on this client where it was spawned (SyncInstanceMonsters creates it on the others).
-                conn.MonsterViews[id] = new((x, y), (x, y), Math.Min(damagedLife ?? life, life));
+                conn.MonsterViews[id] = new((x, y), (x, y), Math.Min(damagedLife ?? life, life)) { ActorStance = monster.ActorStance };
             }
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
@@ -659,7 +659,7 @@ public static partial class Game
                 // A lockstep client's monster takes no order before the frame after the one its hit recovery ends in
                 // (TakeHitPacket): one sent earlier waits and starts after the player's steps of that frame, or a frame
                 // or more after the estimate's walk.
-                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.WorldHidden || m.Scripted || m.Asleep || OwnedFighter(conn, id) is not null
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.StageRunning || m.LifePhases?.Active == true || m.WorldHidden || m.Scripted || m.Asleep || OwnedFighter(conn, id) is not null
                     || !MonsterAiCadence.Due(double.IsNaN(plan.FrameStart) ? now : plan.FrameStart, m.FlinchUntil)) continue;
                 // Asleep for this client (its own wake zone, KeepWakeZone): no order and no boss bar about an object the
                 // client has put to sleep; the boss life bar for one crashed the client (live 2026-11-05).
