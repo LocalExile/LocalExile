@@ -237,7 +237,7 @@ public static class MonsterShots
                 break;
             case "ethereal_knives":                                                                     // 0x1419f2d50
                 // Its trap and totem forms throw the trap or place the totem, which the server does not: its object flies.
-                // A hand-cast volley is the client's: each knife's mover jitters its end (MonsterProjectileUse, ShadowKnifeEnd).
+                // A hand-cast volley is the client's: each knife's mover jitters its end (MonsterProjectileUse, SeededEnd).
                 id = mpv != 0 ? Row(0, "MaligaroEtherealKnives") : Row(artVariation, "ShadowProjectile", (1, "ShadowProjectileStar"),
                     (2, "SpiderEtherealKnives"), (3, "EbonyEtherealKnvies"), (5, "EtherealKnivesSawBlade"));
                 if (Get("is_trap") != 0 || Get("is_totem") != 0 || Get("is_mine") != 0) reason = "totem, trap or mine form";
@@ -251,7 +251,12 @@ public static class MonsterShots
             case "totem_fire_spray" or "totem_fire_spray_triggerable":                                 // 0x141b84e00
                 id = Row(artVariation, "TotemFireSpray", (1, "FlameBearerFireSpray"), (2, "SnakeFireSpray"), (3, "SnakeLightningSpray"),
                     (4, "FireElementalSpray"), (5, "GhostFlameTotemFireSpray"), (6, "FlameBearerFireSprayGold"));
-                reason = "seeded spray offsets";
+                // It aims at its target's cell at release (0x141c6b980); each flame's mover jitters its end and its speed
+                // (MonsterProjectileUse, SeededEnd). A spray from the contact's scaled bone offset, and its spiral (below),
+                // keep the server's object.
+                target = SkillCatalog.MonsterShotTarget.AtRelease;
+                if (Get("projectile_uses_contact_position") != 0) reason = "spray from the contact's bone offset";
+                else if (Get("projectile_spiral_nova_time_ms") == 0) recipe = "Spray";
                 break;
 
             // Lobbed families: the server's object lands on the aim and hits the area there.

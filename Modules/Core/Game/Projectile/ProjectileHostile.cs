@@ -34,7 +34,7 @@ public static partial class Game
         double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, SkillStat, SkillStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
         double distance = Math.Max(1, (aim - from).Length);
-        // A mortar's or a knife's range in cells (the range getter, 0x141ba8d60): projectile_maximum_range_override, else 150.
+        // A mortar's, knife's or spray's range in cells (the range getter, 0x141ba8d60): projectile_maximum_range_override, else 150.
         double MortarRange() => SkillStat("projectile_maximum_range_override") is > 0 and var most ? most : 150;
         var toward = (aim - from).Unit;
         // The release point: the clip's contact keyframe along the line to the aim (the Spitter's lies 4.2 cells behind a
@@ -137,15 +137,18 @@ public static partial class Game
             // A water vortex ends on its diamond, whatever the aim's distance.
             if (projectile.Recipe == "WaterVortex")
                 nativeTargets = [WaterVortexTarget(from, aim, (int)(128 * (100 + SkillStat("spell_maximum_action_distance_+%")) / 100.0))];
-            if (projectile.Recipe == "Knives")
+            if (projectile.Recipe is "Knives" or "Spray")
             {
-                // Ethereal knives (0x1419f4be0) hold the aim 60 cells from the caster's cell; every knife leaves from 30
-                // units ahead of the cell's centre (0x141ba7c30), not from the clip's contact, and fans about there to the
-                // aim's distance. Each knife's mover then jitters and stretches its end (ShadowKnifeEnd); the counter that
-                // seeds it runs on across the action's releases.
+                // Ethereal knives (0x1419f4be0) hold the aim 60 cells from the caster's cell, a fire spray (0x141c6b980) 50
+                // cells toward its target's cell at release; every projectile leaves from 30 units ahead of the cell's
+                // centre (0x141ba7c30), not from the clip's contact, and fans about there to the aim's distance (a nova
+                // rings). Each one's mover then jitters and stretches its end (SeededEnd), a spray's at its own speed;
+                // the counter that seeds it runs on across the action's releases.
+                bool spray = projectile.Recipe == "Spray";
                 var cell = new ProjectileVector(Math.Floor(from.X), Math.Floor(from.Y));
                 var line = (aim - cell).Unit;
-                var held = cell + new ProjectileVector(Math.Floor(line.X * 60 + .5), Math.Floor(line.Y * 60 + .5));
+                double hold = spray ? 50 : 60;
+                var held = cell + new ProjectileVector(Math.Floor(line.X * hold + .5), Math.Floor(line.Y * hold + .5));
                 var centre = (cell + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
                 var heldWorld = (held + new ProjectileVector(.5, .5)) * WorldUnits.PerCell;
                 var spawn = centre + (heldWorld - centre).Unit * 30;
@@ -154,9 +157,16 @@ public static partial class Game
                 origin = Cell(spawn);
                 var fan = NativeVolley(new ProjectileProfile(projectile.Metadata), SkillStat).NativeVolley!;
                 nativeTargets = new ProjectileVector[projectile.Count];
+                var speeds = new double[projectile.Count];
+                uint ordinal = (uint)(release?.Ordinal ?? 0);
                 for (int i = 0; i < projectile.Count; i++)
-                    nativeTargets[i] = ShadowKnifeEnd(Cell(spawn + arm.Rotate(fan.Angle(i, projectile.Count, arm.Length / WorldUnits.PerCell))),
-                        origin, sequence, (uint)(2 + ((release?.Ordinal ?? 0) * projectile.Count + i) % 254), 0, (float)MortarRange());
+                {
+                    uint derived = (uint)(2 + (ordinal * projectile.Count + i) % 254);
+                    (nativeTargets[i], float factor) = SeededEnd(Cell(spawn + arm.Rotate(fan.Angle(i, projectile.Count, arm.Length / WorldUnits.PerCell))),
+                        origin, spray ? [sequence, derived, 0, ordinal] : [sequence, derived, 0], (float)MortarRange(), speedDraw: spray);
+                    speeds[i] = speed * factor;
+                }
+                if (spray) nativeSpeeds = speeds;
             }
         }
         // The server's own object turns by its contact too.

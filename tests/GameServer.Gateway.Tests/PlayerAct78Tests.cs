@@ -103,8 +103,23 @@ public sealed class PlayerAct78Tests
                 Assert.Equal(("Metadata/Projectiles/" + row, count, true, "Knives"),
                     (Shot("", effect)!.Metadata, Shot("", effect)!.Count, Shot("", effect)!.ClientDraws, Shot("", effect)!.Recipe));
             Assert.False(Shot("", "TalismanT2TrapEtherealKnives")?.ClientDraws ?? false);
-            Assert.Equal(new(249, 98), Game.ShadowKnifeEnd(new(160, 100), new(100, 100), 0xffff, 2, 0, 150));
-            Assert.Equal(new(249, 127), Game.ShadowKnifeEnd(new(157, 103), new(102, 100), 0x80bc, 5, 0, 150));
+            Assert.Equal((new(249, 98), 1f), Game.SeededEnd(new(160, 100), new(100, 100), [0xffff, 2, 0], 150));
+            Assert.Equal((new(249, 127), 1f), Game.SeededEnd(new(157, 103), new(102, 100), [0x80bc, 5, 0], 150));
+            // A fire spray (a Living Crystal's lightning, a Vaal totem's flames, a Lightning Thorns daemon's nova) is the
+            // client's too, aimed at the target's cell at release: each flame's end and speed are its seed's. A spray from
+            // the contact's bone offset and the spiral one stay the server's.
+            foreach (var (effect, row, count) in new[] { ("BeaconTotemIncinerate", "GhostFlameTotemFireSpray", 5),
+                ("DelveMonsterLightningSpray", "SnakeLightningSpray", 2), ("FireElementalFlameRed", "FireElementalSpray", 1),
+                ("VaalMechanicalTotemFireSpray", "TotemFireSpray", 4), ("LightningThornsLightningSpray", "SnakeLightningSpray", 6) })
+                Assert.Equal(("Metadata/Projectiles/" + row, count, true, "Spray", SkillCatalog.MonsterShotTarget.AtRelease, -1),
+                    (Shot("", effect)!.Metadata, Shot("", effect)!.Count, Shot("", effect)!.ClientDraws, Shot("", effect)!.Recipe,
+                        Shot("", effect)!.Target, MonsterShots.ClientDrawnProfile(conn, Shot("", effect)!, false, new(30, 0), 0x8001, 0x40).Pierce));
+            Assert.Equal((true, true, "spray from the contact's bone offset", "spiral nova"), (Shot("", "MonsterFlameRedKaomsChest")!.ClientDraws,
+                Shot("", "EssenceMonsterLightningSpray")!.ClientDraws, Shot("", "MonsterFlameRedCannibalBlightBossTotem")!.ServerReason,
+                Shot("", "IncinerateSpiralBloodlinesGhostTotemLightning")!.ServerReason));
+            var (sprayEnd, sprayFactor) = Game.SeededEnd(new(150, 100), new(100, 100), [0xffff, 2, 0, 0], 150, speedDraw: true);
+            Assert.Equal((new(249, 105), 1.14048), (sprayEnd, Math.Round(sprayFactor, 5)));
+            Assert.Equal(new(241, 158), Game.SeededEnd(new(141, 118), new(103, 101), [0x80bc, 4, 0, 1], 150, speedDraw: true).End);
             // An ice spear changes form 20.199 cells out, its second form stronger.
             var spear = Shot("", "MountainGoatmanIceSpear")!;
             var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);

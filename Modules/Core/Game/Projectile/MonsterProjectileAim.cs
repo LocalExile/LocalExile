@@ -19,18 +19,21 @@ public static partial class Game
         return new(ox + Math.Sign(dx) * u, oy + (dy >= 0 ? d - u : -(d - u)));
     }
 
-    // An ethereal knife's end (mover 0x1419f46c0): its fanned target moved by two draws of 0..100 (the first in y), each
-    // /5 − 10 truncated, then stretched from its launch cell to its range, truncated per axis.
-    public static ProjectileVector ShadowKnifeEnd(ProjectileVector target, ProjectileVector launch, ushort sequence, uint derived,
-        uint repeatsLeft, float range)
+    // A seeded mover's end: an ethereal knife's (0x1419f46c0, key [sequence, derived, repeats left]) or a fire spray's
+    // (0x141c6b730, key [sequence, derived, repeats left, earlier releases], which first draws its speed factor 0.6..1.4).
+    // Its fanned target moves by two draws of 0..100 (the first in y), each /5 − 10 truncated, then stretches from its
+    // launch cell to its range, truncated per axis.
+    public static (ProjectileVector End, float Speed) SeededEnd(ProjectileVector target, ProjectileVector launch, uint[] key,
+        float range, bool speedDraw = false)
     {
-        var random = new AnimationVariantSelector.NativeRandom([sequence, derived, repeatsLeft]);
+        var random = new AnimationVariantSelector.NativeRandom(key);
+        float speed = speedDraw ? (random.Range(0, 100) * .8f + 60) / 100 : 1;
         float a = random.Range(0, 100), b = random.Range(0, 100);
         int px = (int)launch.X, py = (int)launch.Y;
         int vx = (int)target.X + (int)(b / 5 - 10) - px, vy = (int)target.Y + (int)(a / 5 - 10) - py;
         float length = MathF.Sqrt(vx * vx + vy * vy);
         if (length >= .01f) (vx, vy) = ((int)(vx * (range / length)), (int)(vy * (range / length)));
-        return new(px + vx, py + vy);
+        return (new(px + vx, py + vy), speed);
     }
 
     // The spell form's mover (0x141a10d50) runs the same steps, with mortar_projectile_distance_override between the
