@@ -55,6 +55,9 @@ public static partial class Game
             ["_while_no_energy_shield"] = conn.EnergyShield.Current == 0,
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
             ["_while_phasing"] = conn.IsPhasing,
+            ["_while_affected_by_elusive"] = conn.IsElusive,
+            ["_while_elusive"] = conn.IsElusive,
+            ["_while_you_have_elusive"] = conn.IsElusive,
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
             [BurningItemCondition] = alive && (ailments.Ignite
@@ -130,7 +133,7 @@ public static partial class Game
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
-            RequalifyHerEmbrace(conn, equipmentFlags, activeItems), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
         return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }

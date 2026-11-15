@@ -122,8 +122,11 @@ which is why the traces of The Twilight Strand and The Coast start with the topo
 that rolls goes on (`0x142051ecf`, every stat 0): `Next(100) < 50` adds one `BrequelHiveEncounter` row to the pool
 (`BrequelSkyHiveEncounter` when the area level is 68 or more and `Next(10000)` at `0x142051f49` falls below 1600);
 otherwise the generator's +0x18b breach count goes up and no row is added (2026-10-25; checked on 22 traced loads).
-Rolls with a nonzero
-league-mechanic chance (`0x141ea8530`, which mixes in stats) are not ported and throw. The WorldAreas row in memory
+With area stats (0x1d's
+list, `AreaInfo.Stats`) the same function first tests stats that force or replace rolls (Blight map, envoy rooms,
+Vaal side area and trial forcing, shrine and breach counts) and `0x141ea8530` mixes stats into each CoreLeagues
+chance; checked live on five maps with area stats by the client's tile hash (2026-11-14), not yet draw by draw
+(traces do not record the stats). The WorldAreas row in memory
 is the `.datc64` row, so `AreaInfo.Load` reads these offsets from the file (`RawDat`).
 
 **The extra room pool** (generator +0x40, `ExtraRoomPool.cs`). Each rolled feature that is an `ExtraTerrainFeatures`

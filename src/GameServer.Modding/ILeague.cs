@@ -44,6 +44,8 @@ public sealed record LeagueRules
     public bool TownRefillsFlasks { get; init; } = true;
     /// <summary>The crafting bench is in the hideout and works.</summary>
     public bool CraftingBench { get; init; } = true;
+    /// <summary>A Hardcore death sends the character to Void, permanently dead, instead of its league's parent.</summary>
+    public bool HardcoreDeathToVoid { get; init; }
     /// <summary>The tutorial's chest and support gem exist.</summary>
     public bool TutorialGifts { get; init; } = true;
     /// <summary>A utility flask gains charges while its effect runs (false: only with <see cref="UtilityFlaskExceptionStat"/>).</summary>

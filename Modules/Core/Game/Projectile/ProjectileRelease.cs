@@ -208,6 +208,8 @@ public static partial class Game
                 Profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(use.Profile, sequence)
             };
         }
+        if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)))
+            return use;
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" or "Twister")) return use;
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
@@ -384,22 +386,23 @@ public static partial class Game
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand)),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
-                projectileAttack: !spell),
+            Ignite = WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand))),
+            Poison = WithOverheat(conn, skillId, MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
+                projectileAttack: !spell)),
             EssenceDrain = EssenceDrainCast(conn, skillId, gem.Effect),
-            Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
-                bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true),
+            Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(conn, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
+                bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true)),
             VsBlinded = blindedRows is null || hitInputs is null ? null : new(
                 SupportedHitFrom(hitInputs, suppress: false, additionalIncreased: additionalBlindedIncreased),
                 areaHitInputs is null ? DamagePacket.Empty
                     : SupportedHitFrom(areaHitInputs, suppress: false,
                         additionalIncreased: additionalBlindedIncreased),
-                MonsterIgnites.Settings.From(blindedRows, hand, Get),
+                WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(
+                    MonsterIgnites.Settings.From(blindedRows, hand, Get), player, own, spell, hand))),
                 spell ? MonsterIgnites.Settings.None
-                    : BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
-                        bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true),
-                MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell)),
+                    : WithOverheat(conn, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
+                        bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true)),
+                WithOverheat(conn, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell))),
             MaimChance = spell ? 0 : Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
@@ -414,8 +417,10 @@ public static partial class Game
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
+            // Molten Strike's action spawns its local chunks on melee hit (0x141a6a4b0 -> 0x141ba7c30); server objects would duplicate them.
             ClientPredicted = totem is not null || spell
-                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect),
+                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect)
+                || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only

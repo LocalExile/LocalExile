@@ -31,7 +31,7 @@ public static partial class Game
     public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
-        if (m.Hostile && critical)
+        if (critical)
             lock (conn.Monsters) TryGainElusiveLocked(conn, critical: true, kill: false, ProjectileWorldTime(conn));
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
@@ -373,6 +373,9 @@ public static partial class Game
                         inTown: InTown(conn), Random.Shared,
                         mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds));
                     presentationPending = ChargePresentationPending(session);
+                    var refresh = ChargePoolRefreshes.GetOrCreateValue(conn);
+                    if (refresh.Pending) step = step with { CountsChanged = true };
+                    refresh.Pending = false;
                     if (step.CountsChanged)
                     {
                         conn.Pools = PoolsFor(conn, conn.Pools.Level);

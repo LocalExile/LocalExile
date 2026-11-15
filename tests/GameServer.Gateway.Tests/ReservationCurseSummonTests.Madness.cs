@@ -1,4 +1,5 @@
 using GameServer.Core.World;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -31,6 +32,23 @@ public sealed partial class ReservationCurseSummonTests
                          PlayerInventories.Gloves, 5, 6, 7, 10 })
                 foreach (var old in inventory.Items(row)) inventory.Remove(row, old.Id);
             var uniques = new UniqueCatalog(Program.Items);
+            foreach (var (variant, baseId, resistance) in new[]
+            {
+                ("Chaos", "BootsAtlas1", "ColdAndLightningResistImplicitBoots1"),
+                ("Physical", "BootsAtlas2", "FireAndColdResistImplicitBoots1_"),
+                ("Elemental", "BootsAtlas3", "FireAndLightningResistImplicitBoots1"),
+            })
+            {
+                var created = Assert.IsType<Item>(uniques.Create($"Beacon of Madness ({variant})", new Random(504)));
+                Assert.Equal("Metadata/Items/Armours/Boots/" + baseId, Program.Items.ByHash(created.TypeHash)!.Id);
+                Assert.Contains(created.Mods, m => m.Section == ModSection.Implicit && Program.Items.Mods.ByHash(m.Hash)?.Id == resistance);
+            }
+            foreach (var definition in uniques.All.Where(d => d.Name == "Beacon of Madness"))
+            {
+                var created = Assert.IsType<Item>(uniques.Create(definition, new Random(504)));
+                Assert.Equal(definition.BaseTypeId, Program.Items.ByHash(created.TypeHash)!.Id);
+                Assert.Contains(created.Mods, m => Program.Items.Mods.ByHash(m.Hash)?.Id == "AllDamageCanPoisonGloriousMadnessUnique___1");
+            }
             inventory.Add(5, 0, 0, uniques.Create("Astramentis", new Random(504))!);
             inventory.Add(6, 0, 0, uniques.Create("Le Heup of All", new Random(504))!);
             inventory.Add(7, 0, 0, uniques.Create("Le Heup of All", new Random(505))!);

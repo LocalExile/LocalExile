@@ -16,6 +16,7 @@ public sealed class CosmeticsModule : IModule
         {
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
+        GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => CosmeticsFeature.StepPetFollow(conn));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
@@ -88,10 +89,6 @@ public static class CosmeticsFeature
                 Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
                 return;
             }
-            Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
-                $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
-            CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType,
-                record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0));
             expectedRelight = conn.RighteousFire;
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
@@ -189,6 +186,25 @@ public static class CosmeticsFeature
     {
         (int X, int Y) spot = (player.X + side * PetDistance, player.Y + PetDistance / 2);
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
+    }
+
+    internal static async Task FollowThroughGate(ClientState conn)
+    {
+        uint[] ids;
+        lock (conn.Pets) ids = [.. conn.Pets.Keys];
+        foreach (var id in ids)
+            await global::Game.SendWorldRecord(conn, id, () =>
+            {
+                lock (conn.Pets)
+                {
+                    if (conn.Closed || conn.LeavingArea || !conn.Pets.TryGetValue(id, out var pet)) return null;
+                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    var to = PetSpot(conn, conn.Walk.Position(now), pet.Side);
+                    pet.Walk.Teleport(to.X, to.Y, now);
+                    pet.Target = to;
+                    return InstanceProtocol.Teleport(id, to.X, to.Y);
+                }
+            }, "pet follows owner through local gate");
     }
 
     // One finite walk. Ordinary following resumes after arrival, including when the caller has gone away.

@@ -276,6 +276,9 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     // comes from the PSG's own orbit list, and these are the orbit radii in tree units. They are the same units as
     // PassiveJewelRadii (Large = 1500), which is why the radius check can use them directly.
     static readonly double[] OrbitRadii = [0, 82, 162, 335, 493, 662, 846];
+    static readonly int[] Orbit16 = [0, 30, 45, 60, 90, 120, 135, 150, 180, 210, 225, 240, 270, 300, 315, 330];
+    static readonly int[] Orbit40 = [0, 10, 20, 30, 40, 45, 50, 60, 70, 80, 90, 100, 110, 120, 130, 135, 140, 150, 160, 170,
+        180, 190, 200, 210, 220, 225, 230, 240, 250, 260, 270, 280, 290, 300, 310, 315, 320, 330, 340, 350];
 
     private static Dictionary<ushort, (double X, double Y)> LoadPositions(string folder)
     {
@@ -293,7 +296,10 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
                 int index = node.Int("orbitIndex");
                 if (id is <= 0 or > ushort.MaxValue || orbit < 0 || orbit >= orbits.Length
                     || orbit >= OrbitRadii.Length || orbits[orbit] <= 0) continue;
-                double angle = 2 * Math.PI * index / orbits[orbit];
+                if (index < 0 || index >= orbits[orbit]) continue;
+                // The 16/40-slot orbits contain both diagonal and cardinal positions, not uniform spacing.
+                double angle = Math.PI / 180 * (orbits[orbit] == 16 ? Orbit16[index]
+                    : orbits[orbit] == 40 ? Orbit40[index] : 360.0 * index / orbits[orbit]);
                 positions.TryAdd((ushort)id,
                     (gx + Math.Sin(angle) * OrbitRadii[orbit], gy - Math.Cos(angle) * OrbitRadii[orbit]));
             }

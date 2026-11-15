@@ -46,6 +46,10 @@ public sealed class AtlasModule : IModule
             var conn = ConnOf(kill.Player);
             await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, AtlasProgress.NodeMessage(node),
                 $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
+            // The Atlas panel and the map device's portal panel draw their "completed" marks from the completed set of
+            // the last 0x1a3; without this they keep what the area entry sent and the map that just completed still
+            // reads as unfinished there.
+            await AtlasFeature.Refresh(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
             await kill.Player.Tell($"Atlas: {node.Name} completed.");
             await AwardMapPoints(conn, kill.Player, 1, "Atlas map completed");
         });

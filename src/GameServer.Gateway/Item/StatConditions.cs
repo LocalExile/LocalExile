@@ -102,7 +102,7 @@ public static class StatConditions
         "_while_not_low_life", "_while_not_on_low_life",
         "_while_on_full_mana", "_while_on_low_mana", "_while_not_on_low_mana",
         "_while_no_life_is_reserved", "_while_no_mana_reserved",
-        "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing", "_while_you_have_phasing",
+        "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing", "_while_you_have_phasing", "_while_affected_by_elusive", "_while_elusive", "_while_you_have_elusive",
         "_while_not_ignited_frozen_shocked", "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_blinded", "_while_you_are_ignited",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",

@@ -61,7 +61,14 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | Transformed | — | — | original item's unframed payload; u32 hash 0 represents an omitted original |
 | Armour | `0x143645930` | `0x1424b6a90` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
 | MapKey | `0x1436457f8` | `0x1424b5290` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
+| HeistBlueprint | — | `0x1424afe90` | u32 seed, u8 area level (+0x1c), u8 format (native constructor default 1), u8 wing count << 1 / confirmed bit0; wing records below |
 | LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
+
+The blueprint wing reader `0x1424c1bb0` takes a u8 job count << 1 / revealed bit0, then (u8 HeistJobs row, u8 level)
+per job, u8 crew count and one HeistNPCs row per crew slot (0xff: unassigned), then u8 room count and one packed
+u8 HeistChestRewardTypes row << 1 / revealed bit0 per room.
+Escape routes are room row 0 and carry the same reveal bit.
+The native writer `0x1424c2140` reproduces this layout; each in-memory wing is 0x50 bytes.
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
@@ -89,7 +96,10 @@ An item disabled by requirements contributes nothing; the inactive weapon set an
 
 For armour, evasion and ES, each item contributes
 `round((rolled base + local flat) * (1 + local increases / 100) * (1 + effective quality / 100))`.
-The final item value rounds halfway up once, before summing equipment or applying character-wide increases.
+The native final getter multiplies single-precision increase and quality factors first, then the integer base plus
+flat values, adds `0.5f` and truncates (`0x1424b6051` through `0x1424b6085` for ES). Binary32 boundaries matter:
+`150 * (1f + 137 * 0.01f)` produces a displayed 355; decimal halfway-up rounding produces 356. The result is
+resolved per item before equipment sums or character-wide increases.
 The reference is Path of Building commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02`,
 [Item.lua](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b8/src/Classes/Item.lua#L2345)
 and [Common.lua](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/16de4b8/src/Modules/Common.lua#L709).
@@ -146,6 +156,13 @@ their respective contributions.
 A modified shield contributed 18 armour only in the active set; the native weapon-swap key restored it from zero.
 With 56 armour, a 100-point physical test hit dealt 90 damage after the existing 10% armour reduction.
 Automated tests also cover global modifiers, disabled equipment, Iron Reflexes, per-item rounding and large totals.
+
+The Mods reader `0x1421e6050` ends with two unconditional bytes: Memory Strands
+(item Mods `+0x2db`, tooltip `0x14241a4c0`, ClientStrings key 7785) and Intangibility
+(`+0x2dc`; currency eligibility `0x141f92070` returns ClientStrings key 8421 when it is zero).
+These are item properties, not Stats.dat modifiers; save and replay them separately.
+ObjectMagicProperties bit 9 carries both the AlternateQualityTypes row and its quality amount
+(`0x142208798` / `0x1422087ae`, stored at `+0x1c0` / `+0x1d0`), including catalysts.
 
 ## 2a. Mods: rarity and mod lists
 
@@ -760,7 +777,7 @@ The 3.29.0 patch notes ("Gem Socket Changes"):
 - A gem in a red, green or blue socket of its own colour gets +10% quality ([25](25-gem-supports.md), the support and
   skill stats read it).
 - Chromatic Orbs and Tainted Chromatic Orbs force one of the item's sockets non-white and roll the rest normally;
-  higher item quality raises the chance of non-white sockets.
+  higher item quality raises the chance of non-white sockets. The tainted one ignores the attribute requirements.
 - Currency that adds sockets (Jeweller's, Tainted Jeweller's, Orb of Binding) adds them white.
 - Vaal Orb corruption turns a white socket coloured; the Locus of Corruption turns all white sockets coloured.
 - The old single-colour bench crafts are gone. `CraftingBenchOptions` now has **At Least Two / Three / Four Non-White
@@ -778,7 +795,7 @@ rest; `Jewellers` and the bench's socket-count crafts add white sockets and keep
 handles the `NN` crafts (rerolls the colours until the item has at least N non-white sockets, with the item's chance,
 then forces any missing ones); `CurrencyEffects.Vaal` colours one white socket.
 
-Not modelled: Tainted Chromatic and Tainted Jeweller's Orbs, the Orb of Binding, the Locus of Corruption and the
+Not modelled: the Locus of Corruption and the
 bench's milestone reward (25 reforges keeping the most non-white sockets). Verified live 2026-10-26: white sockets are
 drawn and accepted, Chromatic leaves one socket non-white and the rest white, Jeweller's keeps retained colours and
 adds white ones, and the matching-colour +10% quality changes the gem's stats; the stat path is in
@@ -1161,9 +1178,11 @@ item overrides remain open. No extracted-data changes are required.
 - **Orb of Binding** turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as
   Alchemy) with four linked sockets coloured from the base's requirements.
 - **Tainted currency** (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's Whetstone)
-  applies to a corrupted item and leaves it corrupted: the item is handed to the ordinary effect with its corruption
-  cleared and the result is corrupted again; tainted quality currency adds 1%. A non-corrupted item, or anything the
-  ordinary effect refuses, is refused before spending (`CurrencyEffects.Binding`/`EldritchAnnulment`/`Tainted`).
+  applies only to a corrupted item, which stays corrupted (the client's `CurrencyItems` descriptions): Chaos rerolls
+  or strips every non-fractured explicit (rarity drops as far as the fractured mods allow), Exalted adds or removes
+  one mod, Jeweller's adds a white socket or removes one, Fusing adds or removes one link of the largest group, the
+  Scrap and Whetstone set a random 0-20% quality. Each either-or is 50/50 (the wiki's tested odds for Jeweller's and
+  Fusing; none published for Chaos and Exalted). Anything else is refused before spending (`CurrencyEffects.Tainted`).
   Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing are not implemented.
 
 ## 6. Equipment on the character: visuals, attributes, gem skills

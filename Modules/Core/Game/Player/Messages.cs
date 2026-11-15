@@ -167,15 +167,27 @@ public static partial class Game
                 // player, since the projectile is launched by the cast below (live 2026-10-25).
                 bool attack = cast && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect);
                 if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(conn).IsMovement(gem.Effect)
-                    && !SkillsFor(conn).IsProjectile(gem.Effect) && WeaponProfileFor(conn).Melee)
+                    && (!SkillsFor(conn).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect)))
+                    && WeaponProfileFor(conn).Melee)
                 {
                     var here = conn.Walk.Position(at);
                     if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(conn).Range))
                     {
                         int walkAction = 0;
+                        double arrive = at;
+                        // A predictive client's action walks up to the weapon's range less one of the aim and swings there
+                        // by itself (07 §5), so the estimate stops there too and swings on arrival (SwingAtGroundOnArrival).
                         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                             CooldownForSkill(conn, use.SkillId), false,
-                            () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
+                            () =>
+                            {
+                                at = Math.Max(at, ProjectileWorldTime(conn));
+                                CancelMeleeRepeats(conn, at);
+                                walkAction = Interlocked.Increment(ref conn.ActionCount);
+                                if (conn.LockstepClient) conn.Walk.Order(use.X, use.Y, at);
+                                else arrive = conn.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(conn)), at).At;
+                                conn.ChannelSkill = 0;
+                            },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
                         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})",
@@ -190,6 +202,8 @@ public static partial class Game
                             await SendPlayerMana(remote, stream, ciphers, conn,
                                 $"0x01b1 player mana {conn.PlayerMana} (attack-move, cost back)");
                         }
+                        if (!conn.LockstepClient)
+                            _ = SwingAtGroundOnArrival(remote, stream, ciphers, conn, use, gem, walkAction, arrive);
                         continue;
                     }
                 }
@@ -251,6 +265,7 @@ public static partial class Game
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+                    CancelMeleeRepeats(conn, at);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     (px, py) = inPlace ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (inPlace) conn.Walk.Order(px, py, at);
@@ -303,17 +318,26 @@ public static partial class Game
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 Mark("charge");
                 bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
-                if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
-                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                double? swingAt = attack ? at : null;
+                Task<bool>? castTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
+                    (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
+                    swingAt: swingAt) : null;
+                if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
+                bool predictedLeap = cast && PredictsLeapSlam(conn, SkillsFor(conn).EffectId(gem.Effect), use.Slot);
                 Func<Task> echo = async () =>
                 {
-                    await Send(remote, stream, ciphers,
-                    [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
-                    $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
+                    await Send(remote, stream, ciphers, [],
+                    $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
-                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)),
+                    atGate: () =>
+                    {
+                        byte[] reply = [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                            .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []];
+                        return predictedLeap ? LeapSlamAcknowledgement(ciphers, reply) : reply;
+                    });
                     if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
                 };
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
@@ -332,7 +356,7 @@ public static partial class Game
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
-                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+                    actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
@@ -783,6 +807,10 @@ public static partial class Game
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
+                    // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
+                    // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
+                    // reads "More than 50 monsters remain" everywhere (InstanceProtocol.MonstersRemaining).
+                    await SendRemainingMonsters(remote, stream, ciphers, conn, force: true);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);

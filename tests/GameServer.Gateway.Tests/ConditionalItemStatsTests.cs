@@ -3292,6 +3292,12 @@ public partial class ConditionalItemStatsTests
                 [conn.Auras[severedId] with { ManaFlat = 0, ManaPercent = 6500 }]);
             Assert.Equal(requalifiedReservation, global::Game.ReservedMana(conn));
             Assert.Equal(6500, conn.Auras[severedId].ManaPercent);
+            var stableSources = conn.StatSourcesCache;
+            var stablePools = conn.Pools;
+            for (int query = 0; query < 100; query++)
+                Assert.Equal(requalifiedReservation, global::Game.ReservedMana(conn));
+            Assert.Same(stableSources, conn.StatSourcesCache);
+            Assert.Equal(stablePools, conn.Pools);
             Assert.True(conn.PlayerMana <= manaWithReservedEnvy);
             global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
             Assert.Equal(6500, Assert.Single(conn.Auras.Values, a => a.EffectId == "Envy").ManaPercent);
@@ -4125,8 +4131,14 @@ public partial class ConditionalItemStatsTests
         var sawbonesMods = global::Game.MonsterModRolls.Value.Species(sawbones.SpeciesModsOrEmpty, new Random(1));
         var sawbonesSet = global::Game.MonsterModRolls.Value.Create(sawbonesMods, [], MonsterRarity.Normal, 1);
         Assert.Equal(25, sawbonesSet.Effects["bleed_on_hit_with_attacks_%"]);
-        Assert.Equal(25, Game.MonsterModsFor(Fresh(), sawbones, 20, MonsterRarity.Normal, null, alone: true)
-            .Effects["bleed_on_hit_with_attacks_%"]);
+        var hostile = Fresh();
+        var baseline = Game.MonsterModsFor(hostile, sawbones, 20, MonsterRarity.Normal, null, alone: true);
+        Assert.Equal(0, baseline.Effects["bleed_on_hit_with_attacks_%"]);
+        for (int reentry = 0; reentry < 5; reentry++)
+            Assert.Same(baseline, Game.MonsterModsFor(hostile, sawbones, 20, MonsterRarity.Normal, baseline, alone: true));
+        var explicitMods = sawbonesSet;
+        for (int reentry = 0; reentry < 5; reentry++)
+            Assert.Same(explicitMods, Game.MonsterModsFor(hostile, sawbones, 20, MonsterRarity.Normal, explicitMods, alone: true));
 
         static void Contact(ClientState conn, MonsterModEffects effects, DamagePacket hit, bool attack)
         {
@@ -4146,6 +4158,21 @@ public partial class ConditionalItemStatsTests
             Contact(bleedChance, bleedContact.Effects,
                 DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100, 100), attack: true);
         Assert.True(bleedChance.IncomingAilments.Bleeding(now));
+        Assert.Equal(70, bleedChance.IncomingAilments.BleedPerSecond(now));
+        var ailmentAvoidance = new Dictionary<string, int>();
+        foreach (string ailment in new[] { "freeze", "chill", "shock", "ignite" })
+        {
+            ailmentAvoidance["base_avoid_" + ailment + "_%"] = 20;
+            ailmentAvoidance["avoid_" + ailment + "_%"] = 20;
+        }
+        foreach (var kind in Enum.GetValues<PlayerElementalAilments.Kind>())
+        {
+            var avoidedStatus = new PlayerElementalAilments();
+            avoidedStatus.Inflict(kind, 100, 2, now, n => ailmentAvoidance.GetValueOrDefault(n), new PhasingRoll(19));
+            Assert.False(avoidedStatus.HasEffects);
+            avoidedStatus.Inflict(kind, 100, 2, now, n => ailmentAvoidance.GetValueOrDefault(n), new PhasingRoll(20));
+            Assert.True(avoidedStatus.HasEffects);
+        }
         var noAttackBleed = Fresh();
         Contact(noAttackBleed, bleedContact.Effects,
             DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100, 100), attack: false);
@@ -4828,9 +4855,8 @@ public partial class ConditionalItemStatsTests
         var victim = new Dictionary<uint, int>();
         uint life = conn.PlayerLife;
         lock (conn.Monsters) Game.AdvancePlayerAilmentsLocked(conn, now, now + 1, victim);
-        // A 100 physical contact grants 10/s bleed and 30/s poison. The dedicated control above proves that real Walk
-        // movement alone changes the same one-second standing case from 40 to 60.
-        Assert.Equal(life - 40, conn.PlayerLife);
+        // A 100 physical contact grants 70/s bleed and 30/s poison; the victim is stationary.
+        Assert.Equal(life - 100, conn.PlayerLife);
         lock (conn.Monsters) Game.AdvancePlayerAilmentsLocked(conn, now + 1, now + 6, victim);
         Assert.False(conn.IncomingAilments.Bleeding(now + 6));
         Assert.Equal(0, conn.IncomingAilments.PoisonStacks(now + 6));
@@ -5900,9 +5926,11 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(100, avoided.GetValueOrDefault("base_avoid_freeze_%"));
         Assert.Equal(100, avoided.GetValueOrDefault("base_avoid_chill_%"));
         Assert.False(avoided.ContainsKey("avoid_freeze_and_chill_%"));
+        var finalAvoidance = PanelStats.Compute(name => avoided.GetValueOrDefault(name))
+            .ToDictionary(row => row.Stat, row => row.Value);
         var target = new PlayerElementalAilments();
         target.Apply(DamagePacket.Of(DamageType.Cold, 1000, 1000), DamagePacket.Of(DamageType.Cold, 1000, 1000),
-            critical: true, maxLife: 100, now: 0, get: name => avoided.GetValueOrDefault(name),
+            critical: true, maxLife: 100, now: 0, get: name => finalAvoidance.GetValueOrDefault(name),
             random: new Random(1));
         Assert.Equal((0, false), (target.Snapshot(0).Chill, target.Snapshot(0).Freeze));
 

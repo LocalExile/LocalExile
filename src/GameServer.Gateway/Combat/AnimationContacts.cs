@@ -244,6 +244,19 @@ public sealed class AnimationContacts
         return true;
     }
 
+    /// <summary>The selected clip name and earliest/latest contact times (seconds) across the stance pool for
+    /// <paramref name="attackSeconds"/>, or null without pool data for the class or stance.</summary>
+    public (string Animation, double EarliestSeconds, double LatestSeconds)? DefaultAttackContactBounds(
+        string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds)
+    {
+        if (!TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var latest)) return null;
+        var pool = _byAo.Value[animatedObject].AttackPools[StanceFor(weapon)!];
+        double earliest = pool.Any(a => a.Pair)
+            ? pool.Min(a => a.ContactSeconds(attackSeconds))
+            : latest.ContactSeconds(attackSeconds);
+        return (latest.Animation, earliest, latest.ContactSeconds(attackSeconds));
+    }
+
     /// <summary>When the default attack's contact plays after the swing's start (seconds): the stance pool's clip as the
     /// client plays it (<see cref="DefaultAttackClip.ContactSeconds"/>), else the attack1 keyframe's fraction of the
     /// attack.</summary>

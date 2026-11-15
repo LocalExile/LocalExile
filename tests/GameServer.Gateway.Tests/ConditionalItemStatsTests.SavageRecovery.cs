@@ -57,13 +57,15 @@ public partial class ConditionalItemStatsTests
                     Assert.NotNull(hit); Assert.True(hit.Blocked); damage = hit.Damage;
                 }
                 Assert.Equal(!small, damage * 100L >= conn.PlayerMaxLife * 15L);
-                Assert.Equal(conn.PlayerMaxLife, conn.PlayerLife); // Recovery masks every point of the immediate loss.
+                // Recovery happens first and is wasted at full Life; the hit still records its own Life loss.
+                Assert.Equal(conn.PlayerMaxLife - (uint)damage, conn.PlayerLife);
                 Assert.Equal(!small, conn.RecentEvents.Happened(StatConditions.TakenSavageHit, conn.Clock.Elapsed.TotalSeconds));
                 if (!synthetic)
                     Assert.Equal(!small, conn.FlaskAutomation.Events.Any(e => e.Trigger == FlaskEnchantments.Trigger.SavageHit));
             }
             // Diagnostic ES control: a large mitigated hit that removes no Life is not a Savage Hit.
             conn.RecentEvents.Clear(); conn.FlaskAutomation.Discard(); conn.IncomingHitRandom = new PhasingRoll(99);
+            conn.PlayerLife = conn.PlayerMaxLife;
             conn.EnergyShield.SetMaximum(10000, refill: true);
             Synthetic(DamageType.Fire, (int)conn.PlayerMaxLife, block: false, spell: true);
             Assert.Equal(conn.PlayerMaxLife, conn.PlayerLife);

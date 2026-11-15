@@ -274,7 +274,7 @@ public static partial class Game
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
             var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell, Scripted = true };
-            var projectile = catalog.MonsterProjectile(effect);
+            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
             if (!spell && golem.Weapon is { Melee: false } ranged)

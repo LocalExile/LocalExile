@@ -146,6 +146,7 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                     Ok = inst is not null, Error = inst is null ? "instance expired" : null, Area = info.Area,
                     Seed = inst?.Seed ?? 0, Instance = info.Instance, Created = inst?.Created.ToUnixTimeMilliseconds() ?? 0, IsTown = inst?.IsTown ?? false, Character = info.Character,
                     CharacterId = info.CharacterId,
+                    InstanceOwner = inst?.Owner,
                     Account = accounts?.FindCharacter(info.Character) is { } owner ? accounts.GetAccount(owner.AccountId)?.Name : null,
                     League = info.League?.Name, Hardcore = info.League?.Hardcore ?? false,
                     Ssf = info.League?.Ssf ?? false, LeagueForm = info.League?.Form,

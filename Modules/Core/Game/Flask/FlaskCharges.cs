@@ -146,10 +146,7 @@ public static partial class Game
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.FlaskChargeCarry.CritReady(now)) return;
-        var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t || ItemsFor(conn).FlaskChargesOf(t) is not { } c
-                || f.Item.Charges >= FlaskCharges.Of(c, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
+        var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
@@ -160,7 +157,7 @@ public static partial class Game
             await GainFlaskCharges(remote, stream, ciphers, conn, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");
     }
 
-    // The player was hit (not evaded or blocked): "Gain # Charges when you are Hit by an Enemy" (local_flask_gain_X_charges_when_hit).
+    // An accepted enemy hit, including a blocked hit: "Gain # Charges when you are Hit by an Enemy" (local_flask_gain_X_charges_when_hit).
     public static Task GainFlaskChargesWhenHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         GainFlaskCharges(remote, stream, ciphers, conn, (_, local) => local.GetValueOrDefault("local_flask_gain_X_charges_when_hit"), "hit");
 

@@ -81,6 +81,8 @@ public sealed partial class ReservationCurseSummonTests
         foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
         try
         {
+            await ReviewRingSocketRefresh(wire);
+            ReviewWeaponProjectileScope();
             var catalog = new SummonCatalog(); var monsters = new MonsterCatalog();
             foreach (var definition in catalog.All.Where(d => d.Variety.Length > 0 && d.Family != "Clone"))
             {
@@ -2627,7 +2629,7 @@ public sealed partial class ReservationCurseSummonTests
                     Override("base_chance_to_ignite_%", 100);
 
                     int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
-                        stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                        Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
                     int attackEffect = Game.SkillEffectId(meleeConn, SkillCatalog.FirstSkillId) is { } attackId
                         ? Game.SkillsFor(meleeConn).EffectRow(attackId) : -1;
                     Assert.True(attackEffect >= 0);

@@ -55,7 +55,8 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(1, Get("self_take_no_extra_damage_from_critical_strikes"));
         Assert.Equal(MonsterModEffects.CriticalMultiplier, Game.SelfCriticalReduction(Get));
         Assert.Equal(move + (int)Math.Floor(state.Initial * .3), Get("base_movement_velocity_+%"));
-        Assert.Equal(Math.Min(75, avoid + (int)Math.Floor(state.Initial * .15)), PlayerDamageTaken.AvoidPct(DamageType.Fire, Get));
+        Assert.Equal(avoid, PlayerDamageTaken.AvoidPct(DamageType.Fire, Get));
+        Assert.Equal((int)Math.Floor(state.Initial * .15), Game.ElusiveAvoidPct(conn));
         var ailments = new PlayerElementalAilments();
         ailments.Inflict(PlayerElementalAilments.Kind.Shock, 20, 2, now, Get, new PhasingRoll(19));
         Assert.Equal(0, ailments.Snapshot(now).Shock);
@@ -65,7 +66,9 @@ public partial class ConditionalItemStatsTests
         Assert.False(ClientTables.Table("BuffDefinitions")[Game.ElusiveBuffRow].Bool("IsRecovery"));
         var packet = Assert.Single(Game.ElusivePresentation(conn)!, p => p[0] == 1 && p[1] == 0xc1);
         Assert.Equal(33, packet.Length); // Mandatory u16 before the empty additional-data list.
-        Assert.Equal(new byte[6], packet[^6..]);
+        Assert.Equal(Game.ElusiveDisplayPercent(conn) - 100,
+            System.Buffers.Binary.BinaryPrimitives.ReadInt16BigEndian(packet.AsSpan(packet.Length - 6)));
+        Assert.Equal(new byte[4], packet[^4..]);
         Game.RestoreElusive(conn, carried with { Age = 1 }, now);
         Assert.True(Game.EnsureConditionalItemPools(conn)); stats = Game.CharacterPlayerStats(conn);
         Assert.Equal(move + (int)Math.Floor((state.Initial - 20) * .3), Get("base_movement_velocity_+%"));

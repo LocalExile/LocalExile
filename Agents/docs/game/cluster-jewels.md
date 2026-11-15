@@ -168,8 +168,11 @@ A jewel in an **expansion cell** is compressed onto half the ring (the client dr
 id is the base plus `position / 2`); the full ring is kept only in a large cell (a tree socket). Its nodes are laid
 evenly around it: a 4-passive medium uses template indices 0, 3, 6 and 9, its own socket on the template's socket index
 (6) and the other three small. Measured: the medium in cell 51 gives 208, 209 and 211 (smalls) and 212 (socket); the
-same jewel in cell 53 gives 225, 228 and 229 and the socket 226. Only that shape is mapped so far: a jewel with
-notables in an expansion cell still counts once all of its passives are allocated.
+same jewel in cell 53 gives 225, 228 and 229 and the socket 226. Medium rings use the template priorities with
+four/five-node remapping: small index 4 becomes 3 for both, and index 8 becomes 9 for four nodes. Four-node notable
+indices 10/2 become 9/3; two notables without a socket instead use 4/8. Native constructor captures at cell 51 give
+208/209/211/212 for four passives, add 207 for five, and add 210 for six. These shapes are mapped even without
+notables, so an allocated route through them contributes to Split Personality.
 
 A **smaller jewel in a larger cell** keeps its own template but uses the cell's base and the cell's start for its size.
 Measured with a rare small in the large tree socket 17 (base 156, cell start for size 0 is 5): the small's 6-ring

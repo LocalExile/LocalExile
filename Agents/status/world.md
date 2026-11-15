@@ -58,7 +58,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
-  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
+  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it; in a map
+  it leaves the map for the map device's area it was entered from, as the official servers do (3.30.0b; #1002).
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
@@ -83,8 +84,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [16](../docs/protocol/16-waypoints.md).
 - Pause: the Escape menu outside towns and hideouts pauses the area (C→S 0x1d4 → S→C 0x1d3): the Gateway's clock
   stops, monsters neither move nor swing, regeneration and flasks wait, and the client pauses its world;
-  closing the menu resumes.
-  Code: `InstancePause.cs`, Gateway (`SetPaused`).
+  closing the menu resumes, and so does the pausing player leaving or another player arriving (#991).
+  Code: `InstancePause.cs`, Gateway (`SetPaused`, `EndEscapePause`).
   Docs: [22](../docs/protocol/22-pause.md).
 
 - Instance framing retains split 0x020a and 0x0059 messages at their primary-writer lengths of 3 and 16 bytes.
@@ -93,6 +94,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
 
 ## Partly working
+
+- Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
+  re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
+  the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
+  so overlapping shrines cannot restore stale encounter stats; Divine protects against hits and damage over time.
+  Standing Ice/Lightning novas use player resistances, avoidance, block, suppression and normal death accounting.
+  Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
+  explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.
+  Source: `Modules/Core/World/Shrines`, `src/GameServer.Gateway/World/Shrines`, `ShrineTests`.
+  Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
+  Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
+  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
+  before payment because the Conqueror apparition skills are not implemented.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
@@ -141,6 +155,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
+  Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
   Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
@@ -223,7 +238,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and a statue by an exit also shows the room behind it, the way there in green (checked live 2026-11-07);
   being anywhere else ends the run, and the plaza's door shuts again. Checked live 2026-11-03.
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
-  (0x7b kind 0x0a; the choice, C→S 0x39, is saved and the area reloads), and its portal goes back to town.
+  (0x7b kind 0x0a; the choice, C→S 0x39, is saved and reloads the same instance at the font), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
   Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
   with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life

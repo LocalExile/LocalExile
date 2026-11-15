@@ -44,8 +44,8 @@ public partial class ConditionalItemStatsTests
                 Assert.Equal(fullPools.Life, baselinePools.Life); Assert.Equal(fullPools.Mana, baselinePools.Mana);
                 for (int i = 0; i < test.Outputs.Length; i++)
                     Assert.Equal(expected[i], original.GetValueOrDefault(Key(test.Outputs[i])) - baseline.GetValueOrDefault(Key(test.Outputs[i])));
-                int Original(string n) => original.GetValueOrDefault(Key(n));
-                int Baseline(string n) => baseline.GetValueOrDefault(Key(n));
+                int Original(string n) => Program.Stats.Key(n) is uint key ? original.GetValueOrDefault(key) : 0;
+                int Baseline(string n) => Program.Stats.Key(n) is uint key ? baseline.GetValueOrDefault(key) : 0;
                 if (test.Outputs[0] == "spell_damage_+%")
                 {
                     Assert.Equal(expected[0], SpellDamage.Packet(DamagePacket.Of(DamageType.Physical, 100, 100), Original).MinTotal

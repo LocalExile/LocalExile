@@ -8,6 +8,7 @@ public sealed class HerEmbraceState
 {
     public object? Rules;
     public int Epoch;
+    public int GainMilliseconds, Degeneration;
     public uint[] Hosts = [];
     public double Until, At, PerSecond, Pending, TakenCarry, BypassCarry, ShownUntil;
     public ushort Buff;
@@ -35,7 +36,7 @@ public static partial class Game
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
 
     static Dictionary<string, bool> RequalifyHerEmbrace(ClientState conn, IReadOnlyDictionary<string, bool> flags,
-        IEnumerable<Item>? activeItems = null)
+        IEnumerable<Item>? activeItems = null, IReadOnlyDictionary<uint, int>? raw = null)
     {
         if (conn.LeavingArea) return new(flags) { ["_while_in_her_embrace"] = false };
         var state = HerEmbraceOf(conn);
@@ -51,6 +52,9 @@ public static partial class Game
         {
             state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Hosts = hosts; state.At = now;
         }
+        raw ??= conn.StatSourcesCache?.Sources;
+        state.GainMilliseconds = raw is null ? 0 : GolemStat(raw, HerEmbraceGain);
+        state.Degeneration = raw is null ? 0 : GolemStat(raw, HerEmbraceDegen);
         state.Settle(now);
         return new(flags) { ["_while_in_her_embrace"] = alive && state.Hosts.Length > 0 && now < state.Until };
     }
@@ -58,14 +62,12 @@ public static partial class Game
     public static void HerEmbraceOnIgniteLocked(ClientState conn, double now)
     {
         if (conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 || !CurrentGameWork) return;
-        var stats = CharacterStatSources(conn).Stats;
-        int Get(string name) => GolemStat(stats, name);
         var state = HerEmbraceOf(conn);
-        int duration = Get(HerEmbraceGain);
+        int duration = state.GainMilliseconds;
         if (duration <= 0 || state.Hosts.Length == 0) return;
         state.Settle(now);
         state.Until = Math.Max(state.Until, now + duration / 1000d);
-        state.PerSecond = Math.Max(0, Get(HerEmbraceDegen)) * (double)conn.Pools.Level
+        state.PerSecond = Math.Max(0, state.Degeneration) * (double)conn.Pools.Level
             * ((double)conn.PlayerMaxLife + conn.Pools.EnergyShield) / 6000d;
     }
 
@@ -84,6 +86,7 @@ public static partial class Game
         foreach (string ailment in new[] { "freeze", "chill", "ignite" }) Add($"base_immune_to_{ailment}", 1);
         Add("attack_speed_+%", 20); Add("base_cast_speed_+%", 20); Add("base_movement_velocity_+%", 20);
         int coefficient = GolemStat(sources, HerEmbraceDegen);
+        state.Degeneration = coefficient;
         state.PerSecond = Math.Max(0, coefficient) * (double)conn.Pools.Level
             * ((double)conn.PlayerMaxLife + conn.Pools.EnergyShield) / 6000d;
         return sources;

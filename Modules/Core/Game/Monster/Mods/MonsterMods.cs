@@ -23,22 +23,11 @@ public static partial class Game
     public static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone)
     {
+        if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls.Value;
-        MonsterModSet result;
-        if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) result = kept;
-        else if (rarity != MonsterRarity.Magic || alone) result = rolls.Roll(variety, level, rarity, Random.Shared, alone);
-        else
-        {
-            var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-            lock (shared) result = rolls.SharedMagic(shared, variety, level, Random.Shared);
-        }
-        if (variety.SpeciesModsOrEmpty.Count == 0) return result;
-        var species = rolls.Create(rolls.Species(variety.SpeciesModsOrEmpty, Random.Shared), [], MonsterRarity.Normal, level);
-        return result with
-        {
-            Mods = [.. result.Mods, .. species.Mods],
-            Effects = result.Effects.Plus(species.Effects),
-        };
+        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
+        var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
+        lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the
@@ -96,7 +85,7 @@ public static partial class Game
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
-            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
+            Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
 
@@ -113,6 +102,9 @@ public static partial class Game
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
     {
+        // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
+        // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
+        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
@@ -206,6 +198,7 @@ public static partial class Game
     /// description saying it covers damage over time.</summary>
     public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
+        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),

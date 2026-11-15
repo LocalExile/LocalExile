@@ -148,7 +148,8 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
     /// <summary>A frame from the chat server: untrusted like all of it, so a name that could pose as a prefix is dropped.</summary>
     Task Received(ChatFrame frame)
     {
-        string text = ChatWire.Clean(frame.Text);
+        frame = ChatWire.CleanLine(frame);
+        string text = frame.Text!;
         bool named = ChatWire.ValidMember(frame.Name);
         return frame.Type switch
         {

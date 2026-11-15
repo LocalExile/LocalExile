@@ -14,6 +14,9 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
+
+    /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
+    public MapDevice.Run? Map { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
@@ -30,6 +33,8 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
+    public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -194,6 +199,11 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
+    /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
+    /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
+    /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
+    public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -230,7 +240,17 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
-    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
+    /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
+    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public MonsterModEffects Effects
+    {
+        get
+        {
+            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            return Curses.Effects(effects);
+        }
+    }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -528,6 +548,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The connection's last messages, both directions (PacketHistory), and why the server closed it (the DISCONNECT line).
     public readonly PacketHistory Packets = new();
     public volatile string? CloseReason;
+    /// <summary>Completes once the connection has ended and everything it saves is written (Program.EndAsync waits for it,
+    /// so a connection that takes over the character loads what this one saved, never an older copy).</summary>
+    public readonly TaskCompletionSource Ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
@@ -945,6 +968,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
+    /// <summary>Per-skill attack count (0..4) and active BuffDefinitions 2353 instance for Molten Strike of the Zenith.
+    /// Guarded by the Monsters lock.</summary>
+    public readonly Dictionary<ushort, int> MoltenStrikeAttackCounts = [];
+    public readonly Dictionary<ushort, ushort> MoltenStrikeFifthBuffs = [];
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
     /// lock.</summary>
     public SpiritChieftains SpiritChieftains { get; } = new();
@@ -1019,6 +1046,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                    MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                     Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;
@@ -1153,6 +1181,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
 
     /// <summary>The open map's portals created in this area, by object id: where each stands.</summary>
     public readonly Dictionary<uint, (int X, int Y, int Index)> MapPortals = [];
+    public MapDevice.OpenMap? MapPortalRun;
+    public string? InstanceOwner { get; init; }
 
     /// <summary>Counts the map portal sequences started (SpawnMapPortals); a newer one stops the older.</summary>
     public int MapPortalGeneration;
@@ -1207,11 +1237,30 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// instance (a test's) keeps its own.</summary>
     public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
     readonly EmergeGround ownEmergeGround = new();
+    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
+    public int SentMonstersRemaining = -1;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
-    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
-        Monsters.Concat(DormantMonsters.Where(pair => Instance is null || MonsterViews.ContainsKey(pair.Key)))
-            .OrderBy(pair => pair.Key);
+    // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Monsters, DormantMonsters);
+
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> Merged(SortedDictionary<uint, SpawnedMonster> awake, SortedDictionary<uint, SpawnedMonster> dormant)
+    {
+        using var others = dormant.GetEnumerator();
+        bool NextBody()
+        {
+            while (others.MoveNext())
+                if (Instance is null || MonsterViews.ContainsKey(others.Current.Key)) return true;
+            return false;
+        }
+        bool more = NextBody();
+        foreach (var pair in awake)
+        {
+            for (; more && others.Current.Key < pair.Key; more = NextBody()) yield return others.Current;
+            yield return pair;
+        }
+        for (; more; more = NextBody()) yield return others.Current;
+    }
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;

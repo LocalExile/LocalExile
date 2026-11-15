@@ -179,6 +179,7 @@ static async Task Serve(LoginServerKeys keys)
     {
         SeedFor = seeds.For,
         Towns = towns.Select(t => t.Hash16).ToHashSet(),
+        PersonalAreas = hideouts,
     };
     Console.WriteLine($"[auth] towns: {towns.Count} ({string.Join(", ", towns.Select(t => t.Id))})");
     var directory = new InstanceDirectory(registry, accounts, towns, character =>

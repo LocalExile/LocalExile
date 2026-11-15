@@ -33,6 +33,19 @@ public static class ClientStateRules
             }
         }
 
+        /// <summary>The Rampage world this connection has, when <see cref="RampageWorld"/> would hand that one out as
+        /// it is (the same test); null when asking would make a new one, or the rules are retired. Makes and changes
+        /// nothing.</summary>
+        public RampageWorld? StandingRampageWorld
+        {
+            get
+            {
+                lock (conn.Monsters)
+                    return Game.CurrentGameRules && conn.OwnedCombatState is RampageWorld current
+                        && ReferenceEquals(current.SourceOwner, AscendancyPolicies.SourceOwner(conn)) ? current : null;
+            }
+        }
+
         public VaalUseReservation? VaalUse
         {
             get => conn.VaalUseState as VaalUseReservation;

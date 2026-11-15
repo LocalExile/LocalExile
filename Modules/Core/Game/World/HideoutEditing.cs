@@ -4,8 +4,11 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    public static bool OwnHideout(ClientState conn) => HideoutCatalog.ByArea(conn.Layout.Hash) is not null
+        && (conn.InstanceOwner is null || string.Equals(conn.InstanceOwner, CharacterName(conn), StringComparison.OrdinalIgnoreCase));
+
     public static IReadOnlyDictionary<string, HideoutPlacement>? SavedHideoutPlacements(ClientState conn) =>
-        CharacterSaves.Load(CharacterName(conn))?.HideoutPlacements?.GetValueOrDefault(conn.Layout.Id);
+        CharacterSaves.Load(conn.InstanceOwner ?? CharacterName(conn))?.HideoutPlacements?.GetValueOrDefault(conn.Layout.Id);
 
     public static void PrepareHideoutWaypoint(ClientState conn)
     {

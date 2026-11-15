@@ -33,7 +33,7 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {remote} <= 0x0209 action 0x{create.Action:x8} is not the Monster Statue Creator");
             return;
         }
-        if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
+        if (!OwnHideout(conn) || HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
         {
             Console.WriteLine($"[gateway] {remote} refused 0x0209 in {conn.Layout.Id}: not the character's hideout");
             return;

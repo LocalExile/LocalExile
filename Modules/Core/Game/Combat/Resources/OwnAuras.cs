@@ -14,10 +14,10 @@ public static partial class Game
         public static AuraReconcileInputs Capture(ClientState conn)
         {
             var sources = CharacterStatSources(conn).Stats;
-            var saved = CharacterSaves.Load(CharacterName(conn));
+            var saved = CharacterSaves.Remembered(CharacterName(conn));
             return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
                 new(conn.PlayerStats), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
-                [.. saved?.ActiveAuras ?? []], saved?.Stance, saved?.PetrifiedBlood == true, conn.Stance,
+                [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, conn.Stance,
                 conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
@@ -109,35 +109,84 @@ public static partial class Game
         return true;
     }
 
+    sealed record ReservationInputs(StatSourcesResult? Sources, CharacterStats.Pools Pools,
+        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Overrides);
+    sealed class ReservationInputCache { public bool Building; public ReservationInputs? Inputs; }
+    static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
+    static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
+        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values], new(conn.PlayerStats));
+
+    // Pool readers only check immutable inputs. Skill pricing, source qualification and persistence run on change,
+    // while the normal player tick reconciles deadlines. This also handles an equipment edit before publication.
+    static void EnsureReservationInputs(ClientState conn)
+    {
+        if (conn.Auras.Count == 0) return;
+        var cache = ReservationInputCaches.GetOrCreateValue(conn);
+        if (cache.Building) return;
+        var current = CaptureReservationInputs(conn);
+        if (cache.Inputs is { } old && ReferenceEquals(old.Sources, current.Sources) && old.Pools == current.Pools
+            && old.Auras.AsSpan().SequenceEqual(current.Auras) && SameInOrder(old.Overrides, current.Overrides)
+            && old.Equipment.Length == current.Equipment.Length && old.Equipment.Zip(current.Equipment).All(p =>
+                p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
+                && ReferenceEquals(p.First.Item.Item, p.Second.Item.Item))) return;
+        EnsureOwnAuraPools(conn);
+    }
+
     public static void EnsureOwnAuraPools(ClientState conn)
     {
         lock (conn.Monsters)
         {
-            bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
-            changed |= IntimidatingCryPoolsChangedLocked(conn);
-            changed |= AvianReconcileLocked(conn, AreaTime(conn));
-            changed |= CrabReconcileLocked(conn, AreaTime(conn));
-            SpiderReconcileOwnerLocked(conn, AreaTime(conn));
-            changed |= conn.Reservations.CrabPoolsDirty;
-            changed |= MadnessReconcileLocked(conn, AreaTime(conn));
-            changed |= SuspendRestrictedOwnAuras(conn);
-            changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
-            if (changed)
+            var cache = ReservationInputCaches.GetOrCreateValue(conn);
+            bool building = cache.Building;
+            cache.Building = true;
+            try
             {
-                if (!poolsRebuilt) conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
-                conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                var raw = conn.Auras.Count > 0 ? CharacterStatSources(conn).Stats : new Dictionary<uint, int>();
+                bool changed = CatAspectReconcileLocked(conn, AreaTime(conn), raw);
+                changed |= IntimidatingCryPoolsChangedLocked(conn);
+                changed |= AvianReconcileLocked(conn, AreaTime(conn), raw);
+                changed |= CrabReconcileLocked(conn, AreaTime(conn), raw);
+                SpiderReconcileOwnerLocked(conn, AreaTime(conn));
+                changed |= conn.Reservations.CrabPoolsDirty;
+                changed |= MadnessReconcileLocked(conn, AreaTime(conn));
+                changed |= SuspendRestrictedOwnAuras(conn, raw);
+                changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
+                if (changed)
+                {
+                    if (!poolsRebuilt) conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                    conn.ApplyMovementSpeed();
+                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                }
+                var life = LifeReservationOf(conn);
+                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, life);
             }
-            var life = LifeReservationOf(conn);
-            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, life);
+            finally
+            {
+                cache.Building = building;
+                if (!building) cache.Inputs = CaptureReservationInputs(conn);
+            }
         }
     }
 
     // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any
     // equipment/stat notification. Reprice the active owner from current sources here; unchanged auras are left alone.
+    sealed record AuraPriceInputs(StatSourcesResult? Qualified, CharacterStats.Pools Pools,
+        string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw, Dictionary<uint, int> Overrides);
+    sealed class AuraPriceCache { public AuraPriceInputs? Last; }
+    static readonly RuleTable<ClientState, AuraPriceCache> AuraPrices = new();
+
     static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
     {
         poolsRebuilt = false;
+        if (conn.Auras.Count == 0) return false;
+        var input = new AuraPriceInputs(conn.StatSourcesCache, conn.Pools, conn.Stance,
+            [.. conn.Auras.Values], CharacterStatSources(conn).Stats, new(conn.PlayerStats));
+        var cache = AuraPrices.GetOrCreateValue(conn);
+        if (cache.Last is { } old && ReferenceEquals(old.Qualified, input.Qualified)
+            && old.Pools == input.Pools && old.Stance == input.Stance
+            && old.Auras.AsSpan().SequenceEqual(input.Auras)
+            && SameInOrder(old.Raw, input.Raw) && SameInOrder(old.Overrides, input.Overrides)) return false;
+        cache.Last = input;
         bool changed = false;
         bool stanceTouched = false;
         var changedAuras = new List<AuraCatalog.Aura>();
@@ -253,7 +302,7 @@ public static partial class Game
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
-            RestoreRememberedAuras(conn, CharacterSaves.Load(CharacterName(conn))?.ActiveAuras ?? []);
+            RestoreRememberedAuras(conn, CharacterSaves.Remembered(CharacterName(conn)).Auras);
         SuspendPetrifiedBloodIfUnavailable(conn);
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedPetrifiedBlood(conn);

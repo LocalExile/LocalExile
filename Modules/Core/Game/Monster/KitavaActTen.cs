@@ -151,6 +151,14 @@ static partial class KitavaActTen
             {
                 if (SkillsFor(c, body.Variety!, body.Level) is { } skills)
                 { var w = c.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, id, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Kitava A10] native skill roster"); }
+                foreach (uint ally in new[] { sinId, innocenceId }.Where(ally => ally != 0))
+                {
+                    KeepAllyVisible(c, ally);
+                    if (c.MonsterViews.ContainsKey(ally) && c.Monsters.TryGetValue(ally, out var m)
+                        && m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable") is int component and >= 0)
+                    { var w = c.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, ally,
+                        InstanceEntities.TransitionableUpdate(ally, (byte)component, 2), null); }
+                }
                 if (stage == 10) RegisterSin(c);
             }
         }
@@ -190,10 +198,12 @@ static partial class KitavaActTen
         {
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing Kitava ally");
             uint obj = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, body.Level, MonsterRarity.Unique,
-                at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true);
+                at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true, instanceOwned: true);
             if (obj == 0) throw new InvalidOperationException("Unsupported Kitava ally");
-            lock (c.Monsters) { var m = c.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true; }
-            if (c.MinionOrigins.TryRemove(obj, out var origin)) c.Instance.World.MonsterOrigins[obj] = origin;
+            lock (c.Monsters)
+            {
+                var m = c.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true;
+            }
             return obj;
         }
         async Task Allies(ClientState c, double now)
@@ -202,10 +212,16 @@ static partial class KitavaActTen
             if (innocenceId == 0) innocenceId = await Ally(c, Innocence, innocenceAt);
             foreach (uint obj in new[] { sinId, innocenceId })
             {
+                KeepAllyVisible(c, obj);
                 var m = c.Monsters[obj]; int index = m.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable");
                 if (index >= 0) await All(obj, InstanceEntities.TransitionableUpdate(obj, (byte)index, 2));
                 await Basic(c, obj, 16641, now, 4.833, id);
             }
+        }
+        static void KeepAllyVisible(ClientState c, uint id)
+        {
+            if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
+                c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = 2 } };
         }
         public async Task Step(ClientState c, double now)
         {

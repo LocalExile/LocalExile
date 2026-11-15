@@ -193,6 +193,11 @@ public static partial class Game
             ? MonsterModSet.None
             : MonsterModSet.None with { Effects = new(new Dictionary<string, int>
                 { ["maximum_life_+%"] = summon.MaximumLifeIncreasePct }) };
+        // These three item-owned beasts need their own native traits (the Cobra's chaos conversion).
+        // Apply them once at this source's birth; ordinary hostile spawns and saved area re-entry keep their mods.
+        var native = MonsterModRolls.Value.Create(
+            MonsterModRolls.Value.Species(variety.SpeciesModsOrEmpty, Random.Shared), [], MonsterRarity.Normal, summon.MinionLevel);
+        mods = mods with { Mods = native.Mods, Effects = mods.Effects.Plus(native.Effects) };
         uint spawned = await SpawnMonster(remote, stream, ciphers, conn, variety, summon.MinionLevel,
             MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods, extraStats: MinionStats,
             owned: (id, m) =>

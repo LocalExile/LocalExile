@@ -66,13 +66,13 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     const string BeaconName = "Beacon of Madness";
     static readonly (string Name, string Base, string[] Mods)[] BeaconProfiles =
     [
-        ("Chaos", "Metadata/Items/Armours/Boots/BootsAtlas3",
+        ("Chaos", "Metadata/Items/Armours/Boots/BootsAtlas1",
             ["IncreasedChaosDamageUnique__5", "AllDamageCanPoisonGloriousMadnessUnique___1",
                 "EnemiesExplodeOnDeathChaosGloriousMadnessUnique1"]),
-        ("Physical", "Metadata/Items/Armours/Boots/BootsAtlas1",
+        ("Physical", "Metadata/Items/Armours/Boots/BootsAtlas2",
             ["LocalIncreasedArmourAndEvasionUnique__13", "DoubleDamageChanceGloriousMadnessUnique_1",
                 "FortifyEffectSelfGloriousMadnessUnique1"]),
-        ("Elemental", "Metadata/Items/Armours/Boots/BootsAtlas2",
+        ("Elemental", "Metadata/Items/Armours/Boots/BootsAtlas3",
             ["IncreasedAilmentEffectOnEnemiesUnique_2", "ElementalConfluxesGloriousMadnessUnique1",
                 "ElementalAilmentImmunityGloriousMadnessUnique1"]),
     ];
@@ -161,7 +161,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// <summary>The word-list word a unique's name resolves to, or null when the client data has no such name. The
     /// survivors pool uses it to skip a unique the character already wears without rolling a whole item.</summary>
     public uint? NameWord(Definition definition) =>
-        _names.Value.TryGetValue(NameKey(definition.Name), out var unique) ? unique.Word : null;
+        Identity(definition)?.Word;
 
     /// <summary>The unique item for a name, or null when the name is not one or its base type is not writable.</summary>
     public Item? Create(string name, Random random) => Find(name) is { } definition ? Create(definition, random) : null;
@@ -179,7 +179,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
                 Mods = [.. definition.Mods.Where(id => !BeaconProfileMods.Contains(id)), .. profile.Mods] };
         }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
-        if (!_names.Value.TryGetValue(NameKey(definition.Name), out var unique)) return null;
+        if (Identity(definition) is not { } unique) return null;
         var item = ItemCatalog.Create(type) with
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
@@ -346,7 +346,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// where it lies and no socketed gem is lost.</summary>
     public Item? Reforge(Item item, Func<string, double> weight, Random random)
     {
-        if (item.Rarity != ItemRarity.Unique || item.Corrupted || item.Mirrored || items.ByHash(item.TypeHash) is not { } current
+        if (item.Rarity != ItemRarity.Unique || item.Corrupted || item.Mirrored || item.Vestigial || items.ByHash(item.TypeHash) is not { } current
             || !ItemDrops.EquipmentClasses.Contains(current.Class)) return null;
         var candidates = new List<(Definition Definition, double Weight)>();
         foreach (var definition in All)

@@ -13,10 +13,10 @@ public sealed class AwakenedSubsystemTests
         Assert.Null(MeleeSplash.Settings(Get()));
         var plain = MeleeSplash.Settings(Get(("support_melee_splash_damage_+%_final_for_splash", -40)));
         Assert.NotNull(plain);
-        Assert.Equal(12, plain!.Value.Radius);
+        Assert.Equal(14, plain!.Value.Radius);
         Assert.Equal(0.6, plain.Value.More, 9);
         var grown = MeleeSplash.Settings(Get(("support_melee_splash_damage_+%_final_for_splash", -40),
             ("melee_splash_area_of_effect_+%_final", 100)));
-        Assert.Equal(16, grown!.Value.Radius);
+        Assert.Equal(19, grown!.Value.Radius);
     }
 }

@@ -415,7 +415,7 @@ Their unconditional stats would work, but the condition is not modelled. **No mo
 | **Sacrificial Harvest** | Viridian Jewel | - | (20-30)% chance to gain an additional Vaal Soul on Kill | Conditional; limited to 1 |
 | **Seething Fury** | Viridian Jewel | - | (10-15)% increased Attack Damage while holding a Shield<br>+0.2% to Off Hand Critical Strike Chance per 10 Maximum Energy Shield on Shield<br>+0.15% to Off Hand Critical Strike Chance per 10 Maximum Energy Shield on Shield<br>+4% to Off Hand Critical Strike Multiplier per 10 Maximum Energy Shield on Shield | Conditional; variants; limited to 1; requires level 20 |
 | **Self-Flagellation** | Viridian Jewel | - | (10-20)% increased Damage per Curse on you<br>An additional Curse can be applied to you | Conditional; limited to 1 |
-| **Split Personality** | Crimson Jewel | - | Has Alt Variant: true<br>This Jewel's Socket has 25% increased effect per Allocated Passive Skill between<br>it and your Class' starting location<br>+5 to Strength<br>+5 to Dexterity<br>+5 to Intelligence<br>+40 to Accuracy Rating<br>+40 to Armour<br>+40 to Evasion Rating<br>+5 to maximum Energy Shield<br>+5 to maximum Life<br>+5 to maximum Mana | Conditional; variants; limited to 2 |
+| **Split Personality** | Crimson Jewel | - | Has Alt Variant: true<br>This Jewel's Socket has 25% increased effect per Allocated Passive Skill between<br>it and your Class' starting location<br>+5 to Strength<br>+5 to Dexterity<br>+5 to Intelligence<br>+40 to Accuracy Rating<br>+40 to Armour<br>+40 to Evasion Rating<br>+5 to maximum Energy Shield<br>+5 to maximum Life<br>+5 to maximum Mana | Done; allocated paths through ordinary and nested cluster sockets; variants; limited to 2 |
 | **Survival Secrets** | Cobalt Jewel | - | Regenerate 3 Mana per second<br>10% increased Elemental Damage<br>Flasks applied to you have 20% reduced Effect<br>Flasks gain 3 Charges every 3 seconds while they are inactive<br>Survival | Conditional; variants; limited to 1 Survival |
 | **Survival Skills** | Crimson Jewel | - | 10% increased Global Physical Damage<br>+50 to Armour<br>Flasks gain 2 Charges when you hit a Non-Unique Enemy, no more than once per second<br>80% less Flask Charges gained from Kills<br>Survival | Conditional; variants; limited to 1 Survival |
 | **The Anima Stone** | Prismatic Jewel | - | +1 to maximum number of Summoned Golems<br>+1 to maximum number of Summoned Golems if you have 3 Primordial Items Socketed or Equipped | Conditional; variants; limited to 1 |
@@ -585,25 +585,44 @@ Abyss jewels go into abyss sockets on items, not into the passive tree. They are
 
 ## Catalogue gap check (poewiki, 2026-10-29)
 
-Five of the seven historical gaps below have a named item source. Random rolls come from the encounter-specific pools
-in world.db. Condition handling and encounter rewards are separate from creating an item.
+All seven historical gaps below have a named item source in world.db.
+Condition handling and encounter rewards are separate from creating an item.
 
 | Jewel | Base | Limit | Effect | Status |
 |---|---|---|---|---|
 | **Bound By Destiny** | Prismatic Jewel | 1 | One each of the influence item bonuses | Generates one modifier for each of the 2/4/6 influence-item thresholds. |
-| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
-| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
+| **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
+| **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Item source exists; granted-ascendancy-node effect remains separate. |
 | **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Four passives; three rolled notables and an empty small, with no jewel socket. |
 | **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. |
 | **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Generates elemental resistance and two distinct curse modifiers. |
 | **Watcher's Eye** | Prismatic Jewel | 1 | Two or three random aura modifiers | Generates three fixed modifiers and two aura modifiers (three for the level 86+ variant). |
 
-The client's `UniqueStashLayout`/`UniqueJewelLimits` also carry legacy names the current wiki list no longer has:
-Army of Bones, Boundless Grasp, Bulwark Legion, Cannibalistic Habits, Choking Ash, Divide and Conquer, Hotfooted,
-Miser of Misery, Specialised, Straight and True, Toxic Vapours, Underdog's Fury and Zerphi's Youth. They stay out of
-the catalogue until a current item source/version is confirmed. The docs also still list **Hotheaded**,
-**Fortified Legion** and **Seething Fury**, although the client's current visual table has no icon for them; keep them
-as legacy rows until the client data settles.
+### Historical names and unconfirmed sources
+
+The committed client tables contain both historical names and names whose release history remains unconfirmed:
+
+- **Army of Bones** was renamed **To Dust** in the [3.0.0 patch notes][army-rename].
+  `Words` row 494 has `Text2 = To Dust`; stash-layout row 339 points to renamed row 338, sharing its visual identity.
+  To Dust already has an enabled item definition and global-jewel entry; the old name is not a second missing item.
+- **Cannibalistic Habits**, **Miser of Misery** and **Specialised** are withdrawn Awakening-beta designs.
+  GGG's [State of the Beta #6][beta-jewels] described a possible reworked return, not a confirmed release.
+  They retain name/limit rows, but have no stash-layout row or server item definition under those names.
+- **Boundless Grasp**, **Choking Ash**, **Straight and True**, **Toxic Vapours**, **Underdog's Fury** and
+  **Zerphi's Youth** also retain name/limit rows without stash-layout rows or server item definitions.
+  Their release history is not established by the evidence here; they remain unconfirmed, outside the confirmed-source
+  catalogue, rather than declared current missing items or definitively never-released prototypes.
+- **Bulwark Legion**, **Hotfooted** and **Divide and Conquer** already have item definitions under those table names.
+  Their `Words.Text2` values are **Fortified Legion**, **Hotheaded** and **Seething Fury**, respectively.
+  The stash layout resolves the older `Words.Text` names to artwork, so a missing row under the newer name alone
+  does not establish missing art or an absent item source.
+
+A name, limit, visual or weight row alone does not establish an obtainable item or a requirement to implement it.
+An item definition does not establish complete modifiers, gameplay or drop availability.
+The Forbidden Flame/Flesh granted-node work in #791 is outside this historical-name check.
+
+[army-rename]: https://www.pathofexile.com/forum/view-thread/1930316
+[beta-jewels]: https://www.pathofexile.com/forum/view-thread/1288610
 
 ## Notes on effects that need a different model
 
