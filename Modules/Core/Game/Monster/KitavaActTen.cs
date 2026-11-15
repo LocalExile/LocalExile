@@ -198,10 +198,12 @@ static partial class KitavaActTen
         {
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing Kitava ally");
             uint obj = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, body.Level, MonsterRarity.Unique,
-                at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true);
+                at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true, instanceOwned: true);
             if (obj == 0) throw new InvalidOperationException("Unsupported Kitava ally");
-            lock (c.Monsters) { var m = c.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true; }
-            if (c.MinionOrigins.TryRemove(obj, out var origin)) c.Instance.World.MonsterOrigins[obj] = origin;
+            lock (c.Monsters)
+            {
+                var m = c.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true;
+            }
             return obj;
         }
         async Task Allies(ClientState c, double now)
