@@ -55,6 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
 - Tattoos: 91 rows work in the client and 7 are partial (the seven Forbidden ascendancy tattoos, whose client use
-  flow is untraced); two are inert. The vendor recipe works (three same-tribe tattoos for one weighted random tattoo
-  of that tribe; not live-checked).
+  flow is untraced); two are inert. Replace, tattoo persistence across refund/reallocate and the 50-tattoo cap are
+  client-verified (the 51st tattoo is refused). The vendor recipe works (three same-tribe tattoos for one weighted
+  random tattoo of that tribe; not live-checked).
   Docs: [tattoos](../docs/game/tattoos.md).
