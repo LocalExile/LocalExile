@@ -10,10 +10,12 @@ public static class Arakaali
     // VaalSpiderGod/rig.amd: phase_01_transition_silk_01, index 10, 6333 ms.
     internal const uint SilkClip = 10;
     internal const double SilkSeconds = 6.333;
+    // Actor stances are zero-based ACT ordinals; this actor's named stance2 follows its base stance.
+    internal const byte SecondStance = 1;
     static readonly RuleTable<InstanceState, Fight> Fights = new();
     public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     public static byte Stance(ClientState c, MonsterCatalog.Variety v) =>
-        IsBoss(v) && c.Instance.HasState(SecondPhase) ? (byte)2 : (byte)0;
+        IsBoss(v) && c.Instance.HasState(SecondPhase) ? SecondStance : (byte)0;
     public static LifePhaseGate? Phases(ClientState c, MonsterCatalog.Variety v)
     {
         if (!IsBoss(v) || c.Layout.Id != Area) return null;
@@ -38,10 +40,10 @@ public static class Arakaali
     {
         if (c.Closed || c.LeavingArea || c.AsleepMonsters.Contains(id)
             || !c.Monsters.TryGetValue(id, out var boss) || !IsBoss(boss.Variety)
-            || !c.MonsterViews.TryGetValue(id, out var seen) || seen.ActorStance == 2
-            || !c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) || origin.Object.ActorStance != 2) return null;
+            || !c.MonsterViews.TryGetValue(id, out var seen) || seen.ActorStance == SecondStance
+            || !c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin) || origin.Object.ActorStance != SecondStance) return null;
         var at = boss.Walk.Position(now);
-        c.MonsterViews[id] = seen with { ActorStance = 2 };
+        c.MonsterViews[id] = seen with { ActorStance = SecondStance };
         return InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y,
             5828, c.NextActionSequence(), 0x0800, id);
     }
@@ -110,7 +112,7 @@ public static class Arakaali
                 c.Instance.SetState(SecondPhase);
                 boss.Life = Math.Max(boss.Life, (uint)((ulong)boss.MaxLife * 60 / 100));
                 if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
-                    c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { ActorStance = 2 } };
+                    c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { ActorStance = SecondStance } };
             }
             await All(p => StanceUpdateLocked(p, id, now));
             await All(_ => InstanceProtocol.LifeUpdate(id, boss.Life));

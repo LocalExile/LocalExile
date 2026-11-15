@@ -302,6 +302,7 @@ Sanctum (a7q2).
 ## a7q4 "The Mother of Spiders" (Quest row 80, main; ends the act)
 
 Native encounter notes: `ArakaaliBoss.act` defines `SpellProjectileCold` only under `stance2`.
+Its `stance2` is ACT ordinal 1 (base is 0); `0x141e9d3f0` ignores ordinal 2, which equals this actor's stance count.
 `VaalSpiderGod/rig.amd` clip 10 is `phase_01_transition_silk_01` (6333 ms); changing to stance2 attaches `SilkHead.ao`.
 The Tendrils granted effects select art variations 1/2/3; without `skill_art_variation` their action chooses
 `CastFast`, absent from this actor. The campaign now gates the phase at 50%, plays Silk's clip and resumes at 60%.

@@ -72,9 +72,9 @@ public sealed class ArakaaliPhaseTests
         Assert.False(boss.Invulnerable); Assert.False(boss.StageRunning);
         Assert.Equal((uint)((ulong)boss.MaxLife * 60 / 100), boss.Life);
         Assert.True(c.Instance.HasState(Arakaali.SecondPhase));
-        Assert.Equal(2, c.Instance.World.MonsterOrigins[id].Object.ActorStance);
-        Assert.Equal(2, c.MonsterViews[id].ActorStance);
-        Assert.Equal(2, unbound.MonsterViews[id].ActorStance);
+        Assert.Equal(1, c.Instance.World.MonsterOrigins[id].Object.ActorStance);
+        Assert.Equal(1, c.MonsterViews[id].ActorStance);
+        Assert.Equal(1, unbound.MonsterViews[id].ActorStance);
         Assert.Equal(0, sleeping.MonsterViews[id].ActorStance);
         var shown = new List<byte[]>();
         var previousOutgoing = Program.Outgoing;
@@ -83,7 +83,7 @@ public sealed class ArakaaliPhaseTests
             Program.Outgoing = (cipher, bytes) =>
             { if (ReferenceEquals(cipher, sleepingWire.Ciphers)) shown.Add(bytes.ToArray()); };
             await Game.KeepWakeZone(sleeping.Wire.Remote, sleeping.Wire.Stream, sleeping.Wire.Ciphers, sleeping);
-            Assert.Equal(2, sleeping.MonsterViews[id].ActorStance);
+            Assert.Equal(1, sleeping.MonsterViews[id].ActorStance);
             var at = boss.Walk.Position(sleeping.Clock.Elapsed.TotalSeconds);
             var wake = InstanceProtocol.EnterWakeZone(id);
             var placed = InstanceProtocol.Teleport(id, at.X, at.Y, 0x7fffffff);
@@ -107,13 +107,13 @@ public sealed class ArakaaliPhaseTests
             new(v.Row, 55, MonsterRarity.Unique, true, 1000, 1000, boss.Life));
         var recovered = c.Monsters[restored];
         Assert.Equal(1, recovered.LifePhases!.Completed);
-        Assert.Equal(2, c.Instance.World.MonsterOrigins[restored].Object.ActorStance);
-        Assert.Equal(2, c.MonsterViews[restored].ActorStance);
+        Assert.Equal(1, c.Instance.World.MonsterOrigins[restored].Object.ActorStance);
+        Assert.Equal(1, c.MonsterViews[restored].ActorStance);
         unbound.MonsterViews.Clear();
         await Game.SyncInstanceMonsters(unbound.Wire.Remote, unbound.Wire.Stream, unbound.Wire.Ciphers, unbound);
-        Assert.Equal(2, unbound.MonsterViews[id].ActorStance);
+        Assert.Equal(1, unbound.MonsterViews[id].ActorStance);
         await Game.SyncInstanceMonsters(unbound.Wire.Remote, unbound.Wire.Stream, unbound.Wire.Ciphers, unbound);
-        Assert.Equal(2, unbound.MonsterViews[id].ActorStance);
+        Assert.Equal(1, unbound.MonsterViews[id].ActorStance);
         lock (c.Monsters) Assert.Null(Arakaali.StanceUpdateLocked(unbound, id, 118));
         Assert.Equal(0u, recovered.LifePhases.Damage(recovered.Life, recovered.MaxLife, int.MaxValue));
         Assert.Null(Arakaali.Phases(new(new(1, "other", 10, 10, 1, 1, null, []), 1, 1), v));
@@ -122,7 +122,9 @@ public sealed class ArakaaliPhaseTests
         Assert.True(Arakaali.Allowed(outsideCampaign, 4259));
         Assert.True(Arakaali.Allowed(outsideCampaign, 6555));
         var plain = c.Instance.World.MonsterOrigins[restored].Object with { ActorStance = 0 };
-        Assert.Single(plain.Blob().Zip((plain with { ActorStance = 2 }).Blob()), pair => pair.First != pair.Second);
+        var stanceByte = Assert.Single(plain.Blob().Zip(c.Instance.World.MonsterOrigins[restored].Object.Blob()),
+            pair => pair.First != pair.Second);
+        Assert.Equal(1, stanceByte.Second);
     }
     sealed class Runtime : IDisposable
     {
