@@ -99,6 +99,24 @@ public static class MonsterShots
                     : Game.Art.SkillProjectile(effect, 0, Get);
                 recipe = "Spark";
                 break;
+            case "ice_spear":
+                // Art slot 0 (IceSpear). It changes form once along its flight (0x141a07b00 / 0x141a07db0).
+                id = Game.Art.SkillProjectile(effect, 0, Get);
+                recipe = "IceSpear";
+                if (Get("projectile_random_angle_based_on_distance_to_target_location_%") != 0) reason = "distance-based angle jitter";
+                else if (Get("skill_behaviour_variation") != 0) reason = "ice spear release variant";
+                break;
+            case "creeping_frost":
+                // 0x141a33b90: art slot 2 for a volley of more than five with a behaviour variation, else the slot it names.
+                {
+                    int frostBehaviour = Get("skill_behaviour_variation");
+                    int volley = Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+                    id = Game.Art.SkillProjectile(effect, volley > 5 && frostBehaviour != 0 ? 2 : frostBehaviour, Get);
+                    recipe = "CreepingFrost";
+                    if (frostBehaviour != 0) reason = "creeping frost arc";
+                    else if (Get("is_trap") != 0) reason = "trap";
+                }
+                break;
             case "frost_bolt":
                 id = Game.Art.SkillProjectile(effect, 0, Get);
                 if (Get("frostbolt_projectile_acceleration") != 0) reason = "frost bolt acceleration";
@@ -412,6 +430,29 @@ public static class MonsterShots
         // lengthens the flight by as much.
         profile = shot.EndsAtTarget ? profile with { Range = Math.Max(.001, aim.Length) }
             : shot.AimOffset != 0 ? profile with { Range = profile.Range + shot.AimOffset } : profile;
+        if (shot.Recipe == "IceSpear")
+        {
+            // The first form pierces every target (byte +0x330 = 5); past 20.199 cells × (1 + its distance stat) it flies
+            // on in its second form, faster by ice_spear_second_form_projectile_speed_+%_final and piercing by its stats.
+            int pierce = Math.Max(Get("projectile_number_of_targets_to_pierce"), Get("projectile_base_number_of_targets_to_pierce"));
+            profile = profile with
+            {
+                Pierce = Get("virtual_projectiles_cannot_pierce") != 0 ? 0 : -1,
+                FormChange = new(20.199 * (100 + Get("ice_spear_distance_before_form_change_+%")) / 100.0,
+                    1 + Get("ice_spear_second_form_projectile_speed_+%_final") / 100.0, pierce),
+            };
+        }
+        if (shot.Recipe == "CreepingFrost")
+            // Its burst where it ends or meets the player (0x1413e0550): active_skill_base_area_of_effect_radius (15) by
+            // the area multiplier; the chilled ground it leaves is not modelled.
+            profile = profile with
+            {
+                DirectDamage = false,
+                EndArea = new ProjectileAreaRecipe("creeping frost",
+                    Math.Max(1, Get("active_skill_base_area_of_effect_radius") is > 0 and var r ? r : 15)
+                        * Math.Max(0, 1 + Get("total_skill_area_of_effect_radius_+%_including_final") / 100.0)),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Distance },
+            };
         if (shot.Recipe == "Spark")
         {
             // The client's wander (0x141b35a10 seeds [sequence, 2 + index, repeats, owner]): life from the record's

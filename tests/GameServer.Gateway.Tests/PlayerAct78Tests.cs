@@ -86,6 +86,12 @@ public sealed class PlayerAct78Tests
             var spark = Shot("", "BossSparkTotem")!;
             Assert.Equal(("Metadata/Projectiles/Spark", true, "Spark"), (spark.Metadata, spark.ClientDraws, spark.Recipe));
             Assert.Contains(MonsterShots.CountStats(spark), s => Program.Stats.Name(s.Item1) == "skill_effect_duration" && s.Item2 > 0);
+            // An ice spear changes form 20.199 cells out; creeping frost bursts where it ends.
+            var spear = Shot("", "MountainGoatmanIceSpear")!;
+            var spearFlight = MonsterShots.ClientDrawnProfile(conn, spear, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal((true, -1, 20.199), (spear.ClientDraws, spearFlight.Pierce, spearFlight.FormChange!.Distance));
+            var frost = Shot("", "WaterElementalArcticBreath")!;
+            Assert.Equal((true, false), (frost.ClientDraws, MonsterShots.ClientDrawnProfile(conn, frost, false, new(30, 0), 0x8001, 0x40).DirectDamage));
         });
     }
 
