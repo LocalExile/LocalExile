@@ -1711,11 +1711,13 @@ public static partial class Game
     /// Immolators keep bringing skeletons while the player is near).</summary>
     public const int MaxSummoned = 5;
 
-    // Under the Monsters lock: whether a monster's skill may be used now: off its cooldown, and a summoning skill with
-    // fewer than MaxSummoned of its monsters alive.
+    // Under the Monsters lock: whether a monster's skill may be used now: a skill with a cooldown (a summon's, or its
+    // own) off it, and a summoning skill with fewer than MaxSummoned of its monsters alive; any other attack may (a kit
+    // boss's plain attack between its summons).
     public static bool SkillReadyLocked(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        now >= m.SkillReadyAt
-        && (a.Summon is null || conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
+        a.Summon is null && a.CooldownSeconds <= 0
+        || now >= m.SkillReadyAt
+            && (a.Summon is null || conn.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,
