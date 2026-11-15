@@ -14,6 +14,7 @@ public static class SolarisLunaris
     static readonly RuleTable<InstanceState, Fight> Fights = new();
     public static bool IsBody(MonsterCatalog.Variety? v) => v?.Id is Sun or Moon;
     public static bool IsCelestial(MonsterCatalog.Variety? v) => v?.Id is Root + "SolarisCelestialForm" or Root + "LunarisCelestialForm";
+    public static bool Held(ClientState c, SpawnedMonster m) => c.Layout.Id == Area && IsBody(m.Variety) && m.EntranceGrace;
     public static byte StartState(ClientState c, MonsterCatalog.Variety v, byte otherwise) =>
         c.Layout.Id == Area && IsBody(v) ? (byte)1 : otherwise;
     internal static IReadOnlyList<GrantedSkill> AddSkills(ClientState c, MonsterCatalog.Variety v, byte level,
@@ -77,7 +78,7 @@ public static class SolarisLunaris
         {
             lock (c.Monsters)
             {
-                m.EntranceGrace = held; m.StageRunning = held;
+                m.EntranceGrace = held;
                 if (!held) { m.BusyUntil = now; return; }
                 m.ActionGeneration++; m.SwingGeneration = null; m.StunSerial++; m.FlinchUntil = 0;
                 m.Leg = null;

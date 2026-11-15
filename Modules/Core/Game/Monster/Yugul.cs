@@ -91,7 +91,7 @@ public static class Yugul
                 lock (c.Monsters)
                 {
                     if (!phase.Active && !phase.Begin(boss.Life, boss.MaxLife)) return;
-                    boss.StageRunning = true; boss.ActionGeneration++; boss.SwingGeneration = null;
+                    boss.ActionGeneration++; boss.SwingGeneration = null;
                     boss.FlinchUntil = 0; boss.StunSerial++;
                     var at = boss.Walk.Position(now); boss.Walk.Teleport(at.X, at.Y, now);
                     boss.BusyUntil = deadline = now + HideSeconds;

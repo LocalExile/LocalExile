@@ -145,6 +145,7 @@ public sealed class ArakaaliPhaseTests
         Assert.Equal((uint)((ulong)boss.MaxLife * 66 / 100), boss.Life);
         var fight = new Yugul.Fight(id, boss, c); await fight.Bind(c); await fight.Step(c, 100);
         Assert.True(boss.Invulnerable); await fight.Step(c, 103.2);
+        Assert.False(boss.StageRunning); Assert.Null(boss.Stage);
         var images = c.Monsters.Values.Where(m => m.Variety?.Id == Yugul.Image).ToArray();
         Assert.Equal(10, images.Length);
         Assert.True(boss.WorldHidden); Assert.DoesNotContain(id, c.MonsterViews.Keys);
@@ -186,6 +187,8 @@ public sealed class ArakaaliPhaseTests
         uint sid = await Spawn(SolarisLunaris.Sun, 1000), mid = await Spawn(SolarisLunaris.Moon, 1010);
         var sun = c.Monsters[sid]; var moon = c.Monsters[mid];
         Assert.True(sun.Invulnerable); Assert.True(moon.Invulnerable);
+        Assert.False(sun.StageRunning); Assert.False(moon.StageRunning);
+        Assert.True(SolarisLunaris.Held(c, sun)); Assert.True(SolarisLunaris.Held(c, moon));
         Assert.Equal(1, c.Instance.World.MonsterOrigins[sid].Object.TransitionState);
         var fight = new SolarisLunaris.Fight(sid, sun, mid, moon, c); await fight.Bind(c);
         await fight.Step(c, 100); await fight.Step(c, 102);
