@@ -909,6 +909,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
         ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
+        // Unearth fires its old name's row, BoneLance: the BoneLance action class loads Metadata/Projectiles/BoneLance
+        // (3.29.3c FUN_1413e64b0, by skill_art_variation).
+        ["Unearth"] = "Metadata/Projectiles/BoneLance",
         ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
         ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
         ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
