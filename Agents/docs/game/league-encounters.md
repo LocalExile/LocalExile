@@ -53,5 +53,12 @@ allocated Atlas passives) come from the 3.29 sources still in the game: the Anar
 5 exiles, 30% gigantified, 50% paired, 1 exceptional), the Atlas tree's `atlas_anarchy_*` wheel and Jumbled Abundance.
 The leaguestone, watchstone and memory-line stats are read too, but nothing in 3.29 drops them.
 
+Exile skills the client holds no area for: Fire Trap's ground, Bear Trap, Desecrate, Caustic Arrow's ground, Wither,
+Flameblast, Rain of Arrows and the Vaal Cold Snap and Storm Call name no `active_skill_base_area_of_effect_radius`, and
+their action classes add no constant to it (the ones that do: `SkillArea.ActionBaseRadius`), so their radius is server
+data. Cremation's geyser (CorpseErruption, 3.29.3c 0x141adbae0) drops each projectile at a random angle and a distance
+of 10 to twice the skill's radius from the geyser; it does not aim at anyone. Its projectile is a child action's
+(vtable +0x540, 0x141310400), the `...Gore` row when `monster_projectile_variation` is set; the base row is unresolved.
+
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
