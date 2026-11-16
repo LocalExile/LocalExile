@@ -409,14 +409,32 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             if (Pick(slots, rng) is { } slot && pools.Equipment[slot].Where(t => t.DropLevel <= level).ToList() is { Count: > 0 } bases)
                 type = bases[rng.Next(bases.Count)];
         }
-        if (type is null) return null;
+        return type is null ? null : Rolled(type, itemLevel, chances, rng);
+    }
+
+    /// <summary>A base type as a monster of this level and rarity drops it: its sockets, and for equipment and jewels a
+    /// rarity by the kill's chances (as <see cref="Roll"/>: unique, rare, magic, else normal). Null when it is none the
+    /// server can create.</summary>
+    public Drop? RollBase(ItemCatalog.BaseType type, int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0,
+        double rarityMultiplier = 1)
+    {
+        if (!type.Supported) return null;
+        var chances = WithIncreasedRarity(RarityChances(rarity), increasedRarity,
+            rarityMultiplier * SystemSettings.Default.DropMultiplier("unique_rarity"));
+        return Rolled(type, monsterLevel + ItemLevelBonus(rarity), chances, rng);
+    }
+
+    static bool RollsRarity(ItemCatalog.BaseType type) => EquipmentClasses.Contains(type.Class) || type.Class is "Jewel" or "AbyssJewel";
+
+    Drop? Rolled(ItemCatalog.BaseType type, int itemLevel, Chances chances, Random rng)
+    {
         var (sockets, links) = catalog.DropSockets(type, itemLevel, rng);
         var item = ItemCatalog.Create(type, sockets, links, random: rng) with
         {
             // A dropped gem is unlevelled, like a vendor's: its level comes from its experience (ItemCatalog.GemLevel).
             ItemLevel = catalog.Gem(type) is not null ? (byte)1 : (byte)Math.Clamp(itemLevel, 1, 100),
         };
-        if (rolls is not null && EquipmentClasses.Contains(type.Class))
+        if (rolls is not null && RollsRarity(type))
         {
             // Magic, rare and unique items drop unidentified (a Scroll of Wisdom identifies them, C→S 0x71).
             bool rolledUnique = rng.NextDouble() < chances.Unique;

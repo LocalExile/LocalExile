@@ -82,6 +82,22 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
+
+    /// <summary>Base types (a <c>BaseItemTypes</c> id or name) to drop as the kill's own items roll: its rarity chances
+    /// (with <see cref="Rarity"/>) and the item level its rarity gives, so one may drop magic, rare or unique.</summary>
+    public List<string> RolledItems { get; } = [];
+
+    /// <summary>Changes to every item the kill drops (the server's own, <see cref="Items"/> and <see cref="RolledItems"/>),
+    /// in order: each takes a drop and returns what drops in its place (the drop itself, changed, or several of them).
+    /// A change tells the drops it leaves alone by their type.</summary>
+    public List<Func<ItemDrops.Drop, Random, IEnumerable<ItemDrops.Drop>>> Changes { get; } = [];
+
+    /// <summary>The drops after every change.</summary>
+    public IEnumerable<ItemDrops.Drop> Changed(IEnumerable<ItemDrops.Drop> drops, Random rng)
+    {
+        foreach (var change in Changes) drops = drops.SelectMany(d => change(d, rng)).ToList();
+        return drops;
+    }
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>
