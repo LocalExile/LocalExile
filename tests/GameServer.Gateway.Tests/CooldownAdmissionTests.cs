@@ -131,7 +131,7 @@ public sealed class CooldownAdmissionTests
             Game.CooldownForSkill(f.Conn, second), false, () => { }, out _));
         var dashId = f.Equip(PlayerInventories.BodyArmour, "Dash").Single();
         var dash = Game.SupportedSkill(f.Conn, dashId);
-        f.Conn.SingleUseCooldowns[dash.Effect] = new(0, 1); // Dash has recovered while Flame Dash still owes uses.
+        f.Conn.SingleUseCooldowns[Game.CooldownKey(f.Conn, dash.Effect, dashId)] = new(0, 1); // Dash has recovered while Flame Dash still owes uses.
         Assert.True(Game.TryBeginSkillCooldownUse(f.Conn, dashId, dash.Effect,
             Game.CooldownForSkill(f.Conn, dashId), false, () => { }, out _));
         Assert.Equal(3, state.Uses); Assert.Equal(1d, state.Rate);

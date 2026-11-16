@@ -174,6 +174,7 @@ public class SacrificeSupportTests
         }
         fixture.Equip("Reap");
         var player = fixture.Conn;
+        player.Pools = player.Pools with { Life = 100000 };
         player.PlayerLife = 100000;
         player.PlayerStats[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
         var reap = Game.GemSkillEffects(player).First(g => g.Gem != 0);
