@@ -304,12 +304,16 @@ public partial class Program
         ciphers.Receive.Process(data);
         byte[] all = [.. conn.Carry, .. data];
         var messages = InstanceProtocol.SplitClientMessages(all, out conn.Carry, out byte[] unknown);
+        (ushort[] Predictive, ushort[] Lockstep)? mixed = null;
         foreach (var (id, bytes) in messages)
         {
             conn.Packets.Received(id, bytes);
-            if (ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
+            mixed ??= conn.NotePacket(remote, id);
+            // ServerTrace.Client: every C→S message in full, the 0x1b ticks too, to compare what clients send.
+            if (ServerTrace.Client || ServerTrace.Packets && PacketHistory.Kept(sent: false, id))
                 Console.WriteLine($"[packets] {remote} <= 0x{id:x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
         }
+        if (mixed is { } both) await ReportMixedModes(remote, stream, ciphers, both.Predictive, both.Lockstep);
         if (unknown.Length > 0) conn.Packets.Received(0xffff, unknown);   // bytes no known message frames ("unframed")
         conn.UnframedRun = ClientInbox.UnframedRun(conn.UnframedRun, messages.Count, unknown.Length);
         if (conn.UnframedRun == ClientInbox.LostAfterUnframedReads)
@@ -320,8 +324,6 @@ public partial class Program
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
-            // Only a lockstep client's world counts frames behind (0x14218a2a0), so only it reports any.
-            if (bytes[2] != 0) conn.NoteLockstepClient(remote);
             if (conn.Ticks++ % 50 == 0 && ServerTrace.Ticks) Console.WriteLine($"[gateway] {remote} <= 0x001b tick #{conn.Ticks}: {Convert.ToHexString(bytes)} (answered with 0x001c)");
             // Answered after the input read before it (ClientInbox.DeferTick); the ack index and the side channel are taken
             // when it goes out, so the answers keep the ticks' order.
@@ -585,6 +587,18 @@ public partial class Program
             finally { performance.Elapsed(LatencyPhase.SocketWrite, writeAt); }
         }
         finally { wire.Release(); performance.Elapsed(LatencyPhase.WireHold, heldAt); }
+    }
+
+    /// <summary>The client sent both Predictive-only and Lockstep-only messages in this area (ClientPackets), which one
+    /// client never does: the log and the client's chat say so, the chat six times so the player sees it.</summary>
+    static async Task ReportMixedModes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ushort[] predictive, ushort[] lockstep)
+    {
+        static string Ids(ushort[] ids) => string.Join(", ", ids.Select(id => $"0x{id:x4}"));
+        string line = $"Network mode error: this area received both Predictive-only ({Ids(predictive)}) and Lockstep-only " +
+            $"({Ids(lockstep)}) client messages. Please report this to the developers with these packet ids.";
+        Console.WriteLine($"[gateway] {remote} {line}");
+        var chat = InstanceChat.ChatLine(line);
+        for (int i = 0; i < 6; i++) await Send(remote, stream, ciphers, chat, $"0x0017 chat line (network mode error {i + 1}/6)");
     }
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone

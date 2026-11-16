@@ -1294,20 +1294,38 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get => closed;
         set { closed = value; if (value) WorldOutput.Close(); }
     }
-    // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
-    // 0, so it is never probed and keeps its own messages. The client alone picks its Network Mode (07 §6): every
-    // connection serves both, and a player switches by changing it and entering again.
-    public volatile bool LockstepClient;
-    int _lockstepNoted;
+    // The mode-only C→S messages this connection (one area) has had, by mode (ClientPackets, 07 §6). A client sends
+    // only one mode's, so the first one is the mode the handlers serve; one of each is a fault to report. Until then a
+    // client is served in Lockstep, the default way of playing: the mode with no desync, which a local server's latency
+    // suits and Auto picks on it. A server-controlled player drives itself with predictive messages, so it is predictive.
+    readonly Lock _modeLock = new();
+    readonly SortedSet<ushort> _predictiveIds = [], _lockstepIds = [];
+    volatile bool _modeSeen, _lockstep;
+    bool _mixedReported;
+    public bool LockstepClient => _modeSeen ? _lockstep : !Controlled;
 
-    /// <summary>Marks the client as lockstep and, once per connection, logs that Predictive is the preferred mode.</summary>
-    public void NoteLockstepClient(string remote)
+    /// <summary>Notes a C→S message from the client's wire (not the server's own made-up inputs). Returns the ids of
+    /// both modes the first time this area has had messages of both, else null.</summary>
+    public (ushort[] Predictive, ushort[] Lockstep)? NotePacket(string remote, ushort id)
     {
-        LockstepClient = true;
-        if (Interlocked.Exchange(ref _lockstepNoted, 1) == 0)
-            Console.WriteLine($"[gateway] {remote} the client's Network Mode is lockstep (\"auto\" picks it on a low round trip): " +
-                "served in lockstep, but lockstep is not currently the preferred networking mode; Predictive is " +
-                "(Options > Game > Network Mode, then log out to the character screen and Play again)");
+        var mode = ClientPackets.ModeOf(id);
+        if (mode == PacketMode.Shared) return null;
+        lock (_modeLock)
+        {
+            var ids = mode == PacketMode.Lockstep ? _lockstepIds : _predictiveIds;
+            if (!ids.Add(id)) return null;
+            if (_predictiveIds.Count + _lockstepIds.Count == 1)
+            {
+                _lockstep = mode == PacketMode.Lockstep;
+                _modeSeen = true;
+                Console.WriteLine($"[gateway] {remote} the client sends {mode.ToString().ToLowerInvariant()} messages (first 0x{id:x4})" +
+                    (_lockstep ? "" : ": served in predictive, but Lockstep is the preferred mode " +
+                        "(Options > Game > Network Mode, then log out to the character screen and Play again)"));
+            }
+            if (_mixedReported || _predictiveIds.Count == 0 || _lockstepIds.Count == 0) return null;
+            _mixedReported = true;
+            return ([.. _predictiveIds], [.. _lockstepIds]);
+        }
     }
     // What the default attack's last skill record was built for: a lockstep client (DefaultAttackRecordLockstep), and
     // the projectile whose count it carries (DefaultArrow or WandProjectile), which the client then draws itself
