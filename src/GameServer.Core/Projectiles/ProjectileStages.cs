@@ -91,35 +91,50 @@ public sealed partial class ProjectileRuntime
     void Area(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileActorKey? victim = null)
     {
         var context = recipe.Delay > 0 || recipe.Interval > 0 ? p.AreaSnapshot() : p;
-        double sector = Math.Tau / Math.Max(1, recipe.Count);
+        int count = recipe.Count;
+        // The client always samples the extra-area roll; the comparison is strict.
+        if (recipe.ExtraCountChancePercent is int chance && chance > (float)(p.Random.NextDouble() * 100)) count++;
+        double sector = Math.Tau / Math.Max(1, count);
         double rotation = recipe.SectorPlacement ? p.Random.NextDouble() * Math.Tau : 0;
-        var order = new int[Math.Max(0, recipe.Count)];
-        for (int i = 0; i < order.Length; i++) order[i] = i;
-        if (recipe.ShuffleOrder) p.Random.Shuffle(order);
+        List<(ProjectileVector Centre, long Id)>? timed = recipe.UpdateTimer ? [] : null;
         int areaIndex = 0;
-        long elapsed = recipe.Delay;
-        for (int i = 0; i < order.Length; i++)
+        for (int i = 0; i < count; i++)
         {
-            int slot = order[i];
             // Independent area events can overlap; only the terminal collision victim shares direct admission.
             long areaId = ++sequence;
             var centre = p.Position;
             if (recipe.Offset > 0)
             {
-                double angle = recipe.SectorPlacement ? rotation + sector * (slot + p.Random.NextDouble())
-                    : p.Random.NextDouble() * Math.Tau;
                 double minimum = Math.Clamp(recipe.MinimumOffset, 0, recipe.Offset);
-                double band = recipe.Spiral ? (slot + p.Random.NextDouble()) / order.Length : p.Random.NextDouble();
-                centre += new ProjectileVector(1, 0).Rotate(angle) * (minimum + (recipe.Offset - minimum) * band);
-                // A collision centre may be exactly on a wall. Test from the incident side of that surface.
-                if (recipe.RespectTerrain && world.TraceTerrain(p.Position - p.Direction * .001, centre) is not null)
-                    continue;
+                bool placed = false;
+                // Client: a counter of attempts + 1 is decremented after each draw and before the tests.
+                for (int left = Math.Max(1, recipe.PlacementAttempts) + 1; ;)
+                {
+                    // Sector i spans [phase + i*W - W/2, phase + i*W + W/2).
+                    double angle = recipe.SectorPlacement
+                        ? rotation + sector * i - sector * .5 + sector * p.Random.NextDouble()
+                        : p.Random.NextDouble() * Math.Tau;
+                    if (--left == 0) break;
+                    // A fixed placement radius takes no radial draw.
+                    double distance = minimum < recipe.Offset
+                        ? minimum + (recipe.Offset - minimum) * p.Random.NextDouble() : recipe.Offset;
+                    centre = p.Position + new ProjectileVector(1, 0).Rotate(angle) * distance;
+                    // A collision centre may be exactly on a wall. Test from the incident side of that surface.
+                    if (!recipe.RespectTerrain || world.TraceTerrain(p.Position - p.Direction * .001, centre) is null)
+                    {
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) continue;
+            }
+            if (timed is not null)
+            {
+                timed.Add((centre, areaId));
+                continue;
             }
             // Rejected centres consume their spatial sample, but no time in the surviving sequence.
-            if (areaIndex++ > 0)
-                elapsed = checked(elapsed + recipe.Interval
-                    + (recipe.IntervalJitter > 0 ? p.Random.NextInt64(recipe.IntervalJitter + 1) : 0));
-            long at = checked(Now + elapsed);
+            long at = checked(Now + recipe.Delay + areaIndex++ * recipe.Interval);
             if (at == Now) ResolveArea(context, recipe, centre, victim, areaId);
             else
             {
@@ -131,6 +146,33 @@ public sealed partial class ProjectileRuntime
                 });
             }
         }
+        if (timed is not null) StartAreaTimer(context, recipe, timed, victim);
+    }
+
+    /// <summary>The client's cluster timer: each runtime update subtracts its elapsed time; when the timer is due it
+    /// emits exactly one area and adds the interval, keeping any overdue time. The first update is immediate, and a
+    /// later update retires the group after its last area. Omitted centres leave no time slot.</summary>
+    void StartAreaTimer(ProjectileEntity context, ProjectileAreaRecipe recipe,
+        List<(ProjectileVector Centre, long Id)> centres, ProjectileActorKey? victim)
+    {
+        long groupId = ++sequence;
+        var clock = new ProjectileAreaTimer(recipe.Delay, recipe.Interval, centres.Count);
+        pendingAreas.Add(groupId, context);
+        long last = Now;
+        void Update()
+        {
+            if (!pendingAreas.ContainsKey(groupId)) return;
+            int? index = clock.Update(Now - last);
+            last = Now;
+            if (clock.Retired)
+            {
+                pendingAreas.Remove(groupId);
+                return;
+            }
+            if (index is int k) ResolveArea(context, recipe, centres[k].Centre, victim, centres[k].Id);
+            Schedule((Now / TickQuanta + 1) * TickQuanta, Update);
+        }
+        Update();
     }
 
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
