@@ -339,6 +339,8 @@ public partial class Program
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
+        // From here every continuation of the handlers counts as the server's work while it runs (lockstep frames wait for it).
+        SynchronizationContext.SetSynchronizationContext(new ServerWorkContext(conn.Work));
         ClientInbox.Batch? handling = null;
         try
         {
@@ -346,9 +348,10 @@ public partial class Program
             {
                 if (conn.Closed) break;
                 handling = batch;
+                conn.Work.Handling = string.Join(", ", batch.Messages.Select(m => $"0x{m.Id:x4}"));
                 long start = Stopwatch.GetTimestamp();
                 try { await Logic.OnClientMessages(remote, stream, ciphers, batch.Messages, batch.Unknown, conn, batch.ReadAt); }
-                finally { inbox.Handled(); }
+                finally { inbox.Handled(); conn.Work.Handling = null; }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
