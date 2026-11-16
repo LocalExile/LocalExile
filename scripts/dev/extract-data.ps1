@@ -53,9 +53,10 @@ $manifest = @(
        Args = @('scripts/re/anim_contacts.py'); Version = 9; Needs = @('tables')
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing, the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md), every contact frame of a clip, and all named events and clip lengths including clips without contact' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
-    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
+    # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
+    # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
+       Args = @('scripts/re/monster_contacts.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
@@ -63,10 +64,11 @@ $manifest = @(
        Args = @('scripts/re/monster_takehit.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
-    # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise).
+    # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise). v3: the flight
+    # clip's contact, which times a spell mortar's landing; v4: flights named by an .ao view, group or default animation.
     @{ Name = 'projectile-clips'; Outputs = @('data\projectile-clips.json'); Runner = 'python'
-       Args = @('scripts/re/projectile_clips.py'); Version = 2; Needs = @('tables')
-       UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, and its .ao default animation (11-skills.md)' }
+       Args = @('scripts/re/projectile_clips.py'); Version = 4; Needs = @('tables')
+       UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, the flight clip''s contact (a spell mortar''s landing time), and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 6; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
