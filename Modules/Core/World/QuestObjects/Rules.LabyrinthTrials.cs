@@ -599,6 +599,7 @@ static partial class QuestobjectsRules
                     conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
                 }
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
+                await global::Game.SendTransitionFade(remote, stream, ciphers, conn, to, "the trial's return portal");
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y),
                     $"0x01b7 trial portal: back to the trial's door at ({to.X}, {to.Y})");
                 return true;

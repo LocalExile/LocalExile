@@ -496,6 +496,18 @@ public static class InstanceProtocol
     /// selects terrain and ignores worldZ; any other marker pins the object at that world z. The default was once 0,
     /// which pinned every teleported player at z = 0: under the ground wherever the ground is raised (/tp, arena gates,
     /// Resurrect at Checkpoint).</summary>
+    public const ushort FadeMoveId = 0xcb;
+
+    /// <summary>S→C 0xcb (class 0x1435e7860, dispatcher case 0x3d, read 0x1421ab370; no object header): u32 object id,
+    /// i32 x, i32 y, f32 seconds, u32, f32, f32 (all big-endian), u8 flags (bit0 fade, bit1, bit2 → one u8 more). The case
+    /// calls the world's slot +0x350 (0x141659e10), which hands the object, the seconds and the cell to 0x14218ba10 and,
+    /// when the object is the local player and bit0 is set, darkens the screen over 0.8 × seconds (the UI fade
+    /// 0x1410c3720 that ClientGameWorld::FadeToBlack uses too). Both floats above 0 schedule another step (not traced),
+    /// so they stay 0. The u32 is not traced either.</summary>
+    public static byte[] FadeMove(uint objectId, int x, int y, float seconds, bool fade = true) =>
+        new LoginWriter().U16(FadeMoveId).U32(objectId).U32((uint)x).U32((uint)y).U32(BitConverter.SingleToUInt32Bits(seconds))
+            .U32(0).U32(0).U32(0).U8((byte)(fade ? 1 : 0)).ToArray();
+
     public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
