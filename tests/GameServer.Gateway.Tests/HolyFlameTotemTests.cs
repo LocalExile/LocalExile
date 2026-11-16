@@ -55,9 +55,9 @@ public sealed class HolyFlameTotemTests
         int Get(string name)=>gem.Stats.GetValueOrDefault(Program.Stats.Key(name)??0);
         Assert.Equal(3,definition.Parameters.Resolve(Get,600,false).Count);
         source=f.Equip(("Shockwave Totem",1)).Single();
-        Assert.False(Game.ProjectilePathAvailable("test",f.Conn,source,Game.SupportedSkill(f.Conn,source).Effect));
+        Assert.False(Game.NativeProjectileTotem(f.Conn,Game.SupportedSkill(f.Conn,source).Effect));
         Assert.False(Game.SpellTotemCurrent(f.Conn,totem));
         source=f.Equip(("Searing Bond",1)).Single();
-        Assert.False(Game.ProjectilePathAvailable("test",f.Conn,source,Game.SupportedSkill(f.Conn,source).Effect));
+        Assert.False(Game.NativeProjectileTotem(f.Conn,Game.SupportedSkill(f.Conn,source).Effect));
     }
 }
