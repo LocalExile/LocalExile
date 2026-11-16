@@ -2,6 +2,28 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
+/// <summary>Blind inputs captured before an accepted hit chooses its attack/spell and critical result.</summary>
+public readonly record struct BlindHitInput(long GlobalChance, long AttackChance, long CriticalChance, int Effect, double Seconds)
+{
+    static int Saturate(long value) => (int)Math.Clamp(value, (long)int.MinValue, int.MaxValue);
+    public static BlindHitInput Capture(IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null)
+    {
+        long Get(string name) => Program.Stats.Key(name) is uint key ? (long)player.GetValueOrDefault(key)
+            + (own?.GetValueOrDefault(key) ?? 0) : 0;
+        return Capture(Get);
+    }
+    public static BlindHitInput Capture(Func<string, int> get) => new(
+        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
+        get("%_chance_to_blind_on_critical_strike"), get("blind_effect_+%"), 4 * Math.Max(0d, 1 + get("blind_duration_+%") / 100d));
+    public static BlindHitInput Capture(Func<string, long> get) => new(
+        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
+        get("%_chance_to_blind_on_critical_strike"), Saturate(get("blind_effect_+%")),
+        4 * Math.Max(0d, 1 + Saturate(get("blind_duration_+%")) / 100d));
+    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+}
+
 public static partial class Game
 {
     static bool BlindImmune(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
@@ -204,4 +226,7 @@ public static partial class Game
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).
     public static int DamageTakenFromBlindedPct(ClientState conn, uint monster, IReadOnlyDictionary<uint, int> player) =>
         Blinded(conn, monster) ? StatOf(player, FromBlindedDamageTakenStat) : 0;
+    public static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
+        BlindHitInput input, bool spell, bool critical, Random? random = null) =>
+        InflictMonsterBlind(conn, id, target, at, (input.Chance(spell, critical), input.Effect, input.Seconds), random);
 }

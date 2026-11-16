@@ -38,6 +38,7 @@ public static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));
@@ -208,6 +209,8 @@ public static partial class Game
                     if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
                         || !ReferenceEquals(state.OutputQueue[0], output)) return null;
                     state.OutputQueue.RemoveAt(0);
+                    if (output.RemovesObject)
+                        return InstanceProtocol.RemoveObject(output.WorldId!.Value);
                     if (output.Kind == PlayerMinions.OutputKind.Remove)
                         return output.TargetId is uint gone && !conn.Monsters.ContainsKey(gone) ? output.Packet : null;
                     if (output.Kind == PlayerMinions.OutputKind.MonsterType)
@@ -235,6 +238,11 @@ public static partial class Game
                         return actionRecords is null ? null : [.. actionRecords.SelectMany(p => p)];
                     }
                     if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);
+                    if (output.Kind == PlayerMinions.OutputKind.EnergyShield)
+                    {
+                        actionRecords = GolemEnergyShieldRecords(conn, output);
+                        return actionRecords is null ? null : [.. actionRecords.SelectMany(p => p)];
+                    }
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
@@ -261,7 +269,7 @@ public static partial class Game
                 await SendWorldCreate(conn, output.WorldId!.Value, Project, output.Log, transport: (remote, stream, ciphers));
             else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
                 await SendWorldRemoval(remote, stream, ciphers, conn, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
-            else if (output.Kind == PlayerMinions.OutputKind.GolemAction)
+            else if (output.Kind is PlayerMinions.OutputKind.GolemAction or PlayerMinions.OutputKind.EnergyShield)
                 await SendWorldRecords(remote, stream, ciphers, conn, output.TargetId!.Value,
                     () => Project() is null ? null : actionRecords, output.Log);
             else if (worldId is uint targetId)

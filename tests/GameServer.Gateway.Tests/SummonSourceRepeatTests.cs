@@ -33,18 +33,19 @@ public sealed class SummonSourceRepeatTests
             (100, 100), restoredVariety: def.Variety);
         Assert.NotEqual(0u, other);
         var preserved = f.Conn.Summons.Fighters[other];
-        var prior = original.Monster.Life / (double)original.Monster.MaxLife;
+        uint priorLife = original.Monster.Life;
         var changed = Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
         var sockets = changed.Item.Sockets.ToArray();
         var gem = sockets[1].Gem!;
         sockets[1] = sockets[1] with { Gem = gem with { GemExperience = Program.Items.Gem(Program.Items.ByHash(gem.TypeHash)!)!.ExperienceFor(19) } };
         Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, changed.Id, item => item with { Sockets = sockets });
         f.Conn.Summons.RefreshAt = 0;
+        original.LastStep = 1; // Isolate the resource-preserving replacement from this tick's regeneration.
         await Game.SummonsTick("test", f.Stream, f.Ciphers, f.Conn, 1);
         Assert.Same(preserved, f.Conn.Summons.Fighters[other]);
         var replacement = f.Conn.Summons.Fighters.Values.Single(g => g.Source == ids[1]);
         Assert.NotEqual(original.Id, replacement.Id); Assert.Equal(19, replacement.GemLevel);
-        Assert.InRange(replacement.Monster.Life / (double)replacement.Monster.MaxLife, prior - .001, prior + .001);
+        Assert.Equal(Math.Min(priorLife, replacement.Monster.MaxLife), replacement.Monster.Life);
     }
 
     static async Task VerifyGolemSources()
@@ -73,9 +74,9 @@ public sealed class SummonSourceRepeatTests
 
             uint other = await Game.SummonGolem("test", f.Stream, f.Ciphers, f.Conn, ids[0], def, (100, 100));
             var preserved = f.Conn.Golems.All[other];
-            var prior = original.Monster.Life / (double)original.Monster.MaxLife;
+            uint priorLife = original.Monster.Life;
             Assert.Equal(0u, await Game.SummonGolem("test", f.Stream, f.Ciphers, f.Conn, ids[1], def,
-                (100, 100), replacing: original.Id, current: () => false));
+                (100, 100), replacingOld: original, current: () => false));
             Assert.Same(original, f.Conn.Golems.All[original.Id]);
             var host = Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
             var sockets = host.Item.Sockets.ToArray();
@@ -84,19 +85,24 @@ public sealed class SummonSourceRepeatTests
             Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with { Sockets = sockets });
             f.Conn.Golems.RefreshAt = 0;
             schedule.Time = 1;
+            original.LastStep = 1; // Source replacement preserves absolute resources; regeneration has its own controls.
+            original.RecallUntil = 3; original.RecallRate = 99;
             await Game.GolemsTick("test", f.Stream, f.Ciphers, f.Conn, 1);
             Assert.Same(preserved, f.Conn.Golems.All[other]);
             var replacement = f.Conn.Golems.All.Values.Single(g => g.Source == ids[1]);
             Assert.NotEqual(original.Id, replacement.Id); Assert.Equal(19, replacement.GemLevel);
-            Assert.InRange(replacement.Monster.Life / (double)replacement.Monster.MaxLife, prior - .001, prior + .001);
+            Assert.Equal(Math.Min(priorLife, replacement.Monster.MaxLife), replacement.Monster.Life);
+            Assert.Equal(3, replacement.RecallUntil); Assert.Equal(99, replacement.RecallRate);
 
+            var beforeRevival = f.Conn.Golems.All.Keys.ToHashSet();
             f.Conn.Golems.Waiting.Add(new(durable with { Skill = ids[0], ReviveSeconds = .1 }, 2));
             f.Conn.Golems.Waiting.Add(new(durable with { Socket = 9, ReviveSeconds = .1 }, 2));
             schedule.Time = 2;
             await Game.GolemsTick("test", f.Stream, f.Ciphers, f.Conn, 2);
             Assert.Empty(f.Conn.Golems.Waiting);
             Assert.Equal(2, f.Conn.Golems.All.Count);
-            Assert.All(f.Conn.Golems.All.Values, golem => Assert.Equal(ids[1], golem.Source));
+            uint revived = Assert.Single(f.Conn.Golems.All.Keys.Except(beforeRevival));
+            Assert.Equal(ids[1], f.Conn.Golems.All[revived].Source);
         }
         finally { Game.AreaUpdateContext.Value = oldContext; }
     }

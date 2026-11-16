@@ -246,6 +246,7 @@ public static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (OwnedGolemActor(conn, id, m)) continue;
                 var set = of(m);
                 if (set.Idle) continue;
                 int damage = 0;

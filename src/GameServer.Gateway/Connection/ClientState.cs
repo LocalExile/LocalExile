@@ -170,6 +170,15 @@ public sealed record MonsterMovement
 
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public double WalkSpeedAtZeroFactor;
+
+    public bool MaimedMovementShown;
+
+    public int MaimedMovementShownPct;
+
+    public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
+
+
     /// <summary>How it moves where its variety's row does not say (SpawnMonster's <c>movement</c>).</summary>
     public MonsterMovement Movement { get; init; } = MonsterMovement.Default;
     public double ReceivedActionFactor = 1;
@@ -308,7 +317,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
     public ushort CrushBuff;
-    // Maimed by his hits until when and the physical damage increase its source gave, shown with its own maimed buff.
+    // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
+    // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
