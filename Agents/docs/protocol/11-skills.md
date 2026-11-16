@@ -4073,6 +4073,12 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
 - **Other monster shots (3.30.0b, 2026-11-14, both network modes):** no object for any Goatman Shaman fireball,
   bow skeleton arrow, Axiom Frostguard shot or Bramble Cobra spit; the hit's delay grows with distance at the resolved
   row's speed (fireball 9.7 ms per cell against the row's 10.5, spit 6.3 against 6.0), where melee hits show none.
+- **Act bosses (3.30.0b, 2026-11-15, lockstep):** still no shot objects. A Pocked Lanternbearer's lantern lands 889 ms
+  after the order (its Throw clip), hits by a 12-cell area there and leaves a FillGroundEffect (ground_fire_burn, 3.9 s).
+  Lunaris's orb never hits; its VisibleServerGroundEffect hurts within 18 cells at her level's value × 1.7 (unique, no
+  33 % less) for 7 s, with a damage-free chill ring growing 18 → 44 cells. A ball strikes every 7 server frames.
+  Arakaali's web and eggs land half her SpellProjectile cast plus the flight after the order. A server frame is 33 ms
+  in both modes.
 
 ## Open
 

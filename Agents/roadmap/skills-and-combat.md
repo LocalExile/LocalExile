@@ -176,7 +176,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     channel, spell mortars with swapped ends, forks or chains, Kaom's, the riptide (its speed unit), the Elder's storm
     burst, a spray's contact offset, breach barrage facing, `spell_self` shots, and the trap, totem and mine forms (Ethereal
     Knives, Rigwald's trap knives). Weapon jitter lands on the client's end cell 70 of 90 times; the rest is open.
-    A shot at a golem aims at its cell at release, not the order's.
+    A shot at a golem aims at its cell at release, not the order's. Not modelled: Lunaris's chill ring, a lantern's
+    MinAgroRange throw reach (75, not 105) and fire damage, Arakaali's riptide speed (no recording of her phase 2), a
+    repeated monster cast (skill_repeat_count: the record sends no spell_repeat_count, so the client casts once).
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and
