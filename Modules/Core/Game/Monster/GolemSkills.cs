@@ -91,6 +91,11 @@ public static partial class Game
                 ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
             double speed = 1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0;
             speed *= Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100.0);
+            speed *= Math.Max(.01, 1 + Own(spell ? "active_skill_minion_cast_speed_+%_final" : "active_skill_minion_attack_speed_+%_final") / 100d);
+            bool multistrike = MinionSupportMatches(effect, "SupportMultistrike");
+            if (!spell && catalog.IsMelee(effect))
+                speed *= (multistrike ? Math.Max(.01, 1 + Own("support_multiple_attacks_melee_attack_speed_+%_final") / 100d) : 1)
+                    * Math.Max(.01, 1 + Own("support_melee_physical_attack_speed_+%_final") / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
@@ -140,10 +145,12 @@ public static partial class Game
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
             var types = new HashSet<int>();
-            if (spell) types.Add(1); else { types.Add(0); types.Add(19); }
+            if (spell) types.Add(1);
+            else { types.Add(0); if (catalog.IsMelee(effect) && golem.Weapon is not { Melee: false }) types.Add(19); }
             if (Raw("is_area_damage") != 0) types.Add(7);
             if (Raw("base_is_projectile") != 0) types.Add(2);
-            var supportStats = golem.Own.Select(p => (Name: Stats.Name(p.Key) ?? "", p.Value)).ToArray();
+            var supportStats = golem.Own.Select(p => (Name: Stats.Name(p.Key) ?? "", p.Value))
+                .Where(p => multistrike || p.Name != "support_multiple_attack_damage_+%_final").ToArray();
             var modified = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
@@ -220,7 +227,7 @@ public static partial class Game
         foreach (var ability in abilities)
         {
             var row = GolemData.Skill(SkillsFor(conn), ability.Effect, level);
-            var stats = new Dictionary<uint, int>(row.Stats);
+            var stats = new Dictionary<uint, int>(ability.Stats);
             foreach (var (key, value) in ability.Attack.InPlaceSkillStats()) stats[key] = value;
             foreach (var (type, range) in ability.Attack.Damage.Components)
             {

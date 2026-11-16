@@ -45,7 +45,7 @@ public static partial class Game
         GolemHazardsLocked(remote, stream, ciphers, conn, g, now);
         if (MonsterActionFactor(m, now) == 0)
         {
-            g.Pending = null; g.Pulses.RemoveAll(p => p.Follows);
+            g.Pending = null; g.Repeat = null; g.Pulses.RemoveAll(p => p.Follows);
             if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
             m.Walk.Order(m.Walk.Position(now).X, m.Walk.Position(now).Y, now);
             return;
@@ -62,10 +62,13 @@ public static partial class Game
             {
                 g.Pending = null;
                 GolemAbilityContactLocked(remote, stream, ciphers, conn, g, pending, now);
+                if (pending.RepeatsRemaining > 0 && !m.Dead && pending.Generation == m.ActionGeneration)
+                    g.Repeat = pending;
             }
             else return;
         }
         if (now < m.BusyUntil || now < m.FlinchUntil || MonsterActionFactor(m, now) == 0) return;
+        if (RepeatMinionAttackLocked(conn, g, now)) return;
         m.Walk.SetSpeed(m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed) * MonsterSpeedRoll.Factor(m.SpeedRoll), now);
         var here = m.Walk.Position(now); var owner = conn.Walk.Position(now);
         bool follows = !conn.Summons.Definitions.TryGetValue(g.Id, out var summon) || summon.Follows;
@@ -155,7 +158,8 @@ public static partial class Game
         if (output.TargetId is not uint id || OwnedFighter(conn, id) is not { } g || !GolemCurrent(conn, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
             || pending.Generation != g.Monster.ActionGeneration) return null;
-        double now = AreaTime(conn); var from = g.Monster.Walk.Position(now); var a = pending.Ability;
+        double now = AreaTime(conn); var from = g.Monster.Walk.Position(now); var a = MinionSupportAction(conn, g, pending);
+        g.Pending = pending = pending with { Ability = a };
         pending.Started = true; pending.At = now + a.Attack.Seconds * a.Contact;
         g.Monster.BusyUntil = now + a.Attack.Seconds;
         g.Monster.Walk.Order(from.X, from.Y, now);
@@ -168,7 +172,7 @@ public static partial class Game
         }
         if (!g.Charges.TryGetValue(a.Effect, out var charges)) g.Charges[a.Effect] = charges = new();
         double after = charges.TryPeek(out _) ? charges.Last() : now;
-        if (a.Cooldown > 0) charges.Enqueue(Math.Max(now, after) + a.Cooldown);
+        if (pending.RepeatIndex == 0 && a.Cooldown > 0) charges.Enqueue(Math.Max(now, after) + a.Cooldown);
         var action = a.Effect is 9927 or 9928
             ? InstanceProtocol.InstantAction(id, a.Skill, pending.Aim.X, pending.Aim.Y)
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
@@ -275,7 +279,18 @@ public static partial class Game
             if (!m.Hostile || m.Dead || m.Life == 0) continue;
             if (area ? Dist(m.Walk.Position(now), centre) > a.Radius + LivingCollision.Size(m)
                 : id != action.Target || Dist(m.Walk.Position(now), at) > a.Attack.Range + LivingCollision.Size(m) + 2) continue;
-            GolemHitLocked(remote, stream, ciphers, conn, g, a, id, m, now);
+            bool landed = GolemHitLocked(remote, stream, ciphers, conn, g, a, id, m, now);
+            int SplashStat(string n) => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n);
+            if (landed && !area && MinionMelee(conn, a) && MinionSupportMatches(a.Effect, "SupportMeleeSplash")
+                && MeleeSplash.Settings(SplashStat) is { } splash)
+            {
+                var splashAt = m.Walk.Position(now);
+                var spread = MinionDamageScale(a, splash.More, splash.More);
+                foreach (var (otherId, other) in conn.Monsters.ToArray())
+                    if (otherId != id && other.Hostile && !other.Dead && other.Life > 0
+                        && Dist(other.Walk.Position(now), splashAt) <= splash.Radius + LivingCollision.Size(other))
+                        GolemHitLocked(remote, stream, ciphers, conn, g, spread, otherId, other, now);
+            }
             if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, "chance_to_taunt_on_hit_%")) g.Taunts[id] = now + 3;
         }
         if (a.Effect == 5268)
@@ -352,7 +367,12 @@ public static partial class Game
         { CommitBossStage(remote, stream, ciphers, conn, id, target, now); hit = hit with { StageStarts = false }; }
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id, flags: (ushort)(0x4601 | (critical ? 0x20 : 0)), kind: 2,
             u34: 450), null, id, target, WorldId: g.Id));
-        CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}");
+        bool melee = MinionMelee(conn, a);
+        double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
+        var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
+            g.Monster.Mods.Effects["base_stun_threshold_reduction_+%"], g.Monster.Mods.Effects["base_stun_duration_+%"],
+            Melee: melee, BaseSeconds: GolemStat(a.Stats, "support_ruthless_big_hit_stun_base_duration_override_ms") / 1000d);
+        CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun);
         if (!target.Dead)
         {
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(target, type, default));

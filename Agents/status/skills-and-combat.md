@@ -118,7 +118,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) §10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
-- Player minions that fight. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Player minions that fight, with compatible Multistrike repeats, Ruthless uses and Melee Splash.
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) §5.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) §4.
@@ -148,6 +149,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
+  Spell totems summon minion groups, golems, corpse minions and animated equipment from valid sources.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
