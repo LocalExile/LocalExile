@@ -99,6 +99,10 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A skill whose area lands later than its cast (Storm Call): the action sets a marker at its aim, and the
     /// marker strikes with this attack's area when its time is up (Game.MonsterMarkers). Null for any other skill.</summary>
     public MonsterDelayedStrike? Strike { get; init; }
+    /// <summary>How many times one use hits (Double Strike's 1 + base_skill_number_of_additional_hits, Dual Strike's two
+    /// when dual wielding): each after the first lands on the clip's next contact frame, and one whose clip has no such
+    /// frame does not land.</summary>
+    public int Hits { get; init; } = 1;
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>

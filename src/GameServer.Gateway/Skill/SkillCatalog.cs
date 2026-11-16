@@ -1033,6 +1033,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
+
+        /// <summary>Every contact frame of the clip in order (ms): a multi-strike skill's later strikes land on the later
+        /// ones (Double Strike's doublestrike_bow: 166 and 633 of 1000). Empty when the data names none.</summary>
+        public IReadOnlyList<int> ContactsMs { get; init; } = [];
+
+        /// <summary>The clip's contact at <paramref name="index"/> as a fraction of the clip; null past its last.</summary>
+        public double? ContactFractionAt(int index) =>
+            index < ContactsMs.Count && LengthMs > 0 ? Math.Clamp((double)ContactsMs[index] / LengthMs, 0, 1) : null;
     }
 
     /// <summary>The clip the client plays for a monster's action: the variety's ACT pool for the skill's animation key

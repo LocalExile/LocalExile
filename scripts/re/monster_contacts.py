@@ -303,7 +303,10 @@ def main():
             for name in names:
                 i, a = clips[name]
                 hits = [ms for e, ms, _ in a["events"] if e == event]
-                pool.append({"animation": name, "index": i, "length": a["length"], "contact": min(hits) if hits else None})
+                # contacts: every hit frame in order, for a skill that strikes more than once in one action (Double
+                # Strike's second hit lands on the clip's second contact, as the player's does: animation-contacts).
+                pool.append({"animation": name, "index": i, "length": a["length"], "contact": min(hits) if hits else None,
+                             "contacts": sorted(hits)})
             if any(c["contact"] is not None for c in pool):
                 recorded[k] = pool
         if recorded:

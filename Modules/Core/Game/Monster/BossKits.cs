@@ -268,6 +268,8 @@ public static class BossKits
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
         var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
         var summon = MonsterSummonOf(catalog, effect, actorLevel);
+        int hits = 1 + Math.Max(0, Raw("base_skill_number_of_additional_hits"))
+            + (Raw("skill_double_hits_when_dual_wielding") != 0 && DualWields(variety) ? 1 : 0);
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
@@ -276,6 +278,7 @@ public static class BossKits
             Summon = summon,
             ReleaseEffect = projectile is null ? null : effect,
             Release = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, actorLevel, projectile),
+            Hits = catalog.IsMelee(effect) && !catalog.IsChannelled(effect) ? hits : 1,
         };
     }
 

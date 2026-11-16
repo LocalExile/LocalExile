@@ -89,7 +89,7 @@ public static class GameDataFiles
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
-        ("monster-contacts", 5, "weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
+        ("monster-contacts", 6, "weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
         ("object-types", 10, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),

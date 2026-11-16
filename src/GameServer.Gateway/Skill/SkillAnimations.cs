@@ -133,7 +133,8 @@ public static class SkillAnimations
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.OrderBy(c => c.Int("ord")).Select(c => new SkillCatalog.MonsterClipContact(
-                    c.Text("animation")!, c.UInt("index"), c.Int("length"), c.IntOrNull("contact"), null)).ToArray(), StringComparer.Ordinal);
+                    c.Text("animation")!, c.UInt("index"), c.Int("length"), c.IntOrNull("contact"), null)
+                    { ContactsMs = c.IsNull("contacts") ? [] : c.Ints("contacts") }).ToArray(), StringComparer.Ordinal);
         foreach (var v in varieties)
             if (v.Texts("ACTFiles").FirstOrDefault() is { } act && byAct.TryGetValue(act, out var pools) && v.Text("Id") is { } id)
                 result.TryAdd(id, pools);

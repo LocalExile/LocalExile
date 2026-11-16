@@ -106,16 +106,20 @@ public static partial class Game
     /// of the clip its stance plays for the skill's Animation row (SkillAnimations; Leap Slam's hit_ground), chosen with the
     /// action's sequence as the client chooses it. <paramref name="key"/> names the row instead (a walk-up swing's
     /// Melee). Null for any other monster, or without a pool for the row.</summary>
-    public static double? StanceContact(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence, string? key = null)
+    public static double? StanceContact(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence, string? key = null) =>
+        StanceClipOf(conn, m, a, sequence, key)?.ContactFraction;
+
+    /// <summary>The clip a stanced monster plays for the attack (StanceContact); null for one with no stances.</summary>
+    public static SkillCatalog.MonsterClipContact? StanceClipOf(ClientState conn, SpawnedMonster m, MonsterAttack a, ushort sequence,
+        string? key = null)
     {
         if (m.Variety is not { } variety || !SkillAnimations.IsStanced(variety.Id)) return null;
         key ??= a.Effect is int effect ? SkillAnimations.Key(SkillsFor(conn), effect, DualWields(variety)) : null;
-        return key is null ? null
-            : SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence)?.ContactFraction;
+        return key is null ? null : SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence);
     }
 
     /// <summary>It holds a weapon in each hand: its off hand is no shield (ItemStances 10) or quiver (9).</summary>
-    static bool DualWields(MonsterCatalog.Variety variety) => variety.Weapons.Any(w => w.Slot == 1 && w.Stance is not (9 or 10));
+    public static bool DualWields(MonsterCatalog.Variety variety) => variety.Weapons.Any(w => w.Slot == 1 && w.Stance is not (9 or 10));
 
     // The native selector seeds the clip from this action (0x141e9fa80). Keep its contact and launch point together;
     // another action may start on the actor while this shot is in flight. Scripted releases retain their own recipe.
@@ -1695,6 +1699,13 @@ public static partial class Game
         }
         if (area) { await MonsterAreaContact(remote, stream, ciphers, conn, id, m, a, action, areaRadius, seq); return; }
         await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a);
+        // A multi-strike skill's later hits land on the clip's later contact frames, within the same action.
+        if (a.Hits > 1 && StanceClipOf(conn, m, a, seq) is { } clip)
+            for (int hit = 1; hit < a.Hits && clip.ContactFractionAt(hit) is double at; hit++)
+            {
+                if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * at)) return;
+                await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a);
+            }
     }
 
     /// <summary>Animation.dat <c>SpellAreaOfEffect</c>, which a summoner's actor plays as it summons (the Immolator's
