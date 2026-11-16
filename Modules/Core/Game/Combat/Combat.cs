@@ -1974,11 +1974,44 @@ public static partial class Game
                         reflected, poison, sourceSkill: skillId);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                     // physical damage bleed it.
-                    if (m.Life > 0 && ignite.CanIgnite(rolled)
-                        && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
+                    // Bloodlust / Power Charge on Critical / Iron Will: their more damage reaches ailments too, not only
+                    // the hit. Power Charge scales every ailment; Iron Will (strength's damage bonus to spells) scales spell
+                    // ailments; Bloodlust (melee physical vs bleeding) scales bleed only. Applied per target here, since the
+                    // bleeding state differs per monster.
+                    var igniteHit = ignite;
+                    var bleedHit = bleed;
+                    {
+                        double ailmentMore = 1;
+                        if (Stats.Key("support_power_charge_on_crit_damage_+%_final_per_power_charge") is uint pcKey)
+                        {
+                            int perCharge = skillStats.GetValueOrDefault(pcKey);
+                            int charges = ChargesOf(conn).Effective(ChargeType.Power);
+                            if (perCharge > 0 && charges > 0) ailmentMore *= 1 + perCharge * charges / 100.0;
+                        }
+                        if (spell && Stats.Key("strong_casting") is uint scKey && skillStats.GetValueOrDefault(scKey) != 0)
+                        {
+                            int strKey = Stats.Key("strength") is uint sk ? (int)sk : 0;
+                            int strength = strKey != 0 ? player.GetValueOrDefault((uint)strKey) : 0;
+                            if (strength > 0) ailmentMore *= 1 + strength / 100.0;
+                        }
+                        if (ailmentMore != 1)
+                            igniteHit = ignite with { Min = ignite.Min * ailmentMore, Max = ignite.Max * ailmentMore,
+                                CriticalMin = ignite.CriticalMin * ailmentMore, CriticalMax = ignite.CriticalMax * ailmentMore };
+                        double bleedMore = ailmentMore;
+                        if (!spell && m.Bleeds.Burning && Stats.Key("support_bloodlust_melee_physical_damage_+%_final_vs_bleeding_enemies") is uint blKey)
+                        {
+                            int blPct = skillStats.GetValueOrDefault(blKey);
+                            if (blPct > 0) bleedMore *= 1 + blPct / 100.0;
+                        }
+                        if (bleedMore != 1)
+                            bleedHit = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore,
+                                CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
+                    }
+                    if (m.Life > 0 && igniteHit.CanIgnite(rolled)
+                        && IgniteOnHitLocked(conn, id, m, igniteHit, critical, at) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                     if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
-                        && BleedOnHitLocked(conn, id, m, bleed, critical, at) is { } cut)
+                        && BleedOnHitLocked(conn, id, m, bleedHit, critical, at) is { } cut)
                         (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
                 }
                 if (applied is { StageStarts: true } staged)
