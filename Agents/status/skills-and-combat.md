@@ -109,6 +109,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback.
+  Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Warcry release and cooldowns. Docs: [11](../docs/protocol/11-skills.md) §10i.
 - Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) §10e.
@@ -160,11 +162,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Overcapped-resistance modifiers. Docs: [11](../docs/protocol/11-skills.md) §4, §5 and §12.
 - Projectiles: release, contact, lockstep client shots and monster mortars.
   Docs: [framework](../docs/game/projectile-framework.md), [11](../docs/protocol/11-skills.md) §6 and §10.
-- Combat: server-side damage, monster AI and player hit recovery. Docs: [11](../docs/protocol/11-skills.md) §5–6.
+- Combat: server-side damage, monster AI and player hit recovery. Real and synthetic enemy hits share recent-hit,
+  attack/spell block, suppression, charge and automatic-flask event bookkeeping.
+  Blocked monster hits retain flask charge gain from being hit.
+  Real and synthetic blocks recover Life, Mana and Energy Shield before damage, with shared recovery caps.
+  Docs: [11](../docs/protocol/11-skills.md) §5–6.
 - Critical-strike elemental resistance rules (Inevitable Judgement). Docs: [20](../docs/protocol/20-damage.md) §4.
 - Client Buff descriptor research (#370, #466, offline only).
   Docs: [report](../docs/re/client-buff-descriptor-consumers.md).
-- Damage model: packets, conversion, ailments, penetration and player ES. Docs: [20](../docs/protocol/20-damage.md),
+- Damage model: packets, conversion, ailments, penetration and player ES. Player ailments from ordinary hits,
+  boss skills, ground and reflection share recent-freeze, automatic-flask and movement notifications.
+  Native boss ailment chances and modifiers feed the ordinary hit application, with one avoidance roll per kind.
+  Docs: [20](../docs/protocol/20-damage.md),
   [Gambler](../docs/game/gambler.md), [Polytheist](../docs/game/polytheist.md).
 - Continuous life and mana recovery. Docs: [20](../docs/protocol/20-damage.md), "Continuous resource updates".
 - Consecrated ground while stationary. Docs: [13](../docs/protocol/13-items.md) §8a,

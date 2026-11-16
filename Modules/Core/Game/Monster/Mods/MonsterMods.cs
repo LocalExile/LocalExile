@@ -82,7 +82,7 @@ public static partial class Game
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now),
-            Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
+            Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
 
@@ -98,6 +98,9 @@ public static partial class Game
     /// </summary>
     public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
     {
+        // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
+        // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
+        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var e = m.Effects;
         double physical = mitigated[DamageType.Physical].Min;
         double physicalTaken = physical * Math.Max(0, 1 - (e.PhysicalReduction - CrushReduction(m, now)) / 100.0)
@@ -182,6 +185,7 @@ public static partial class Game
     /// description saying it covers damage over time.</summary>
     public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
     {
+        if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),

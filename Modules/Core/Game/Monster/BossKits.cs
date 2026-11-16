@@ -296,6 +296,7 @@ public static class BossKits
         double bestUsed = 0;
         foreach (var entry in monster.Kit)
         {
+            if (!Arakaali.Allowed(monster, entry.Effect)) continue;
             // A skill that does not reach the player is no candidate: the boss keeps its attack and walks up.
             if (entry.Attack.Range < distance) continue;
             // A travel is for closing a distance: nearer than its least, the monster swings.
@@ -315,7 +316,8 @@ public static class BossKits
             bestTier = special ? 1 : 0;
             bestUsed = used;
         }
-        return best?.Attack ?? monster.Attack;
+        return best?.Attack ?? (Arakaali.IsBoss(monster.Variety)
+            ? monster.Kit.FirstOrDefault(entry => Arakaali.Allowed(monster, entry.Effect))?.Attack : monster.Attack);
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown

@@ -169,4 +169,109 @@ public sealed class SupportExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
+    [Fact]
+    public void Multistrike_preserves_native_panel_damage_and_paces_one_paid_cancellable_repeat_series()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"multistrike-panel-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull;
+        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("MultistrikePanelAcceptance");
+        try
+        {
+            foreach (var (support, repeats) in new[]
+            {
+                ("SupportGemMultistrike", 2),
+                ("SupportGemGreaterMultistrike", 3),
+                ("SupportGemAddedFireDamage", 0),
+            })
+            {
+                ushort id = Equip(conn, "SkillGemCleave", support);
+                Assert.Equal(repeats, Game.MeleeAttackRepeats(conn, id));
+                var items = Game.ItemsOf(conn);
+                for (int hands = 1; hands <= 2; hands++)
+                {
+                    if (hands == 2)
+                    {
+                        var off = ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword5")!);
+                        items.Add(PlayerInventories.Offhand1, 0, 0, off);
+                    }
+                    conn.PlayerSkillsCache = null;
+                    var rows = Game.PlayerSkills(conn).Single(s => s.Id == id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+                    int Row(string name) => rows.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                    Assert.Equal(repeats, Row("attack_repeat_count"));
+                    double Factor(string hand) => CriticalStrikePolicy.DamageFactor(Row(hand + "_critical_strike_chance"),
+                        Row(hand + "_critical_strike_multiplier"), 0, Row(hand + "_chance_to_hit_%"));
+                    var mainHit = Game.SupportedHit(conn, id);
+                    foreach (var (stat, value) in PanelStats.HandDamage(mainHit, "main_hand"))
+                        Assert.Equal(value, Row(stat));
+                    double mainSeconds = Game.SupportedAttackSeconds(conn, id);
+                    var main = SpellDamage.Display((mainHit.MinTotal, mainHit.MaxTotal), 1 / mainSeconds, Factor("main_hand"));
+                    int perUse = main.PerUse, perSecond = main.PerSecond;
+                    if (hands == 2)
+                    {
+                        var offWeapon = Game.OffhandWeaponFor(conn)!;
+                        var offInputs = Game.SupportedHitInputsFor(conn, id, weapon: offWeapon)!;
+                        var offHit = Game.SupportedHitFrom(offInputs, suppress: true);
+                        foreach (var (stat, value) in PanelStats.HandDamage(offHit, "off_hand"))
+                            Assert.Equal(value, Row(stat));
+                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal),
+                            1 / Game.SupportedOffHandAttackSeconds(conn, id, offWeapon), Factor("off_hand"));
+                        perUse = (int)Math.Round((main.PerUse + off.PerUse) / 2.0);
+                        perSecond = (int)Math.Round((main.PerSecond + off.PerSecond) / 2.0);
+                    }
+                    Assert.Equal(perUse, Row("display_hundred_times_damage_per_skill_use"));
+                    Assert.Equal(perSecond, Row("hundred_times_damage_per_second"));
+                    // Native calculators keep these rows per hit; repeat damage belongs to execution only.
+                    for (int repeat = 1; repeat <= repeats; repeat++)
+                        Assert.Equal(1 + .22 * repeat, Game.MeleeRepeatDamageMore(conn, id, repeat), 8);
+                    conn.NextAttackAt = 10 + mainSeconds;
+                    conn.LockstepBusyUntil = 10 + mainSeconds * .6;
+                    uint mana = conn.PlayerMana;
+                    Game.ReserveMeleeRepeats(conn, id, mainSeconds);
+                    Assert.Equal(10 + mainSeconds * (repeats + 1), conn.NextAttackAt, 8);
+                    Assert.Equal(mana, conn.PlayerMana);
+                    if (repeats > 0)
+                    {
+                        Assert.False(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.5));
+                        Assert.True(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.7));
+                        Game.CancelMeleeRepeats(conn, 10 + mainSeconds * 1.7);
+                        Assert.Equal(10 + mainSeconds * 2, conn.NextAttackAt, 8);
+                        Assert.True(Game.MeleeRepeatAllowsMove(conn, 10 + mainSeconds * 1.7));
+                        // An object interaction replaces the action too (loot, portals, NPCs). It must release the
+                        // unstarted swings' reservation and movement gates, while preserving the current swing.
+                        conn.Clock.Stop();
+                        double now = Game.ProjectileWorldTime(conn), start = now - mainSeconds * .7;
+                        conn.NextAttackAt = start + mainSeconds;
+                        conn.LockstepBusyUntil = start + mainSeconds * .6;
+                        Game.ReserveMeleeRepeats(conn, id, mainSeconds);
+                        double reserved = conn.NextAttackAt;
+                        conn.PlayerLife = 0;
+                        Assert.False(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
+                        Assert.Equal(reserved, conn.NextAttackAt);
+                        conn.PlayerLife = 1000;
+                        Assert.True(Game.TryBeginObjectWalk(conn, now, 110, 100, 3, out _));
+                        Assert.Equal(start + mainSeconds, conn.NextAttackAt, 8);
+                        Assert.True(Game.MeleeRepeatAllowsMove(conn, start + mainSeconds * 1.5));
+                    }
+                }
+                foreach (string disabled in new[] { "disable_attack_repeats", "disable_skill_repeats" })
+                {
+                    uint key = Program.Stats.Key(disabled)!.Value;
+                    conn.PlayerStats[key] = 1;
+                    Assert.Equal(0, Game.MeleeAttackRepeats(conn, id));
+                    conn.PlayerSkillsCache = null;
+                    Assert.Equal(0, Game.PlayerSkills(conn).Single(s => s.Id == id).Stats!.Single(s => s.Key == Program.Stats.Key("attack_repeat_count")).Value);
+                    conn.PlayerStats.Remove(key);
+                }
+                foreach (var off in items.EquipmentSnapshot().Where(e => e.Row == PlayerInventories.Offhand1))
+                    items.Remove(PlayerInventories.Offhand1, off.Item.Id);
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
 }

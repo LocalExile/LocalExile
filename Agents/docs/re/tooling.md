@@ -34,6 +34,77 @@ only ERROR/Exception/SCRIPT lines (`GLINES=<n>` for more). Arguments go through 
 | `ReadSchema.java` | `<out.json> <components.json> [factory:a+b] [only:f+g] [withc]` | read-sequence summaries (section 7) |
 | `SendSites.java` | `<out.json> [send:0xaddr/REG+…]` | every call of a send function (default the instance send `0x1421752b0`, message in RDX) resolved over the CFG to its (vtable, id) pairs, path by path (section 7) |
 
+### Headless heap and analysis troubleshooting
+
+`support/analyzeHeadless.bat` uses `GHIDRA_HEADLESS_MAXMEM`, falling back to `GHIDRA_MAXMEM`, then 2G.
+For example, `$env:GHIDRA_HEADLESS_MAXMEM = '16G'` in PowerShell raises the Java heap limit for that shell's
+headless runs; choose a limit that leaves RAM for Windows and other processes.
+`support/launch.bat` does read `support/launch.properties`, but places the launcher's `-Xmx` after that file's
+VM arguments. A heap setting in `launch.properties` therefore does not replace the headless limit.
+Extra `-Xmx` arguments in `GHIDRA_JAVA_OPTIONS` or `GHIDRA_HEADLESS_JAVA_OPTIONS` come last and can override it.
+
+An out-of-memory error during analysis may need both more heap and fewer analysis passes.
+The log's stack trace identifies the failing analyzer; a pre-script can disable its **bare option name** before
+analysis. Sub-options such as `ASCII Strings.Minimum string length` do not disable the analyzer itself.
+Save this helper as `Tools/re/LocalAnalysisOptions.java` (local, ignored):
+
+```java
+import ghidra.app.script.GhidraScript;
+
+public class LocalAnalysisOptions extends GhidraScript {
+    @Override
+    public void run() {
+        var options = getCurrentAnalysisOptionsAndValues(currentProgram);
+        var names = getScriptArgs();
+        if (names.length == 0) {
+            options.entrySet().stream().sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(entry -> println(entry.getKey() + " = " + entry.getValue()));
+            return;
+        }
+        for (String name : names) {
+            if (!options.containsKey(name)) {
+                throw new IllegalArgumentException("Unknown analysis option: " + name);
+            }
+            setAnalysisOption(currentProgram, name, "false");
+        }
+    }
+}
+```
+
+With no script arguments it lists the installed program's options. For an already imported `PathOfExile.exe`,
+this example resumes analysis with Microsoft demangling disabled and saves the result:
+
+```powershell
+$ghidraDir = Join-Path $PWD 'Tools/ghidra_12.1.4_PUBLIC_20260921/ghidra_12.1.4_PUBLIC'
+$projectDir = Join-Path $PWD 'Tools/ghidra-projects'
+$env:JAVA_HOME = Join-Path $PWD 'Tools/jdk-21'
+$env:GHIDRA_HEADLESS_MAXMEM = '16G'
+& "$ghidraDir/support/analyzeHeadless.bat" $projectDir poe3293 `
+    -process PathOfExile.exe -scriptPath Tools/re `
+    -preScript LocalAnalysisOptions.java 'Demangler Microsoft' `
+    -log Tools/re/headless-analysis.log -scriptlog Tools/re/headless-script.log
+```
+
+For inspection alone, the same command with `-noanalysis -readOnly` and no argument after
+`LocalAnalysisOptions.java` lists options without saving. Analysis options persist in a saved project.
+Ghidra rejects project paths containing a dot-prefixed component, such as a `.codex` worktree. In that case,
+`$projectDir` must point to the imported project outside that tree; the script path can still use the worktree.
+Other option names from the reduced-pass recipe are `Windows x86 PE RTTI Analyzer`, `Decompiler Parameter ID`,
+`Call Convention ID`, `Apply Data Archives`, `Create Address Tables`, `ASCII Strings`, `Embedded Media`,
+`Aggressive Instruction Finder`, `Non-Returning Functions - Known`, `Non-Returning Functions - Discovered` and
+`Stack`. Disable only the passes implicated by the failure: omitting them sacrifices their types, strings,
+function or stack recovery. A reduced pass is not a fully analyzed project, and there is no fixed completion time.
+
+`-noanalysis` skips automatic analysis; it is for querying an analyzed project, not a substitute for preparing a
+fresh import. Failed decompilation or `halt_baddata()` alone does not prove that missing analysis is the cause.
+The `g.sh` and `run.ps1` wrappers above deliberately use `-noanalysis -readOnly`; a retry that must save analysis
+uses the headless launcher directly, as above.
+
+The Java requirement is version-specific: Ghidra 12.2 declares `application.java.min=25` in
+`Ghidra/application.properties`. Its launcher needs a matching JDK 25 or later; this repository's 12.1.x/JDK 21
+wrapper paths do not select that toolchain. The installed launcher files, that properties file and Ghidra's
+`GetAndSetAnalysisOptionsScript.java` example are the references for these settings.
+
 ### Full decompilation dump (grep before you run Ghidra)
 
 `Tools/re/out/decomp-all/` (git-ignored, never commit it) holds the whole client decompiled, one file per function:

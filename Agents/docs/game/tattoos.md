@@ -47,8 +47,8 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
 | 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers), the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun) and the corpse-consumption and Hinder rows (the killing blow's corpse and 10% maximum-life recovery; the spell-hit Hinder with its four seconds, 30% reduced movement speed and the client's hinder buff). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul, Keystone and Ancestral Bloodlines work; the last one's three recovery stats feed the existing regeneration, recoup and recharge consumers). |
-| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works. The seven Forbidden tattoos are server-side complete and verified through the dev path: the class's non-multiple-choice ascendancy notables (PassiveSkillOverrides Type 17-23), the random pick saved in `TattooKeystones` (excluding the replaced node and every other allocated notable, so no stats count twice), the granted notable's ascendancy-policy stats, the chosen notable's `0x33` HASH16 and the Limit 40 refusal. Their client-side use flow (the items have `CurrencyUseType = 3`, not `apply_passive_tattoo`) is not traced, so they are `partial`. |
-| 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Works: the same data-driven Spirit path as the Ancestral Commander nodes reads each tattoo's `has_trigger_on_*` stat and its PassiveSkillOverrides.Effect (a level 1 TriggerSummonedAncestor skill), spends its shared 80 s stored use, and grants the spirit's Leadership buff and fighting chieftain for the skill's duration. Seven are live-verified through the dev path and Kiloava's trigger happened live. The other three Leadership stats now have consumers: Akoya's `base_rage_regeneration_per_minute` regenerates Rage, Ikiaho's `travel_skill_cooldown_speed_+%` speeds travel-skill cooldown recovery and Rakiata's `action_speed_+%_minimum_value_from_rakiatas_leadership` floors action speed at 110% of base (`LeadershipConsumersTests`). The Presence-gated triggers require a living hostile Unique within 80 cells. A refunded node no longer triggers (the grant list checks allocation and timeless conquest). |
+| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works. The seven Forbidden tattoos are server-side complete and verified through the dev path: the class's non-multiple-choice ascendancy notables (PassiveSkillOverrides Type 17-23), the random pick saved in `TattooKeystones` (excluding the replaced node and every other allocated notable, so no stats count twice), the granted notable's ascendancy-policy stats, the chosen notable's `0x33` HASH16 and the Limit 40 refusal. Their client-side use flow (the items have `CurrencyUseType = 3`, not `apply_passive_tattoo`) is not traced: a real-client right-click sends no C->S packet at all, so they are `partial`. |
+| 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Works: the same data-driven Spirit path as the Ancestral Commander nodes reads each tattoo's `has_trigger_on_*` stat and its PassiveSkillOverrides.Effect (a level 1 TriggerSummonedAncestor skill), spends its shared 80 s stored use, and grants the spirit's Leadership buff and fighting chieftain for the skill's duration. Seven are live-verified through the dev path; Kiloava's and Akoya's triggers happened live. The other three Leadership stats now have consumers: Akoya's `base_rage_regeneration_per_minute` regenerates Rage, Ikiaho's `travel_skill_cooldown_speed_+%` speeds travel-skill cooldown recovery and Rakiata's `action_speed_+%_minimum_value_from_rakiatas_leadership` floors action speed at 110% of base (`LeadershipConsumersTests`). The Presence-gated triggers require a living hostile Unique within 80 cells. A refunded node no longer triggers (the grant list checks allocation and timeless conquest). |
 
 ## What a tattoo is
 
@@ -255,12 +255,13 @@ icon and tooltip. The other lists are unchanged: second empty, third cluster jew
 8. **Vendor recipe (done).** Three same-tribe tattoo items vendor for one random tattoo of that tribe through the
    existing vendor recipe path (`VendorRecipes`); the output pool and the wiki's weights live in
    `TattooCatalogue.VendorPool`, and `VendorTattooRecipeTests` covers the recipe and the pool/tribe mapping. The
-   three-to-one groups run before the ordinary sale fallback, so leftover same-tribe units are still sold normally.
+   three-to-one groups run before the ordinary sale fallback; a matched group's leftover units are returned like the
+   essence block's remainders, while a group of fewer than three units sells normally.
 9. **Tests (pilot coverage).** Unit tests cover the 100-item catalogue, the target map, the pilot stat mapping, the
    Firewalker pool change, the `0x33` fifth-list layout, the 48-keystone Makanui pool/choice and the five limit
-   groups. Live client checks cover apply, display, relog and Orb of Scouring removal for the Firewalker, plus the
-   Makanui random replacement and live Keystone/Ancestral limit refusals. Still needed: replace, unallocate/reallocate,
-   the 50 cap and one Forbidden tattoo.
+   groups. Live client checks cover apply, display, relog and Orb of Scouring removal for the Firewalker, the Makanui
+   random replacement, live Keystone/Ancestral limit refusals, replace/reallocation persistence and the 50-tattoo cap
+   (the 2026-11-13 log). Still needed: the seven Forbidden tattoos' own client use flow.
 
 ## Full catalogue
 
@@ -431,7 +432,7 @@ Presence. All are drop-disabled in 3.29.
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
 | **Loyalty Tattoo of Ahuana** | Trigger level 1 Summon Spirit of Ahuana Skill when you Suppress Spell Damage from a Unique Enemy | Small Dexterity | drop-disabled | works | live /stat has_trigger_on_suppress_hit_from_unique 1; a suppressed spell hit from a Unique summons Spirit of Ahuana |
-| **Loyalty Tattoo of Akoya** | Trigger level 1 Summon Spirit of Akoya Skill when you reach Maximum Rage while a Unique Enemy is in your Presence | Small Strength | drop-disabled | works | live /stat has_trigger_on_reaching_maximum_rage_in_presence_of_unique 1; the summon is wired and Spirit of Akoya's Leadership `base_rage_regeneration_per_minute` 300 regenerates 5 Rage per second (`LeadershipConsumersTests`); the trigger is not live-verified |
+| **Loyalty Tattoo of Akoya** | Trigger level 1 Summon Spirit of Akoya Skill when you reach Maximum Rage while a Unique Enemy is in your Presence | Small Strength | drop-disabled | works | live /stat has_trigger_on_reaching_maximum_rage_in_presence_of_unique 1; the summon is wired and Spirit of Akoya's Leadership `base_rage_regeneration_per_minute` 300 regenerates 5 Rage per second (`LeadershipConsumersTests`); live Rage 30/30 with a Unique in Presence summoned Spirit of Akoya and `/stat` then read 300 |
 | **Loyalty Tattoo of Ikiaho** | Trigger level 1 Summon Spirit of Ikiaho Skill when you use a Travel Skill while a Unique Enemy is in your Presence | Small Dexterity | drop-disabled | works | live /stat has_trigger_on_travel_skill_use_in_presence_of_unique 1; the summon is wired and Spirit of Ikiaho's Leadership `travel_skill_cooldown_speed_+%` 100 recovers travel-skill cooldowns at twice the rate (`LeadershipConsumersTests`); the trigger is not live-verified |
 | **Loyalty Tattoo of Kahuturoa** | Trigger level 1 Summon Spirit of Kahuturoa Skill when you take a Critical Strike from a Unique Enemy | Small Strength | drop-disabled | works | live apply + /stat has_trigger_on_crit_by_unique_enemy 1; a Unique's critical strike summons Spirit of Kahuturoa |
 | **Loyalty Tattoo of Kaom** | Trigger level 1 Summon Spirit of Kaom Skill when a Totem dies while a Unique Enemy is in your Presence | Small Strength | drop-disabled | works | live /stat has_trigger_on_totem_death_in_presence_of_unique 1; a totem death with a Unique in Presence summons Spirit of Kaom |
@@ -730,6 +731,22 @@ tribes do not match the recipe and produce no tattoo; the ten pools match their 
 total 11 each, and the weighted pick reaches every pool member. The weights are the wiki sample because the client
 tables carry the tribe (`PassiveSkillTattoos.Tribe`) but no recipe weights.
 
+Replace, reallocation and the 50 cap 2026-11-13 (real 3.29.3c client build 327984, session client, `PartyLeader`):
+
+- **Replace.** With Tukohama Brawler on 21301 Strength (10% knockback), a client-originated `0x77` (inventory 1, item
+  id 8, node 21301) applied Tattoo of the Tukohama Warrior over it: `tattoo Tattoo of the Tukohama Warrior on 21301
+  Strength (3 applied)`, the stack emptied, `base_global_chance_to_knockback_%` 10 -> 0 and
+  `chance_to_fortify_on_melee_stun_%` 0 -> 5, and the saved row changed to the new tattoo.
+- **Unallocate / reallocate.** The client's `0x36` refund of 21301 spent one refund point; the tattoo stayed in
+  `character_tattoos` while `chance_to_fortify_on_melee_stun_%` went 5 -> 0 (the effect does not run on an
+  unallocated passive). The client's `0x34` allocate then restored the same tattoo and the stat returned to 5.
+- **50 cap.** 47 more tattoos through the dev path (49 connected small attribute nodes allocated, matching tattoos
+  applied) brought the saved count to **50**; the 51st was refused with `a character can have at most 50 tattoos`,
+  and `character_tattoos` stayed at 50.
+- **Akoya Loyalty trigger.** Loyalty Tattoo of Akoya on 21301 (`has_trigger_on_reaching_maximum_rage_in_presence_of_unique`
+  = 1), a spawned Unique, `gain_x_rage_when_hit 30` and a hit: Rage 30/30, Spirit of Akoya summoned, the Leadership
+  buff ran, and `/stat base_rage_regeneration_per_minute` read 300 while it lasted.
+
 Forbidden rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch/Occultist):
 
 - With Occultist selected and Void Beacon (27096) and Profane Bloom (37127) allocated, `/tattoo_apply Forbidden
@@ -745,8 +762,8 @@ Forbidden rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Wi
   keys to node allocation rather than to stats are not swapped either. That is why the seven rows are `partial`
   rather than `works`.
 
-Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
-tattoos.
+Not yet verified through the client: the seven Forbidden tattoos' own use flow (`CurrencyUseType = 3`); a real-client
+right-click sends no C->S packet, so the dev-path `0x77` remains the only server entry for them.
 
 ## See also
 

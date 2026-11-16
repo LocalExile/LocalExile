@@ -21,6 +21,10 @@ public sealed class InstanceWorld
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
 
+    /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
+    /// Monsters lock.</summary>
+    public ClientState? PausedBy;
+
     /// <summary>Server objects of the instance (effects, projectiles, stashes, minions): ids unique to all its clients, from
     /// 0x04000000. A client numbers the objects it makes itself (its predicted projectiles: a wand's bolt) from 0x3000:
     /// the server's from there too met them once its monsters took ids of their own (0x08000000 on) and its count stayed

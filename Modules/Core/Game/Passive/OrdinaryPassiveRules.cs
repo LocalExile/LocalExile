@@ -120,8 +120,10 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
             ? allocatedBypass
             : allocatedBypass.Where(id => bypassProviders.TryGetValue(id, out var providers) &&
                 providers.Any(reached.Contains)).ToHashSet();
-        if (allocated.Any(id => !reached.Contains(id) && !honoredBypass.Contains(id)))
-            throw new AscendancyRuleException("Ordinary passive nodes must remain connected to an available class start");
+        ushort[] detached = [.. allocated.Where(id => !reached.Contains(id) && !honoredBypass.Contains(id)).Order()];
+        if (detached.Length > 0)
+            throw new AscendancyRuleException("Ordinary passive nodes must remain connected to an available class start: "
+                + string.Join(", ", detached));
     }
 
     static Data? Load(string folder)

@@ -142,8 +142,7 @@ public static partial class Game
             var origin = leader.Walk.Position(now);
             if (path.Zip(path.Skip(1)).Any(p => ClientPathfinder.Line(p.First, p.Second)
                 .Any(cell => Dist(cell, origin) > ControlledFollowerLeash))) continue;
-            MoveControlledFollower(conn, at, now);
-            break;
+            if (MoveControlledFollower(conn, at, now)) break;
         }
     }
 
@@ -169,17 +168,18 @@ public static partial class Game
         ScheduleControlledIdle(conn, plan, plan.AttackUntil);
     }
 
-    static void MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
+    static bool MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
     {
         lock (conn.Monsters)
         {
-            if (conn.Walk.Moving(now) && Dist(conn.Walk.Destination, at) < 6) return;
-            if (Dist(conn.Walk.Position(now), at) < 3) return;
+            if (conn.Walk.Moving(now) && Dist(conn.Walk.Destination, at) < 6) return false;
+            if (Dist(conn.Walk.Position(now), at) < 3) return false;
             Interlocked.Increment(ref conn.ActionCount);
             Interlocked.Increment(ref conn.ChannelGeneration);
             conn.ChannelSkill = 0;
             conn.Walk.Order(at.X, at.Y, now);
         }
         PublishPlayerPose(conn);
+        return true;
     }
 }

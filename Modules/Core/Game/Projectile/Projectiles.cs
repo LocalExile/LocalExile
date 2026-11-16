@@ -152,6 +152,7 @@ public static partial class Game
                 invalid = true;
                 lifetime?.Dispose();
                 ClearPods();
+                if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
                 visuals.Clear(); output.Writer.TryComplete();

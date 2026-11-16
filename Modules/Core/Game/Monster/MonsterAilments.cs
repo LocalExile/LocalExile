@@ -124,11 +124,15 @@ public static partial class Game
         }
     }
 
-    /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
-    /// keeps it at 1.</summary>
-    public static double MonsterActionFactor(SpawnedMonster m, double now) =>
-        m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
-            : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
+    /// <summary>Increased/reduced action speed adds with chill; less action speed (Temporal Chains) multiplies it.
+    /// Freeze stops actions, while Unstoppable floors the final factor at the base value without discarding haste.</summary>
+    public static double MonsterActionFactor(SpawnedMonster m, double now) => MonsterActionFactor(m, now, freeze: true);
+
+    static double MonsterActionFactor(SpawnedMonster m, double now, bool freeze) =>
+        Math.Max(m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1 : 0,
+            freeze && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0 ? 0
+                : (1 - (m.Effects["action_speed_-%"] + m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now)) / 100.0)
+                    * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1));
 
     /// <summary>
     /// A player hit that landed inflicts its ailments (MonsterElementalAilments.Inflict) from the damage the monster took
@@ -210,11 +214,12 @@ public static partial class Game
     {
         if (conn.PlayerLife == 0) return;
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        double previous = conn.ElementalAilments.ActionFactor(now);
-        foreach (var e in added)
-            conn.ElementalAilments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
-                e.Until - e.From, now, Player, random);
-        PlayerAilmentsChangedLocked(conn, previous, now);
+        ApplyPlayerAilmentsLocked(conn, now, ailments =>
+        {
+            foreach (var e in added)
+                ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
+                    e.Until - e.From, now, Player, random);
+        });
     }
 
     /// <summary>
@@ -244,14 +249,14 @@ public static partial class Game
             // Maim and Hinder raise no ailment magnitude, so an idle monster with only them would never get its walk
             // factor recomputed; they are checked before the idle skip (the knockback above stays first: an idle
             // monster still moves).
-            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)) continue;
+            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)
+                && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
                 if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
             }
-            double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
-                : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
+            double action = MonsterActionFactor(m, now, freeze: false);
             double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
             // Maim (30% reduced movement speed) and Hinder (30%) add; they are both "reduced movement speed".
             walk = TimedDebuffWalkFactor(m, now, walk);

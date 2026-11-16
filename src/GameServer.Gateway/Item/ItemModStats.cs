@@ -339,6 +339,7 @@ public static class ItemModStats
     /// </summary>
     public static int LevelRequirement(Item item, int dropLevel, ModCatalog mods)
     {
+        if (item.RequiredLevel is int recorded) return recorded;
         var local = Sum([item], mods, local: true);
         if (local.GetValueOrDefault("local_level_requirement_override") is int over and not 0) return Math.Max(0, over);
         int required = Math.Max(dropLevel, item.Mods.Select(m => (mods.ByHash(m.Hash)?.Level ?? 0) * 4 / 5).DefaultIfEmpty(0).Max());

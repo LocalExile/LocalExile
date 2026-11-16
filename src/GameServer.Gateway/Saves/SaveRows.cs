@@ -329,6 +329,7 @@ public static class SaveRows
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
         "heist_blueprint",
+        "memory_strands", "intangibility", "required_level", "relic_style",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -337,6 +338,7 @@ public static class SaveRows
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint),
+        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle,
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -381,7 +383,9 @@ public static class SaveRows
                 (byte)v.Long("gem_flags")!.Value, (ushort?)v.Long("visual"), (byte)v.Long("defence_base_roll")!.Value,
                 (ItemInfluence)v.Long("influences")!.Value, v.Bool("split")!.Value, v.Bool("synthesised")!.Value, v.Bool("foreseeing")!.Value,
                 (uint)v.Long("foresee_seed")!.Value, (byte?)v.Long("alternate_quality_type"), original,
-                v.Bool("vestigial") == true, v.Json<HeistBlueprintState>("heist_blueprint"));
+                v.Bool("vestigial") == true, v.Json<HeistBlueprintState>("heist_blueprint"))
+                { MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
+                    RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style") };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];

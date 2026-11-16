@@ -50,6 +50,10 @@ Being a world message, 0x1d3 is queued until the world is active ([03](03-area-a
 
 The Gateway sends `01D3 03` to pause and `01D3 00` to resume (`InstancePause.State`).
 
+"Exit to character selection" from the open menu sends C→S 0x153 with no `0x1d4 00` before it (live log, #991). The
+clock is the instance's, so the Gateway ends the pause when the pausing connection closes, and when another player
+enters the instance (that player's client is told `01D3 00`).
+
 ## 3. What the Gateway pauses
 
 Per connection (one connection is one area), `ClientState.Paused` is "the Clock is stopped":

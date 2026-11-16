@@ -17,6 +17,11 @@ public static class MagicProperties
     /// <summary>Writes the base magic properties. Unidentified objects send no explicit list and no name;
     /// <paramref name="customName"/> wins over <paramref name="nameWords"/> (the reader takes bit 7 first).</summary>
     public static void Write(BlobWriter w, byte rarity, bool identified, IReadOnlyList<ItemMod> mods,
+        IReadOnlyList<uint>? nameWords = null, string? customName = null, byte u7a = 0) =>
+        Write(w, rarity, identified, mods, null, 0, nameWords, customName, u7a);
+
+    public static void Write(BlobWriter w, byte rarity, bool identified, IReadOnlyList<ItemMod> mods,
+        byte? alternateQualityType, byte alternateQuality,
         IReadOnlyList<uint>? nameWords = null, string? customName = null, byte u7a = 0)
     {
         var sections = mods.Where(m => identified || m.Section != ModSection.Explicit).GroupBy(m => m.Section)
@@ -25,7 +30,9 @@ public static class MagicProperties
         bool words = identified && !custom && nameWords is { Count: > 0 };
         ushort flags = (ushort)(rarity & 7 | (identified ? Identified : 0) | (custom ? CustomName : 0) | (words ? NameWords : 0));
         foreach (var s in sections.Keys) flags |= (ushort)(1 << (byte)s);
+        if (alternateQualityType is not null) flags |= 0x200;
         w.U16(flags).U8(u7a);
+        if (alternateQualityType is byte quality) w.U8(quality).U8(alternateQuality);
         foreach (var s in Order) List(w, sections, s);
         // The name comes between the lists read for every object and the identified-only explicit list.
         if (custom) w.WStr32(customName!);

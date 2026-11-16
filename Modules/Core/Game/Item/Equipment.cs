@@ -25,10 +25,8 @@ public static partial class Game
                 int percent = row == PlayerInventories.BodyArmour
                     ? Math.Clamp(get?.Invoke("ward_instead_of_%_body_armour_and_evasion") ?? 0, 0, 100) : 0;
                 decimal armourWard = a * percent / 100m, evasionWard = e * percent / 100m;
-                var local = ItemModStats.Local(equipped.Item, catalog.Mods);
                 decimal ward = armourWard + evasionWard
-                    + (long)WardState.Max((decimal)defences.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
-                        * (100 + Math.Clamp((int)equipped.Item.Quality, 0, 100)) / 100;
+                    + ItemDefences.Ward(equipped.Item, defences, catalog.Mods);
                 yield return (row, (a - armourWard, e - evasionWard, s, ward));
             }
     }

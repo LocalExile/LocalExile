@@ -72,11 +72,12 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     }
 
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
-    /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 + the encounter's own
-    /// more life, <see cref="MonsterModCatalog.EncounterLifeStat"/>).</summary>
+    /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
+    /// map_hidden_monster_life_+%_final, a map tier's) × (1 + the encounter's own more life,
+    /// <see cref="MonsterModCatalog.EncounterLifeStat"/>).</summary>
     public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
         * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.EncounterLifeStat] / 100.0)));
+        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * (1 + this[MonsterModCatalog.EncounterLifeStat] / 100.0)));
 
     /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
     /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
@@ -87,6 +88,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     {
         double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
             * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
+            * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var gains = new DamageConversion()
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
@@ -144,6 +146,11 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         DamageType.Chaos => this["base_chaos_damage_resistance_%"],
         _ => 0,
     };
+
+    public int MaximumResistance(DamageType type) => Math.Clamp(MaxResistance
+        + this["additional_maximum_all_resistances_%"]
+        + (type is DamageType.Fire or DamageType.Cold or DamageType.Lightning
+            ? this["additional_maximum_all_elemental_resistances_%"] : 0), 0, 90);
 
     /// <summary>Physical damage reduction (Carapaced, the god-touched mods), capped at Monster.ot's 75%.</summary>
     public int PhysicalReduction => Math.Clamp(this["base_additional_physical_damage_reduction_%"], 0, MaxPhysicalReduction);
@@ -205,6 +212,8 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     /// <summary>An encounter's own more life by level, from a table no stat names (RogueExileLifeScalingPerLevel): the
     /// server's key, not a Stats.dat row, so it is never sent; the client sees the final maximum_life.</summary>
     public const string EncounterLifeStat = "server_encounter_monster_life_+%_final";
+    /// <summary>A map tier's more life and damage for its monsters (the area stats' tier block, MapAreaStats).</summary>
+    public const string MapHiddenLifeStat = "map_hidden_monster_life_+%_final", MapHiddenDamageStat = "map_hidden_monster_damage_+%_final";
     /// <summary>The area level from which rare monsters have the maps' mod counts (the first map level).</summary>
     public const int MapLevel = 68;
 
@@ -228,6 +237,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
         "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%", "immune_to_culling_strike",
+        MapHiddenLifeStat, MapHiddenDamageStat,
     };
 
     /// <summary>Stats that only stop something the server does not do to monsters yet (curses, wither): true as they

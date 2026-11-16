@@ -14,6 +14,9 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
+
+    /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
+    public MapDevice.Run? Map { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
@@ -78,6 +81,8 @@ public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, do
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
+    public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -259,6 +264,11 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>When a summoned monster's duration runs out (MonsterSummonInfo.Lifetime): it is retired then.</summary>
     public double ExpiresAt = double.PositiveInfinity;
     public bool NoRewards;
+    /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
+    /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
+    /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
+    /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
+    public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -297,8 +307,18 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyDictionary<string, int>? EncounterStats;
     /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
     public IReadOnlyDictionary<string, int>? BuffStats;
-    public MonsterModEffects Effects => Curses.Effects(WithBuffs(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects));
-    MonsterModEffects WithBuffs(MonsterModEffects effects) => BuffStats is { Count: > 0 } buffs ? effects.Combine(buffs) : effects;
+    /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
+    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public MonsterModEffects Effects
+    {
+        get
+        {
+            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            if (BuffStats is { Count: > 0 } buffs) effects = effects.Combine(buffs);
+            return Curses.Effects(effects);
+        }
+    }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -1176,6 +1196,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
 
     /// <summary>The open map's portals created in this area, by object id: where each stands.</summary>
     public readonly Dictionary<uint, (int X, int Y, int Index)> MapPortals = [];
+    public MapDevice.OpenMap? MapPortalRun;
+    public string? InstanceOwner { get; init; }
 
     /// <summary>Counts the map portal sequences started (SpawnMapPortals); a newer one stops the older.</summary>
     public int MapPortalGeneration;
@@ -1230,6 +1252,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// instance (a test's) keeps its own.</summary>
     public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
     readonly EmergeGround ownEmergeGround = new();
+    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
+    public int SentMonstersRemaining = -1;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.

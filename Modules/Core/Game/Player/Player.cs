@@ -845,7 +845,7 @@ public static partial class Game
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
-                    double takenFactor = Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
+                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now))
                         * seconds * takenFactor;
@@ -1190,6 +1190,12 @@ public static partial class Game
             await GameEvents.RunResurrected(conn);
             return;
         }
+        if (!inTown && MapCheckpointExit(conn) is { } exit)
+        {
+            await ChangeArea(remote, stream, ciphers, conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
+            await GameEvents.RunResurrected(conn);
+            return;
+        }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player revived with {conn.PlayerMaxLife} life");
@@ -1210,6 +1216,15 @@ public static partial class Game
             "0x01b3 player hide_mini_life_bar = 0");
         await GameEvents.RunResurrected(conn);
     }
+
+    // "Resurrect at Checkpoint" in a map leaves it for where it was entered from, the map device's area (the hideout),
+    // where its portals stand; "Resurrect in Town" still goes to the last town (the official servers, 3.30.0b; issue #1002). Null outside
+    // maps: there the checkpoint is in the area.
+    public static PendingTransfer? MapCheckpointExit(ClientState conn) =>
+        MapDevice.ForInstance(conn) is { } map && (map.ReturnTo ?? map.Entrance) is { } origin
+            ? new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y))
+            : MapDevices.Value.IsMapArea(conn.Layout.Hash) && HomeHideout(conn) is { } hideout
+                ? new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) : null;
 
     // The player in its class: the Characters.dat row's object type (Metadata/Characters/StrInt/StrInt for the Templar), model
     // (AOFile), class byte (IntegerId), attributes and unarmed attack; the name is the character's.
@@ -1270,6 +1285,7 @@ public static partial class Game
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
         PrepareKaruiBridgeGates(conn);
+        DepravedTrinity.ConfigureRoutes(conn);
         var (layout, name, classRow) = (conn.Layout, conn.Character, conn.ClassRow);
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);

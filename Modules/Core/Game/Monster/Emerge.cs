@@ -47,6 +47,8 @@ public static partial class Game
                 }
                 foreach (var (id, m, at, seconds) in risen)
                     _ = Emerge(remote, stream, ciphers, conn, id, m, at, seconds);
+                // Emerging moves a living enemy between rosters without changing the remaining count.
+                if (risen.Count > 0) await SendRemainingMonsters(remote, stream, ciphers, conn);
                 if (!watching) return;
             }
         }

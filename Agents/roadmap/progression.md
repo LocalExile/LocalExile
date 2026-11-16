@@ -26,7 +26,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Loyalty Leaderships all have consumers (Rage regeneration, travel-skill cooldown speed, the action-speed floor and
   the earlier block/leech/totem stats). The seven event-only Forbidden ascendancy tattoos are applied by the server
   (random class notable saved in `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and are partial: the
-  client's separate use flow is untraced. Also still open: replace/reallocation and the 50-tattoo cap.
+  client's separate use flow is untraced (a real-client right-click sends no C->S packet). Replace, tattoo
+  persistence across refund/reallocate and the 50-tattoo cap are client-verified.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per

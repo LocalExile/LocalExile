@@ -88,27 +88,128 @@ public static class CurrencyEffects
         TaintedArmourersScrap, TaintedBlacksmithsWhetstone,
     };
 
-    /// <summary>Tainted currency, the documented LocalExile rule: the ordinary effect on a corrupted item, which stays
-    /// corrupted. A non-corrupted or mirrored item is refused before the orb is spent, and so is anything the ordinary
-    /// effect refuses (wrong rarity, no room, maximum sockets, a gem in the sockets, and so on). The item is handed to the
-    /// ordinary effect with its corruption flag cleared, then the result is corrupted again.</summary>
-    public static Item? Tainted(string id, Item item, ItemCatalog.BaseType type, ItemRolls rolls,
-        (int Str, int Dex, int Int) requirements, Random random)
+    /// <summary>Tainted currency (the client's CurrencyItems descriptions): only on a corrupted item, which stays
+    /// corrupted. Chaos rerolls a rare or removes all its mods (<see cref="ItemRolls.StripExplicits"/>); Exalted adds or
+    /// removes one mod, the rarity stays; Jeweller's adds (white) or removes one socket; Fusing adds or removes one link
+    /// of the largest linked group; Chromatic rerolls colours ignoring the base's requirements (white is possible);
+    /// the Scrap and Whetstone set a random quality of 0-20%. Each either-or is 50/50 (the wiki's tested odds for
+    /// Jeweller's and Fusing; Chaos and Exalted have none published), and the one that cannot happen gives way to the
+    /// other. Non-corrupted, mirrored or otherwise refused items are refused before the orb is spent.</summary>
+    public static Item? Tainted(string id, Item item, ItemCatalog.BaseType type, ItemRolls rolls, Random random)
     {
         if (!item.Corrupted || item.Mirrored) return null;
         var plain = item with { Corrupted = false };
         Item? result = id switch
         {
-            TaintedChaosOrb => rolls.Chaos(plain, random),
-            TaintedExaltedOrb => rolls.Exalted(plain, random),
-            TaintedChromaticOrb => Chromatic(plain, requirements, random),
-            TaintedOrbOfFusing => Fusing(plain, type, random),
-            TaintedJewellersOrb => Jewellers(plain, type, random),
-            TaintedArmourersScrap => AddQuality(plain, "Armour", 1),
-            TaintedBlacksmithsWhetstone => AddQuality(plain, "Weapon", 1),
+            TaintedChaosOrb => rolls.Chaos(plain, random) is { } rerolled
+                ? random.Next(2) == 0 ? rerolled : rolls.StripExplicits(plain) : null,
+            TaintedExaltedOrb => Either(plain.Rarity == ItemRarity.Rare ? rolls.Exalted(plain, random) : null,
+                plain.Rarity == ItemRarity.Rare ? rolls.Annul(plain, random) : null, random),
+            TaintedChromaticOrb => Chromatic(plain, (0, 0, 0), random),
+            TaintedOrbOfFusing => TaintedFusing(plain, type, random),
+            TaintedJewellersOrb => TaintedJewellers(plain, type, random),
+            TaintedArmourersScrap => RandomQuality(plain, "Armour", random),
+            TaintedBlacksmithsWhetstone => RandomQuality(plain, "Weapon", random),
             _ => null,
         };
         return result is { } changed ? changed with { Corrupted = true } : null;
+    }
+
+    // Keep the original signature callable by already compiled modules; tainted colours ignore requirements.
+    public static Item? Tainted(string id, Item item, ItemCatalog.BaseType type, ItemRolls rolls,
+        (int Str, int Dex, int Int) requirements, Random random) => Tainted(id, item, type, rolls, random);
+
+    static Item? Either(Item? first, Item? second, Random random) =>
+        first is null ? second : second is null ? first : random.Next(2) == 0 ? first : second;
+
+    static Item? RandomQuality(Item item, string component, Random random) =>
+        !item.Components.Contains(component) || !item.Components.Contains("Quality") ? null
+            : item with { Quality = (byte)random.Next(MaximumQuality + 1) };
+
+    /// <summary>Whether each socket is linked to the next one, from the link group sizes.</summary>
+    static bool[] LinkEdges(Item item)
+    {
+        var edges = new bool[Math.Max(0, item.Sockets.Count - 1)];
+        int at = 0;
+        foreach (byte size in item.Links ?? [])
+        {
+            for (int j = 0; j < size - 1 && at + j < edges.Length; j++) edges[at + j] = true;
+            at += size;
+        }
+        return edges;
+    }
+
+    static byte[] LinkGroups(IReadOnlyList<bool> edges, int count)
+    {
+        if (count == 0) return [];
+        var groups = new List<byte> { 1 };
+        foreach (bool linked in edges)
+            if (linked) groups[^1]++;
+            else groups.Add(1);
+        return [.. groups];
+    }
+
+    /// <summary>Changes the largest linked group by one socket. An adjacent group loses only the socket joined;
+    /// joining a four-link and a two-link must produce a five-link, not jump straight to six.</summary>
+    static Item? TaintedFusing(Item item, ItemCatalog.BaseType type, Random random)
+    {
+        int count = item.Sockets.Count;
+        if (count < 2 || count > 6 || count > SocketCapacity(item, type)) return null;
+        var edges = LinkEdges(item);
+        var groups = new List<(int Start, int Size)>();
+        for (int start = 0, i = 1; i <= count; i++)
+            if (i == count || !edges[i - 1]) { groups.Add((start, i - start)); start = i; }
+        if (count >= 5 && groups.Count == 1) return null;
+        int largest = groups.Max(g => g.Size);
+        var top = groups.Where(g => g.Size == largest).ToArray();
+        bool Linkable(int edge) => edge >= 0 && edge < count - 1 && !edges[edge]
+            && item.Sockets[edge].Colour != SocketColour.Abyss && item.Sockets[edge + 1].Colour != SocketColour.Abyss;
+        var adds = top.SelectMany(g => new[] { (Edge: g.Start - 1, Detach: g.Start - 2),
+            (Edge: g.Start + g.Size - 1, Detach: g.Start + g.Size) }).Where(a => Linkable(a.Edge)).ToArray();
+        int[] removes = largest < 2 ? [] : [.. top.SelectMany(g => new[] { g.Start, g.Start + g.Size - 2 }).Distinct()];
+        if (adds.Length == 0 && removes.Length == 0) return null;
+        bool add = removes.Length == 0 || adds.Length > 0 && random.Next(2) == 0;
+        if (add)
+        {
+            var choice = adds[random.Next(adds.Length)];
+            edges[choice.Edge] = true;
+            if (choice.Detach >= 0 && choice.Detach < edges.Length) edges[choice.Detach] = false;
+        }
+        else edges[removes[random.Next(removes.Length)]] = false;
+        return item with { Links = LinkGroups(edges, count) };
+    }
+
+    /// <summary>Tainted Jeweller's Orb: one socket more (white, unlinked, after the last ordinary one) or one less (the
+    /// last ordinary one), 50/50, within the item level's socket limit and never below one socket. Abyssal sockets stay;
+    /// a gem in a socket refuses it, as the Jeweller's Orb does.</summary>
+    static Item? TaintedJewellers(Item item, ItemCatalog.BaseType type, Random random)
+    {
+        int count = item.Sockets.Count, capacity = SocketCapacity(item, type);
+        if (capacity == 0 || count > capacity || item.Sockets.Any(s => s.Gem is not null)) return null;
+        if (item.Sockets.Any(s => s.Colour == SocketColour.Abyss)
+            && ItemModStats.Local(item, Program.Items.Mods).ContainsKey("local_cannot_have_non_abyssal_sockets")) return null;
+        int last = -1;
+        for (int i = 0; i < count; i++) if (item.Sockets[i].Colour != SocketColour.Abyss) last = i;
+        bool canAdd = count < MaximumSockets(item, type), canRemove = count > 1 && last >= 0;
+        if (!canAdd && !canRemove) return null;
+        bool add = !canRemove || canAdd && random.Next(2) == 0;
+        var sockets = item.Sockets.ToList();
+        var edges = LinkEdges(item).ToList();
+        if (add)
+        {
+            // The new socket sits after the last ordinary one and links to neither neighbour.
+            int at = last + 1;
+            sockets.Insert(at, new(SocketColour.White));
+            if (at > 0 && at < count) { edges[at - 1] = false; edges.Insert(at, false); }
+            else if (count > 0) edges.Insert(at == 0 ? 0 : edges.Count, false);
+        }
+        else
+        {
+            sockets.RemoveAt(last);
+            if (last == count - 1) edges.RemoveAt(last - 1);
+            else { edges.RemoveAt(last); if (last > 0) edges[last - 1] = false; }
+        }
+        return item with { Sockets = sockets, Links = LinkGroups(edges, sockets.Count) };
     }
 
     /// <summary>The Eater of Worlds implicit tier an Eldritch Ichor adds (Lesser 1 … Exceptional 4).</summary>

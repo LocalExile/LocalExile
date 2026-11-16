@@ -301,6 +301,15 @@ Sanctum (a7q2).
 
 ## a7q4 "The Mother of Spiders" (Quest row 80, main; ends the act)
 
+Native encounter notes: `ArakaaliBoss.act` defines `SpellProjectileCold` only under `stance2`.
+Its `stance2` is ACT ordinal 1 (base is 0); `0x141e9d3f0` ignores ordinal 2, which equals this actor's stance count.
+`VaalSpiderGod/rig.amd` clip 10 is `phase_01_transition_silk_01` (6333 ms); changing to stance2 attaches `SilkHead.ao`.
+The Tendrils granted effects select art variations 1/2/3; without `skill_art_variation` their action chooses
+`CastFast`, absent from this actor. The campaign now gates the phase at 50%, plays Silk's clip and resumes at 60%.
+These HP values are provisional reference calibration; arena corner travel and turret laser patterns remain missing.
+The live object's stance is part of its creation snapshot and is reconciled when an existing observer wakes it.
+
+
 **Start:** YeenaTown "Silk" (cat 4, sets the quest). **Finish:** enter The Sarn Ramparts.
 **DONE flag (driver):** `Visited-8_1` (QS 854 Order 0). Optional: SinTown "Arakaali" sets `a7q4-QuestRewardTaken`
 (no item).
@@ -324,7 +333,7 @@ Sanctum (a7q2).
 ### Objects, NPCs and bosses
 | What | Type / MV / item | Where | Server today | Needed |
 |---|---|---|---|---|
-| Arakaali | MV 5740 (boss bar) | WA Bosses; `boss.arm` `mapboss` | placed (spawnable) | targetable; no phases |
+| Arakaali | MV 5740 (boss bar) | WA Bosses; `boss.arm` `mapboss` | placed (spawnable) | Silk transition; stance-specific attacks |
 | Arena | `ArakaaliSequencer`, `ArakaaliTurret_A`/`_B` ×13 each (StateMachine, Transitionable, Timer client-only), 26 `ArakaaliTurretDisplay`, `ArakaaliArenaMiddle`, 4 `TeleportMarkerSerialized1..4`, `ArakaaliLaserTurretDaemon` | `boss.arm` | not created | not needed for `/kill` |
 | Silk | `Metadata/NPC/Act7/SilkArakaali` (not targetable, Transitionable: anim 0 → 1) | `boss.arm` (149, 256) | NOT created | optional (story) |
 | Yeena / fox | `YeenaFox` (`Metadata/Monsters/FireFox/YeenaFox`), `YeenaPositionMarker` | short lines in `boss.arm` (166, 115) / (168, 208) | not created | optional |

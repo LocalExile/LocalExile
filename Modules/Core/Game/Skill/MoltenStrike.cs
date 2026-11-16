@@ -143,7 +143,7 @@ public static partial class Game
         double ruthless = RuthlessBlowMore(conn, skillId, InitialStat);
         int meleeRepeats = MeleeAttackRepeats(conn, skillId);
         double attackSeconds = SupportedAttackSeconds(conn, skillId);
-        double repeatInterval = meleeRepeats > 0 ? attackSeconds / (meleeRepeats + 1) : 0;
+        double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
         double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         var roll = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
         bool hasFifthMechanic = InitialStat("molten_strike_every_5th_attack_fire_X_additional_projectiles") > 0
@@ -209,8 +209,7 @@ public static partial class Game
         double swung = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         // From here on the swing has connected for the client: a later use (accepted from 1 - EarlyAllowance of the
         // attack time, AttackReady) or a queued Move no longer takes it back, as AreaSkillHit's holdsItsSwing and Lightning
-        // Strike keep theirs. No repeat delay: a Multistrike repeat belongs to a swing that already connected, so a held
-        // button's next use must not drop the repeats still to land.
+        // Strike keep theirs. A later Multistrike swing still belongs to the original action and is cancelled with it.
         double keptFrom = Math.Min(earliestContact,
             Math.Max(0, attackSeconds * (1 - AttackTiming.EarlyAllowance) - AttackTiming.LandMargin));
         double earliestAt = swung + keptFrom;
@@ -218,7 +217,9 @@ public static partial class Game
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         bool Replaced()
         {
-            if (cannotCancel || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (repeat > 0) return true;
+            if (cannotCancel) return false;
             if (conn.Clock.Elapsed.TotalSeconds >= earliestAt && PlayerStateAllowsAction(conn)) return false;
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
                 + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
@@ -330,6 +331,9 @@ public static partial class Game
             var ignite = SupportedIgnite(conn, skillId, spell: false, player);
             var bleed = SupportedBleed(conn, skillId, spell: false, player, melee: true);
             var poison = SupportedPoison(conn, skillId, spell: false, player);
+            ignite = RepeatAilment(ignite, repeatMore);
+            bleed = RepeatAilment(bleed, repeatMore);
+            poison = RepeatAilment(poison, repeatMore);
             var criticalTrigger = CaptureCriticalTriggerSource(conn, skillId);
             bool fortificationGranted = false;
             bool rageGranted = false;
@@ -487,7 +491,9 @@ public static partial class Game
             if (fifthMorePct != 0) damageScale *= Math.Max(0, 1 + fifthMorePct / 100.0);
         }
         if (damageScale != 1)
-            shot = shot with { Hit = shot.Hit.Scale(damageScale), AreaHit = shot.AreaHit?.Scale(damageScale) };
+            shot = shot with { Hit = shot.Hit.Scale(damageScale), AreaHit = shot.AreaHit?.Scale(damageScale),
+                Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
+                Poison = RepeatAilment(shot.Poison, damageScale) };
 
         var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
         int AreaGet(string name) => name == SkillArea.BaseIncreased

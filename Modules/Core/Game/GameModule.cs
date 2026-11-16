@@ -22,8 +22,12 @@ public sealed class GameModule : IModule, IDisposable
     {
         Rules.CombatLifetime = module.Lifetime;
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
+        // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => Rules.TickMapRunBoss(Program.ConnOf(kill.Player), force: true));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());
@@ -37,6 +41,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Arakaali.Tick(conn));
+        module.Lifetime.Own(global::Arakaali.CleanupOnUnload());
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
@@ -73,6 +79,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
     public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
         HeistModifierMagnitudes.For(item, mods);
+    public void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) =>
+        Rules.ValidateImportedBuild(character, save);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);
@@ -141,6 +149,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public void Closing(ClientState conn)
     {
         foreach (var close in GameEvents.TransientClosing.For(conn)) close(conn);
+        Rules.EndEscapePause(conn);
         conn.PaidChannel = null;
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
         conn.RetirePlayerUpdates();

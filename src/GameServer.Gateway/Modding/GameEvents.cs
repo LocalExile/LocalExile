@@ -39,11 +39,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     }
 
     /// <summary>The subscribers for this connection's league, with their owners (for <see cref="GameEventOwners.Guard"/>).</summary>
-    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn)
+    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn) => Subscribers(Program.LeagueFor(conn));
+
+    /// <summary>The subscribers for a league, before a connection exists (an area's inputs are decided first).</summary>
+    public IEnumerable<T> For(LeagueRuntime league)
+    {
+        foreach (var (_, run) in Subscribers(league)) yield return run;
+    }
+
+    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
-        var league = Program.LeagueFor(conn);
         foreach (var (owner, rank, run) in subscribers)
             if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
                 || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
