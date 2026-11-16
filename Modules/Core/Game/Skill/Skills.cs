@@ -1101,8 +1101,9 @@ public static partial class Game
     public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
     {
         string name = CharacterName(conn);
-        return GemSkillEffectsAt(name, ItemsOf(conn).SocketedGemPlaces(),
-            InactiveItems.GetValueOrDefault(name), LeagueFor(conn), GrantedSkillsOf(conn));
+        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        return GemSkillEffectsAt(name, equipment, InactiveItems.GetValueOrDefault(name), LeagueFor(conn),
+            GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment));
     }
 
     // The passives' granted skills (GrantedSkillsOf) follow the gems, with Gem 0 and their fixed level.
@@ -1414,5 +1415,18 @@ public static partial class Game
         }
         if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");
     }
+    // Worn-item grants follow socketed gems; passive grants (GrantedSkillsOf) follow those. Gem 0 marks both virtual
+    // source kinds, while PlayerSkillSourcesAt carries their explicit host identities for admission and supports.
+    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
+        string? character, IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlySet<uint>? inactive,
+        LeagueRuntime league, IReadOnlyList<PassiveGrantedSkills.Grant> granted,
+        IReadOnlyList<WornGrantedSkills.Grant> worn)
+    {
+        // An inactive source keeps its assigned id while present, but grants no published skill.
+        return PlayerSkillSourcesAt(character, equipment, inactive, league, granted, worn)
+            .Where(s => s.Active)
+            .Select(s => (s.Id, s.Effect, s.Name, s.Level, s.Quality, s.Gem));
+    }
+
 }
 

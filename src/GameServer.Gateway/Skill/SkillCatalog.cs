@@ -1473,4 +1473,42 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 ? (int)Math.Clamp(10_000L + value, 0, int.MaxValue) : 10_000;
         }
     }
+    /// <summary>Whether a GrantedEffects row is a support, from its actual row (not its translated name).</summary>
+    public bool IsSupportEffect(int effectRow) => _supportEffects.Value.Contains(effectRow);
+
+    /// <summary>
+    /// Whether the effect's ActiveSkills row is manually cast. A trigger-only row has no bar use; callers must
+    /// not turn one into a manually cast skill merely because it has an active-skill record.
+    /// </summary>
+    public bool IsManuallyCasted(int effectRow) => _manuallyCastEffects.Value.Contains(effectRow);
+
+    private readonly Lazy<HashSet<int>> _supportEffects = new(() =>
+    {
+        var result = new HashSet<int>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } d) return result;
+        int row = 0;
+        foreach (var r in d)
+        {
+            if (r.Bool("IsSupport"))
+                result.Add(row);
+            row++;
+        }
+        return result;
+    });
+
+    private readonly Lazy<HashSet<int>> _manuallyCastEffects = new(() =>
+    {
+        var result = new HashSet<int>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects
+            || ClientTables.TableOrNull("ActiveSkills") is not { } active) return result;
+        int row = 0;
+        foreach (var effect in effects)
+        {
+            if (effect.IntOrNull("ActiveSkill") is int index and >= 0 && index < active.Count
+                && active[index].Bool("IsManuallyCasted")) result.Add(row);
+            row++;
+        }
+        return result;
+    });
+
 }
