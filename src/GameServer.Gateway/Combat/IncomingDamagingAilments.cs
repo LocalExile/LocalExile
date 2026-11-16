@@ -203,7 +203,7 @@ public sealed class IncomingDamagingAilments
         if (bleeds.Count == 0) bleedFraction = 0;
         if (poisons.Count == 0) poisonFraction = 0;
 
-        int life = 0;
+        long life = 0;
         if (bleedRaw > 0)
             life += IncomingResourceDefences.DamageOverTime(shield, bleedRaw,
                 get(IncomingResourceDefences.BypassStat), until, ref nonChaosBypassCarry);
@@ -211,7 +211,7 @@ public sealed class IncomingDamagingAilments
             life += IncomingResourceDefences.DamageOverTime(shield, poisonRaw,
                 get("chaos_damage_does_not_bypass_energy_shield") != 0 ? 0 : 100,
                 until, ref chaosBypassCarry);
-        return life;
+        return (int)Math.Min(int.MaxValue, life);
     }
 
     /// <summary>Clears all stacks and fractional carry for death, resurrection and real area teardown.</summary>
