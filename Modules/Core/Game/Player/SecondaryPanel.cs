@@ -25,8 +25,8 @@ public static partial class Game
             supportModifiers: modifiers, skillTypes: types, secondary: true);
         int chance = SpellCriticalStrike.Chance(SkillsFor(conn).SpellCritChance(supported.Effect, supported.Level), Player, Own,
             playerIncrease: Player("critical_strike_chance_+%"));
-        int multiplier = (int)Math.Clamp((long)DamageModel.BaseCriticalStrikeMultiplier
-            + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue);
+        int multiplier = CriticalHitMultiplier((long)DamageModel.BaseCriticalStrikeMultiplier
+            + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+"), player, supported.Stats);
         double factor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(player, attack: false, supported.Stats) ? 0 : chance,
             multiplier, CriticalExtraRollsFor(conn, player, supported.Stats));
         var rows = new List<(string, int)> { ("display_skill_deals_secondary_damage", 1) };

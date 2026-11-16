@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -44,7 +44,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
-        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, Get, playerLevel);
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt.Value;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
@@ -53,11 +53,13 @@ public static partial class Game
             var state = Automation(conn);
             if (signal is { } step) state.Accepted(step, flask.Id);
             double now = AreaTime(conn);
+            if (NamedFlaskRecent(type.Id) is { } recent) conn.RecentEvents.Record(recent, now);
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, conn.NextBuff++,
                 utility.Extra is null ? null : conn.NextBuff++, stats, now, now + seconds);
             if (conn.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(state, previous, "refreshed");
             UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
+            ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
@@ -73,6 +75,15 @@ public static partial class Game
         if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) await EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
         return true;
     }
+
+    static string? NamedFlaskRecent(string baseTypeId) => baseTypeId switch
+    {
+        "Metadata/Items/Flasks/FlaskUtility2" => StatConditions.UsedRubyFlask,
+        "Metadata/Items/Flasks/FlaskUtility3" => StatConditions.UsedSapphireFlask,
+        "Metadata/Items/Flasks/FlaskUtility4" => StatConditions.UsedTopazFlask,
+        "Metadata/Items/Flasks/FlaskUtility7" => StatConditions.UsedAmethystFlask,
+        _ => null,
+    };
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
@@ -103,13 +114,18 @@ public static partial class Game
     // equipment changed.
     public static void RecomputePoolsAndSpeed(ClientState conn)
     {
-        conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        conn.ApplyMovementSpeed();
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
-        conn.ElementalAilments.Reconcile(Get);
-        conn.ApplyMovementSpeed();
+        RefreshRighteousFireProfileLocked(conn);
+        using (new PlayerStatScope(conn, fresh: true))
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
+            var stats = CharacterPlayerStats(conn);
+            int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+            conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
+            conn.ElementalAilments.Reconcile(Get);
+            conn.ApplyMovementSpeed();
+        }
     }
 
     // The already-owned resource writer advances utility deadlines. During Stop/Start there is no writer;
@@ -165,7 +181,7 @@ public static partial class Game
                     // Pool/reservation output samples current values, never a pre-reload instant snapshot.
                     byte[][] packet = output.Pool switch
                     {
-                        FlaskOutputPool.Life => [InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife)],
+                        FlaskOutputPool.Life => [PlayerLifeUpdate(conn)],
                         FlaskOutputPool.Mana => WithOwnAuraRecords(conn, () => [InstanceProtocol.LifeUpdate(PlayerId,
                             conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]),
                         _ => [output.Packet],

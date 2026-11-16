@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
@@ -380,8 +380,8 @@ static partial class SurvivorsRewards
         if (!ownership.Current) return false;
         if (chosen.Kind == SurvivorsChoiceKind.Heal)
         {
-            if (!ownership.Commit(() => conn.PlayerLife = conn.PlayerMaxLife)) return false;
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            if (!ownership.Commit(() => conn.PlayerLife = LifeCap(conn))) return false;
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
                 "survivors healthstone restores life", still: () => ownership.Current);
         }
         if (!ownership.Current) return false;

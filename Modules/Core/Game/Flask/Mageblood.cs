@@ -59,7 +59,7 @@ public static partial class Game
         List<UtilityFlasks.Source> sources = [];
         foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count, items))
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
+                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
         return sources;
     }
 
@@ -74,8 +74,24 @@ public static partial class Game
     /// ones. Callers apply this once, not the two sets separately.</summary>
     public static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character,
         int? playerLevel = null) =>
-        CombineUtilitySources(conn.UtilityFlaskEffects.Sources().Concat(KillOnslaughtSources(conn, character)),
+        CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
+            .Concat(KillOnslaughtSources(conn, character))
+            .Concat(CatOnslaughtSources(conn, character))
+            .Concat(ChargeOnslaughtSources(conn, character)),
             MagebloodSources(conn, character, playerLevel));
+
+    /// <summary>Whether any modelled source currently grants Onslaught. Cat's owned effect is independent of the
+    /// kill/flask state and therefore remains true when either of those ends.</summary>
+    public static bool HasOnslaught(ClientState conn) => HasIndependentOnslaught(conn) || ChargeOnslaughtActive(conn);
+
+    public static bool HasIndependentOnslaught(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return conn.UtilityFlaskEffects.ShowsOnslaught
+                || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
+                || KillOnslaughtOf(conn).Applied
+                || CatOnslaughtActiveLocked(conn);
+    }
 
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>

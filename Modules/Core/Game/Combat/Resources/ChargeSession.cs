@@ -10,7 +10,8 @@ using System.Collections.Concurrent;
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
 /// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
 /// </summary>
-public sealed class ChargeSession(Charges.State? state = null)
+public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType, double>? gained = null,
+    Func<double>? clock = null, Func<double, double, double>? movingSeconds = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
     public const double StepSeconds = 0.05;
@@ -19,6 +20,8 @@ public sealed class ChargeSession(Charges.State? state = null)
     public const double RecentlySeconds = 4;
 
     public Charges.State State { get; } = state ?? new();
+    public ChargeDegeneration Degeneration { get; } = new();
+    public void SettleDegeneration(double now) => Degeneration.Advance(now, this, movingSeconds ?? ((_, _) => 0));
     readonly ConcurrentQueue<ChargeEvent> events = new();
     readonly ChargeGains.Timers timers = new();
     readonly Charges.Limits[] limits = [Default, Default, Default];
@@ -50,6 +53,7 @@ public sealed class ChargeSession(Charges.State? state = null)
     /// </summary>
     public void Observe(Func<string, int> get)
     {
+        SettleDegeneration(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
         var seen = new Dictionary<string, int>(StringComparer.Ordinal);
         int Record(string name) => seen[name] = get(name);
         foreach (var type in Charges.Types)
@@ -79,6 +83,7 @@ public sealed class ChargeSession(Charges.State? state = null)
     {
         while (events.TryDequeue(out _)) { }
         timers.Reset();
+        Degeneration.Clear(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
         LastHitAt = double.NegativeInfinity;
         return State.Clear();
     }
@@ -92,7 +97,11 @@ public sealed class ChargeSession(Charges.State? state = null)
     /// charge is lost and the events are dropped; in towns no periodic charge is gained.
     /// </summary>
     public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
-        bool inTown, Random rng)
+        bool inTown, Random rng) =>
+        Step(now, stats, weapon, alive, moving, inTown, rng, mineDetonatedRecently: false);
+
+    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+        bool inTown, Random rng, bool mineDetonatedRecently)
     {
         var log = new List<string>();
         double elapsed = double.IsNaN(lastStep) ? 0 : Math.Max(0, now - lastStep);
@@ -105,7 +114,8 @@ public sealed class ChargeSession(Charges.State? state = null)
         {
             while (stats is not null && events.TryDequeue(out var e)) ApplyEvent(e, now, stats, weapon, rng, log);
             if (!inTown)
-                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng))
+                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng,
+                             mineDetonatedRecently))
                     Apply(gain, now, rng, log);
         }
         return Finish(now, log);
@@ -131,6 +141,7 @@ public sealed class ChargeSession(Charges.State? state = null)
     /// False when none can be spent.</summary>
     public bool Spend(ChargeType type)
     {
+        SettleDegeneration(clock?.Invoke() ?? (double.IsNaN(lastStep) ? 0 : lastStep));
         if (!CanSpend(type)) return false;
         var (_, left) = State.Lose(type, 1, limits[(int)type]);
         limits[(int)type] = Charges.LimitsOf(type, Observed, left);
@@ -139,7 +150,9 @@ public sealed class ChargeSession(Charges.State? state = null)
 
     void ApplyEvent(ChargeEvent e, double now, Func<string, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
-        if (e is ChargeEvent.WhenHit) LastHitAt = now;
+        SettleDegeneration(now);
+        if (e is ChargeEvent.WhenHit) { LastHitAt = now; Degeneration.HitUntil = now + RecentlySeconds; }
+        if (e is ChargeEvent.Hit { Critical: true }) Degeneration.CritUntil = now + RecentlySeconds;
         if (e is ChargeEvent.Set set)
         {
             foreach (var type in set.Type is { } only ? [only] : Charges.Types)
@@ -152,6 +165,7 @@ public sealed class ChargeSession(Charges.State? state = null)
 
     StepResult Finish(double now, List<string> log)
     {
+        SettleDegeneration(now);
         foreach (var type in State.Expire(now)) log.Add($"{Charges.Name(type)} charges expired");
         foreach (var type in Charges.Types)
             if (State.Clamp(type, limits[(int)type])) log.Add($"{Charges.Name(type)} charges down to the maximum {limits[(int)type].Maximum}");
@@ -182,6 +196,9 @@ public sealed class ChargeSession(Charges.State? state = null)
         limits[(int)gain.Type] = l;
         bool toMaximum = ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
+        // A successful gain refreshes the type even at its cap. Minimums, direct sets and converted charges
+        // cannot manufacture a standard-charge gain history.
+        if (gain.Count > 0 && l.Maximum > 0 && !Converted(gain.Type)) gained?.Invoke(gain.Type, now);
         log.Add($"{gain.Source}: {Charges.Label(gain.Type, Converted(gain.Type))} charges {before} -> {now2}/{l.Maximum}" +
             (toMaximum ? " (to maximum)" : "") + $", {l.DurationMs / 1000.0:0.###} s");
     }

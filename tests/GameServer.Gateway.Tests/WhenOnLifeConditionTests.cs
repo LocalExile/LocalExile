@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -16,7 +16,7 @@ public class WhenOnLifeConditionTests
         Assert.Equal(StatConditions.State.Holds, StatConditions.Of("spell_damage_taken_+%_when_on_low_mana",
             new StatConditions.Subject(Flags: new Dictionary<string, bool> { ["_when_on_low_mana"] = true })));
         Assert.Equal("damage_+%", StatConditions.Fold("damage_+%_when_on_low_life", _ => true));
-        Assert.Equal("movement_velocity_+%", StatConditions.Fold("movement_velocity_+%_when_on_full_life", _ => true));
+        Assert.Equal("base_movement_velocity_+%", StatConditions.Fold("movement_velocity_+%_when_on_full_life", _ => true));
     }
 
     [Fact]

@@ -53,6 +53,8 @@ public sealed class SupportHitDamageTests
             var low = new SpawnedMonster("low", new(100, 100, 0), 0, 0, 1000) { Life = 500 };
             var healthy = new SpawnedMonster("healthy", new(100, 100, 0), 0, 0, 1000) { Life = 501 };
             Assert.Equal(130, Game.WithConditionalSupportDamageLocked(conn, skill, true, low, hit, 0).MinTotal, 9);
+            Assert.Equal(900u, conn.PlayerLife);
+            Assert.Equal(1000u, conn.PlayerMaxLife);
             Assert.Equal(100, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);
             conn.PlayerLife = 1000;   // full Life: Damage on Full Life joins in
             Assert.Equal(120, Game.WithConditionalSupportDamageLocked(conn, skill, true, healthy, hit, 0).MinTotal, 9);

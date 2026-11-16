@@ -1,4 +1,4 @@
-# 02 — Instance connection (tcp/6112): connect, opening, encryption, read loop
+﻿# 02 — Instance connection (tcp/6112): connect, opening, encryption, read loop
 
 Implemented in `src/GameServer.Core/Protocol/Instance/InstanceProtocol.cs` and served by `GameServer.Gateway`. Tests:
 `InstanceProtocolTests`. All of this is live-verified unless marked otherwise.
@@ -70,7 +70,7 @@ no fields):
   the 64 key bytes from 0x14 (info `+0x38`), and installs it on the stream with `0x140dfa6d0`. That function also
   decrypts any bytes already buffered after 0x11 in place.
 - builds a second pair for a side channel at `stream+0xd0` with `0x1429a7000` → `0x1429a6ec0`: the 64 key bytes are
-  XORed with the 64 bytes at `0x142feaed0`, bytes 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e and 0x32↔0x13 are swapped,
+  XORed with the 64 bytes at `0x142feaed0` (3.29.3d: `0x142feaeb0`, unchanged SHA-256), bytes 0↔0x15, 4↔2, 0xd↔0x2a, 0x30↔1, 0x1d↔0x1e and 0x32↔0x13 are swapped,
   and `0x140e022d0(km', 1)` is called. This is **HNC**, a side channel hidden in carrier fields such as the 0x1c u32
   ([07](07-latency-visibility-movement.md) §2); the tick sends `0x1429a70e0(…, 0xdd, …)` packets through it.
 - clears the info pointer and records a timestamp.

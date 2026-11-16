@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -57,12 +57,12 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.PlayerLife == 0 || conn.HardcoreDeathRecorded) return;
-                conn.PlayerLife = conn.PlayerUnreservedLife;
+                conn.PlayerLife = LifeCap(conn);
                 conn.PlayerMana = (uint)UnreservedMana(conn);
             }
             await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "vendor refill");
             PersistVitals(conn);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "vendor restores life");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), "vendor restores life");
             await SendPlayerMana(remote, stream, ciphers, conn, "vendor restores mana");
         }
         uint id;
