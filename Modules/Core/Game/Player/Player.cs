@@ -581,6 +581,7 @@ public static partial class Game
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
         bool moving = conn.Walk.Moving(last);
+        (int X, int Y)? goldCheckedAt = null;
         while (PlayerUpdatesCurrent(conn, updates))
         {
             await updates.Schedule.Wait(PlayerUpdateRole.Player, PlayerTickMs, updates.Stop.Token);
@@ -702,8 +703,9 @@ public static partial class Game
                 await ActivateWaypoint(remote, stream, ciphers, conn, "the player came near");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
+            // The way walked since the last check counts (PickUpNearbyGold), not only where the player stands.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            await PickUpNearbyGold(remote, stream, ciphers, conn);
+            goldCheckedAt = await PickUpNearbyGold(remote, stream, ciphers, conn, goldCheckedAt);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
