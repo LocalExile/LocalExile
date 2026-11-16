@@ -1063,7 +1063,8 @@ public static partial class Game
     public static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId, bool triggered = false)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
+        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null) return "skill is unavailable";
+        if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
         if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
