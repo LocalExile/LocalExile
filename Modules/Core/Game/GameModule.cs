@@ -21,8 +21,7 @@ public sealed class GameModule : IModule, IDisposable
     /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
     public static void LoadData()
     {
-        // The hard-mode data set and the catalogs the others read first.
-        Rules.LoadLeagueModesData();
+        // The catalogs the others read first. The HardMode data set waits for its first player (Rules.LoadHardModeData).
         Rules.LoadSettingsData();
         // The catalogs the rules share (Settings.cs and the systems' own files), each after the ones it reads.
         Rules.Monsters = new();
@@ -171,6 +170,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     /// never write the same character (or its items) from two states.</summary>
     public async Task<bool> AdmittingAsync(ClientState conn)
     {
+        // A Ruthless league's data set is built for its first character, before that character is loaded.
+        if (Program.LeagueFor(conn) is { HardMode: true } league) await Task.Run(() => Rules.LoadHardModeData(league));
         foreach (var previous in Rules.ClaimCharacter(conn))
         {
             // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once

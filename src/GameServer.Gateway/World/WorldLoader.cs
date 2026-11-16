@@ -65,6 +65,7 @@ public static class WorldLoader
 
         // Vendors.
         Step("vendors", VendorCatalog.LoadGameData);
+        Step("vendor prices", () => VendorPrices.For(Program.Items));
         Step("kirac", KiracProgress.LoadGameData);
 
         Loaded = true;

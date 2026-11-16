@@ -26,10 +26,9 @@ public sealed class GameDataLoadingTests
         ("src/GameServer.Core/Config/ServerConfig.cs", "File"),
         // One shop opening's pool, which most openings do not need.
         ("src/GameServer.Gateway/NPC/VendorStock.cs", "pool"),
-        // Built for every league rule set by the Vendors module's LoadData; the Lazy keeps one per key under races.
+        // Built for every league rule set by the Vendors module's LoadData and Game.LoadHardModeData; the Lazy keeps one
+        // per key under races.
         ("src/GameServer.Gateway/NPC/GemVendorStock.cs", "Lazy<GemVendorStock>"),
-        // A hard-mode league's drops read every module's league rules, which exist only once all modules loaded.
-        ("Modules/Core/Game/Player/LeagueModes.cs", "HardModeDrops"),
     ];
 
     [Fact]

@@ -213,13 +213,15 @@ Now the Gateway keeps its data the way a game server does (TrinityCore loads its
   another one before that one is built, it throws a null reference at startup. `GameDataLoadingTests` fails when a
   `Lazy` comes back outside its allow-list.
 - **Cost.** A Debug Gateway listens about 10 s after it starts: tables 1.5 s, world 1.8 s, the Game module's data
-  2.1 s. Its private memory after startup is about 580 MB, because both data sets (the normal one and the hard-mode
-  one) are built up front instead of on first use.
+  2.1 s. Its private memory after startup is about 550 MB.
+- **The HardMode data set** (Ruthless leagues) is built by `Game.LoadHardModeData` when the first character of such a
+  league logs in, in the Game module's admission and before that character loads. The same step builds that league's
+  drops. That login waits a few seconds once; a server whose players never play Ruthless never builds it.
 
 ## Where the remaining cost is
 
-- **Memoized lookups.** A few per-key memos stay: cast-on-death, blood charges, the item roll pools, and the drops of
-  each hard-mode league, which need every module's league rules. Each one is a hash of a small computation, not a load.
+- **Memoized lookups.** A few per-key memos stay: cast-on-death, blood charges and the item roll pools. Each one is a
+  hash of a small computation, not a load.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot

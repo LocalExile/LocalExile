@@ -16,11 +16,10 @@ public sealed class VendorsModule : IModule
     public static void LoadData()
     {
         global::VendorsRules.LoadRulesNpcsData();
-        // Every gem stock a league can ask for: each data set, with and without the support gem rewards.
-        foreach (bool hard in new[] { false, true })
-            foreach (bool supports in new[] { true, false })
-                GemVendorStock.For(hard ? global::Game.HardModeItems : Program.Items, global::Game.Npcs,
-                    hard ? global::Game.HardModeSkills : Program.Skills, hard, supports);
+        // Every gem stock a league of the normal data set can ask for, with and without the support gem rewards (the
+        // HardMode ones are built with that data set: Game.LoadHardModeData).
+        foreach (bool supports in new[] { true, false })
+            GemVendorStock.For(Program.Items, global::Game.Npcs, Program.Skills, false, supports);
     }
 
     /// <inheritdoc/>

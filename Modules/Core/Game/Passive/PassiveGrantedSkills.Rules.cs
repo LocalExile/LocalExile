@@ -10,7 +10,6 @@ public static partial class Game
     public static void LoadPassiveGrantedSkillsRulesData()
     {
         GrantedSkills = NewGrantedSkills(false);
-        RuthlessGrantedSkills = NewGrantedSkills(true);
     }
 
     static PassiveGrantedSkills GrantedSkills = default!;

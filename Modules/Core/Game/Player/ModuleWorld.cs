@@ -8,7 +8,6 @@ public static partial class Game
     public static void LoadModuleWorldData()
     {
         StandardCrafting = new(Items!, Rolls!);
-        HardModeCrafting = new(HardModeItems!, HardModeRolls!);
     }
 
     public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData

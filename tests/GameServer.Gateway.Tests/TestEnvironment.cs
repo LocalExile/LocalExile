@@ -22,6 +22,8 @@ static class TestEnvironment
         WorldLoader.Load();
         // The modules the tests reference build theirs in their module load, which the tests do not run.
         GameServer.Modules.Game.GameModule.LoadData();
+        // The Ruthless tests' data set, which a server builds for its first Ruthless character.
+        global::Game.LoadHardModeData();
         GameServer.Modules.M_vendors.VendorsModule.LoadData();
         GameServer.Modules.Social.SocialModule.LoadData();
         GameServer.Modules.Atlas.AtlasModule.LoadData();
