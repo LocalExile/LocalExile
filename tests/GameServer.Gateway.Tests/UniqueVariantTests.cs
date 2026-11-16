@@ -2,10 +2,9 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class UniqueVariantTests
+static class UniqueVariantTestCases
 {
-    [Fact]
-    public void World_variants_keep_coupled_modifiers_bases_and_default_creation()
+    public static void World_variants_keep_coupled_modifiers_bases_and_default_creation()
     {
         var catalog = new UniqueCatalog(Program.Items);
         var random = new Random(832);
