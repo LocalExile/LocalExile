@@ -168,12 +168,14 @@ public static partial class Game
         }
         if (use.Ctrl)
         {
-            await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false);
+            await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false,
+                arrivalEntrance: AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance));
             return;
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false)
+            { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance) };
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
@@ -229,13 +231,14 @@ public static partial class Game
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
-    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint)
+    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint,
+        int? arrivalEntrance = null)
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
         var instances = list.Instances ?? [];
         var entries = instances
             .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, 0, i.Players)).ToList();
-        conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint);
+        conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint, arrivalEntrance);
         await Send(remote, stream, ciphers, InstanceTransfer.InstanceList(dest, entries),
             $"0x00ae instance list for 0x{dest:x4}: {entries.Count} instance(s) [{string.Join(", ", instances.Select(i => $"{i.Id} ({i.SecondsLeft} s left): {string.Join("/", i.Players)}"))}]");
     }
@@ -371,7 +374,7 @@ public static partial class Game
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
-        HideoutCatalog.Selected(CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
+        HideoutCatalog.Selected(SharedHideout(conn)?.Area ?? CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
     public static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
@@ -382,7 +385,7 @@ public static partial class Game
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
-        CharacterSaves.SetSelectedHideout(CharacterName(conn), hideout.AreaId);
+        SelectAccountHideout(conn, hideout.AreaId);
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
@@ -513,7 +516,11 @@ public static partial class Game
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
-        else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+        else if (!t.AtSpawn)
+        {
+            AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+            if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
+        }
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;

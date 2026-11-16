@@ -94,7 +94,8 @@ Nothing yet.
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Mirage Archer fires linked bow skills with a native head attachment and default green art; expiry removes it
+  Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
+  keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
   ([25](../docs/protocol/25-gem-supports.md)).
   Owner-only damage restriction overrides still await a client check.
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
@@ -122,7 +123,7 @@ Nothing yet.
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys no longer move when other gems come or go; a skill that goes away ends its aura or Righteous Fire;
+  keys no longer move when other gems come or go; queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;

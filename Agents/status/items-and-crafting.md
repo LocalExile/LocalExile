@@ -38,7 +38,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.
   Docs: [17](../docs/protocol/17-npcs.md).
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
-- Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
+- Optional backpack mods can enable the native 20 slots; pickup stacks span both carried grids and quest rewards can enter the enabled backpack. Stored items remain removable after disabling the mod.
 
 - Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
   Docs: [modding](../docs/dev/modding.md).
@@ -52,9 +52,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- Unique items, Mageblood, Headhunter and abyss jewels; most uniques' own mechanics are missing. Every client unique
-  has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps, Impossible Escape,
-  watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
+- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire and abyss jewels; most uniques' own mechanics
+  are missing.
+  Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
+  Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
+  Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
 - Ruthless items, flasks, drops and vendors. Docs: [league modes](../docs/game/league-modes.md).
 - Essence crafting. Docs: [13](../docs/protocol/13-items.md), "Essence crafting".
 - Quiver eligibility: every hand sends its weapon type. Docs: [13](../docs/protocol/13-items.md),

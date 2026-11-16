@@ -94,8 +94,8 @@ static partial class Game
 
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
-    static void CommitLightningStrikeMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence)
+    public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -110,13 +110,13 @@ static partial class Game
         session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
             kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
-            $"Lightning Strike melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, Random.Shared);
             session.Enqueue(() => MaybeCreateProfaneGround(session.remote, session.stream, session.ciphers, conn, target));
         }
-        if (hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
+        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
         if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(session.remote, session.stream, session.ciphers, conn, id, monster));
     }
 }

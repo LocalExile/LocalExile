@@ -64,6 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
+
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
   it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
   Transference, a spread when a projectile or a minion makes the kill.
@@ -105,7 +107,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) §2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
-- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball and Vaal Spark. Docs: [27](../docs/protocol/27-vaal-souls.md),
+- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball, Vaal Spark and Vaal Discipline. Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -143,12 +145,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Blink Arrow leaves its clone at departure. Lightning Warp queues teleports and hits both endpoints.
-- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells and ballistas; placement validates the linked source again at release.
+- Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.

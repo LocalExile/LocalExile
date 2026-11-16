@@ -146,6 +146,20 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>
 public static class GameEvents
 {
+    /// <summary>Adjust an entity's walking speed (cells/second) before its movement is resolved and presented.</summary>
+    public static readonly GameEvent<Func<ClientState, uint, double, double>> MovementSpeed = new();
+
+    public static double ResolveMovementSpeed(ClientState conn, uint entity, double speed)
+    {
+        foreach (var (owner, run) in MovementSpeed.Subscribers(conn))
+        {
+            double next = speed;
+            if (GameEventOwners.Guard(owner, nameof(MovementSpeed), () => next = run(conn, entity, speed))
+                && double.IsFinite(next) && next > 0) speed = next;
+        }
+        return speed;
+    }
+
     // ---- The player's connection ---------------------------------------------------------------------------------------
 
     /// <summary>Every player tick (about 4 a second while the player is in an area and not paused), with the game seconds since the last one.</summary>

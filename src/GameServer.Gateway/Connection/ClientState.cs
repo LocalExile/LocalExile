@@ -15,6 +15,8 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
 
+    public int? ArrivalEntrance { get; init; }
+
     /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
     public MapDevice.Run? Map { get; init; }
 }
@@ -246,6 +248,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
+    /// <summary>Kept in the instance but absent from client views during a scripted disappearance.</summary>
+    public bool WorldHidden;
     /// <summary>The action it takes now. A boss with a kit of its own swaps this for the chosen skill of that kit each
     /// AI pass (BossKits.Choose); everything downstream — the walk-up, the swing's clip, its hit — reads this one.</summary>
     public MonsterAttack? Attack { get; set; }
@@ -552,7 +556,7 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
-public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false);
+public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false, int? ArrivalEntrance = null);
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
@@ -588,6 +592,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public ushort LastTown { get; init; }
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
+    public int? ArrivalEntrance { get; init; }
     // The character's class: its Characters.dat row (the Witch: 1).
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>

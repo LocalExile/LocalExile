@@ -206,7 +206,8 @@ public static partial class Game
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+                bool leapSkill = attack && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
+                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -223,6 +224,7 @@ public static partial class Game
                 // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
+                LeapSlam.Use? leap = null;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
@@ -232,7 +234,8 @@ public static partial class Game
                     if (inPlace) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
-                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
+                    if (leap is not null) CommitLeapSlam(conn, leap);
+                    else if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
                     else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
@@ -251,7 +254,14 @@ public static partial class Game
                     noFlickerTarget = flickerTo is null;
                     return !noFlickerTarget;
                 }
-                if (cast && gem.Name is not null)
+                if (leapSkill)
+                {
+                    if (!TryBeginAttackUse(conn, use.SkillId, gem.Effect, at,
+                        acceptedAt => { at = acceptedAt; StartAction(); }, out cooldownUse,
+                        acceptedAt => (leap = PlanLeapSlam(conn, use.SkillId, gem.Effect, (use.X, use.Y), acceptedAt)) is not null))
+                        continue;
+                }
+                else if (cast && gem.Name is not null)
                 {
                     if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                         CooldownForSkill(conn, use.SkillId),
@@ -278,11 +288,11 @@ public static partial class Game
                 if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 Mark("charge");
-                bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
+                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill);
                 double? swingAt = attack ? at : null;
                 Task<bool>? castTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
-                    swingAt: swingAt) : null;
+                    swingAt: swingAt, leap: leap) : null;
                 if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
@@ -319,8 +329,11 @@ public static partial class Game
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
-                if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
-                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
+                if (leap is { } jump)
+                    ResyncAfter(remote, stream, ciphers, conn,
+                        Math.Max(0, jump.At + jump.Timing.End - conn.Clock.Elapsed.TotalSeconds), gem.Name!);
+                else if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level, use.SkillId), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
@@ -686,7 +699,9 @@ public static partial class Game
                 if (!isNew && row >= chooser.Ids.Count) { Console.WriteLine($"[gateway] {remote} <= 0x00af row {row} out of range"); continue; }
                 ulong instance = isNew ? 0 : chooser.Ids[row];
                 Console.WriteLine($"[gateway] {remote} <= 0x00af chose {(isNew ? "a new instance" : $"instance {instance}")} of 0x{chooser.Area:x4}");
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint), $"chooser row {row}");
+                await ChangeArea(remote, stream, ciphers, conn,
+                    new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint)
+                    { ArrivalEntrance = chooser.ArrivalEntrance }, $"chooser row {row}");
             }
             else if (id == InstanceWaypoints.TravelId)
                 _ = TravelByWaypoint(remote, stream, ciphers, conn, InstanceWaypoints.ReadTravel(bytes));
@@ -723,7 +738,7 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint: spawn ({ax}, {ay}) next to the waypoint at ({arrival.GridX}, {arrival.GridY})");
                     }
                     // Otherwise next to the exit back; Resurrect at Checkpoint and the monster packs' clearance use it too.
-                    else if (conn.Layout.Arrival(conn.CameFrom) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
+                    else if (conn.Layout.Arrival(conn.CameFrom, conn.ArrivalEntrance) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
                     {
                         conn.Use(conn.Layout with { SpawnX = ex, SpawnY = ey });
                         Console.WriteLine($"[gateway] {remote} arrival from 0x{conn.CameFrom:x4}: ({ex}, {ey})");
