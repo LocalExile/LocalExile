@@ -139,6 +139,7 @@ public static partial class Game
             }
         }
         if (definition.Id == "SummonSkeletonsAltY") path = $"Metadata/Monsters/RaisedSkeletons/RaisedSkeletonSpellcaster{Random.Shared.Next(1, 4)}Jewel";
+        if (definition.Id == "SummonHolyRelicAltX") path = "Metadata/Monsters/Relic/HolyRelicSkull";
         if (definition.Family == "Clone" && restoredVariety is null)
             path = "Metadata/Monsters/Clone/" + (conn.ClassRow switch { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" }) + "CloneImmobile";
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;

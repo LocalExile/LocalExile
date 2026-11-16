@@ -118,7 +118,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) §10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
-- Player minions that fight. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Player minions that fight, including Conviction relics' enemy-centred novas. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) §5.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) §4.

@@ -260,6 +260,8 @@ public static partial class Game
         }
         bool area = GolemStat(a.Stats, "is_area_damage") != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
         var centre = a.Effect is 3347 or 10799 or 10800 or 869 ? action.Aim : at;
+        if (a.Effect is 9927 or 9928 && GolemStat(g.Own, "holy_relic_targets_nearest_enemy") != 0)
+            centre = action.Victim?.Walk.Position(now) ?? action.Aim;
         if (a.Effect == 869)
         {
             var end = action.Aim;

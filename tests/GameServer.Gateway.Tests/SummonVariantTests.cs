@@ -43,4 +43,29 @@ public sealed class SummonVariantTests
         Assert.Equal(count, f.Conn.Summons.Fighters.Count);
         Assert.Same(ground, f.Conn.Instance.Ground.Get(groundId));
     }
+
+    [Fact]
+    public async Task Holy_relic_variants_use_their_native_novas_and_their_respective_damage_centres()
+    {
+        foreach (bool conviction in new[] { false, true })
+        {
+            using var f = new AnimatedAdmissionTests.Fixture();
+            ushort source = Equip(f, conviction ? "Summon Holy Relic of Conviction" : "Summon Holy Relic");
+            uint id = await Game.SummonFighter("test", f.Stream, f.Ciphers, f.Conn, source,
+                Game.SummonData.Find(conviction ? "SummonHolyRelicAltX" : "SummonHolyRelic")!, (100, 100));
+            var relic = f.Conn.Summons.Fighters[id];
+            var nova = Assert.Single(relic.Abilities, a => a.Effect == (conviction ? 9928 : 9927));
+            var target = new SpawnedMonster("distant enemy", new(160, 100, 0), 100, 3, 100000) { Hostile = true };
+            var beside = new SpawnedMonster("beside relic", new(100, 100, 0), 100, 3, 100000) { Hostile = true };
+            f.Conn.Monsters[999] = target; f.Conn.Monsters[998] = beside;
+            var action = new GolemState.Action(nova, 999, target, (160, 100), 0, relic.Monster.ActionGeneration);
+            typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, relic, action, 0d]);
+            Assert.Equal(conviction, target.Life < 100000);
+            Assert.Equal(!conviction, beside.Life < 100000);
+            typeof(Game).GetMethod("HolyRelicsOnHitLocked", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [f.Conn, 999u, target, 1d]);
+            Assert.Equal(conviction ? 998u : 999u, relic.Pending!.Target);
+        }
+    }
 }
