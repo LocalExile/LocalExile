@@ -999,7 +999,7 @@ public static partial class Game
             return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).EffectId(gem.Effect) == "LightningWarp")
             return ScheduleLightningWarp(remote, stream, ciphers, conn, gem, to, Current, criticalRoll);
-        if (gem.Name is not null && SummonData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } summon)
+        if (gem.Name is not null && !IsTotemSkill(conn, skillId) && SummonData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } summon)
             return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
@@ -1578,6 +1578,8 @@ public static partial class Game
                 // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
                 // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
                 && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || conn.PaidChannel is { } paid && paid.Skill == skill
+                        && SkillsFor(conn).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                     || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
