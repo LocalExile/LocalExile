@@ -903,6 +903,11 @@ public static partial class Game
         if (gem.Name is not null && !vaalCast && ToggledReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
+            if (StanceCatalog.IsSource(SkillsFor(conn).EffectId(gem.Effect)))
+            {
+                if (cooldownUse?.Stance is not { } stanceUse) return false;
+                return await PublishStanceUse(remote, stream, ciphers, conn, stanceUse, gem.Name);
+            }
             if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
                 return await TogglePetrifiedBlood(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
