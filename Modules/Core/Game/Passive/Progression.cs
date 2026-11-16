@@ -155,6 +155,13 @@ public static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
+        lock (conn.Monsters)
+        {
+            conn.SourcePhasing = conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("source_phasing") == true;
+            if (conn.SourcePhasing)
+                foreach (string name in new[] { "phase_through_objects", "virtual_phase_through_objects" })
+                    if (Stats.Key(name) is uint key) sources[key] = Math.Max(1, sources.GetValueOrDefault(key));
+        }
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithSpreadPoisonRegeneration(conn, sources);
@@ -173,7 +180,13 @@ public static partial class Game
     public static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
         List<ItemModStats.Worn> Worn) EquipmentStatSources(
         ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        IEnumerable<ushort>? nodes = null, int? level = null)
+        IEnumerable<ushort>? nodes = null, int? level = null) =>
+        EquipmentStatSources(conn, equipment, nodes, level, null);
+
+    public static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
+        List<ItemModStats.Worn> Worn) EquipmentStatSources(
+        ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
@@ -221,17 +234,19 @@ public static partial class Game
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         // Conditional item stats (issue #504) depend on state the connection keeps: the auras running now, the events of
-        // the last four seconds, and the attributes an "if you have at least N X" id compares. Capture a value snapshot
-        // for both the cache key and the resolver, so a change in any of them cannot reuse a result computed before it.
+        // the last four seconds, the attributes an "if you have at least N X" id compares, and current named amounts such
+        // as the player's active non-Vaal minion count. Capture one snapshot for both the cache key and the resolver.
         IReadOnlySet<string> auraEffects;
         double conditionNow;
         IReadOnlySet<string> recentEvents;
         double? recentExpiry;
-        int strength, dexterity, intelligence, life, mana, energyShield;
+        int strength, dexterity, intelligence, life, mana, energyShield, poisonStacks;
         IReadOnlyDictionary<string, bool> conditionFlags;
+        LifeReservationConditionSnapshot lifeReservationConditions;
+        IReadOnlyDictionary<string, long> recentAmounts;
         lock (conn.Monsters)
         {
-            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
+            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
             conditionNow = conn.Clock.Elapsed.TotalSeconds;
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
@@ -241,16 +256,32 @@ public static partial class Game
             life = (int)conn.Pools.Life;
             mana = (int)conn.Pools.Mana;
             energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
-            conditionFlags = ItemConditionFlags(conn, conditionNow);
+            poisonStacks = conn.IncomingAilments.PoisonStacks(conditionNow);
+            conditionFlags = ItemConditionFlags(conn, conditionNow, null, out lifeReservationConditions);
+            if (conditionFlags.GetValueOrDefault("cursed_by_vulnerability"))
+                auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability")
+                    .Select(a => a.EffectId).Append("Vulnerability"));
+            var measured = conn.RecentEvents.Amounts(conditionNow);
+            measured.TryAdd(StatConditions.KilledEnemy, 0);
+            measured.TryAdd(StatConditions.SpentMana, 0);
+            measured[StatConditions.ActiveNonVaalSkillMinionCount] =
+                ActiveNonVaalSkillMinionCountLocked(conn, conditionNow);
+            OwnedCountItemStats.Capture(conn, conditionNow, AreaTime(conn), measured);
+            recentAmounts = measured;
         }
+        // A deterministic test can interleave another owner update here, after this call has captured its condition view.
+        afterConditionCapture?.Invoke();
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
             before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
-            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags,
-            ItemsFor(conn));
+            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield,
+            conditionFlags, recentAmounts, poisonStacks, ItemsFor(conn));
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
+        {
+            PublishQualifiedItemLifeReservationPercent(conn, cached.Key.QualifiedItemLifeReservationPercent);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
+        }
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
         var tree = PassivesFor(conn);
@@ -531,9 +562,14 @@ public static partial class Game
             .Where(i => ClusterSize(i.Item) is not null
                 && (tree.JewelNodeForSlot(i.X) is { } ordinary && allocated.Contains(ordinary) || ClusterSlotOpen(conn, i.X)))
             .OrderBy(i => i.X).ToList();
+        var clusterAttributes = new Dictionary<string, long>();
         var clusterStats = ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats).ToArray();
         foreach (var (key, value) in clusterStats)
+        {
             passives[key] = passives.GetValueOrDefault(key) + value;
+            if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
+                clusterAttributes[name] = clusterAttributes.GetValueOrDefault(name) + value;
+        }
         // Threshold jewels: Path of Building's Threshold pass sums the attributes of every ordinary passive in
         // radius, allocated or not, and grants the skill stat only when the total reaches the requirement. The
         // client applies the same local mods; this keeps the server's stat view in step. Unknown target stats are
@@ -589,6 +625,8 @@ public static partial class Game
         PassiveBuffAuras.WithSelfBuffs(passives, nodes, LeagueFor(conn).HardMode);
         // Only attributes need a wide source view. Keep each raw key until overrides have replaced its entire total.
         var passiveAttributes = new Dictionary<string, long>();
+        foreach (var (name, value) in clusterAttributes)
+            passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         foreach (ushort node in nodes)
         {
             var effects = !(tattoos.TryGetValue(node, out var replacement) && TattooCatalogue.Find(replacement)?.IsRunegraft == true)
@@ -606,13 +644,44 @@ public static partial class Game
         foreach (var (key, value) in copiedSmallStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
-        foreach (var (key, value) in clusterStats)
-            if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
-                passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+        StatConditions.Subject ConditionSubject(IReadOnlyDictionary<string, long> raw, IReadOnlyList<Item>? activeItems = null)
+        {
+            var attributes = AttributeInputs(raw, dev).Apply(c.Strength + (conn.God ? 1000 : 0),
+                c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+            var equipmentValues = EquipmentConditionValues(equipment, catalog, activeItems);
+            var itemFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, activeItems);
+            var weapons = WeaponProfileFor(conn);
+            bool offHandEmpty = equipment.All(e => e.Row != PlayerInventories.Offhand1);
+            bool axe = activeItems is null ? weapons.Axe : equipment.Any(e =>
+                e.Row is PlayerInventories.Weapon1 or PlayerInventories.Offhand1
+                && activeItems.Any(item => ReferenceEquals(item, e.Item.Item))
+                && ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class is "One Hand Axe" or "Two Hand Axe");
+            return new(DualWield: weapons.DualWield, Shield: weapons.Shield, TwoHanded: weapons.TwoHand,
+                OneHanded: weapons.OneHand, OffHandEmpty: offHandEmpty, Axe: axe, Auras: auraEffects, Recent: recentEvents,
+                Value: name => name switch
+                {
+                    "strength" => attributes.Strength, "dexterity" => attributes.Dexterity, "intelligence" => attributes.Intelligence,
+                    "life" => life, "mana" => mana, "energy_shield" => energyShield,
+                    _ => equipmentValues.TryGetValue(name, out int count) ? count : null,
+                }, KnownRecent: TrackedItemRecentEvents, Flags: itemFlags, Amounts: recentAmounts,
+                ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
+        }
+
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
-            var raw = ItemModStats.RawAttributes(active, ItemsFor(conn).Mods);
+            var items = active.ToArray();
+            var raw = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
+            // Independent equipment-count modifiers settle before comparisons that read those final attributes.
+            // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw, items), Stats.Has);
+                foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
+                bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
+                raw = next;
+                if (same) break;
+            }
             return raw;
         }
         int god = conn.God ? 1000 : 0;
@@ -664,41 +733,103 @@ public static partial class Game
         }
         active = AbyssJewels.Sources(active, catalog).ToArray();
         var rawAttributes = RawAttributes(active);
-        var conditionAttributes = AttributeInputs(rawAttributes, dev)
-            .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+        // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
+        // so an item's first action after a requirement change cannot use the previous inactive cache.
+        conditionFlags = RequalifyLifeReservation(conditionFlags, conn, active, lifeReservationConditions);
+        var qualifiedSlotFlags = new Dictionary<string, bool>(conditionFlags);
+        foreach (var (key, value) in ConditionalRings(equipment, active).Flags) qualifiedSlotFlags[key] = value;
+        conditionFlags = qualifiedSlotFlags;
+        var curseInputs = SelfCurseConditionInputs(conn, active, passives, conditionNow, recentEvents, dev);
+        bool cursed = Stats.Key("cursed_by_vulnerability") is uint cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
+        auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)
+            .Concat(cursed ? ["Vulnerability"] : []));
+        bool lowLife = CriticalOnLowLife(conn, curseInputs);
+        conditionFlags = new Dictionary<string, bool>(conditionFlags)
+        {
+            ["_while_on_low_life"] = lowLife,
+            ["_while_not_low_life"] = conn.PlayerLife > 0 && !lowLife,
+            ["_while_not_on_low_life"] = conn.PlayerLife > 0 && !lowLife,
+            ["_while_on_full_life"] = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, curseInputs),
+            ["cursed_by_vulnerability"] = cursed,
+            ["_while_cursed"] = conn.PlayerLife > 0 && cursed,
+            ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
+            ["_while_blinded"] = conditionFlags.GetValueOrDefault("_while_blinded")
+                && !(Stats.Key("cannot_be_blinded") is uint blindImmunity && curseInputs.GetValueOrDefault(blindImmunity) != 0),
+        };
+        var phaseInputs = curseInputs;
+        conditionFlags = RequalifySourcePhasing(conn, conditionFlags, phaseInputs, dev, recentEvents, auraEffects, conditionNow);
+        conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
+        int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
+            ? dev.TryGetValue(itemReservationKey, out int reservationOverride) ? reservationOverride
+                : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
+            : 0;
+        sourcesKey = sourcesKey with
+        {
+            Flags = conditionFlags,
+            Auras = auraEffects,
+            QualifiedItemLifeReservationPercent = qualifiedItemReservationPercent,
+        };
         // A stat whose id carries a condition only counts while that condition holds (issue #504). The subject answers
         // from state the server already keeps: the weapon profile, the auras running right now, the events of the last
         // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
-        var conditionWeapons = WeaponProfileFor(conn);
-        var conditionSubject = new StatConditions.Subject(
-            DualWield: conditionWeapons.DualWield, Shield: conditionWeapons.Shield,
-            TwoHanded: conditionWeapons.TwoHand, OneHanded: conditionWeapons.OneHand,
-            Auras: auraEffects,
-            Recent: recentEvents,
-            Value: attribute => attribute switch
-            {
-                "strength" => conditionAttributes.Strength,
-                "dexterity" => conditionAttributes.Dexterity,
-                "intelligence" => conditionAttributes.Intelligence,
-                "life" => life,
-                "mana" => mana,
-                "energy_shield" => energyShield,
-                "rage" => null,
-                _ => (int?)null,
-            }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
+        var conditionSubject = ConditionSubject(rawAttributes, active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
         GrandSpectrum.Apply(sources, Stats);
+        // The first snapshot after equipment/point changes must use the new limits and conversion, before the charge
+        // ticker observes them. Rebuild the conditional sum from its inputs, never add a second folded contribution.
+        for (int pass = 0; pass < 4; pass++)
+        {
+            var chargeFlags = RequalifySourcePhasing(conn,
+                RequalifyChargeConditions(conn, conditionFlags, sources, dev), phaseInputs, dev, recentEvents, auraEffects, conditionNow);
+            if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
+            conditionFlags = chargeFlags;
+            sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats,
+                ConditionSubject(rawAttributes, active)));
+            DevotionStats.Apply(sources, Stats);
+            GrandSpectrum.Apply(sources, Stats);
+        }
+        sourcesKey = sourcesKey with { Flags = conditionFlags };
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
         var attributes = AttributeInputs(rawAttributes, dev);
+        var finalAttributes = attributes.Apply(c.Strength + (conn.God ? 1000 : 0),
+            c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+        AttributeOffenceSources.Apply(sources, Stats,
+            finalAttributes.Strength, finalAttributes.Dexterity, finalAttributes.Intelligence);
+        AttributeDefenceSources.Apply(sources, Stats, finalAttributes.Strength);
+        LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
+        OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts, dev);
+        ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
+        PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);
+    }
+
+    static int ActiveNonVaalSkillMinionCountLocked(ClientState conn, double now)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return 0;
+        var skills = SkillsFor(conn);
+        int count = 0;
+        foreach (var minion in conn.Minions.All)
+        {
+            if (minion.Monster.Dead || minion.Monster.Life == 0 || now >= minion.Until
+                || !conn.Monsters.TryGetValue(minion.Id, out var held) || !ReferenceEquals(held, minion.Monster)) continue;
+            int effect = skills.EffectRow(minion.Skill);
+            // Missing provenance and a Vaal creator cannot establish this item's non-Vaal predicate.
+            if (effect >= 0 && !skills.IsVaal(effect)) count++;
+        }
+        return count;
+    }
+
+    static void PublishQualifiedItemLifeReservationPercent(ClientState conn, int percent)
+    {
+        lock (conn.Monsters) conn.QualifiedItemLifeReservationPercent = percent;
     }
 
     // "Items and Gems have X% increased/reduced Attribute Requirements", rounded down (PoB CalcPerform m_floor).
@@ -738,7 +869,8 @@ public static partial class Game
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
-        IReadOnlyDictionary<string, bool>? Flags = null, ItemCatalog? Catalog = null)
+        IReadOnlyDictionary<string, bool>? Flags = null, IReadOnlyDictionary<string, long>? Amounts = null,
+        int PoisonStacks = 0, ItemCatalog? Catalog = null, int QualifiedItemLifeReservationPercent = 0)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -756,8 +888,11 @@ public static partial class Game
             && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent)
             && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
             && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
+            && PoisonStacks == o.PoisonStacks
             && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
-            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active));
+            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active))
+            && (Amounts?.Count ?? 0) == (o.Amounts?.Count ?? 0)
+            && (Amounts is null || Amounts.All(p => o.Amounts is not null && o.Amounts.TryGetValue(p.Key, out long total) && p.Value == total));
     }
 
     public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
@@ -790,7 +925,12 @@ public static partial class Game
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
+        // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
+        // Bite's conditional base critical chance becomes qualified only once the exact root owner exists.
+            snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
+        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+            sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + 0);
         AddGolemStats(conn, sources);
         AddSelfOfferingStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
@@ -919,13 +1059,16 @@ public static partial class Game
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
-                + FlickerMovementPct(conn) + ElusiveMovementPct(conn)
+                + FlickerMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
         int MagebloodGet(string name) => Stats.Key(name) is uint k
             ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
-        bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet, level));
+        var utilityStats = UtilityStats(conn, MagebloodGet, level);
+        bonus = ApplyItemUtilityFlaskBonuses(bonus, utilityStats);
+        bool noExtraCriticalDamage = EquipmentInput("no_critical_strike_multiplier") != 0
+            || utilityStats.Any(row => row.Stat == "no_critical_strike_multiplier" && row.Value != 0);
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
         // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
         // darts: +19% became −52%).
@@ -959,10 +1102,29 @@ public static partial class Game
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
         var pools = CharacterStats.For(classInfo, level, bonus);
+        // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
+        // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
+        int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
+        var reservedLife = LifeReservation.FromInputs((int)pools.Life, itemReservationPercent,
+            pools.LifeReservationEfficiencyPct, auras, AdditionalLifeReservation(conn));
+        int perHundred = Stats.Key(LifeReservation.EnergyShieldPerReservedStat) is uint reservedEsKey
+            ? devStats.GetValueOrDefault(reservedEsKey, sources.GetValueOrDefault(reservedEsKey)) : 0;
+        int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
+        if (reservationEnergyShield != 0)
+            pools = CharacterStats.For(classInfo, level, bonus with
+            {
+                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
+            });
+        if (Stats.Key("spell_critical_strike_chance_+%") is uint poolSpellCritical && !devStats.ContainsKey(poolSpellCritical))
+            pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
+                + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
+        conn.PlayerLifeCap = reservedLife.Unreserved;
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
         {
+            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage),
+            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage),
             AttackBlockLucky = pools.AttackBlockLucky || conn.ForceAttackBlockLucky,
             SpellBlockLucky = pools.SpellBlockLucky || conn.ForceSpellBlockLucky,
             SpellSuppressionLucky = pools.SpellSuppressionLucky || conn.ForceSpellSuppressionLucky,
@@ -989,7 +1151,10 @@ public static partial class Game
         {
             BlockChanceBase = shieldBlock,
             BlockChanceUncapped = Math.Max(0, totalAttack),
-            BlockChance = Math.Min(Math.Max(0, totalAttack), pools.BlockChanceMax),
+            AttackBlockAtMaximum = EquipmentInput("max_chance_to_block_attacks_if_not_blocked_recently") > 0,
+            SpellBlockAtMaximum = EquipmentInput("spell_block_is_maximum_if_not_blocked_recently") > 0,
+            BlockChance = EquipmentInput("max_chance_to_block_attacks_if_not_blocked_recently") > 0
+                ? pools.BlockChanceMax : Math.Min(Math.Max(0, totalAttack), pools.BlockChanceMax),
             SpellBlockChanceUncapped = Math.Max(0, totalSpell),
             SpellBlockChance = Math.Min(Math.Max(0, totalSpell), pools.SpellBlockChanceMax)
         };
@@ -1011,6 +1176,9 @@ public static partial class Game
                     SpellBlockChance = Math.Min(pools.SpellBlockChance + 2 * overcap, pools.SpellBlockChanceMax)
                 };
         }
+        // The source's condition has already been evaluated from the captured blocked history. The Replica's
+        // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
+        if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);
@@ -1220,7 +1388,8 @@ public static partial class Game
             BlockChanceInc: Get("block_chance_+%"), BlockChanceMore: Get("keystone_glancing_blows") != 0
                 ? 2 * Get("block_chance_+%_final") + 100 : Get("block_chance_+%_final"),
             SpellBlockPer5AttackBlock: Get("spell_block_%_per_5_attack_block"),
-            LifeGainedOnBlock: Get("life_gained_on_block"), ManaGainedOnBlock: Get("mana_gained_on_block"),
+            LifeGainedOnBlock: Get("life_gained_on_block") + Get("recover_X_life_on_block"),
+            ManaGainedOnBlock: Get("mana_gained_on_block"),
             VersatileCombatant: Get("keystone_versatile_combatant") != 0,
             AttackBlockLucky: attackBlockLuck > 0, AttackBlockUnlucky: attackBlockLuck < 0,
             SpellBlockLucky: spellBlockLuck > 0, SpellBlockUnlucky: spellBlockLuck < 0,
