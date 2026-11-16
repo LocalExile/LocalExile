@@ -158,7 +158,7 @@ public static partial class Game
                                 if (Conn.Monsters.TryGetValue(current.Actor, out var actor)) actor.Walk.Teleport(from.X, from.Y, now);
                                 WorldRecords(current.Actor, () => ReferenceEquals(archer, current)
                                     ? [InstanceProtocol.ActionStarted(current.Actor, from.X, from.Y, aim.X, aim.Y,
-                                        current.Skill, Conn.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(current.Actor)] : null);
+                                        current.Skill, 0xffff, 0x0408), InstanceProtocol.ActionEnded(current.Actor)] : null);
                             }
                             var crit = CaptureSkillCriticalRoll(Conn, current.Skill);
                             if (ArrowRain(SkillsFor(Conn).EffectId(gem.Effect)))

@@ -100,6 +100,7 @@ public static partial class Game
                         Quality(p.Socket, p.Gem), p.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
+        candidates.AddRange(OffhandSupportsForMainHand(conn, skillId, selected.Place.ItemId, equipment, places, requirements));
         var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
         var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass,
@@ -261,6 +262,46 @@ public static partial class Game
                             own[target] = own.GetValueOrDefault(target) + damage;
 
     }
+
+    // The Squire ("Socketed Support Gems can also Support Skills from your Main Hand"): every support gem in an active
+    // off-hand with that mod also supports the gems in the main hand, linked or not. Off-hand sockets are numbered from
+    // OffhandSocketBase so they never collide with the main hand's own sockets.
+    public const string OffhandSupportsMainHandStat = "support_gems_socketed_in_off_hand_also_support_main_hand_skills";
+    public const int OffhandSocketBase = 100;
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(string, ushort), string> OffhandSupportLog = new();
+
+    static List<GemSupports.Candidate> OffhandSupportsForMainHand(ClientState conn, ushort skillId, uint selectedItem,
+        IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places,
+        GemRequirementSnapshot? requirements)
+    {
+        var result = new List<GemSupports.Candidate>();
+        if (equipment.FirstOrDefault(e => e.Row == PlayerInventories.Weapon1).Item?.Id != selectedItem
+            || equipment.FirstOrDefault(e => e.Row == PlayerInventories.Offhand1).Item is not { } offhand
+            || !HasModStat(conn, offhand.Item, OffhandSupportsMainHandStat)
+            || (requirements is not null ? requirements.Inactive.Contains(offhand.Id) : IsInactive(conn, offhand.Id)))
+            return result;
+        var local = ItemModStats.Local(offhand.Item, ItemsFor(conn).Mods);
+        foreach (var p in places.Where(p => p.ItemId == offhand.Id && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
+            if (ItemsFor(conn).ByHash(p.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: true } gem)
+            {
+                var bonus = SocketedGemBonuses.For(offhand.Item, p.Socket, p.Gem, ItemsFor(conn), SkillsFor(conn), local, conn.Pools.Level);
+                int quality = p.Gem.Quality + bonus.Quality
+                    + (gem.Colour is >= 1 and <= 3 && (int)offhand.Item.Sockets[p.Socket].Colour == gem.Colour ? 10 : 0);
+                var variant = gem.Variant(p.Gem.GemVariant);
+                foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
+                    result.Add(new(effect, EffectiveGemLevel(conn, p.Gem, bonus.Level), quality, OffhandSocketBase + p.Socket));
+            }
+        string summary = string.Join(", ", result.Select(c => $"{Supports.Of(c.Effect)?.Id} L{c.Level} Q{c.Quality}"));
+        if (OffhandSupportLog.TryGetValue((CharacterName(conn), skillId), out var last) is false || last != summary)
+        {
+            OffhandSupportLog[(CharacterName(conn), skillId)] = summary;
+            Console.WriteLine($"[gateway] {CharacterName(conn)}: off-hand {offhand.Id} supports main-hand skill {skillId}: {(summary.Length > 0 ? summary : "none")}");
+        }
+        return result;
+    }
+
+    static bool HasModStat(ClientState conn, Item item, string stat) =>
+        item.Mods.Any(m => ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats.Any(s => s.Id == stat) == true);
 
     public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
     {

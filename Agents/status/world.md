@@ -49,6 +49,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The offline audit `scripts/re/exits` checks every generated area at several seeds (`--quests`: with the act tables,
   so the gated disabled exits too);
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
+  Repeated connections between the same two areas retain the selected entrance in both directions.
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.

@@ -757,7 +757,9 @@ public static partial class Game
                 if (!isNew && row >= chooser.Ids.Count) { Console.WriteLine($"[gateway] {remote} <= 0x00af row {row} out of range"); continue; }
                 ulong instance = isNew ? 0 : chooser.Ids[row];
                 Console.WriteLine($"[gateway] {remote} <= 0x00af chose {(isNew ? "a new instance" : $"instance {instance}")} of 0x{chooser.Area:x4}");
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint), $"chooser row {row}");
+                await ChangeArea(remote, stream, ciphers, conn,
+                    new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint)
+                    { ArrivalEntrance = chooser.ArrivalEntrance }, $"chooser row {row}");
             }
             else if (id == InstanceWaypoints.TravelId)
                 _ = TravelByWaypoint(remote, stream, ciphers, conn, InstanceWaypoints.ReadTravel(bytes));
@@ -794,7 +796,7 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint: spawn ({ax}, {ay}) next to the waypoint at ({arrival.GridX}, {arrival.GridY})");
                     }
                     // Otherwise next to the exit back; Resurrect at Checkpoint and the monster packs' clearance use it too.
-                    else if (conn.Layout.Arrival(conn.CameFrom) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
+                    else if (conn.Layout.Arrival(conn.CameFrom, conn.ArrivalEntrance) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
                     {
                         conn.Use(conn.Layout with { SpawnX = ex, SpawnY = ey });
                         Console.WriteLine($"[gateway] {remote} arrival from 0x{conn.CameFrom:x4}: ({ex}, {ey})");

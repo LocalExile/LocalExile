@@ -14,7 +14,8 @@ public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(ClientState conn, int effect) =>
-        SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike";
+        SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+            || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
@@ -53,7 +54,10 @@ public static partial class Game
             mana = 0;
         }
         int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
-        double preventionBase = Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
+        // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
+        bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats)
+            : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;
         double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
@@ -110,6 +114,8 @@ public static partial class Game
         ManaSpentLocked(conn, plan.Mana, stats);
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
+        Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +
+            $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={conn.VaalPreventionUntil:0.000})");
         conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,
             CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
     }

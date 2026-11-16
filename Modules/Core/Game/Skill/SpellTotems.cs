@@ -10,8 +10,12 @@ public static partial class Game
     public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
-        && (SkillsFor(conn).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
-        && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
+        && (TotemSummon(conn, effect) is not null
+            || (SkillsFor(conn).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
+                && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit);
+
+    static SummonCatalog.Definition? TotemSummon(ClientState conn, int effect) =>
+        SummonData.Find(SkillsFor(conn).EffectId(effect)) is { Family: "RagingSpirit" } summon ? summon : null;
     static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
         && a.SourceGem is not null && b.SourceGem is not null
@@ -123,6 +127,20 @@ public static partial class Game
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, 0x0408, targetObjectId: arc ? target.Key : null));
             var lifetime = CombatLifetime;
+            if (TotemSummon(conn, gem.Effect) is { } summon)
+            {
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem);
+                    if (!Current()) return;
+                    session.Enqueue(async () =>
+                    {
+                        if (Current()) await SummonFighter(remote, stream, ciphers, conn, totem.SkillId, summon,
+                            totem.At, current: Current, triggered: true);
+                    });
+                });
+                continue;
+            }
             if (arc)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>

@@ -219,6 +219,7 @@ public static partial class Game
             conn.ChannelMovement = default;
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
+            VaalAuraStates.Remove(conn); // CancelOnDeath: it cannot return after resurrection.
             ClearAntiquarianOnDeath(conn);
             conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
             conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
@@ -1022,6 +1023,7 @@ public static partial class Game
                 await SendKillOnslaught(remote, stream, ciphers, conn);
                 await SendSpreadPoisonRegeneration(remote, stream, ciphers, conn);
                 await SendSoulEater(remote, stream, ciphers, conn);
+                await SendVaalAuraExpiry(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);

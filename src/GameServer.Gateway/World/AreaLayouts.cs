@@ -55,13 +55,14 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
 
     /// <summary>Where a player entering this area appears: next to the exit leading back to <paramref name="cameFrom"/>
     /// (the area they left through an exit), else the spawn (logins, Resurrect in Town, no exit back).</summary>
-    public (int X, int Y) Arrival(ushort? cameFrom)
+    public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
         foreach (var (_, t) in AreaTransitions)
-            if (t.DestinationHash16 == from && t.TeleportTo is null) return Near((t.GridX, t.GridY));
-        if (EntranceFrom?.Invoke(from) is { } entrance) return Near(entrance);
+            if (t.DestinationHash16 == from && t.TeleportTo is null
+                && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
+        if (EntranceFrom?.Invoke(from) is { } pointEntrance) return Near(pointEntrance);
         return (SpawnX, SpawnY);
     }
 
@@ -92,6 +93,7 @@ public static class AreaLayouts
     /// <summary>The area each transfer's destination ticket left through an exit; the new connection arrives next to the
     /// exit back (<see cref="AreaLayout.Arrival"/>). In memory: a Gateway restart drops the client to the login anyway.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ushort> CameFrom = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, int> ArrivalEntrances = new();
 
     // Lioneye's Watch is one room, Metadata/Terrain/Act1/Town/Rooms/beach_town_unique_normal.arm (18 x 30 tiles), placed
     // R270 by Graphs/beachtown.dgr ("default" "entrance2" "entrance1disabled"). Spawn (197, 261): the walkable cell farthest

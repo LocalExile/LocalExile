@@ -1055,19 +1055,23 @@ public static partial class Game
                 return new(InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize})");
             }
             var items = ItemsOf(conn);
-            if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf)
+            byte[] rows = ExpandedInventoryGranted(conn)
+                ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory] : [PlayerInventories.MainInventory];
+            if (items.StackAcross(rows, ground.Item, ShapeOf, preview: true).Values.Any(s => s.Left > 0)
                 || conn.Instance.Ground.Take(id, ground) is null) return null;
             var stacked = KeepOnGroundIfNotSaved(conn, ground,
-                () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf), id, origin);
+                () => items.StackAcross(rows, ground.Item, ShapeOf), id, origin);
             WorldItemObject? rest = null;
             uint restId = 0;
-            if (stacked.Left > 0)
+            int left = stacked.Values.First().Left;
+            if (left > 0)
             {
-                rest = ground with { Item = ground.Item with { StackSize = (ushort)stacked.Left } };
+                rest = ground with { Item = ground.Item with { StackSize = (ushort)left } };
                 restId = conn.Instance.Ground.Add(rest, origin.By, shared: origin.Shared, justDropped: false);
             }
-            return new(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), stacked.RemovedIds, stacked.AddedItems),
+            return new([.. stacked.Where(p => p.Value.Any).SelectMany(p =>
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(p.Key),
+                    items.NextRevision(p.Key), p.Value.RemovedIds, p.Value.AddedItems))],
                 "pickup inventory", restId, rest);
         }
     }
