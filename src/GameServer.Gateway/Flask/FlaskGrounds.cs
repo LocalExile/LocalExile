@@ -118,6 +118,19 @@ public static class FlaskGrounds
         return null;
     }
 
+    /// <summary>The buff a GroundEffects art row names of its own (its BuffVisual2 column, a BuffDefinitions row:
+    /// Lunaris's Maelstorm art 4 names ground_maelstrom_chill_lunaris), or null.</summary>
+    public static ushort? ArtBuff(string type, int variation)
+    {
+        if (!ClientTables.Has("GroundEffectTypes") || !ClientTables.Has("GroundEffects")) return null;
+        var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
+        foreach (var r in ClientTables.Table("GroundEffects"))
+            if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == type
+                && r.Int("__col1") == variation && r.Int("__col2") == 2)
+                return r.IntOrNull("BuffVisual2") is int buff ? (ushort)buff : null;
+        return null;
+    }
+
     /// <summary>The GroundEffectTypes row whose art variation a stat names (its Stat, a Stats row: ground_caustic_art_variation
     /// is CausticCloud's): its Id and the buff a player standing in it shows (BuffDefinition1).</summary>
     public static (string Type, ushort? Buff)? TypeOfArtStat(int statRow)

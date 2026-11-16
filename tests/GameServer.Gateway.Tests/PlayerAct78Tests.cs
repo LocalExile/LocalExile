@@ -227,7 +227,16 @@ public sealed class PlayerAct78Tests
             Assert.Equal((false, true, "GroundMortar"), (causticMortar.ClientDraws, causticMortar.Lobbed, causticMortar.Recipe));
             static (string, double, double, ushort?, string?) Ground(MonsterGrounds.Kind? g) =>
                 g is null ? default : (g.Type, Math.Round(g.Radius, 2), g.Seconds, g.Buff, g.PerSecond.Components.Single().Type.ToString());
-            Assert.Equal(("Maelstorm", 14.26, 7.0, (ushort?)713, "Cold"), Ground(MonsterGrounds.Of(orb)));
+            Assert.Equal(("Maelstorm", 18.0, 7.0, (ushort?)888, "Cold"), Ground(MonsterGrounds.Of(orb)));
+            // A lantern plays its throw, passes over what it meets and bursts where it lands, leaving burning ground.
+            var lantern = Shot("Metadata/Monsters/Miner/MinerLantern", "MinerThrowFire")!;
+            var lanternFlight = MonsterShots.ClientDrawnProfile(conn, lantern, false, new(30, 0), 0x8001, 0x40);
+            Assert.Equal(("Throw", true, false, 12.0), (lantern.AnimationKey, lantern.ClientDraws, lanternFlight.DirectDamage, lanternFlight.EndArea?.Radius));
+            Assert.Equal("Fire", MonsterGrounds.Of(lantern)?.Type);
+            // Arakaali's web and egg lobs name no animation: they play her SpellProjectile clip.
+            Assert.Equal(("SpellProjectile", "SpellProjectile"),
+                (Shot("Metadata/Monsters/VaalSpiderGod/Arakaali", "ArakaaliWeb")?.AnimationKey,
+                    Shot("Metadata/Monsters/VaalSpiderGod/Arakaali", "ArakaaliSummonEggWithMortar")?.AnimationKey));
             Assert.Equal(("Maelstorm", 15.36, 7.5, (ushort?)713, "Cold"), Ground(MonsterGrounds.Of(bolt)));
             Assert.Equal(("CausticCloud", 11.04, 3.0, (ushort?)484, "Chaos"), Ground(MonsterGrounds.Of(causticMortar)));
             var malachai = MonsterGrounds.Of(Shot("", "MalachaiMortarWithDegen")!)!;

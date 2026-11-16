@@ -184,8 +184,10 @@ public static class MonsterShots
                 id = Row(mpv, "FemaleDemonRangedProjectile", (1, "FemaleDemonRangedProjectileBlue")); reason = "alternating hand offset"; break;
             case "miner_throw_fire":
                 // 0x141a121f0: it reaches the aimed cell its clip's contact after the release, at any distance (below).
+                // The monster throws it with its Throw clip (projectile_arc on the lantern rigs: GGG's landings come
+                // 889 ms after the order, which the melee clip's contact puts 3 frames early).
                 id = Row(0, "MinerLanternFire");
-                recipe = "Lantern";
+                (recipe, animation) = ("Lantern", "Throw");
                 break;
             case "bloodline_daemon_nova": id = Row(0, "RampageProjectile"); reason = "nova of the pack's deaths"; break;
             case "synthesis_turret_charge_projectile": id = Row(0, "SynthesisGuardian2Turret"); reason = "turret charge"; break;
@@ -457,6 +459,12 @@ public static class MonsterShots
         // The lobbed recipes' movers time their flight by the same contact over a speed multiplier (MortarFlightSeconds):
         // a fire mortar's (125 + projectile_speed_+%) / 100 (0x141a10bf0), an in-line mortar's the spell mortar's terms
         // (0x141a17f60), a spirit mortar's its speed variation (0x141a0bda0), a ring's none (0x141a15620).
+        // A spell lob whose effect names no animation (every ground and summoning mortar but two) plays the caster's
+        // SpellProjectile clip: GGG's Arakaali webs and eggs land half its cast plus the flight after the order, which
+        // the melee clip's contact puts 110-270 ms early.
+        if (animation is null && recipe is "GroundMortar" or "SummonMortar" && catalog.IsSpell(effect)
+            && catalog.EffectAnimationKey(effect) is null && variety is not null && catalog.MonsterContactPool(variety.Id, "SpellProjectile") is not null)
+            animation = "SpellProjectile";
         int? contact = recipe is "Lantern" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar" or "SummonMortar"
             ? catalog.Clips(id)?.Flight?.Contact : null;
         if (recipe == "Lantern" && contact is not > 0) reason ??= "flight clip not known";
@@ -667,7 +675,16 @@ public static class MonsterShots
         if (shot.Recipe == "CreepingFrost") profile = CreepingFrostBurst(profile, Get);
         // Lunaris's orb meets no actor: only its ground hurts.
         if (shot.Recipe == "Maelstrom") profile = profile with { DirectDamage = false, Pierce = -1 };
-        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed, conn.LockstepClient);
+        // A lantern passes over what it meets and bursts where it lands (GGG: a hit 11 cells from the landing, none at 14,
+        // nothing on the way), with its burning ground (MonsterGrounds). The skill names no radius; 12 cells is GGG's.
+        if (shot.Recipe == "Lantern")
+            profile = profile with
+            {
+                DirectDamage = false, Pierce = -1,
+                EndArea = new ProjectileAreaRecipe("lantern", AreaRadius(shot, 12)),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Distance, ProjectileEndReason.Terrain },
+            };
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") profile = Strikes(shot, profile, Get, speed);
         // skill_behaviour_variation 2 (the Elder Guardian's holy throws) comes back at a constant speed.
         bool constantReturn = Get("skill_behaviour_variation") == 2;
         if (shot.Recipe == "SpectralThrow" && (thrower is not null || constantReturn))
@@ -743,8 +760,7 @@ public static class MonsterShots
     // ball_lightning_projectile_speed_and_hit_frequency_+%_final, or its time between hits); Shavronne's ball is 20
     // cells by the area percentage (0x141b319e0); a vortex strikes all within 14 cells every 0.2 s (0x141c6f6a0), each
     // strike its own. Slow balls outlive the runtime's 10 s default.
-    static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed,
-        bool lockstep)
+    static ProjectileProfile Strikes(SkillCatalog.MonsterProjectileInfo shot, ProjectileProfile profile, Func<string, int> Get, double speed)
     {
         bool ball = shot.Recipe == "BallLightning";
         double seconds = ball
@@ -758,9 +774,10 @@ public static class MonsterShots
             Pulse = new ProjectilePulseRecipe(shot.Recipe!.ToLowerInvariant(), radius,
                 shot.Recipe == "WaterVortex" ? ProjectileRuntime.Time(.2) : ProjectileRuntime.TickQuanta),
             // A ball's per-target timer restarts at its full time after each strike and counts down by the frame (no
-            // remainder carried): on a lockstep client's 33 ms frames a strike waits for the frame that ends it.
+            // remainder carried): a strike waits for the server frame (33 ms, in either network mode) that ends it,
+            // 7 frames for a 200 ms ball (GGG: Piety's and the Templar Judges' strikes, every interval).
             HitRule = new(shot.Recipe == "WaterVortex" ? ProjectileHitScope.Projectile : ProjectileHitScope.Emission,
-                ProjectileRepeat.Interval, ProjectileRuntime.Time(ball && lockstep
+                ProjectileRepeat.Interval, ProjectileRuntime.Time(ball
                     ? Math.Ceiling(seconds / (Program.FrameMs / 1000d) - 1e-6) * Program.FrameMs / 1000d : seconds)),
             // A vortex flies on to its diamond (up to 128 cells), whatever its aim.
             Lifetime = ProjectileRuntime.Time(Math.Max(profile.Range, shot.Recipe == "WaterVortex" ? 150 : 0) / Math.Max(.001, speed) + 1),
@@ -804,7 +821,7 @@ public static class MonsterShots
             };
         }
         if (shot.Recipe == "CreepingFrost") return CreepingFrostBurst(profile, Get);
-        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed, false);
+        if (shot.Recipe is "BallLightning" or "ShavronneBallLightning" or "WaterVortex") return Strikes(shot, profile, Get, speed);
         if (shot.Recipe == "Riptide")
         {
             // 0x141b3a170: from its delay on it moves at (10 + 30 t) × (1 + projectile_speed_+% / 100), taken here as cells a

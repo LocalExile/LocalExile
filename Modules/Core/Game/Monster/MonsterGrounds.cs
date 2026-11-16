@@ -26,11 +26,13 @@ public static class MonsterGrounds
 
     /// <summary>The ground a shot leaves where it lands, or null: the shots of MonsterShots' ground recipes whose skill
     /// deals damage over time for a duration.</summary>
-    internal static Kind? Of(SkillCatalog.MonsterProjectileInfo shot)
+    internal static Kind? Of(SkillCatalog.MonsterProjectileInfo shot, IReadOnlyDictionary<uint, int>? scaled = null)
     {
-        if (shot.Recipe is not ("Maelstrom" or "AtlasVortex" or "GroundMortar")) return null;
+        if (shot.Recipe is not ("Maelstrom" or "AtlasVortex" or "GroundMortar" or "Lantern")) return null;
         int Get(string name) => MonsterShots.Stat(shot, name);
-        var perSecond = AtlasBosses.DamageOverTime(Get);
+        // The damage by the monster's level (the skill's interpolated stats: Lunaris's 67425/min at 60), when known.
+        var perSecond = AtlasBosses.DamageOverTime(scaled is null ? Get
+            : name => Stats.Key(name) is uint key && scaled.TryGetValue(key, out int value) ? value : Get(name));
         if (Get("base_projectile_ground_caustic_cloud_damage_per_minute") / 60.0 is >= 1 and var caustic)
             perSecond = perSecond.Add(DamageType.Chaos, new DamageRange(Math.Floor(caustic), Math.Ceiling(caustic)));
         double seconds = Get("base_skill_effect_duration") / 1000.0 * Math.Max(0, 1 + Get("skill_effect_duration_+%") / 100.0);
@@ -40,13 +42,23 @@ public static class MonsterGrounds
         string type = "Degen";
         ushort? buff = null;
         (string Ao, int ArtRadius)? art = null;
+        int artVariation = 0;
         foreach (var (key, variation) in shot.SkillStats ?? new Dictionary<uint, int>())
             if (FlaskGrounds.TypeOfArtStat((int)key - 1) is { } ground)
             {
-                (type, buff, art) = (ground.Type, ground.Buff, FlaskGrounds.Art(ground.Type, variation));
+                (type, buff, art, artVariation) = (ground.Type, ground.Buff, FlaskGrounds.Art(ground.Type, variation), variation);
                 break;
             }
+        // A lantern names no art stat: its ground burns (GGG: a burning ground of 12 cells, with ground_fire_burn).
+        if (shot.Recipe == "Lantern" && Stats.Key("ground_fire_art_variation") is uint fire && FlaskGrounds.TypeOfArtStat((int)fire - 1) is { } burning)
+            (type, buff, art) = (burning.Type, burning.Buff, FlaskGrounds.Art(burning.Type, 0));
+        // The art row's own buff, where it names one, is the one GGG shows (Lunaris's ground_maelstrom_chill_lunaris).
+        if (art is not null && FlaskGrounds.ArtBuff(type, artVariation) is ushort own) buff = own;
+        // Measured radii where the skill names none: Lunaris's damage zone 18 cells (GGG: the damage stops at 18 when the
+        // player walks out), a lantern's 12 (its ground's create); others the art's size, else the landing area.
         double radius = Get("projectile_ground_caustic_cloud_radius") is > 0 and var statRadius ? statRadius
+            : shot.Recipe == "Maelstrom" ? MonsterShots.AreaRadius(shot, 18)
+            : shot.Recipe == "Lantern" ? MonsterShots.AreaRadius(shot, 12)
             : art is { ArtRadius: > 0 } drawn ? drawn.ArtRadius / WorldUnits.PerCell
             : MonsterShots.AreaRadius(shot, MonsterMortarRadius());
         return new(type, radius, seconds, perSecond, buff, art);
@@ -56,13 +68,18 @@ public static class MonsterGrounds
     /// projectile session under the connection's lock.</summary>
     public static void Landed(ProjectileSession session, HostileProjectileOffense shot, ProjectileVector at)
     {
-        if (shot.Attack.Projectile is not { } fired || Of(fired) is not { } kind) return;
         var conn = session.Conn;
+        // The damage at the monster's level, by its rarity's more damage (GGG: Lunaris's ground is her level-60 value
+        // x 1.7, MonsterUnique5's 70 %, without the unique's 33 % less).
+        var scaled = shot.Attack.ReleaseEffect is int effect
+            ? GolemData.Skill(SkillsFor(conn), effect, Math.Max(1, (int)shot.Monster.Level)).Stats : null;
+        if (shot.Attack.Projectile is not { } fired || Of(fired, scaled) is not { } kind) return;
+        kind = kind with { PerSecond = kind.PerSecond.Scale(1 + shot.Monster.Mods.Effects["monster_rarity_damage_+%_final"] / 100.0) };
         var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
         States.GetValue(conn, _ => new()).Grounds.Add(new(kind, cell, conn.Clock.Elapsed.TotalSeconds + kind.Seconds));
-        // Lunaris's orb pulses where it landed on its own; any other ground is the server's to draw.
-        if (fired.Recipe != "Maelstrom" && kind.Art is { } art)
-            session.Effect(cell.Item1, cell.Item2, art.Ao, ProjectileRuntime.Time(kind.Seconds), kind.Radius);
+        // The server draws the ground (GGG sends Lunaris's darkness as its own object too, fading 0.96 s after its end).
+        if (kind.Art is { } art)
+            session.Effect(cell.Item1, cell.Item2, art.Ao, ProjectileRuntime.Time(kind.Seconds + (fired.Recipe == "Maelstrom" ? .96 : 0)), kind.Radius);
     }
 
     /// <summary>Every player tick: each ground type's degeneration on the player for the grounds they stand in, every
