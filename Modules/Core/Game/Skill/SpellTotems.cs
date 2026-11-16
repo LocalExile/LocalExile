@@ -135,8 +135,8 @@ public static partial class Game
                     if (!Current()) return;
                     session.Enqueue(async () =>
                     {
-                        if (Current()) await SummonFighter(remote, stream, ciphers, conn, totem.SkillId, summon,
-                            totem.At, current: Current, triggered: true);
+                        if (Current()) await CastSummon(remote, stream, ciphers, conn, totem.SkillId, summon,
+                            totem.At, 0, conn.ActionInterruptionGeneration, Current, triggered: true);
                     });
                 });
                 continue;

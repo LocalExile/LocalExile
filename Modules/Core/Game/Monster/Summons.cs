@@ -74,14 +74,23 @@ public static partial class Game
             .MinBy(m => Dist(m.Walk.Position(AreaTime(conn)), aim));
     }
 
+    internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem)
+    {
+        if (definition.Family == "Skeleton")
+            return Math.Max(1, new[] { "number_of_melee_skeletons_to_summon", "number_of_archer_skeletons_to_summon",
+                "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n)));
+        if (definition.Family == "RagingSpirit")
+            return Random.Shared.Next(100) < Math.Clamp(GolemStat(gem.Stats, "summoned_raging_spirit_chance_to_spawn_additional_minion_%"), 0, 100) ? 2 : 1;
+        return Math.Max(1, GolemStat(gem.Stats, "number_of_monsters_to_summon"));
+    }
+
     internal static Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
         bool triggered = false) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(conn, source);
-            int count = definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
-                "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n))) : 1;
+            int count = SummonCount(definition, gem);
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")

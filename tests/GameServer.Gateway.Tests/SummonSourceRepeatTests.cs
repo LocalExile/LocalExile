@@ -142,6 +142,22 @@ public sealed class SummonSourceRepeatTests
             var golem = Assert.Single(f.Conn.Golems.All).Value;
             double interval = (Game.CastMs(f.Conn, Game.SupportedSkill(f.Conn, source).Effect, source) ?? 0) / 1000d;
             Assert.True(golem.SummonedAt >= start + interval * 2);
+
+            source = Echo("Summon Raging Spirit");
+            var host = Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
+            Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with
+            { Sockets = item.Sockets.Select(s => s.Gem is { } g ? s with { Gem = g with { Quality = 20 } } : s).ToArray() });
+            var spirit = Game.SupportedSkill(f.Conn, source);
+            uint chance = Program.Stats.Key("summoned_raging_spirit_chance_to_spawn_additional_minion_%")!.Value;
+            Assert.Equal(30, spirit.Stats[chance]);
+            var definition = Game.SummonData.Find("SummonRagingSpirit")!;
+            Assert.Equal(1, Game.SummonCount(definition, spirit with { Stats = new(spirit.Stats) { [chance] = 0 } }));
+            Assert.Equal(2, Game.SummonCount(definition, spirit with { Stats = new(spirit.Stats) { [chance] = 100 } }));
+            Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with
+            { Sockets = item.Sockets.Select(s => s.Gem is { } g ? s with { Gem = g with { Quality = 100 } } : s).ToArray() });
+            Assert.True(await Game.CastSummon("test", f.Stream, f.Ciphers, f.Conn, source, definition,
+                (100, 100), 0, f.Conn.ActionInterruptionGeneration, () => true));
+            Assert.Equal(4, f.Conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "RagingSpirit"));
         }
         finally { Game.AreaUpdateContext.Value = oldContext; }
     }
