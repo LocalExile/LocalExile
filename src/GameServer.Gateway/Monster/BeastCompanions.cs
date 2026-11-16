@@ -24,10 +24,18 @@ public sealed class BeastCompanions
     }
 
     public sealed record PendingSummon(Source Source, ushort SkillId, string Skill, string Variety, string MinionKind,
-        byte MinionLevel, int MaximumLifeIncreasePct, int BeastLimit, object? Lifetime, object? Area, int? ActionToken);
+        byte MinionLevel, int MaximumLifeIncreasePct, int BeastLimit, object? Lifetime, object? Area, int? ActionToken)
+    {
+        public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    }
 
     public sealed record ActiveBeast(uint Id, SpawnedMonster Monster, Source Source, string Skill, string Variety,
-        string MinionKind, object? Lifetime, object? Area);
+        string MinionKind, object? Lifetime, object? Area)
+    {
+        public ushort SourceSkill { get; init; }
+        public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+        public MonsterModEffects Intrinsic { get; init; } = new(new Dictionary<string, int>());
+    }
 
     public PendingSummon? Pending;
     public ActiveBeast? Active;

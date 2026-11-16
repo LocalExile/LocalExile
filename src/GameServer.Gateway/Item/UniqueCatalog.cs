@@ -36,55 +36,11 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     {
         [System.Text.Json.Serialization.JsonIgnore]
         public string? CreationVariant { get; init; }
+        public Variant[]? Variants { get; init; }
     }
 
-    const string YrielName = "Yriel's Fostering";
-    static readonly (string Name, string[] Mods)[] YrielProfiles =
-    [
-        ("Ursa",
-        [
-            "GrantsSummonBeastUrsaUnique__1",
-            "AddedPhysicalDamageToAttacksBeastialMinionUnique__1",
-            "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
-        ]),
-        ("Rhoa",
-        [
-            "GrantsSummonBeastRhoaUnique__1",
-            "AttackAndMovementSpeedBeastialMinionUnique__1",
-            "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
-        ]),
-        ("Snake",
-        [
-            "GrantsSummonBeastSnakeUnique__1",
-            "AddedChaosDamageToAttacksBeastialMinionUnique__1",
-            "ProjectileAttacksChanceToPoisonBeastialMinionUnique__1",
-        ]),
-    ];
-    static readonly HashSet<string> YrielProfileMods =
-        YrielProfiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
+    public sealed record Variant(string Name, string? BaseTypeId, string[] Mods, int Weight = 0);
 
-    const string BeaconName = "Beacon of Madness";
-    static readonly (string Name, string Base, string[] Mods)[] BeaconProfiles =
-    [
-        ("Chaos", "Metadata/Items/Armours/Boots/BootsAtlas1",
-            ["IncreasedChaosDamageUnique__5", "AllDamageCanPoisonGloriousMadnessUnique___1",
-                "EnemiesExplodeOnDeathChaosGloriousMadnessUnique1"]),
-        ("Physical", "Metadata/Items/Armours/Boots/BootsAtlas2",
-            ["LocalIncreasedArmourAndEvasionUnique__13", "DoubleDamageChanceGloriousMadnessUnique_1",
-                "FortifyEffectSelfGloriousMadnessUnique1"]),
-        ("Elemental", "Metadata/Items/Armours/Boots/BootsAtlas3",
-            ["IncreasedAilmentEffectOnEnemiesUnique_2", "ElementalConfluxesGloriousMadnessUnique1",
-                "ElementalAilmentImmunityGloriousMadnessUnique1"]),
-    ];
-    static readonly HashSet<string> BeaconProfileMods =
-        BeaconProfiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
-
-
-    /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
-    /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
-    /// rows: poedb's item cards give each unique's own requirement, which can be lower than the base type's level
-    /// (Seven-League Step on Rawhide Boots, drop level 3, is "Requires Level 1, 11 Dex"). The table is the place for
-    /// other hidden mods PoB omits as they are identified.</summary>
     static readonly Dictionary<string, string[]> HiddenMods = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Araku Tiki|Metadata/Items/Amulets/Amulet2"] = ["LevelRequirementOverrideUnique__1"],
@@ -136,21 +92,13 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
 
     public Definition? Find(string name)
     {
-        string beaconPrefix = BeaconName + " (";
-        if (NameKey(name).StartsWith(beaconPrefix, StringComparison.OrdinalIgnoreCase) && name.EndsWith(')'))
+        int variantStart = name.LastIndexOf(" (", StringComparison.Ordinal);
+        if (variantStart > 0 && name.EndsWith(')'))
         {
-            string wanted = name[beaconPrefix.Length..^1];
-            var profile = BeaconProfiles.FirstOrDefault(p => p.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase));
-            return profile.Name is not null && All.FirstOrDefault(d => d.Name == BeaconName) is { } beacon
-                ? beacon with { CreationVariant = profile.Name } : null;
-        }
-        if (TryYrielProfileName(name, out string? variant))
-        {
-            if (variant is null) return null;
-            return All.FirstOrDefault(d =>
-                       NameKey(d.Name).Equals(NameKey(YrielName), StringComparison.OrdinalIgnoreCase)) is { } definition
-                ? definition with { CreationVariant = variant }
-                : null;
+            string parent = NameKey(name[..variantStart]), wanted = name[(variantStart + 2)..^1];
+            if (All.FirstOrDefault(d => NameKey(d.Name).Equals(parent, StringComparison.OrdinalIgnoreCase)) is { Variants: not null } definition)
+                return definition.Variants.FirstOrDefault(v => v.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase)) is { } selected
+                    ? definition with { CreationVariant = selected.Name } : null;
         }
         return All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
             ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
@@ -169,14 +117,22 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// <summary>The item of one definition, which tells apart the bases of a unique with several.</summary>
     public Item? Create(Definition definition, Random random)
     {
-        if (NameKey(definition.Name).Equals(BeaconName, StringComparison.OrdinalIgnoreCase))
+        if (definition.Variants is { Length: > 0 } variants)
         {
-            var profile = definition.CreationVariant is { } variant
-                ? BeaconProfiles.FirstOrDefault(p => p.Name.Equals(variant, StringComparison.OrdinalIgnoreCase))
-                : BeaconProfiles.FirstOrDefault(p => p.Base == definition.BaseTypeId);
-            if (profile.Name is null) throw new InvalidOperationException("Unknown Beacon of Madness variant");
-            definition = definition with { BaseTypeId = profile.Base,
-                Mods = [.. definition.Mods.Where(id => !BeaconProfileMods.Contains(id)), .. profile.Mods] };
+            Variant? selected;
+            if (definition.CreationVariant is { } wanted)
+                selected = variants.FirstOrDefault(v => v.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase));
+            else
+            {
+                int total = variants.Sum(v => Math.Max(0, v.Weight));
+                int roll = total > 0 ? random.Next(total) : -1;
+                selected = total > 0 ? variants.First(v => (roll -= Math.Max(0, v.Weight)) < 0)
+                    : variants.FirstOrDefault(v => v.BaseTypeId == definition.BaseTypeId) ?? variants[0];
+            }
+            if (selected is null) throw new InvalidOperationException("Unknown unique item variant");
+            var variantMods = variants.SelectMany(v => v.Mods).ToHashSet(StringComparer.Ordinal);
+            definition = definition with { BaseTypeId = selected.BaseTypeId ?? definition.BaseTypeId,
+                Mods = [.. definition.Mods.Where(id => !variantMods.Contains(id)), .. selected.Mods] };
         }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
         if (Identity(definition) is not { } unique) return null;
@@ -231,15 +187,6 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
         if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } spectrumVariant)
             definition = definition with { Mods = [spectrumVariant] };
         string[] explicitMods = definition.Mods;
-        if (NameKey(definition.Name).Equals(NameKey(YrielName), StringComparison.OrdinalIgnoreCase))
-        {
-            string variant = definition.CreationVariant ?? YrielProfiles[random.Next(YrielProfiles.Length)].Name;
-            int profileIndex = Array.FindIndex(YrielProfiles,
-                profile => profile.Name.Equals(variant, StringComparison.OrdinalIgnoreCase));
-            if (profileIndex < 0) throw new InvalidOperationException($"Unknown {YrielName} creation profile: {variant}");
-            var profile = YrielProfiles[profileIndex];
-            explicitMods = [.. definition.Mods.Where(id => !YrielProfileMods.Contains(id)), .. profile.Mods];
-        }
         mods.AddRange(Rolled(definition, explicitMods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
@@ -320,18 +267,6 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     static (int Min, int Max)? RollOf(Definition definition, ModCatalog.Mod mod, ModSection section, int stat) =>
         !mod.RangeOverridden(stat) && definition.Ranges?.FirstOrDefault(range => range.Mod == mod.Id && range.Stat == stat
             && range.Implicit == (section == ModSection.Implicit)) is { } own ? (own.Min, own.Max) : null;
-
-    static bool TryYrielProfileName(string name, out string? variant)
-    {
-        variant = null;
-        string key = NameKey(name), prefix = NameKey(YrielName) + " (";
-        if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-        if (!key.EndsWith(")", StringComparison.Ordinal)) return true;
-        string candidate = key[prefix.Length..^1];
-        variant = YrielProfiles.FirstOrDefault(p =>
-            p.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)).Name;
-        return true;
-    }
 
     /// <summary>The rolls of the unique an item is, for currency that rerolls its values; null for any other item.</summary>
     public StatRoll? RollsOf(Item item) =>

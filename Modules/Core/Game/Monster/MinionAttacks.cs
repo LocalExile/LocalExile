@@ -63,12 +63,13 @@ public static partial class Game
         int evasion = UnderBlind(conn, targetId, t.Mods.Effects.Evasion(Monsters.BaseEvasion(t.Level) ?? 0));
         if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, hitAccuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
             return null;
-        var offense = a.Damage;
+        var supported = BeastSupportedAttack(conn, id, m, a, now);
+        var offense = supported?.Attack.Damage ?? a.Damage;
         // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
         // considered to be summoning them").
         int Flat(string bound) => conn.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
             ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
-        if (Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
+        if (supported is null && Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
         int damage = MonsterTakesRolled(t, offense.Roll(random), spell: false, now: now);
         return ApplyMonsterHitLocked(conn, t, damage, allyAt: at) is { } hit ? (hit, damage) : null;

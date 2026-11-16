@@ -136,7 +136,8 @@ public static partial class Game
         if (level <= 0 || limit <= 0) return;
         conn.Beasts.Pending = new(new(owner), skillId, grant.EffectId, kind.Variety, kind.MinionKind,
             (byte)Math.Clamp(level, 1, 100),
-            Stat("minion_maximum_life_+%"), limit, CombatLifetime, conn.Instance, actionToken);
+            Stat("minion_maximum_life_+%"), limit, CombatLifetime, conn.Instance, actionToken)
+            { SkillStats = new Dictionary<uint, int>(gem.Stats) };
     }
 
     public static async Task TickBeastCompanions(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -189,15 +190,12 @@ public static partial class Game
             if (!Current() || !BeastPendingCurrentLocked(conn, summon, rules)) return;
             at = NextToPlayer(conn);
         }
-        var mods = summon.MaximumLifeIncreasePct == 0
-            ? MonsterModSet.None
-            : MonsterModSet.None with { Effects = new(new Dictionary<string, int>
-                { ["maximum_life_+%"] = summon.MaximumLifeIncreasePct }) };
-        // These three item-owned beasts need their own native traits (the Cobra's chaos conversion).
-        // Apply them once at this source's birth; ordinary hostile spawns and saved area re-entry keep their mods.
         var native = MonsterModRolls.Value.Create(
             MonsterModRolls.Value.Species(variety.SpeciesModsOrEmpty, Random.Shared), [], MonsterRarity.Normal, summon.MinionLevel);
-        mods = mods with { Mods = native.Mods, Effects = mods.Effects.Plus(native.Effects) };
+        var prepared = BeastCombatInputs(summon.Source, summon.SkillId, summon.MinionKind, summon.Variety,
+            summon.SkillStats, native.Effects);
+        var mods = GolemModifiers(conn, prepared, CharacterPlayerStats(conn), AreaTime(conn));
+        mods = mods with { Mods = native.Mods };
         uint spawned = await SpawnMonster(remote, stream, ciphers, conn, variety, summon.MinionLevel,
             MonsterRarity.Normal, at.X, at.Y, friendly: true, mods: mods, extraStats: MinionStats,
             owned: (id, m) =>
@@ -212,7 +210,8 @@ public static partial class Game
                 conn.Minions.Add(new(id, m, summon.Skill, summon.MinionKind)
                     { Until = double.PositiveInfinity, Fights = true });
                 conn.Beasts.Active = new(id, m, summon.Source, summon.Skill, summon.Variety, summon.MinionKind,
-                    summon.Lifetime, summon.Area);
+                    summon.Lifetime, summon.Area)
+                    { SourceSkill = summon.SkillId, SkillStats = summon.SkillStats, Intrinsic = native.Effects };
             }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(conn, summon, rules));
         if (Current())
         {
@@ -224,6 +223,26 @@ public static partial class Game
         if (spawned != 0 && Current())
             Console.WriteLine($"[gateway] {remote} {summon.Skill} summoned {summon.MinionKind} " +
                 $"0x{spawned:x} at level {summon.MinionLevel}");
+    }
+
+    static GolemState.Golem BeastCombatInputs(BeastCompanions.Source source, ushort skillId,
+        string kind, string variety, IReadOnlyDictionary<uint, int> stats, MonsterModEffects intrinsic,
+        uint id = 0, SpawnedMonster? monster = null) =>
+        new(id, monster!, new(source.Effect, source.EffectId, kind, variety, 0, [], false, false, IsGolem: false), skillId)
+        {
+            Own = new(stats), Gear = new(intrinsic.Stats), GemLevel = source.Level,
+        };
+
+    static GolemState.Ability? BeastSupportedAttack(ClientState conn, uint id, SpawnedMonster monster,
+        MonsterAttack attack, double now)
+    {
+        if (conn.Beasts.Active is not { } active || active.Id != id || !ReferenceEquals(active.Monster, monster)
+            || monster.Variety is not { } variety) return null;
+        var combat = BeastCombatInputs(active.Source, active.SourceSkill, active.MinionKind,
+            active.Variety, active.SkillStats, active.Intrinsic, id, monster);
+        var abilities = GolemAbilities(conn, variety, monster.Level, combat, CharacterPlayerStats(conn), now);
+        return abilities.FirstOrDefault(a => a.Skill == attack.SkillId)
+            ?? abilities.FirstOrDefault(a => a.Attack.Spell == attack.Spell);
     }
 
     static bool BeastPendingCurrentLocked(ClientState conn, BeastCompanions.PendingSummon pending, object? rules)
