@@ -158,6 +158,13 @@ when they fall more than 12 cells behind, to a spot 6 cells beside the player. P
 Positioned sends flags1 0x08 with 1 (+0x1e6 bit 0x40), which the client's object collision test (`0x141e65ae0`)
 skips, as the .ot's `blocking = false` intends.
 
+The pet's native Pathfinding base speed is 37 (`Metadata/Pet/Pet.ot`). `0x141e827a0` multiplies it by the final
+`movement_velocity_+%` (key `0xf5`), so a server walk estimate alone cannot change the visible pet's speed.
+The Cosmetics module sends that integer-percent stat before each Move and rounds its estimate to the same speed.
+Speed changes during an existing walk preserve its progress; the next player tick also clears an unloaded
+modifier's speed without waiting for another Move. `GameEvents.MovementSpeed` is the entity-speed hand-over;
+it does not set a gameplay multiplier by itself.
+
 **The Goblin Troupe's song** (`Metadata/Pet/GoblinBand/GoblinBandLeader`) is a sound event of its IdleRelaxed
 animation: the .act maps IdleRelaxed (`Animation.dat` row 100) to `Idle_bassoon_01`, whose SoundEvents play
 `Audio/Sound Effects/Pet/GoblinBand/Music/IdleRandom`. The client's PetAi only parses the idle-relaxed options
