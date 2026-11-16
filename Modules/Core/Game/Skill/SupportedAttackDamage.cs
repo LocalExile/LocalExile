@@ -8,6 +8,14 @@ public static class SupportedAttackDamage
     const string ColdPerDexterityMin = "attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity",
         ColdPerDexterityMax = "attacks_with_this_weapon_maximum_added_cold_damage_per_10_dexterity";
 
+    static readonly (DamageType Type, string Suffix)[] WandAddedRanges =
+    [
+        (DamageType.Physical, "physical_damage_with_wands"),
+        (DamageType.Lightning, "lightning_damage_with_wand"),
+        (DamageType.Cold, "cold_damage_with_wand"),
+        (DamageType.Fire, "fire_damage_with_wand"),
+    ];
+
     // This pair is IsWeaponLocal, not IsLocal: it belongs to attacks by its source weapon, not the item's base range.
     public static IReadOnlyDictionary<string, int> WeaponSources(Item item, ModCatalog mods)
     {
@@ -27,7 +35,8 @@ public static class SupportedAttackDamage
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a
     /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase. A bow's
-    /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables).
+    /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables);
+    /// a wand's attacks take the corresponding wand ranges.
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
     public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get,
         int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
@@ -40,6 +49,9 @@ public static class SupportedAttackDamage
             added = added.Add(DamageType.Cold, new(
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+        if (weapon.WieldingWand)
+            foreach (var (type, suffix) in WandAddedRanges)
+                added = added.Add(type, new(get($"attack_minimum_added_{suffix}"), get($"attack_maximum_added_{suffix}")));
         if (weapon.Bow)
             foreach (var type in DamageTypes.ConversionOrder)
             {

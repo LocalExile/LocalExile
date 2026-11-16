@@ -271,7 +271,13 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
 `global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
 alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
-armour bonus, added only while a bow is the weapon) and the stats below are read.
+armour bonus, added only while a bow is the weapon), the wand ranges and the stats below are read.
+The wand ranges are `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats rows 412-417)
+and `attack_minimum/maximum_added_physical_damage_with_wands` (6772-6773).
+All eight have `IsLocal=0` and `IsWeaponLocal=0`; their stat descriptions restrict them to wand attacks.
+The `AbyssAdded*DamageWithWandsJewel` modifiers supply these ranges through equipped jewels.
+They enter added damage for the attacking wand before its skill's added effectiveness, not the local weapon base.
+Other weapon families and spells do not receive them; their native panel and hit presentation remain unverified.
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
