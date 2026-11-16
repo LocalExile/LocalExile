@@ -85,7 +85,7 @@ public sealed class QuestSimulator
         foreach (var f in flags)
         {
             // A session flag, or an instance's own state (Quests.IsInstanceFlag): both go with the area.
-            var target = QuestStates.Default.Value.IsSession(f) || Quests.IsInstanceFlag(f) ? SessionFlags : Flags;
+            var target = QuestStates.Default.IsSession(f) || Quests.IsInstanceFlag(f) ? SessionFlags : Flags;
             if (on ? target.Add(f) | Unearned.Remove(f) : target.Remove(f)) Log.Add($"{(on ? "+" : "-")}{f}");
         }
         var (points, due) = rewards.NewRefunds(Flags, credited);

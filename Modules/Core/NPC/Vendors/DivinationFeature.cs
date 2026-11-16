@@ -83,7 +83,7 @@ static class DivinationFeature
         Close(conn);
         uint id = conn.TalkingTo;
         if (!conn.Npcs.TryGetValue(id, out var npc)
-            || !Game.Npcs.Value.TalksOf(npc.Npc).Any(t => t.Category == "TradeDivinationCards")) return;
+            || !Game.Npcs.TalksOf(npc.Npc).Any(t => t.Category == "TradeDivinationCards")) return;
         if (conn.Sale is not null)
             await VendorsFeature.CloseSale(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, accepted: false);
         if (conn.Closed || conn.LeavingArea || !conn.Npcs.TryGetValue(id, out var current)

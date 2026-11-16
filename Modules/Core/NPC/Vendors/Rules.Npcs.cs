@@ -4,7 +4,13 @@ using GameServer.Core.Protocol.Login;
 
 static partial class VendorsRules
 {
-    internal static readonly Lazy<VendorRecipes> VendorSales = new(() => new(Items));
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadRulesNpcsData()
+    {
+        VendorSales = new(Items);
+    }
+
+    internal static VendorRecipes VendorSales = default!;
 
     internal static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId,
         byte row = PlayerInventories.MainInventory)
@@ -12,7 +18,7 @@ static partial class VendorsRules
         if (conn.NpcRewardOffer is not int offer || !conn.NpcRewardItems.TryGetValue(itemId, out var reward)) return;
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(conn.TalkingTo);
-        if (npc is null || !Npcs.Value.HasAvailableReward(npc.Npc, offer, Quests.Names(PlayerQuestFlags(conn)))) return;
+        if (npc is null || !Npcs.HasAvailableReward(npc.Npc, offer, Quests.Names(PlayerQuestFlags(conn)))) return;
         var catalog = QuestRewardCatalog.Load(hardMode: LeagueFor(conn).HardMode, supportGems: LeagueFor(conn).Rules.SupportGemRewards);
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);

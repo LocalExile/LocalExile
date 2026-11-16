@@ -1332,6 +1332,8 @@ public static class KingInMists
                     $"0x02bb create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
                 await Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
                     $"0x01a9 arena object 0x{id:x} enters wake zone");
+                // A body on the server where its type makes one on the client (RitualDescensionObject's blocks).
+                await Game.RegisterStationaryCollision(remote, stream, ciphers, conn, id, type, ox + roomX, oy + roomY, 0);
             }
             await Add(0, 0, "Metadata/Terrain/Leagues/Azmeri/Objects/Boss/FinalBoss/PlatformVisualBlocker",
                 "Metadata/Effects/Spells/monsters_effects/League_Azmeri/monster_fx/vodoo_king_boss/arenaShields.ao");
@@ -1358,6 +1360,7 @@ public static class KingInMists
                 $"0x02bb create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
             await Game.SendWorldRecord(remote, stream, ciphers, conn, shrineId, InstanceProtocol.EnterWakeZone(shrineId),
                 $"0x01a9 central HugeRitualShrine 0x{shrineId:x} enters wake zone");
+            await Game.RegisterStationaryCollision(remote, stream, ciphers, conn, shrineId, CentralShrine, x, y, 0);
         }
 
         async Task AdvanceCentralShrine()

@@ -14,7 +14,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
     DateTimeOffset UtcNow() => utcNow?.Invoke() ?? DateTimeOffset.UtcNow;
     readonly ConditionalWeakTable<ClientState, State> states = new();
     readonly HarbingerCompanionCatalog normal = new(skills: Skills);
-    readonly HarbingerCompanionCatalog hard = new(skills: HardModeSkills.Value);
+    readonly HarbingerCompanionCatalog hard = new(skills: HardModeSkills);
     sealed class State(ClientState conn, DateTimeOffset attached)
     {
         internal readonly IModuleLifetime? Rules = CombatLifetime;

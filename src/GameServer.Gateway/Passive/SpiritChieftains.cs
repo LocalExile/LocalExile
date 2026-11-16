@@ -14,6 +14,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class SpiritChieftains
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Templates = Load();
+    }
+
     /// <summary>A Leadership buff: its BuffDefinitions row, its stats by client key and when it ends.</summary>
     public sealed record Leadership(ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, double Until);
 
@@ -64,13 +70,13 @@ public sealed class SpiritChieftains
     /// none.</summary>
     public static (ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, int? Minion)? LeadershipOf(IReadOnlyDictionary<uint, int> own)
     {
-        foreach (var (row, values, stats, minion) in Templates.Value)
+        foreach (var (row, values, stats, minion) in Templates)
             if (values.All(own.ContainsKey))
                 return (row, [.. stats.Zip(values, (stat, value) => (stat, own[value]))], minion);
         return null;
     }
 
-    static readonly Lazy<(ushort Row, uint[] Values, uint[] Stats, int? Minion)[]> Templates = new(Load);
+    static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Templates = default!;
 
     static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Load()
     {

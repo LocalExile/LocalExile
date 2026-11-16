@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static readonly GolemCatalog GolemData = new();
+    public static GolemCatalog GolemData = null!;
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
     static void GolemAdd(Dictionary<uint, int> stats, string name, int value)

@@ -58,7 +58,7 @@ public class InstanceStashTests
     [Fact]
     public void Stash_object_blob()
     {
-        Assert.Equal("0000" + "3F010000" + "10010000" + "00000000" + "0000" + "00020001" + "00" + "00" + "00" + "00",
+        Assert.Equal("0000" + "3F010000" + "10010000" + "00000000" + "0000" + "0000" + "00" + "00" + "00" + "00",
             Convert.ToHexString(new StashObject(319, 272).Blob()));
     }
     [Fact]

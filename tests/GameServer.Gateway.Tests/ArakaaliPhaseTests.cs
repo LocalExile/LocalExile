@@ -14,13 +14,13 @@ public sealed class ArakaaliPhaseTests
     {
         using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1908, 1639, (_, _) => true, []), 1, 1)
-            { Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
+            { LockstepClient = false, Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
                 Pools = new(60, 10000, 200, 1, 0), Wire = ("yugul-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1908, 1639, 0);
         uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, Game.Monsters.Find(Yugul.Boss)!,
             58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
         var boss = c.Monsters[id]; boss.Aggro = true;
-        var observer = new ClientState(c.Layout, 2, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
+        var observer = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
             Wire = ("yugul-observer", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.Add(observer); observer.Walk.Teleport(2100, 1800, 0);
         var hazards = new YugulHazards(id, boss, c); await hazards.Bind(c); await hazards.Bind(observer);
@@ -87,7 +87,7 @@ public sealed class ArakaaliPhaseTests
     {
         using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
-            { Character = "CelestialGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
+            { LockstepClient = false, Character = "CelestialGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
                 Pools = new(60, 10000, 200, 1, 0), Wire = ("celestial-ground", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
         uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
@@ -99,7 +99,7 @@ public sealed class ArakaaliPhaseTests
         uint life = c.PlayerLife;
         c.Walk.Teleport(1100, 1100, 101); await hazards.Step(c, 101.1);
         Assert.Equal(life, c.PlayerLife);
-        var observer = new ClientState(c.Layout, 2, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
+        var observer = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
             Wire = ("celestial-observer", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.Add(observer); observer.Walk.Teleport(1100, 1100, 101); await hazards.Bind(observer);
         Assert.Equal(c.SceneViews.Order(), observer.SceneViews.Order());
@@ -137,16 +137,16 @@ public sealed class ArakaaliPhaseTests
         using var runtime = new Runtime(); using var wire = new Wire();
         using var sleepingWire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, Arakaali.Area, 3000, 3000, 1000, 1000, (_, _) => true, []), 1, 1)
-            { Character = "ArakaaliPhaseRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
+            { LockstepClient = false, Character = "ArakaaliPhaseRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
                 Wire = ("arakaali-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c;
         var v = Game.Monsters.Find(Arakaali.Boss)!;
         uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, v, 55,
             MonsterRarity.Unique, 1000, 1000);
         var boss = c.Monsters[id];
-        var sleeping = new ClientState(c.Layout, 2, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
+        var sleeping = new ClientState(c.Layout, 2, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
             Wire = ("arakaali-sleeping", sleepingWire.Stream, sleepingWire.Ciphers) };
-        var unbound = new ClientState(c.Layout, 3, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
+        var unbound = new ClientState(c.Layout, 3, 1) { LockstepClient = false, Instance = c.Instance, PlayerSent = true, PlayerLife = 1000,
             Wire = ("arakaali-unbound", observerWire.Stream, observerWire.Ciphers) };
         runtime.Observers.AddRange([sleeping, unbound]);
         sleeping.MonsterViews[id] = unbound.MonsterViews[id] = c.MonsterViews[id];
@@ -256,7 +256,7 @@ public sealed class ArakaaliPhaseTests
     {
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1940, 1620, (_, _) => true, []), 1, 1)
-            { Character = "MirrorIntervalRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
+            { LockstepClient = false, Character = "MirrorIntervalRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
                 Wire = ("mirror-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1940, 1620, 0);
         var v = Game.Monsters.Find(Yugul.Boss)!;
@@ -302,7 +302,7 @@ public sealed class ArakaaliPhaseTests
     {
         using var runtime = new Runtime(); using var wire = new Wire();
         var c = new ClientState(new(1, SolarisLunaris.Area, 4000, 4000, 1000, 1000, (_, _) => true, []), 1, 1)
-            { Character = "SisterHandoffRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
+            { LockstepClient = false, Character = "SisterHandoffRegression", Instance = new(), PlayerSent = true, PlayerLife = 1000,
                 Wire = ("sister-phase", wire.Stream, wire.Ciphers) };
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
         async Task<uint> Spawn(string type, int x) => await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers,

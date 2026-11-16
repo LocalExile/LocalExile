@@ -17,9 +17,70 @@ public sealed class GameModule : IModule, IDisposable
         RuleTables.Empty();
     }
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        // The catalogs the others read first. The HardMode data set waits for its first player (Rules.LoadHardModeData).
+        Rules.LoadSettingsData();
+        // The catalogs the rules share (Settings.cs and the systems' own files), each after the ones it reads.
+        Rules.Monsters = new();
+        Rules.Packs = new();
+        Rules.Cosmetics = new();
+        Rules.Mtx = new();
+        Rules.MtxEffects = new();
+        Rules.Art = new();
+        Rules.Uniques = new(Program.Items);
+        Rules.Essences = new(Program.Items, Program.Rolls);
+        Rules.Drops = new(Program.Items, Program.Rolls, maps: Rules.MapDevices.Atlas, uniques: Rules.Uniques);
+        Rules.AtlasPassiveNodes = new();
+        Rules.TimelessJewels = new();
+        Rules.OrdinaryPassives = new();
+        Rules.Ascendancies = new();
+        Rules.Descendancies = new();
+        Rules.AscendancyRules = new(Rules.Ascendancies);
+        Rules.Animations = new();
+        Rules.Emerges = new();
+        Rules.GolemData = new();
+        Rules.SummonData = new();
+        Rules.RampageData = new();
+        Rules.Supports = new();
+        Rules.LoadModuleWorldData();
+        Rules.LoadMonsterModsData();
+        Rules.LoadPassiveGrantedSkillsRulesData();
+        // Combat, skills and projectiles.
+        Rules.LoadElusiveData();
+        Rules.LoadOwnAurasData();
+        global::StationaryCollision.LoadStationaryCollisionData();
+        Rules.LoadProjectilesData();
+        Rules.LoadPlacedSkillsData();
+        Rules.LoadTotemsRulesData();
+        // Flasks.
+        global::AntiquarianEffects.LoadAntiquarianEffectsData();
+        Rules.LoadFlaskGroundsData();
+        // Monsters.
+        global::BossKits.LoadBossKitsData();
+        global::BossMods.LoadBossModsData();
+        global::IzaroSkills.LoadIzaroSkillsData();
+        Rules.LoadMonsterContagionsData();
+        Rules.LoadMonsterMinionsData();
+        global::MonsterSkills.LoadMonsterSkillsData();
+        // Passives and the player.
+        global::ClusterJewelLayout.LoadClusterJewelLayoutData();
+        global::JewelPathEffects.LoadJewelPathEffectsData();
+        global::ForbiddenTattoo.LoadForbiddenTattooData();
+        global::JourneyMakanuiCatalogue.LoadJourneyMakanuiCatalogueData();
+        global::TattooCatalogue.LoadTattooCatalogueData();
+        // The world.
+        global::MapSulphite.LoadMapSulphiteData();
+        Rules.LoadQuestEngineData();
+        global::TourRecords.LoadTourRecordsData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         Rules.CombatLifetime = module.Lifetime;
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
@@ -63,6 +124,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::MonsterSkills.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
@@ -108,6 +170,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     /// never write the same character (or its items) from two states.</summary>
     public async Task<bool> AdmittingAsync(ClientState conn)
     {
+        // A Ruthless league's data set is built for its first character, before that character is loaded.
+        if (Program.LeagueFor(conn) is { HardMode: true } league) await Task.Run(() => Rules.LoadHardModeData(league));
         foreach (var previous in Rules.ClaimCharacter(conn))
         {
             // An area change: the old connection handed the character over (Travel.Transfer) and the client drops it once
@@ -143,6 +207,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
 
     public async Task Entered(string remote, ClientState conn, int level, int ticketLevel)
     {
+        // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
+        Rules.PlanPopulationAhead(conn);
         if (level != ticketLevel)
         {
             // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.

@@ -7,7 +7,7 @@ namespace GameServer.Core.Protocol.Instance;
 /// way the objects already traced write it:
 /// <list type="bullet">
 /// <item>Positioned: x, y, rotation, u16, flags0 (0x04: a fixed height, i32 steps of 7.8125 and f32 z, as a tile record
-/// gives it), flags1 0x02 with hidden 0 / shown 1 (the Glyph Wall, the Rhoa Nests);</item>
+/// gives it); blocking is the type's own (<see cref="BlobWriter.Positioned"/>);</item>
 /// <item>Animated: 0 (the type's own model) or 1 and a u32-counted UTF-16 .ao path (a tile record's virtual model);</item>
 /// <item>Transitionable (0x1421c8e20): u8 state, 1 … num_states (0 is invalid: it crashed the client);</item>
 /// <item>Chest (0x141e16f10): u8 opened (bit 0), u8, u8; Stats and ObjectMagicProperties as an area transition's;</item>
@@ -55,11 +55,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
         {
             switch (c)
             {
-                case "Positioned":
-                    w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8((byte)(Height is null ? 0 : 0x04)).U8(0x02);
-                    if (Height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-                    w.U8(0).U8(1);
-                    break;
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team, fixedHeight: Height is float z ? BlobWriter.FixedHeight(z) : null); break;
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
                 case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;

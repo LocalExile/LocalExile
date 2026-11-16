@@ -8,8 +8,18 @@ using GameServer.Core;
 /// it, so each definition below lists them from the game's data (poedb: Mageblood, 3.29). The base type's implicits are
 /// rolled by <see cref="ItemCatalog.Create"/>; the unique's own mods are explicit and rolled once per item.
 /// </summary>
-public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "data")
+public sealed partial class UniqueCatalog
 {
+    readonly ItemCatalog items;
+    readonly string folder;
+
+    public UniqueCatalog(ItemCatalog items, string folder = "data")
+    {
+        this.items = items;
+        this.folder = folder;
+        _names = LoadNames(folder);
+    }
+
     // Several native names use a typographic apostrophe while the definition export uses ASCII; one ends in a space
     // ("Demigod's Immortality ").
     public static string NameKey(string name) => name.Trim().Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
@@ -66,7 +76,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
         ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
     };
 
-    readonly Lazy<Dictionary<string, UniqueName>> _names = new(() => LoadNames(folder));
+    readonly Dictionary<string, UniqueName> _names;
 
     public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
 
@@ -74,8 +84,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
     {
         var result = All.Select(d => (d.Name, Item: Create(d, random))).ToList();
-        // A pre-existing catalogue can gain this captured field through hot reload without rerunning its constructor.
-        result.AddRange(NessaMapStock.Build(items, folder ?? "data").Where(m => m.Item.Rarity == ItemRarity.Unique)
+        result.AddRange(items.MapStock.Where(m => m.Item.Rarity == ItemRarity.Unique)
             .Select(m => (m.Name, (Item?)m.Item)));
         return result;
     }
@@ -85,7 +94,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// <summary>A legendary map (UniqueMaps) by name: the named-map catalogue builds it on 3.29's tier-1 map base. Null
     /// when no unique map has that name. Its visual identity keys its map tab page (#477).</summary>
     public Item? NamedMap(string name) =>
-        NessaMapStock.Build(items, folder).FirstOrDefault(e => e.Item.Rarity == ItemRarity.Unique
+        items.MapStock.FirstOrDefault(e => e.Item.Rarity == ItemRarity.Unique
             && NameKey(e.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase)) is { } entry ? entry.Item : null;
 
     public Definition? Find(string name) =>
@@ -241,7 +250,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// <summary>The rolls of the unique an item is, for currency that rerolls its values; null for any other item.</summary>
     public StatRoll? RollsOf(Item item) =>
         item.Rarity == ItemRarity.Unique && All.FirstOrDefault(d => items.Find(d.BaseTypeId)?.Hash == item.TypeHash
-            && _names.Value.TryGetValue(NameKey(d.Name), out var name) && item.NameWords.Contains(name.Word)) is { } definition
+            && _names.TryGetValue(NameKey(d.Name), out var name) && item.NameWords.Contains(name.Word)) is { } definition
             ? (mod, section, stat) => RollOf(definition, mod, section, stat) : null;
 
     /// <summary>Ancient Orb ("Reforges a unique equipment as another of the same item class"): another unique of the class,
@@ -259,7 +268,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
             if (definition.EncounterOnly || definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
                 || weight(definition.Name) is not (> 0 and var chance) || items.Find(definition.BaseTypeId) is not { Supported: true } type
                 || type.Class != current.Class || type.Width != current.Width || type.Height != current.Height
-                || !_names.Value.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)
+                || !_names.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)
                 || item.Sockets.Count > CurrencyEffects.SocketCapacity(item, type)) continue;
             candidates.Add((definition, chance));
         }

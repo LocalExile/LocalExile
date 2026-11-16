@@ -2,18 +2,27 @@ using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>Immutable identities from the installed client's tables; levels and quality stay with SkillCatalog.</summary>
-public sealed class GolemCatalog(string folder = "data")
+public sealed class GolemCatalog
 {
+    readonly string folder;
+
+    public GolemCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        definitions = Load(folder);
+        scaling = new(folder);
+    }
+
     public sealed record Definition(int Effect, string Id, string Kind, string Variety, ushort Buff,
         IReadOnlyList<(string Source, string Target)> BuffStats, bool Hordes, bool Special, bool IsGolem = true);
 
-    readonly Lazy<IReadOnlyDictionary<string, Definition>> definitions = new(() => Load(folder));
-    readonly Lazy<Scaling> scaling = new(() => new(folder));
-    public IReadOnlyCollection<Definition> All => definitions.Value.Values.ToArray();
-    public Definition? Find(string? id) => id is not null ? definitions.Value.GetValueOrDefault(id) : null;
+    readonly IReadOnlyDictionary<string, Definition> definitions;
+    readonly Scaling scaling;
+    public IReadOnlyCollection<Definition> All => definitions.Values.ToArray();
+    public Definition? Find(string? id) => id is not null ? definitions.GetValueOrDefault(id) : null;
 
     public (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)
-        => scaling.Value.Skill(skills, effect, actorLevel);
+        => scaling.Skill(skills, effect, actorLevel);
 
     sealed class Scaling
     {

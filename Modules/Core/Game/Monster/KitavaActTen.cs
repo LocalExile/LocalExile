@@ -377,7 +377,7 @@ static partial class KitavaActTen
         }
         void RegisterSin(ClientState p)
         {
-            if (sinId != 0 && Npcs.Value.Find(Sin) is { } npc)
+            if (sinId != 0 && Npcs.Find(Sin) is { } npc)
                 lock (p.Npcs) p.Npcs.TryAdd(sinId, new(npc, sinAt.X, sinAt.Y));
         }
         async Task ReadySin(ClientState p)

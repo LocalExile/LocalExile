@@ -6,8 +6,16 @@ namespace GameServer.Modules.Survivors;
 
 public sealed class SurvivorsSkillsModule : IModule
 {
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        SurvivorsSkills.LoadRulesData();
+    }
+
     public void Load(IModuleContext module)
     {
+        LoadData();
         SurvivorsSkills.SkillsStopping = module.Lifetime.Stopping;
         GameEvents.GrantedSkills.Add(module.Manifest.Id, SurvivorsSkills.GrantedSkills);
         GameEvents.SkillBarBuilding.Add(module.Manifest.Id, (conn, ids) =>

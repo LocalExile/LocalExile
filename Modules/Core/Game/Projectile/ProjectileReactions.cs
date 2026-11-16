@@ -198,9 +198,8 @@ public static partial class Game
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));
         }
-        foreach (string query in modded?.Items ?? [])
-            if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
-            else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        drops = ModdedDrops(conn, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(conn, monster),
+            balance.EquipmentRarityMultiplier, random);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
@@ -17,6 +18,24 @@ public static partial class Game
         if (type.Stackable) return new(ItemCatalog.Create(type), type);
         var (sockets, links) = ItemsFor(conn).DefaultSockets(type, itemLevel);
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
+    }
+
+    /// <summary>The items the league's and the mods' drop changes add to a kill (DropRoll.Items as /item makes them,
+    /// DropRoll.RolledItems as the kill rolls its own), with every DropRoll.Changes applied to all of
+    /// <paramref name="drops"/> and them.</summary>
+    public static List<ItemDrops.Drop> ModdedDrops(ClientState conn, DropRoll? modded, List<ItemDrops.Drop> drops, int level,
+        MonsterRarity rarity, int increasedRarity, double rarityMultiplier, Random rng)
+    {
+        if (modded is null) return drops;
+        foreach (string query in modded.Items)
+            if (ModDrop(conn, query, level) is { } extra) drops.Add(extra);
+            else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        foreach (string query in modded.RolledItems)
+            if (ItemsFor(conn).Find(query) is { } type
+                && DropsFor(conn).RollBase(type, level, rarity, rng, increasedRarity, rarityMultiplier * modded.Rarity) is { } rolled)
+                drops.Add(rolled);
+            else Console.WriteLine($"[mods] a rolled drop \"{query}\" is no item type the server can create");
+        return [.. modded.Changed(drops, rng)];
     }
 
     public sealed class ModPlayer(ClientState conn) : IConnectionPlayer

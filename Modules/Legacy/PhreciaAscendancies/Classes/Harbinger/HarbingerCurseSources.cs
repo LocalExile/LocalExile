@@ -4,13 +4,23 @@ using GameServer.Core;
 namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 
 /// <summary>Fixed curse flags on the target variety's own mods, separate from rolled rarity/affix effects.</summary>
-sealed class HarbingerCurseSources(ModCatalog mods, string folder = "data")
+sealed class HarbingerCurseSources
 {
+    readonly ModCatalog mods;
+    readonly string folder;
+
+    public HarbingerCurseSources(ModCatalog mods, string folder = "data")
+    {
+        this.mods = mods;
+        this.folder = folder;
+        sources = Load(mods, folder);
+    }
+
     static readonly HashSet<string> Flags = ["reflect_curses", "immune_to_curses", "hexproof", HarbingerActionSpeed.ActionFloor];
-    readonly Lazy<Dictionary<int, Dictionary<string, int>>> sources = new(() => Load(mods, folder));
+    readonly Dictionary<int, Dictionary<string, int>> sources;
 
     public int Get(SpawnedMonster monster, string name) => monster.Mods.Effects[name]
-        + (monster.Variety is { } variety && sources.Value.TryGetValue(variety.Row, out var stats)
+        + (monster.Variety is { } variety && sources.TryGetValue(variety.Row, out var stats)
             ? stats.GetValueOrDefault(name) : 0);
 
     static Dictionary<int, Dictionary<string, int>> Load(ModCatalog mods, string folder)

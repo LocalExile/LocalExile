@@ -8,6 +8,12 @@ namespace GameServer.Modules.Delve;
 
 public sealed partial class DelveModule
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadDelveRoutesData()
+    {
+        TripPrices = LoadTripPrices();
+    }
+
     static string DestinationFlag(IPlayer player) => $"Delve.Destination.{CharacterName(ConnOf(player))}";
     sealed class Attempt(DelveMine.Plan plan, ISavedData account)
     {
@@ -20,13 +26,15 @@ public sealed partial class DelveModule
         public uint Seed => Plan.SceneSeed == 0 ? DelveTerrain.Seed(Plan.From, Plan.To) : Plan.SceneSeed;
     }
     readonly ConcurrentDictionary<Guid, Attempt> _attempts = new();
-    static readonly Lazy<int[]> TripPrices = new(() =>
+    static int[] TripPrices = default!;
+
+    static int[] LoadTripPrices()
     {
         var doc = ClientTables.Table("DelveLevelScaling");
         return doc.OrderBy(r => r.Int("Depth"))
             .Select(r => r.Int("SulphiteCost")).ToArray();
-    });
-    static int Price(int depth) => TripPrices.Value[Math.Clamp(depth - 1, 0, TripPrices.Value.Length - 1)];
+    }
+    static int Price(int depth) => TripPrices[Math.Clamp(depth - 1, 0, TripPrices.Length - 1)];
 
     // Each native window starts at the current checkpoint; only the initial route contains the camp entrance.
     byte MineLevel(IModuleContext module, IPlayer player)

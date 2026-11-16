@@ -188,7 +188,7 @@ public static class NpcShops
         }
         if ((rules.SellsMaps || developmentOnly) && SellsMaps.Contains(npcId))
         {
-            var mapStock = NessaMapStock.Build(items, dataFolder);
+            var mapStock = items.MapStock;
             var originator = mapStock.Where(m => m.Originator).ToList();
             var maps = mapStock.Where(m => m.Item.Rarity != ItemRarity.Unique && !m.Originator).ToList();
             var uniques = mapStock.Where(m => m.Item.Rarity == ItemRarity.Unique).ToList();

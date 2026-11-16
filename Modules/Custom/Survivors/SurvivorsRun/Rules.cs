@@ -797,7 +797,7 @@ static partial class SurvivorsRunRules
     /// </summary>
     internal static MonsterModSet SurvivorsBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss, SurvivorsRun run, int stage)
     {
-        var rolled = MonsterModRolls.Value.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
+        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         double target = SurvivorsPoolTop(roster, stage) * SurvivorsRules.BossLifeRatio(stage)
             * SurvivorsRules.MonsterLifeScale(run.Elapsed) * SurvivorsRules.BossLifeMultiplier;

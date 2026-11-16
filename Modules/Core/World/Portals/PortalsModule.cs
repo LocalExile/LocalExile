@@ -11,9 +11,17 @@ namespace GameServer.Modules.M_portals;
 /// <summary>Town portals, Portal Scrolls, the map device and map portals.</summary>
 public sealed class PortalsModule : IModule
 {
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        global::PortalsRules.LoadRulesSettingsData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
             var (remote, stream, ciphers) = conn.Wire;

@@ -19,8 +19,29 @@ public static partial class Game
     static (string? Loop, string? Impact, int Variation) StormCallArt(ClientState conn, uint gem)
     {
         int variation = SkillArtVariation(conn, gem);
-        return (Art.Animated("storm_call_loop", variation) ?? Art.Animated("storm_call_loop", 0),
-            Art.Animated("storm_call_impact", variation) ?? Art.Animated("storm_call_impact", 0), variation);
+        var (loop, impact) = StormCallArt(variation);
+        return (loop, impact, variation);
+    }
+
+    // The skin's marker and impact art (MiscAnimatedArtVariations), the base skin's where the skin has none.
+    static (string? Loop, string? Impact) StormCallArt(int variation) =>
+        (Art.Animated("storm_call_loop", variation) ?? Art.Animated("storm_call_loop", 0),
+            Art.Animated("storm_call_impact", variation) ?? Art.Animated("storm_call_impact", 0));
+
+    /// <summary>The impact art's scale for a strike of the radius (cells): the art drawn at the area's size.</summary>
+    public static float AreaArtScale(double radius, string art) => (float)(radius * (250.0 / 23) / (Art.ArtRadius(art) ?? 250));
+
+    /// <summary>Storm Call as any caster's skill plays it (a monster's: BossKits.Shaped): a marker that strikes after the
+    /// skill's duration (base_skill_effect_duration with its own duration modifiers) and calls down the caster's other
+    /// markers with it, in the skill_art_variation skin.</summary>
+    public static MonsterDelayedStrike? StormCallStrikeOf(SkillCatalog catalog, int effect, byte level)
+    {
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get("base_skill_effect_duration") <= 0) return null;
+        var (loop, impact) = StormCallArt(Get("skill_art_variation"));
+        return new(SkillDurationModifiers.Seconds(Get("base_skill_effect_duration"), _ => 0, Get), loop, impact,
+            StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
     sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore);
@@ -122,7 +143,7 @@ public static partial class Game
         {
             uint effect;
             lock (conn.Monsters) effect = conn.TakeObjectId();
-            float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(impact) ?? 250));
+            float scale = AreaArtScale(radius, impact);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(marker.At.X, marker.At.Y, impact) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
                 $"0x02bb create effect 0x{effect:x} {impact} at ({marker.At.X}, {marker.At.Y}), scale {scale:0.###} for radius {radius}");

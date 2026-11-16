@@ -127,7 +127,7 @@ public sealed partial class DelveModule
         if (encounter.NikoAt == deposit.Index) return;
         var conn = ConnOf(player); var world = WorldOf(player);
         string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (deposit.Type == MapSulphite.Chest ? "Chest" : "Vein");
-        if (Npcs.Value.Find(type) is not { Supported: true } npc) return;
+        if (Npcs.Find(type) is not { Supported: true } npc) return;
         var at = conn.Layout.Near((deposit.X + 9, deposit.Y));
         float rotation = MathF.Atan2(deposit.X - at.X, -(deposit.Y - at.Y));
         await RemoveSceneObject(player, WildNikoId);

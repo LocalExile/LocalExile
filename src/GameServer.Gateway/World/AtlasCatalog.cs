@@ -6,14 +6,25 @@ using GameServer.Core;
 /// names only its tier; the layout is selected on the Atlas. Until the native Atlas panel is implemented, the first
 /// starting node is the default layout.
 /// </summary>
-public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
+public sealed class AtlasCatalog
 {
+    readonly ItemCatalog catalog;
+    readonly string folder;
+
+    public AtlasCatalog(ItemCatalog catalog, string folder = "data")
+    {
+        this.catalog = catalog;
+        this.folder = folder;
+        _layouts = LoadLayouts(folder);
+        _keyTiers = LoadKeyTiers(catalog, folder);
+    }
+
     public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
 
-    readonly Lazy<IReadOnlyList<Layout>> _layouts = new(() => LoadLayouts(folder));
-    readonly Lazy<IReadOnlyDictionary<uint, int>> _keyTiers = new(() => LoadKeyTiers(catalog, folder));
+    readonly IReadOnlyList<Layout> _layouts;
+    readonly IReadOnlyDictionary<uint, int> _keyTiers;
 
-    public IReadOnlyList<Layout> Layouts => _layouts.Value;
+    public IReadOnlyList<Layout> Layouts => _layouts;
 
     /// <summary>The layout the character selected, read from its saved character data so it survives a Gateway restart
     /// (382). The first starting node when the character has none (or the save names a layout the data no longer has).</summary>
@@ -31,9 +42,9 @@ public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
         l.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || l.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The map tier of a generic MapKey base item, or null for an old area-named map.</summary>
-    public int? TierOf(uint itemType) => _keyTiers.Value.TryGetValue(itemType, out int tier) ? tier : null;
+    public int? TierOf(uint itemType) => _keyTiers.TryGetValue(itemType, out int tier) ? tier : null;
 
-    public uint? KeyOfTier(int tier) => _keyTiers.Value.FirstOrDefault(kv => kv.Value == tier) is { Key: not 0 } hit ? hit.Key : null;
+    public uint? KeyOfTier(int tier) => _keyTiers.FirstOrDefault(kv => kv.Value == tier) is { Key: not 0 } hit ? hit.Key : null;
 
     static IReadOnlyList<Layout> LoadLayouts(string folder)
     {

@@ -502,8 +502,9 @@ public class LockstepTests : IDisposable
     [Fact]
     public void The_client_picks_its_mode_and_its_round_trip_only_aims()
     {
-        // No server setting: a connection becomes lockstep only when its client shows it is, and at any round trip.
-        var conn = new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1);
+        // No server setting: a connection is lockstep until its client sends a mode-only message, then takes that one's.
+        Assert.True(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1).LockstepClient);
+        var conn = new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false };
         Assert.False(conn.LockstepClient);
         // A resync (a stun's, a freeze's, a movement skill's) puts a predictive client's monsters on the server's cells.
         var near = new SpawnedMonster("Drowned", new PlayerWalk(110, 100, 8), aggroRange: 60, stopRange: 2, maxLife: 23);
@@ -511,13 +512,12 @@ public class LockstepTests : IDisposable
         conn.Monsters[0x3000] = near;
         lock (conn.Monsters)
             Assert.Equal(InstanceProtocol.Teleport(0x3000, 110, 100, 0x7fffffff), Game.ResyncPacketLocked(conn, 0));
-        conn.NoteLockstepClient("test");
-        conn.NoteLockstepClient("test");
+        Assert.Null(conn.NotePacket("test", InstanceProtocol.LockstepMoveStartId));
         Assert.True(conn.LockstepClient);
         // A lockstep client's hit and the life it leaves go into the attacker's own turn of the frame, keyed by the
         // attacker at GGG's checkpoints, so they never come before the attacker's order of that frame; a predictive
         // client applies a message on arrival and keeps the frame's start.
-        Assert.Equal(default, Game.HitOrder(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1), 0x1000));
+        Assert.Equal(default, Game.HitOrder(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1) { LockstepClient = false }, 0x1000));
         var hit = Game.HitOrder(conn, 0x1000);
         Assert.Equal((0x1000u, (ushort)0x7000, (ushort)0x7002), hit);
         Assert.Equal("01AF0000100000001000700080010000000030004201030000", Convert.ToHexString(

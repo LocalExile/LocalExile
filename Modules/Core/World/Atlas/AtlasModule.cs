@@ -28,9 +28,17 @@ public sealed class AtlasModule : IModule
             $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
     }
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        AtlasProgress.LoadAtlasProgressData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         ExtraPlayerMessages = conn => AtlasFeature.Restore(conn);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => AtlasFeature.EnsureUnlocked(conn));
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
@@ -272,6 +280,7 @@ static class AtlasFeature
             await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
             return;
         }
+        conn.AtlasPreset = preset;
         var nodes = conn.AtlasPassives[preset];
         var character = CharacterName(conn);
         if (allocate)

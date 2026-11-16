@@ -2799,11 +2799,7 @@ public static partial class Game
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, m.Level, m.Rarity, Random.Shared));
         }
-        foreach (string query in modded?.Items ?? [])
-        {
-            if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);
-            else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
-        }
+        drops = ModdedDrops(conn, modded, drops, m.Level, m.Rarity, IncreasedItemRarity(conn, m), balance.EquipmentRarityMultiplier, Random.Shared);
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.

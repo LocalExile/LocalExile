@@ -99,6 +99,7 @@ public partial class Program
                 // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later.
                 if (conn.Paused)
                 {
+                    if (conn.LockstepClient) await EndPausedFrame(conn);
                     await Task.Delay(Math.Max(1, FrameMs / 3));
                     continue;
                 }
@@ -108,6 +109,14 @@ public partial class Program
                 if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 if (now < first + (ended + 1) * frame) continue;
+                // Lockstep: the frame ends once the server's running work is done (ServerWork), as a step of GGG's world
+                // ends: a slow step holds the client's world (the "slideshow": it neither moves nor walks on old orders),
+                // and the frames held go out together, which the client plays up to 5 × as fast (07 §6).
+                if (conn.LockstepClient && conn.Work.Busy)
+                {
+                    await HoldFrames(remote, conn);
+                    now = conn.Clock.Elapsed.TotalSeconds;
+                }
                 if (await EndWorldFramesThrough(conn, first, frame, ended, now) is not { } completed) return;
                 ended = completed;
                 if (GameLogicOrNull is { } rules) await rules.WorldFrameEnded(remote, stream, ciphers, conn, first + ended * frame);
@@ -116,6 +125,22 @@ public partial class Program
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
         }
+    }
+
+    // Work longer than this lets the frames go on (logged): no step of ours should take it, and a client held longer looks hung.
+    static readonly TimeSpan MaxFrameHold = TimeSpan.FromSeconds(2);
+
+    static async Task HoldFrames(string remote, ClientState conn)
+    {
+        long from = Stopwatch.GetTimestamp();
+        string? doing = conn.Work.Handling;
+        bool done = true;
+        try { await conn.Work.Idle.WaitAsync(MaxFrameHold); }
+        catch (TimeoutException) { done = false; }
+        double ms = Stopwatch.GetElapsedTime(from).TotalMilliseconds;
+        if (!done || ms >= 100)
+            Console.WriteLine($"[frames] {remote} held {ms:0} ms by the server's work ({doing ?? "no message"})" +
+                (done ? "" : ": still running, the frames go on"));
     }
 
     public static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
@@ -172,6 +197,38 @@ public partial class Program
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
             return true;
+        }
+        catch { if (committed) FailWorldOutput(conn); throw; }
+        finally { gate.Release(); }
+    }
+
+    /// <summary>While paused, what the server sends the player (a passive point's stats, an item's) still reaches a lockstep
+    /// client, which applies world records only in the frames it runs: they go out in a frame of 0 ms (S→C 0x2b8 0, the
+    /// records, 0x2b7, then 0x2b8 back to the frame length). The client runs a frame its time already covers at once, and
+    /// a 0 ms frame is covered by no time at all (0x14218a2a0), so its records apply and the world does not move. Not on
+    /// the frame timeline: it ends no frame of the clock's.</summary>
+    static async Task EndPausedFrame(ClientState conn)
+    {
+        var wire = conn.Wire;
+        var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+        await gate.WaitAsync();
+        bool committed = false;
+        try
+        {
+            WorldOutput.Frame frame;
+            lock (conn.Monsters)
+            {
+                if (conn.Closed || conn.WorldOutput.Closed || !conn.Paused || !conn.WorldOutput.Started) return;
+                frame = conn.WorldOutput.TakeFrame();
+                if (frame.Packets.Count == 0) return;
+                committed = true;
+            }
+            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameLength(0), "0x02b8 frame length 0 ms (paused)");
+            foreach (var packet in frame.Packets)
+                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
+            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
+            await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameLength(FrameMs), null);
+            conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
         }
         catch { if (committed) FailWorldOutput(conn); throw; }
         finally { gate.Release(); }

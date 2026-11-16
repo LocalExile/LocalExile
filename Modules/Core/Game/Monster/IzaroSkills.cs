@@ -16,6 +16,12 @@ using static Program;
 /// </summary>
 static class IzaroSkills
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadIzaroSkillsData()
+    {
+        BuffRows = LoadBuffRows();
+    }
+
     enum Shape { Circle, Ahead, Line, Cone, Leap, Charge, Self }
 
     // Effect: GrantedEffects row. Contact: the clip's contact over its length (LabyrinthBoss's rig.amd). Reach: how far the
@@ -292,7 +298,7 @@ static class IzaroSkills
     // A Self skill's buff on its user, for its time.
     static async Task SelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, Move move)
     {
-        if (move.Buff is not { } name || BuffRows.Value.GetValueOrDefault(name) is not (> 0 and var row)) return;
+        if (move.Buff is not { } name || BuffRows.GetValueOrDefault(name) is not (> 0 and var row)) return;
         ushort buff;
         lock (conn.Monsters) buff = conn.NextBuff++;
         var layout = conn.Layout;
@@ -302,7 +308,9 @@ static class IzaroSkills
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
     }
 
-    static readonly Lazy<Dictionary<string, int>> BuffRows = new(() =>
+    static Dictionary<string, int> BuffRows = default!;
+
+    static Dictionary<string, int> LoadBuffRows()
     {
         var rows = new Dictionary<string, int>(StringComparer.Ordinal);
         var wanted = Moves.Select(m => m.Buff).OfType<string>().ToHashSet();
@@ -314,7 +322,7 @@ static class IzaroSkills
             row++;
         }
         return rows;
-    });
+    }
 
     // The hit of a mark that bursts DelaySeconds after the contact, round the cell it was aimed at.
     static async Task DelayedHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss,

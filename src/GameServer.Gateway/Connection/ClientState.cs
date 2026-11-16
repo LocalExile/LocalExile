@@ -33,6 +33,54 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
 
+/// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
+/// none), how long the impact art stays, and whether the strike also calls down every other marker of the same skill
+/// its owner has out (Storm Call's).</summary>
+public sealed record MonsterDelayedStrike(double Seconds, string? MarkerArt, string? ImpactArt, double ImpactSeconds,
+    bool StrikesTogether);
+
+/// <summary>Objects a monster's skill leaves in the area: its thrown traps (Game.MonsterTraps).</summary>
+public sealed class MonsterPlacedObjects
+{
+    /// <summary>A monster's trap: its object, its owner, what it plays when set off, and its throw's times.</summary>
+    public sealed record Trap(uint Id, uint Owner, SpawnedMonster Monster, MonsterAttack Payload, (int X, int Y) At,
+        double LandAt, double Armed, double Until, double TriggerRadius)
+    {
+        public bool Landed;
+    }
+    public readonly Dictionary<uint, Trap> Traps = [];
+
+    /// <summary>A delayed strike's marker: its object, its owner, the skill (Effect) and the hit it lands, where and when.</summary>
+    public sealed record Marker(uint Id, uint Owner, SpawnedMonster Monster, int Effect, MonsterAttack Payload,
+        MonsterDelayedStrike Strike, (int X, int Y) At, double StrikeAt);
+    public readonly Dictionary<uint, Marker> Markers = [];
+    /// <summary>Impact art objects of struck markers, and when each leaves.</summary>
+    public readonly Dictionary<uint, double> Impacts = [];
+}
+
+/// <summary>What a kit skill does beyond a hit (BossKits, MonsterSkills.cs).</summary>
+public enum MonsterSkillShape
+{
+    /// <summary>A movement skill (Leap Slam, Shield Charge, Flame Dash, Lightning Warp): it carries its user to a cell
+    /// by the player and hits around where it lands, if it deals damage.</summary>
+    Travel,
+    /// <summary>A war cry or a buff (Enduring Cry, Blood Rage, Immortal Call): its buff on its user, for its time.</summary>
+    Self,
+    /// <summary>A curse: its debuff on the player, for its time.</summary>
+    Curse,
+    /// <summary>A spell on a corpse (Volatile Dead, Cremation, Detonate Dead): it consumes corpses and hits from them.</summary>
+    Corpse,
+}
+
+/// <summary>A kit skill's use: its shape, the BuffDefinitions row that draws it (0: none), how long it lasts, the stats
+/// it grants (on its user; on the player for a curse), and the nearest the player must be for a travel.
+/// A skill on corpses (<paramref name="OnCorpse"/>: Bodyswap's travel, every <see cref="MonsterSkillShape.Corpse"/>) takes
+/// up to <paramref name="Corpses"/> within <paramref name="Radius"/> of the first, hits within <paramref name="Reach"/> of
+/// each, <paramref name="Pulses"/> times <paramref name="PulseSeconds"/> apart.</summary>
+public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<string, int> Stats,
+    double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
+    double PulseSeconds = 0);
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
@@ -43,6 +91,25 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public MonsterRelease? Release { get; init; }
     /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
     public int? ReleaseEffect { get; init; }
+    /// <summary>The kit skill's granted effect (BossKits): a weapon-stanced monster times its contact by the clip its stance
+    /// plays for the effect's action (SkillAnimations, Program.StanceContact).</summary>
+    public int? Effect { get; init; }
+    /// <summary>An area skill without a projectile (Cold Snap, Rain of Arrows, Vortex): its hit lands at the contact within
+    /// this radius (cells, its own stats) of the point its action aims at, rather than on the player wherever they went.
+    /// 0: a plain hit.</summary>
+    public double AreaRadius { get; init; }
+    /// <summary>The area is around the user (a nova: ActiveSkillTypes Nova), not where the action aims.</summary>
+    public bool AreaAtSelf { get; init; }
+    /// <summary>A trap skill (ActiveSkillTypes Trapped): the action throws a trap at its aim, and the trap, set off,
+    /// plays this attack from where it lies (Game.MonsterTraps). Null for any other skill.</summary>
+    public MonsterAttack? Trap { get; init; }
+    /// <summary>A skill whose area lands later than its cast (Storm Call): the action sets a marker at its aim, and the
+    /// marker strikes with this attack's area when its time is up (Game.MonsterMarkers). Null for any other skill.</summary>
+    public MonsterDelayedStrike? Strike { get; init; }
+    /// <summary>How many times one use hits (Double Strike's 1 + base_skill_number_of_additional_hits, Dual Strike's two
+    /// when dual wielding): each after the first lands on the clip's next contact frame, and one whose clip has no such
+    /// frame does not land.</summary>
+    public int Hits { get; init; } = 1;
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
@@ -87,8 +154,11 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
     public bool Scripted { get; init; }
 
+    /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
+    public MonsterSkillUse? Use { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
@@ -195,6 +265,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
+    /// <summary>When a summoned monster's duration runs out (MonsterSummonInfo.Lifetime): it is retired then.</summary>
+    public double ExpiresAt = double.PositiveInfinity;
     public bool NoRewards;
     /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
     /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
@@ -237,6 +309,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
+    /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
+    public IReadOnlyDictionary<string, int>? BuffStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
     public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
     public MonsterModEffects Effects
@@ -245,6 +319,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
         {
             var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
             foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            if (BuffStats is { Count: > 0 } buffs) effects = effects.Combine(buffs);
             return Curses.Effects(effects);
         }
     }
@@ -877,6 +952,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// <summary>The three Atlas passive presets (PassiveSkillGraphId) and the points the character has; kept in its save.</summary>
     public List<ushort>[] AtlasPassives = [[], [], []];
     public ushort AtlasPassivePoints;
+    /// <summary>The Atlas preset the player last changed (the client's active one, Atlas tree +0xc2f0); -1 until a change
+    /// this session, when the fullest preset counts as active.</summary>
+    public int AtlasPreset = -1;
     /// <summary>The cluster jewel nodes allocated in the tree's expansion cells: the client's own small ids, sent with
     /// the expansion flag (C->S 0x34/0x36) and carried in 0x33's second list. Empty until a cluster jewel is socketed.
     /// </summary>
@@ -1216,20 +1294,43 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get => closed;
         set { closed = value; if (value) WorldOutput.Close(); }
     }
-    // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
-    // 0, so it is never probed and keeps its own messages. The client alone picks its Network Mode (07 §6): every
-    // connection serves both, and a player switches by changing it and entering again.
-    public volatile bool LockstepClient;
-    int _lockstepNoted;
-
-    /// <summary>Marks the client as lockstep and, once per connection, logs that Predictive is the preferred mode.</summary>
-    public void NoteLockstepClient(string remote)
+    // The mode-only C→S messages this connection (one area) has had, by mode (ClientPackets, 07 §6). A client sends
+    // only one mode's, so the first one is the mode the handlers serve; one of each is a fault to report. Until then a
+    // client is served in Lockstep, the default way of playing: the mode with no desync, which a local server's latency
+    // suits and Auto picks on it. A server-controlled player drives itself with predictive messages, so it is predictive.
+    readonly Lock _modeLock = new();
+    readonly SortedSet<ushort> _predictiveIds = [], _lockstepIds = [];
+    volatile bool _modeSeen, _lockstep;
+    bool _mixedReported;
+    // Set: the mode is known (a test, or a connection whose mode is given).
+    public bool LockstepClient
     {
-        LockstepClient = true;
-        if (Interlocked.Exchange(ref _lockstepNoted, 1) == 0)
-            Console.WriteLine($"[gateway] {remote} the client's Network Mode is lockstep (\"auto\" picks it on a low round trip): " +
-                "served in lockstep, but lockstep is not currently the preferred networking mode; Predictive is " +
-                "(Options > Game > Network Mode, then log out to the character screen and Play again)");
+        get => _modeSeen ? _lockstep : !Controlled;
+        set { _lockstep = value; _modeSeen = true; }
+    }
+
+    /// <summary>Notes a C→S message from the client's wire (not the server's own made-up inputs). Returns the ids of
+    /// both modes the first time this area has had messages of both, else null.</summary>
+    public (ushort[] Predictive, ushort[] Lockstep)? NotePacket(string remote, ushort id)
+    {
+        var mode = ClientPackets.ModeOf(id);
+        if (mode == PacketMode.Shared) return null;
+        lock (_modeLock)
+        {
+            var ids = mode == PacketMode.Lockstep ? _lockstepIds : _predictiveIds;
+            if (!ids.Add(id)) return null;
+            if (_predictiveIds.Count + _lockstepIds.Count == 1)
+            {
+                _lockstep = mode == PacketMode.Lockstep;
+                _modeSeen = true;
+                Console.WriteLine($"[gateway] {remote} the client sends {mode.ToString().ToLowerInvariant()} messages (first 0x{id:x4})" +
+                    (_lockstep ? "" : ": served in predictive, but Lockstep is the preferred mode " +
+                        "(Options > Game > Network Mode, then log out to the character screen and Play again)"));
+            }
+            if (_mixedReported || _predictiveIds.Count == 0 || _lockstepIds.Count == 0) return null;
+            _mixedReported = true;
+            return ([.. _predictiveIds], [.. _lockstepIds]);
+        }
     }
     // What the default attack's last skill record was built for: a lockstep client (DefaultAttackRecordLockstep), and
     // the projectile whose count it carries (DefaultArrow or WandProjectile), which the client then draws itself

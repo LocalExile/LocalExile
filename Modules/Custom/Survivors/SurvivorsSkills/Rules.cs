@@ -14,6 +14,13 @@ namespace GameServer.Modules.Survivors;
 
 static partial class SurvivorsSkills
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadRulesData()
+    {
+        SurvivorsSkillIdPool = [.. Skills.SkillIds().Where(id => id >= SurvivorsSkillIdBase)];
+        HeraldBuffRows = LoadHeraldBuffRows();
+    }
+
     /// <summary>A herald's aura reaches this far around the player, in cells, before its rank and area grow it.</summary>
     internal const double SurvivorsHeraldRadius = 48;
 
@@ -61,13 +68,12 @@ static partial class SurvivorsSkills
     internal const ushort SurvivorsSkillIdBase = 0x0300;
 
     // The ids a run's skills may use, in the order the catalogue hands them out.
-    internal static readonly Lazy<ushort[]> SurvivorsSkillIdPool =
-        new(() => [.. Skills.SkillIds().Where(id => id >= SurvivorsSkillIdBase)]);
+    internal static ushort[] SurvivorsSkillIdPool = default!;
 
     /// <summary>The skill id of a catalogue entry. The catalogue follows the item data's order, so an entry keeps its id
     /// for the whole run, across area changes.</summary>
     internal static ushort SurvivorsSkillId(int index) =>
-        index >= 0 && index < SurvivorsSkillIdPool.Value.Length ? SurvivorsSkillIdPool.Value[index] : (ushort)0;
+        index >= 0 && index < SurvivorsSkillIdPool.Length ? SurvivorsSkillIdPool[index] : (ushort)0;
 
     /// <summary>The base cooldown of a run skill: its gem's cast interval, which the client shows on the skill bar.</summary>
     internal static int SurvivorsSkillCooldownMs(SurvivorsSkill skill, int rank) =>
@@ -75,7 +81,9 @@ static partial class SurvivorsSkills
 
     // The BuffDefinitions row of each Herald effect (the aura the client draws around the player), read once: the
     // effect's ActiveSkills row names the buff (<c>herald_of_ash</c> and the like).
-    internal static readonly Lazy<IReadOnlyDictionary<int, int>> HeraldBuffRows = new(() =>
+    internal static IReadOnlyDictionary<int, int> HeraldBuffRows = default!;
+
+    static IReadOnlyDictionary<int, int> LoadHeraldBuffRows()
     {
         var result = new Dictionary<int, int>();
         if (ClientTables.TableOrNull("GrantedEffects") is not { } effects || ClientTables.TableOrNull("ActiveSkills") is not { } actives
@@ -87,7 +95,7 @@ static partial class SurvivorsSkills
             if (effect.IntOrNull("ActiveSkill") is int at && actives.Row(at) is { } active
                 && active.TextOrNull("Id") is { } effectId && byId.TryGetValue(effectId, out int buff)) result[effect.Index] = buff;
         return result;
-    });
+    }
 
     /// <summary>
     /// The run's learned skills as Actor skills, so the client puts their gems on the skill bar and draws their cooldown.
@@ -1159,7 +1167,7 @@ static partial class SurvivorsSkills
             if (!ownership.Current) return;
             if (index < 0 || index >= catalog.Count || catalog[index].Kind != SurvivorsSkillKind.Herald) continue;
             if (!StateOf(conn).SurvivorsHeraldSkills.Add(index)) continue;
-            if (!HeraldBuffRows.Value.TryGetValue(catalog[index].Effect, out int row) || row is < 0 or > 0xffff) continue;
+            if (!HeraldBuffRows.TryGetValue(catalog[index].Effect, out int row) || row is < 0 or > 0xffff) continue;
             ushort skillId = SurvivorsSkillId(index);
             ushort aura = conn.NextBuff++;
             StateOf(conn).SurvivorsHeraldBuffs.Add(aura);

@@ -10,10 +10,15 @@ using GameServer.Core;
 /// <c>MtxTypes</c>, e.g. "Black Hole Portal Effect"). Armour skins, weapon skins and pets are not portal visuals: the
 /// client builds those from the account's MTX slots, which no local account has.
 /// </para>
-/// Game data, loaded on first use; without the client tables the list is empty.
+/// Game data, read when the catalog is made; without the client tables the list is empty.
 /// </summary>
 public sealed class CosmeticCatalog
 {
+    public CosmeticCatalog()
+    {
+        _portals = LoadPortals();
+    }
+
     /// <summary>One playable cosmetic: <paramref name="Index"/> is the table's own number.</summary>
     public sealed record Cosmetic(string Name, string Id, string Ao, int Index)
     {
@@ -24,9 +29,9 @@ public sealed class CosmeticCatalog
         public override string ToString() => $"{Index} {Name}";
     }
 
-    private readonly Lazy<List<Cosmetic>> _portals = new(LoadPortals);
+    private readonly List<Cosmetic> _portals;
 
-    public IReadOnlyList<Cosmetic> Portals => _portals.Value;
+    public IReadOnlyList<Cosmetic> Portals => _portals;
 
     /// <summary>
     /// A cosmetic by its number, its exact name or Id, or a piece of its name (case-insensitive), or null. Numbers are

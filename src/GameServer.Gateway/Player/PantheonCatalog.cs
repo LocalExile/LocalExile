@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class PantheonCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     /// <summary>A panel row: its Id (TheBrineKing …), whether it is a major god, the flag that unlocks it, the god's name
     /// (GodName1), its power (Effect1: Stats keys = row + 1, values) and its upgrades (Effect2–4, each with the PantheonSouls
     /// flag that unlocks it, in the souls' order).</summary>
@@ -24,7 +30,7 @@ public sealed class PantheonCatalog
 
     PantheonCatalog(IReadOnlyList<God> gods) => Gods = gods;
 
-    public static readonly Lazy<PantheonCatalog> Default = new(() => Load());
+    public static PantheonCatalog Default = default!;
 
     public God? ByWire(byte wire) => wire >= 1 && wire <= Gods.Count ? Gods[wire - 1] : null;
     public God? ById(string? id) => id is null ? null : Gods.FirstOrDefault(g => g.Id == id);

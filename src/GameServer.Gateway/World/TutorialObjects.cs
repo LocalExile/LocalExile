@@ -135,5 +135,5 @@ public static class TutorialObjects
         return w.U8(0).U8(0).ToArray(); // Animated, tasks; BaseEvents consumes no bytes.
     }
     static void Positioned(BlobWriter w,int x,int y,float rotation) =>
-        w.I32(x).I32(y).F32(rotation).U16(0).U8(0).U8(2).U8(0).U8(1);
+        w.Positioned(x, y, rotation);
 }

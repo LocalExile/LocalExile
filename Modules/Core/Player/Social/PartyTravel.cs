@@ -7,10 +7,20 @@ namespace GameServer.Modules.Social;
 /// <summary>C→S 0x92: travel to a current party member's checkpoint or portal.</summary>
 static class PartyTravel
 {
-    static readonly Lazy<AreaModCatalog> AreaMods = new(AreaModCatalog.Load);
-    static readonly Lazy<Dictionary<ushort, int[]>> Access = new(() => ClientTables.Table("WorldAreas")
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadPartyTravelData()
+    {
+        AreaMods = AreaModCatalog.Load();
+        Access = LoadAccess();
+    }
+
+    static AreaModCatalog AreaMods = default!;
+    static Dictionary<ushort, int[]> Access = default!;
+
+    static Dictionary<ushort, int[]> LoadAccess() =>
+        ClientTables.Table("WorldAreas")
         .GroupBy(r => (ushort)r.Int("HASH16"))
-        .ToDictionary(g => g.Key, g => g.First().Ints("EndQuestFlags").ToArray()));
+        .ToDictionary(g => g.Key, g => g.First().Ints("EndQuestFlags").ToArray());
 
     internal static ClientState? Member(ClientState conn, string name) => PartyRoster.TravelMember(conn, name);
 
@@ -20,7 +30,7 @@ static class PartyTravel
         PendingTransfer destination;
         // Party travel to a map goes outside its device. Direct entry would bypass its six-portal budget.
         var map = MapDevice.ForInstance(member);
-        if (map is not null || MapDevices.Value.IsMapArea(member.Layout.Hash))
+        if (map is not null || MapDevices.IsMapArea(member.Layout.Hash))
         {
             if ((map?.Entrance ?? map?.ReturnTo) is not { Instance: not 0 } origin) return null;
             destination = new(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y));
@@ -28,7 +38,7 @@ static class PartyTravel
         else
         {
             // These areas have their own admission/lifecycle; a party button cannot enter them midway through a run.
-            if (LabyrinthDay.DifficultyOf(member.Layout.Id) is not null || AreaMods.Value.DisablesPortals(member.Layout.Id))
+            if (LabyrinthDay.DifficultyOf(member.Layout.Id) is not null || AreaMods.DisablesPortals(member.Layout.Id))
                 return null;
             bool waypoint;
             lock (member.Waypoints) waypoint = member.Waypoints.Contains(member.Layout.Id);
@@ -36,7 +46,7 @@ static class PartyTravel
                 ? member.Layout.Near((portal.X, portal.Y)) : member.Layout.Checkpoint(waypoint);
             destination = new(member.Layout.Hash, member.InstanceNumber, false, ArriveAt: arrival);
         }
-        if (!Access.Value.TryGetValue(destination.Area, out var required)) return null;
+        if (!Access.TryGetValue(destination.Area, out var required)) return null;
         var flags = PlayerQuestFlags(conn).ToHashSet();
         return required.All(flags.Contains) ? destination : null;
     }

@@ -9,9 +9,17 @@ namespace GameServer.Modules.Social;
 /// <summary>Trades between players, parties and persistent account friendships.</summary>
 public sealed class SocialModule : IModule
 {
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        PartyTravel.LoadPartyTravelData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn => FriendsFeature.Enter(conn));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
         GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>

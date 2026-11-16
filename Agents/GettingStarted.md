@@ -352,10 +352,10 @@ Success, in order:
 4. Click **Log In**, select your character, and click **Play**.
 5. You arrive in Lioneye's Watch. Click the ground to walk.
 
-**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Predictive is
-the preferred mode; lockstep is served but partly working ([07](docs/protocol/07-latency-visibility-movement.md) §6).
-With the default "auto", the client picks lockstep on localhost, and the Gateway log says once that Predictive is
-preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
+**Network Mode** (Esc → Options → Game → Network Mode) is the client's choice, and the server follows it. Lockstep is
+the default way of playing: it has no desync and suits a local server's latency; Predictive is served too
+([07](docs/protocol/07-latency-visibility-movement.md) §6). With the default "auto", the client picks lockstep on
+localhost; a predictive client is told once in the Gateway log that Lockstep is preferred. To switch, change the option, log out to the character screen and click Play again. The setting is saved in
 `Documents\My Games\Path of Exile\production_Config.ini` (`networking_type=`), which your normal client shares.
 
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.

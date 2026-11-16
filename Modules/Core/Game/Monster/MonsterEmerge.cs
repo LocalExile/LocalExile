@@ -32,8 +32,18 @@ public enum EmergeKind
 /// (<c>basic_actions</c>, <c>client_transitionable_*</c>, <c>client_targetable</c>: scripts/re/ot_components.py),
 /// monster_takehit (<c>emerge_*</c>: the clip's length, scripts/re/monster_takehit.py) and ActionTypes.
 /// </summary>
-public sealed class MonsterEmerge(string folder = "data")
+public sealed class MonsterEmerge
 {
+    readonly string folder;
+
+    public MonsterEmerge(string folder = "data")
+    {
+        this.folder = folder;
+        _types = LoadTypes();
+        _clips = LoadClips();
+        _action = LoadAction(folder);
+    }
+
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
     /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
     /// on screen.</summary>
@@ -53,18 +63,18 @@ public sealed class MonsterEmerge(string folder = "data")
     /// <summary>The Transitionable state a monster waiting to rise is created in (untransitioned).</summary>
     public const byte UnrisenState = 1;
 
-    private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(LoadTypes);
-    private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(LoadClips);
-    private readonly Lazy<ushort?> _action = new(() => LoadAction(folder));
+    private readonly Dictionary<string, EmergeKind> _types;
+    private readonly Dictionary<string, (double Seconds, int Index)> _clips;
+    private readonly ushort? _action;
 
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
-    public ushort? SkillId => _action.Value is ushort hash ? (ushort)(hash & 0x3fff) : null;
+    public ushort? SkillId => _action is ushort hash ? (ushort)(hash & 0x3fff) : null;
 
     /// <summary>How a monster of this variety and rarity starts (see <see cref="EmergeKind"/>).</summary>
     public EmergeKind Kind(MonsterCatalog.Variety v, MonsterRarity rarity = MonsterRarity.Normal) =>
         (rarity != MonsterRarity.Unique || v.Id == "Metadata/Monsters/Frog/FrogGod/SilverFrog")
             && v.TransitionStates <= 1 && v.ComponentsOrBase.Contains("Transitionable") && SkillId is not null
-            && _types.Value.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
+            && _types.TryGetValue(v.BaseType, out var kind) ? kind : EmergeKind.None;
 
     /// <summary>Whether area packs may place this variety: not an "Emerge" variety that would wait for good (a
     /// Transitionable whose start the server cannot play). Emerge varieties without a Transitionable are ordinary.</summary>
@@ -81,11 +91,11 @@ public sealed class MonsterEmerge(string folder = "data")
 
     /// <summary>How long the variety's Emerge clip plays, in seconds (<see cref="DefaultSeconds"/> when unknown).</summary>
     public double Seconds(MonsterCatalog.Variety v) =>
-        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Seconds > 0 ? clip.Seconds : DefaultSeconds;
+        _clips.TryGetValue(v.Id, out var clip) && clip.Seconds > 0 ? clip.Seconds : DefaultSeconds;
 
     /// <summary>The variety's Emerge clip's index in its rig (0x1b2 plays it), or null when unknown.</summary>
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
-        _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
+        _clips.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
     /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2bc), then the Emerge action in place aimed
     /// at the monster itself, with the 0x1ac that starts its clip.</summary>

@@ -9,11 +9,17 @@ using GameServer.Core;
 /// </summary>
 public static class JourneyMakanuiCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadJourneyMakanuiCatalogueData()
+    {
+        Entries = Load();
+    }
+
     public sealed record Entry(ushort GraphId, string Name, int Row, ushort OverrideHash);
 
-    static readonly Lazy<List<Entry>> Entries = new(Load);
+    static List<Entry> Entries = default!;
 
-    public static IReadOnlyList<Entry> All => Entries.Value;
+    public static IReadOnlyList<Entry> All => Entries;
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 

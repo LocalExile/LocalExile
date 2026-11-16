@@ -16,8 +16,17 @@ public sealed record AscendancyIdentity(AscendancyFamily Family, string Id, stri
 /// Main ascendancies in the exact extracted client. Membership and links come from its two PSG files; the table alone
 /// contains both families and is insufficient to authorise an allocation. Scavenger is one choice, not three Scion aliases.
 /// </summary>
-public sealed class AscendancyCatalog(string folder = "data")
+public sealed class AscendancyCatalog
 {
+    readonly string folder;
+
+    public AscendancyCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        _definitions = Load(folder);
+        _graphMembership = LoadGraphMembership(folder);
+    }
+
     public const string Revision = "3.29.3c";
 
     /// <summary>Revisions whose reviewed passive graph is byte-identical to <see cref="Revision"/>. A save written by
@@ -48,19 +57,19 @@ public sealed class AscendancyCatalog(string folder = "data")
     public sealed record Definition(AscendancyIdentity Identity, string Name, byte BaseClass, int TableRow,
         byte ClassNo, ushort StartNode, IReadOnlyDictionary<ushort, Node> Nodes);
 
-    readonly Lazy<IReadOnlyList<Definition>> _definitions = new(() => Load(folder));
-    readonly Lazy<IReadOnlyDictionary<AscendancyFamily, HashSet<ushort>>> _graphMembership = new(() => LoadGraphMembership(folder));
+    readonly IReadOnlyList<Definition> _definitions;
+    readonly IReadOnlyDictionary<AscendancyFamily, HashSet<ushort>> _graphMembership;
 
-    public IReadOnlyList<Definition> Definitions => _definitions.Value;
+    public IReadOnlyList<Definition> Definitions => _definitions;
     public bool Loaded => Definitions.Count > 0;
-    public bool GraphLoaded => _graphMembership.Value.Count == 2;
+    public bool GraphLoaded => _graphMembership.Count == 2;
     public IEnumerable<Definition> Choices(byte baseClass) => Definitions.Where(d => d.BaseClass == baseClass);
 
     /// <summary>Never keep/apply a node that the chosen client graph cannot display. This check also protects old saves
     /// when a graph revision changes; the caller refuses the change/load and retains the original save.</summary>
     public void ValidateOrdinaryNodes(AscendancyFamily family, IEnumerable<ushort> nodes)
     {
-        if (!_graphMembership.Value.TryGetValue(family, out var members))
+        if (!_graphMembership.TryGetValue(family, out var members))
             throw new AscendancyRuleException("Passive graph data is missing; run scripts/dev/extract-data.ps1");
         foreach (ushort id in nodes)
             if (!members.Contains(id))

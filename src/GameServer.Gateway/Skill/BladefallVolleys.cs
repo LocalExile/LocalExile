@@ -5,6 +5,12 @@ using GameServer.Core;
 /// game module runs the toggle (BladefallTrarthus.cs).</summary>
 public static class BladefallVolleys
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        BuffRows = LoadBuffRows();
+    }
+
     public const string EffectId = "BladefallAltZ";
     /// <summary>skill_cost_over_time: its GrantedStats are the spent-per-minute stats, set on the player while it lasts.</summary>
     public const string CostBuff = "skill_cost_over_time";
@@ -30,9 +36,11 @@ public static class BladefallVolleys
         percentPerMinute <= 0 || maximumMana <= 0 ? 0 : (int)Math.Min(int.MaxValue, maximumMana * percentPerMinute / 100);
 
     /// <summary>The BuffDefinitions row of <see cref="CostBuff"/> or <see cref="BladesBuff"/>, or null without the table.</summary>
-    public static ushort? BuffRow(string id) => BuffRows.Value.TryGetValue(id, out ushort row) ? row : null;
+    public static ushort? BuffRow(string id) => BuffRows.TryGetValue(id, out ushort row) ? row : null;
 
-    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
+    static Dictionary<string, ushort> BuffRows = default!;
+
+    static Dictionary<string, ushort> LoadBuffRows()
     {
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
         if (!ClientTables.Has("BuffDefinitions")) return rows;
@@ -44,5 +52,5 @@ public static class BladefallVolleys
             row++;
         }
         return rows;
-    });
+    }
 }

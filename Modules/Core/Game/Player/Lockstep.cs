@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -15,11 +16,11 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            conn.NoteLockstepClient(remote);
             var here = LockstepClientCell(conn, conn.Clock.Elapsed.TotalSeconds);
             if (id == InstanceProtocol.LockstepMoveStartId)
             {
                 var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
+                if (!PressAfterUse(conn, click.Flags)) return;
                 (int X, int Y) aim = (here.X + click.Dx, here.Y + click.Dy);
                 conn.LockstepUse = null;
                 if (SkillsFor(conn).ActionName(click.SkillId) == "Move")
@@ -61,9 +62,31 @@ public static partial class Game
                     var aim = conn.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : here;
                     conn.LockstepSkill.Press(aim, target, skill, flags, target != PlayerId && LockstepRepeats(conn, skill));
                 }
-                else conn.LockstepUse = new(target, skill, 0, flags);
+                else
+                {
+                    conn.LockstepUse = new(target, skill, 0, flags);
+                    UsePressConsumed.AddOrUpdate(conn, new StrongBox<bool>(true));
+                }
             }
         }
+    }
+
+    // A use on an object (0x18f with a skill that is not a gem's: a pickup, a chest, a door, an NPC) uses up the button
+    // press. The client sends its own 0x195 right after the 0x18f (0x140128980 → 0x140123d60). Once the object under
+    // the cursor is gone, its held path (0x14011d730 → 0x14011ecb0, arg press 0) changes the latched kind at +0x120 from
+    // 2 to 1 and asks for a Move without 0x400. Live 2026-11-16, 3 of 3 pickups with LMB held: 0x18e skill 0x2909 flags
+    // 0x8, 77–81 ms after the 0x18f, then 0x192 every 70 ms until the release. On the client, such a Move cannot replace
+    // the use's Interaction: the gate 0x141e941a0 lets an action in over the current one only with 0x400 or when the
+    // current action can be cancelled. So the Move waits in the queue, and when the completion starts it (0x141e95f10),
+    // 0x141e9b860 discards its path. The player stands. Only a new press (0x400) asks again.
+    static readonly ConditionalWeakTable<ClientState, StrongBox<bool>> UsePressConsumed = new();
+
+    static bool PressAfterUse(ClientState conn, ushort flags)
+    {
+        if (!UsePressConsumed.TryGetValue(conn, out var consumed) || !consumed.Value) return true;
+        if ((flags & 0x400) == 0) return false;
+        consumed.Value = false;
+        return true;
     }
 
     // A channelled skill starts once and runs until the release; anything else repeats while the button stays down.
@@ -140,7 +163,9 @@ public static partial class Game
                 // the client queued it until the swing's end). A new click goes at the next frame start over an open
                 // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
                 bool attack = LockstepAttackSkill(conn, conn.LockstepSkill.Skill);
-                if (conn.LockstepUse is { } object_)
+                // Pinned (a spike trap's risen spikes: Pins.cs): no walk starts, and a use waits, as it walks up.
+                bool pinned = Pinned(conn, at);
+                if (!pinned && conn.LockstepUse is { } object_)
                 {
                     conn.LockstepCastWindow = null;
                     conn.LockstepUse = null;
@@ -156,7 +181,7 @@ public static partial class Game
                     conn.LockstepCastWindow = null;
                     HoldLockstepSkill(conn, sequence, frameStart, at);
                 }
-                else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due
+                else if (!pinned && conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due
                     && PlaceLockstepPlayerMove(conn, due, at) is { } placed)
                 {
                     (target, from) = (due, placed);

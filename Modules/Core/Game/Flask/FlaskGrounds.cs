@@ -4,7 +4,13 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static readonly Lazy<Dictionary<FlaskGrounds.Kind, (string Ao, int ArtRadius)>> FlaskGroundArt = new(() => FlaskGrounds.LoadArt("data"));
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadFlaskGroundsData()
+    {
+        FlaskGroundArt = FlaskGrounds.LoadArt("data");
+    }
+
+    public static Dictionary<FlaskGrounds.Kind, (string Ao, int ArtRadius)> FlaskGroundArt = default!;
 
     // Ground creation belongs to the accepted charge transaction. Its art receipts and deadline survive
     // replacement, while taunt uses the same accepted character snapshot as the utility effect.
@@ -47,7 +53,7 @@ public static partial class Game
 
     static uint? QueueGroundArtLocked(ClientState conn, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
     {
-        if (!FlaskGroundArt.Value.TryGetValue(kind, out var art)) return null;
+        if (!FlaskGroundArt.TryGetValue(kind, out var art)) return null;
         uint obj = conn.TakeObjectId();
         float scale = (float)(radius * (250.0 / 23) / Math.Max(1, art.ArtRadius));
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };
@@ -62,7 +68,7 @@ public static partial class Game
     // presentation cannot be stranded in an old timer when Game is replaced.
     public static void AdvanceFlaskGrounds(ClientState conn, PlayerUpdatesState updates)
     {
-        if (conn.FlaskGrounds.Any) _ = FlaskGroundArt.Value;
+        if (conn.FlaskGrounds.Any) _ = FlaskGroundArt;
         lock (conn.Monsters)
         {
             if (!PlayerUpdatesCurrent(conn, updates) || conn.LeavingArea || conn.Paused || !conn.FlaskGrounds.Any) return;

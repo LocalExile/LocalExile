@@ -72,7 +72,7 @@ public class InstanceEntitiesTests
         string pool(uint v) => Convert.ToHexString(BitConverter.GetBytes(v)) + "00000000" + "0000" + "00000000" + "00000000"; // current, reserved 0
         string expected =
             "00" + "00" +                                                     // flags, base data
-            "73000000" + "45000000" + "00000000" + "0000" + "0002" + "0001" + // Positioned, flags1 0x02: not hidden, shown
+            "73000000" + "45000000" + "00000000" + "0000" + "0000" +        // Positioned: blocking is the type's own
             "00" + "00000000" + "00000000" + "00" +                           // comp1
             "0000" +                                                          // comp3
             pool(50) + pool(40) + pool(0) + "00" +                            // Life
@@ -105,7 +105,7 @@ public class InstanceEntitiesTests
             Skills: [new GrantedSkill(0x0102, 4474, 4430, stats)], Stats: stats).Blob();
         string hex = Convert.ToHexString(b);
         const string statList = "02" + "8142" + "8341" + "8117" + "02";       // compact: count, key 0x142 = 833, key 0x117 = 2
-        Assert.StartsWith("0000" + "73000000" + "45000000" + "00000000" + "0000" + "0002" + "0001" + // flags, base, Positioned
+        Assert.StartsWith("0000" + "73000000" + "45000000" + "00000000" + "0000" + "0000" +          // flags, base, Positioned
             statList + "00000000" + "00000000" + "00", hex);                  // comp1 = Stats
         string actor =
             "00000000" + "0000" + "00" + "00000000" + "00000000" +           // Actor main body
@@ -123,7 +123,7 @@ public class InstanceEntitiesTests
         string pool(uint v) => Convert.ToHexString(BitConverter.GetBytes(v)) + "00000000" + "0000" + "00000000" + "00000000";
         string expected =
             "00" + "00" +                                                     // flags, base data
-            "73000000" + "45000000" + "00000000" + "0100" + "0002" + "0001" + // Positioned (no Sector prefix), team 1, shown
+            "73000000" + "45000000" + "00000000" + "0100" + "0000" +        // Positioned (no Sector prefix), team 1
             "00" + "00000000" + "00000000" + "00" +                           // Stats
             "0800" + "00" + "00" +                                            // ObjectMagicProperties: identified, normal; flags
             "0000" +                                                          // Buffs (BaseEvents, Pathfinding: none)
@@ -133,7 +133,7 @@ public class InstanceEntitiesTests
             "00000000" + "0000" + "00" + "00000000" + "00000000" + "0000" +    // Actor (life >= 1: no conditional u8s)
             "00";                                                             // Monster reads nothing; tasks
         Assert.Equal(expected, Convert.ToHexString(b));
-        Assert.Equal(112, b.Length);
+        Assert.Equal(110, b.Length);
     }
 
     [Fact]
@@ -211,9 +211,9 @@ public class InstanceEntitiesTests
     {
         string plain = Convert.ToHexString(new MonsterObject(1, 2, 100, MonsterObject.BaseComponents).Blob());
         string rare = Convert.ToHexString(new MonsterObject(1, 2, 100, MonsterObject.BaseComponents, Rarity: MonsterRarity.Rare, Name: "Ab").Blob());
-        // Positioned (18) + Stats (10) after flags/base (2): ObjectMagicProperties starts at byte 30.
-        Assert.Equal("0800" + "00" + "00", plain.Substring(60, 8));
-        Assert.Equal("8A00" + "00" + "02000000" + "41006200" + "00", rare.Substring(60, 24));
+        // Positioned (16) + Stats (10) after flags/base (2): ObjectMagicProperties starts at byte 28.
+        Assert.Equal("0800" + "00" + "00", plain.Substring(56, 8));
+        Assert.Equal("8A00" + "00" + "02000000" + "41006200" + "00", rare.Substring(56, 24));
         Assert.Equal(plain.Length + 2 * (4 + 4), rare.Length);
     }
 
@@ -234,7 +234,7 @@ public class InstanceEntitiesTests
             "02" + "44332211" + "88776655" +                    // the name: prefix, suffix keys
             "02" + "CDAB" + "28" + "0201" + "BFB0" + "80C8" +   // explicit: 40 (one byte); -80 and 200 (two bytes, 0x80 prefix)
             "00";                                               // the component's own flags
-        Assert.Equal(omp, hex.Substring(60, omp.Length));
+        Assert.Equal(omp, hex.Substring(56, omp.Length));
         Assert.Equal(plain.Length - 8 + omp.Length, hex.Length);
     }
 
@@ -242,7 +242,7 @@ public class InstanceEntitiesTests
     public void A_custom_name_wins_over_name_words()
     {
         var named = new MonsterObject(1, 2, 100, MonsterObject.BaseComponents, Rarity: MonsterRarity.Rare, Name: "Ab") { NameWords = [1] };
-        Assert.Equal("8A00" + "00" + "02000000" + "41006200" + "00", Convert.ToHexString(named.Blob()).Substring(60, 24));
+        Assert.Equal("8A00" + "00" + "02000000" + "41006200" + "00", Convert.ToHexString(named.Blob()).Substring(56, 24));
     }
 
     [Fact]
@@ -310,8 +310,8 @@ public class InstanceEntitiesTests
         // Only the uniform scale: the x / y stretches multiply it, so they stay 1.
         Assert.Equal(1f, BitConverter.ToSingle(scaled, 2 + 20));
         Assert.Equal(1f, BitConverter.ToSingle(scaled, 2 + 24));
-        // shown (0 1), Animated 0, TriggerableBlockage blocked with no list (1 0), Transitionable 1, tasks 0.
-        Assert.Equal("0001" + "00" + "0100" + "01" + "00", Convert.ToHexString(scaled.AsSpan(scaled.Length - 7)));
+        // Animated 0, TriggerableBlockage blocked with no list (1 0), Transitionable 1, tasks 0.
+        Assert.Equal("00" + "0100" + "01" + "00", Convert.ToHexString(scaled.AsSpan(scaled.Length - 5)));
     }
 
     [Fact]
@@ -413,9 +413,9 @@ public class InstanceEntitiesTests
     [Fact]
     public void Effect_object_blob()
     {
-        // flags, base data count, Positioned (x, y, rotation, team, f0, f1 0x02, 0, 1), Animated bit0 + u32-counted UTF-16 path, tasks.
+        // flags, base data count, Positioned (x, y, rotation, team, f0, f1), Animated bit0 + u32-counted UTF-16 path, tasks.
         byte[] b = new EffectObject(10, 20, "a.ao").Blob();
-        Assert.Equal("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "02" + "00" + "01" + "01" + "04000000" + "61002E0061006F00" + "00",
+        Assert.Equal("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "00" + "01" + "04000000" + "61002E0061006F00" + "00",
             Convert.ToHexString(b));
     }
 
@@ -487,20 +487,20 @@ public class InstanceEntitiesTests
     [Fact]
     public void A_pet_does_not_block_walkers()
     {
-        // Positioned: x, y, rotation, u16, flags0 0, flags1 0x0a, the shown pair (0, 1), then 1 for flags1 0x08.
+        // Positioned: x, y, rotation, u16, flags0 0, flags1 0x08, then its 1.
         byte[] blob = new PetObject(10, 20, 0x1000).Blob();
-        Assert.Equal("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "0A" + "00" + "01" + "01", Convert.ToHexString(blob[..21]));
+        Assert.Equal("0000" + "0A000000" + "14000000" + "00000000" + "0000" + "00" + "08" + "01", Convert.ToHexString(blob[..19]));
     }
 
     [Fact]
     public void An_effect_object_with_a_fixed_rotation_sets_positioned_flags0_0x80()
     {
-        // object flags, entry count, x, y, f32 rotation, u16, flags0, flags1 (0x02: shown)
+        // object flags, entry count, x, y, f32 rotation, u16, flags0, flags1
         byte[] fixedRing = new EffectObject(10, 20, "Metadata/Effects/Spells/ri_fire/rifire.ao") { Flags0 = EffectObject.FixedRotation }.Blob();
         byte[] plain = new EffectObject(10, 20, "Metadata/Effects/Spells/ri_fire/rifire.ao").Blob();
         Assert.Equal(0x80, fixedRing[16]);
         Assert.Equal(0x00, plain[16]);
-        Assert.Equal(0x02, fixedRing[17]);
+        Assert.Equal(0x00, fixedRing[17]);
         Assert.Equal(plain.Length, fixedRing.Length);
     }
 
@@ -512,7 +512,7 @@ public class InstanceEntitiesTests
         var ring = new EffectObject(10, 20, "a.ao") { Flags0 = EffectObject.FixedRotation, Scale = 0.5f };
         byte[] scaled = ring.Blob(), plain = (ring with { Scale = 1 }).Blob();
         Assert.Equal(0xa0, scaled[16]);
-        Assert.Equal(0x02, scaled[17]);
+        Assert.Equal(0x00, scaled[17]);
         Assert.Equal("0000003F" + "0000803F" + "0000803F", Convert.ToHexString(scaled[18..30]));
         Assert.Equal(plain.Length + 12, scaled.Length);
         Assert.Equal(plain[18..], scaled[30..]);
@@ -688,7 +688,7 @@ public class InstanceEntitiesTests
         byte[] b = new MonsterObject(0x73, 0x45, Life: 15, MonsterObject.BaseComponents,
             Skills: [new GrantedSkill(0x0102, 4394, 4320, [.. stats, (0x4f32, 1)])], Stats: stats).Blob();
         string hex = Convert.ToHexString(b);
-        Assert.Contains("0001" + "01" + "8142" + "8960" + "00000000" + "00000000" + "00", hex);   // Stats after Positioned
+        Assert.Contains("0000" + "01" + "8142" + "8960" + "00000000" + "00000000" + "00", hex);   // Stats after Positioned
         Assert.EndsWith("4000" + "01" + "0201" + "00" + "2A110000" + "00" + "E0100000" + "00" + "00" +
             "00000000" + "00000000" + "00000000" + "00" + "02" + "8142" + "8960" + "C04F32" + "01" + "00" + "00000000" + "00", hex);
     }

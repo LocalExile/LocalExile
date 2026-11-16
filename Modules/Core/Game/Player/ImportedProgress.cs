@@ -30,7 +30,7 @@ public static class ImportedProgress
         {
             int needed = int.Parse(budget, NumberStyles.None, CultureInfo.InvariantCulture);
             if (needed is < 0 or > ushort.MaxValue) throw new InvalidDataException("Invalid imported passive point budget.");
-            extra = checked((ushort)Math.Max(0, needed - QuestStaticRewards.Default.Value.PassivePoints(flags)));
+            extra = checked((ushort)Math.Max(0, needed - QuestStaticRewards.Default.PassivePoints(flags)));
         }
         return save with { QuestFlags = flags.ToList(), ExtraPassivePoints = extra, ModuleData = remaining.Count == 0 ? null : remaining };
     }

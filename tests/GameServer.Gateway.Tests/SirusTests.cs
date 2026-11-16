@@ -13,12 +13,12 @@ public sealed class SirusTests
     public async Task Normal_encounter_uses_native_actors_and_four_guarded_phases_and_pays_once_after_the_body_dies()
     {
         using var runtime = new Runtime(); using var wire = new Wire();
-        var arrival = new ClientState(AreaLayouts.For(1789, 625343342), 1, 625343342) { Instance = new() };
+        var arrival = new ClientState(AreaLayouts.For(1789, 625343342), 1, 625343342) { LockstepClient = false, Instance = new() };
         Sirus.ConfigureArrival(arrival);
         Assert.InRange(arrival.Layout.SpawnX, 1750, 1900);
         Assert.Equal(6, arrival.Layout.AreaTransitions.Count(t => t.Id is >= 0x2f00 and <= 0x2f05));
         var c = new ClientState(new(1789, Sirus.Area, 4000, 4000, 1845, 1994, (_, _) => true, []), 1, 1)
-        {
+        { LockstepClient = false,
             Character = "SirusRegression", PlayerSent = true, Instance = new(), PlayerLife = 1000000,
             Pools = new(100, 1000000, 100, 1, 0), Wire = ("sirus-regression", wire.Stream, wire.Ciphers), Immune = true,
         };

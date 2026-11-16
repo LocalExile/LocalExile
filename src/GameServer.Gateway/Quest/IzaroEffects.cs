@@ -9,6 +9,12 @@ using GameServer.Core;
 /// </summary>
 public static partial class IzaroEffects
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        All = LoadAll();
+    }
+
     /// <summary>A row: its Id, mechanic (ToggleStatues, Gargoyles, Portals …), tier (1 Normal … 4 Endgame; 0 every tier: the
     /// portals', the Chrono Statues' and the Lieutenants' <c>…&lt;n&gt;_&lt;element&gt;</c>), element (0 fire, 1 cold, 2 lightning), whether it is the "…2" one, its
     /// monster variety's Id or object type (empty when none), Izaro's buff row (a portal that has not returned has none:
@@ -18,15 +24,15 @@ public static partial class IzaroEffects
 
     /// <summary>A mechanic's three effects of a tier (fire, cold, lightning), or their "…2" ones.</summary>
     public static IReadOnlyList<Effect> Of(string mechanic, int tier, bool returning) =>
-        [.. All.Value.Where(e => e.Mechanic == mechanic && (e.Tier == tier || e.Tier == 0) && e.Returning == returning).OrderBy(e => e.Element)];
+        [.. All.Where(e => e.Mechanic == mechanic && (e.Tier == tier || e.Tier == 0) && e.Returning == returning).OrderBy(e => e.Element)];
 
-    public static Effect? Find(string id) => All.Value.FirstOrDefault(e => e.Id == id);
+    public static Effect? Find(string id) => All.FirstOrDefault(e => e.Id == id);
 
     /// <summary>The "…2" effect of an effect (the one a later trial brings back).</summary>
     public static Effect? ReturningOf(string id) => Find(id) is { } e
-        ? All.Value.FirstOrDefault(r => r.Mechanic == e.Mechanic && r.Tier == e.Tier && r.Element == e.Element && r.Returning) : null;
+        ? All.FirstOrDefault(r => r.Mechanic == e.Mechanic && r.Tier == e.Tier && r.Element == e.Element && r.Returning) : null;
 
-    public static bool IsType(string type) => type.Length > 0 && All.Value.Any(e => e.Type == type && !e.Returning);
+    public static bool IsType(string type) => type.Length > 0 && All.Any(e => e.Type == type && !e.Returning);
 
     /// <summary>Whether the trial's arena has the mechanic (its "…1" LabyrinthSecrets row).</summary>
     public static bool InArena(IzaroFights.Trial trial, string mechanic) =>
@@ -62,7 +68,9 @@ public static partial class IzaroEffects
 
     static int UntieredElement(string name) => name switch { "Fire" or "1" or "Bull" => 0, "Cold" or "2" or "Melee" => 1, _ => 2 };
 
-    static readonly Lazy<List<Effect>> All = new(() =>
+    static List<Effect> All = default!;
+
+    static List<Effect> LoadAll()
     {
         var all = new List<Effect>();
         try
@@ -106,5 +114,5 @@ public static partial class IzaroEffects
             Console.WriteLine($"[gateway] Izaro's mechanics: {ex.Message}");
         }
         return all;
-    });
+    }
 }

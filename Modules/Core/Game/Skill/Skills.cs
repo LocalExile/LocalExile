@@ -1110,14 +1110,14 @@ public static partial class Game
         string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
         LeagueRuntime league, IReadOnlyList<PassiveGrantedSkills.Grant> granted)
     {
-        var catalog = league.HardMode ? HardModeItems.Value : Items;
+        var catalog = league.HardMode ? HardModeItems : Items;
         string name = string.IsNullOrEmpty(character) ? "Exile" : character;
         var gems = places
             .Where(g => catalog.ByHash(g.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
             .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
         var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
             .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
-                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool.Value);
+                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool);
         // Gems in an inactive item grant nothing, but keep their id.
         for (int i = 0; i < gems.Count; i++)
             if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
@@ -1185,7 +1185,7 @@ public static partial class Game
                 var ascendancy = save.MainAscendancy ?? new();
                 var nodes = new List<ushort>(save.Passives ?? []);
                 ushort extra = save.ExtraPassivePoints ?? 0, refunds = save.RefundPoints ?? 0;
-                int points = Progression.PassivePoints(level) + extra + QuestStaticRewards.Default.Value.PassivePoints(save.QuestFlags ?? []) + Game.AscendancyRules.OrdinaryPointsGranted(
+                int points = Progression.PassivePoints(level) + extra + QuestStaticRewards.Default.PassivePoints(save.QuestFlags ?? []) + Game.AscendancyRules.OrdinaryPointsGranted(
                     (byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
                 TrimOrdinaryPassives(conn, nodes, points, ascendancy);
                 var masteries = (save.MasteryEffects ?? []).Where(kv => nodes.Contains(kv.Key))

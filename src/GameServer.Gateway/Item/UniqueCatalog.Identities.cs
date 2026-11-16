@@ -10,7 +10,7 @@ public sealed partial class UniqueCatalog
     UniqueName? Identity(Definition definition)
     {
         if (definition.VisualIdentityId is not { Length: > 0 } visualId)
-            return _names.Value.GetValueOrDefault(NameKey(definition.Name));
+            return _names.GetValueOrDefault(NameKey(definition.Name));
         if (items.Visual(visualId) is not ushort visual || !ClientTables.Has("Words")) return null;
         uint? word = ClientTables.Table("Words").Where(r => r.Int("Wordlist") == 6
             && NameKey(r.Text("Text") ?? "") == NameKey(definition.Name)).Select(r => (uint?)r.UInt("HASH32")).FirstOrDefault();

@@ -26,6 +26,13 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// </summary>
 public static class PassiveBuffAuras
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        normal = Load("data", ruthless: false);
+        ruthlessAuras = Load("data", ruthless: true);
+    }
+
     /// <summary>A passive's buff: its BuffTemplates row and Id, BuffDefinitions row, radius (cells, 0 on the player),
     /// whom it affects (<c>__col4</c>) and its stats.</summary>
     public sealed record Aura(int Row, string Template, ushort Definition, int Radius, IReadOnlyList<int> Targets,
@@ -61,12 +68,12 @@ public static class PassiveBuffAuras
         "CustomAscendancyIllegalFisherman", // Surfcaster Ghost of the Deep: BuffDefinitions 2550 Torment Touched
     ];
 
-    static readonly Lazy<Dictionary<ushort, Aura[]>> normal = new(() => Load("data", ruthless: false));
-    static readonly Lazy<Dictionary<ushort, Aura[]>> ruthlessAuras = new(() => Load("data", ruthless: true));
+    static Dictionary<ushort, Aura[]> normal = default!;
+    static Dictionary<ushort, Aura[]> ruthlessAuras = default!;
 
     /// <summary>Every buff of these nodes (PassiveSkillGraphIds), one per template however many nodes grant it.</summary>
     public static IReadOnlyList<Aura> For(IEnumerable<ushort> nodes, bool ruthless = false) =>
-        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).Value.GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
+        [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
 
     /// <summary>The enemy auras of these nodes the server applies.</summary>
     public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>

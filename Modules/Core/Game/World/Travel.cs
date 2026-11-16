@@ -160,6 +160,7 @@ public static partial class Game
                 if (!PlayerActionCurrent(conn, action)) return;
                 conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
+            await SendTransitionFade(remote, stream, ciphers, conn, (tx, ty), $"the gate 0x{use.TargetId:x}");
             if (await SendWorldRecord(conn, PlayerId, () => InstanceProtocol.Teleport(PlayerId, tx, ty),
                 $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), destination gate at ({pair.X}, {pair.Y})",
                 still: () => PlayerActionCurrent(conn, action)))
@@ -212,6 +213,27 @@ public static partial class Game
     // Arakaali's return gate and telepad are on the balcony outside her closed web. Until the encounter's scripted
     // entrance is modelled, the arena entrance must land on the boss room's floor, rather than beside that return gate.
     // Use the placed room's footprint so every seed and orientation supplies its own coordinates.
+    // S→C 0xcb with s seconds queues a move on the client (FUN_14218ba10): the screen darkens over 0.8 s, the move
+    // lands after 2 s of world time, then the screen clears over 1.6 s (FUN_141659f70), so one alone stays black for
+    // 1.2 s. A second one sent right after replaces the darkening's length while it has not begun (FUN_1410c3720), so:
+    // the first (the move) clears from 2 × 0.18 = 0.36 s to 0.65 s, the second darkens over 0.8 × 0.25 = 0.2 s, and its own
+    // end (0.5 s) falls in the clearing, where it starts no other (traced live). The teleport goes once the screen is black
+    // (0.2 s): it applies at a frame's end, so one sent at the move's end landed while the screen was clearing.
+    // Not measured against GGG's.
+    const float TransitionMoveSeconds = 0.18f, TransitionDarkenSeconds = 0.25f;
+
+    /// <summary>The screen's fade as the player goes through a way within the area (a gate, a trial's return portal):
+    /// S→C 0xcb with its fade bit, then a wait for the screen to go black, so the teleport sent next lands while it is.</summary>
+    public static async Task SendTransitionFade(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        (int X, int Y) to, string through)
+    {
+        await Send(remote, stream, ciphers, [.. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionMoveSeconds),
+                .. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionDarkenSeconds)],
+            $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
+        double until = conn.Clock.Elapsed.TotalSeconds + 0.8 * TransitionDarkenSeconds;
+        while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < until) await Task.Delay(16);
+    }
+
     public static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
     {
         if (transition.TeleportTo is not { } pair) throw new ArgumentException("The transition is not an intra-area gate.", nameof(transition));
@@ -326,7 +348,7 @@ public static partial class Game
         var own = conn.QuestFlagsSnapshot();
         string[] endgame;
         lock (conn.Monsters) endgame = [.. Quests.EndgameOnly.Where(conn.UnearnedQuestFlags.Contains)];
-        if (endgame.Length > 0 && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);
+        if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))

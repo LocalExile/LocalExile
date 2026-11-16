@@ -8,7 +8,15 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static readonly Lazy<Dictionary<string, StateMachineData>> ProjectileStateMachines = new(() =>
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadProjectilesData()
+    {
+        ProjectileStateMachines = LoadProjectileStateMachines();
+    }
+
+    static Dictionary<string, StateMachineData> ProjectileStateMachines = default!;
+
+    static Dictionary<string, StateMachineData> LoadProjectileStateMachines()
     {
         var states = ObjectTypes.SharedStates();
         var machines = new Dictionary<string, StateMachineData>(StringComparer.OrdinalIgnoreCase);
@@ -20,13 +28,13 @@ public static partial class Game
                 machines[path] = machine;
         }
         return machines;
-    });
+    }
 
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
     public static byte[] CreateProjectileObject(uint id, ProjectileObject obj)
     {
-        if (obj.StateMachine is null && ProjectileStateMachines.Value.TryGetValue(obj.TypePath, out var machine))
+        if (obj.StateMachine is null && ProjectileStateMachines.TryGetValue(obj.TypePath, out var machine))
             obj = obj with { StateMachine = machine };
         return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
     }

@@ -5,15 +5,23 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadElusiveData()
+    {
+        ElusiveBuffRow = LoadElusiveBuffRow();
+    }
+
     // BuffDefinitions' "elusive" row: 15% chance to avoid damage from hits and 30% increased movement speed at
     // 100% effect, losing 20% of that effect per second.
-    static readonly Lazy<ushort> ElusiveBuffRow = new(() =>
+    static ushort ElusiveBuffRow = default!;
+
+    static ushort LoadElusiveBuffRow()
     {
         if (!ClientTables.Has("BuffDefinitions")) return (ushort)1374;
         foreach (var row in ClientTables.Table("BuffDefinitions"))
             if (row.Text("Id") == "elusive") return (ushort)row.Index;
         return (ushort)1374;
-    });
+    }
 
     /// <summary>The Elusive effect at the connection's current game time: 1 at the start, 0.2 less per second, 0
     /// when it ended. Modifiers to Elusive effect raise the starting value and the duration together.</summary>
@@ -101,11 +109,11 @@ public static partial class Game
                     if (created) conn.ElusiveBuff = conn.NextBuff++;
                     conn.ElusiveEffectPercent = percent;
                     // Row 1374 ("elusive") has the __col44 bool (+0xff), so its 0x1c1 must carry the u16 at +0x82.
-                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow.Value, PlayerId,
+                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow, PlayerId,
                         u68: BitConverter.SingleToUInt32Bits((float)(conn.ElusiveUntil - now)),
                         u82: unchecked((ushort)(percent - 100)));
                     if (created)
-                        Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} for {conn.ElusiveUntil - now:0.###} s at {percent}% (row {ElusiveBuffRow.Value})");
+                        Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} for {conn.ElusiveUntil - now:0.###} s at {percent}% (row {ElusiveBuffRow})");
                 }
             }
             // The effect loses 20% per second, so the movement speed changes a handful of times per buff: rebuild the

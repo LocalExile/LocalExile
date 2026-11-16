@@ -699,8 +699,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
             switch (c)
             {
                 // x, y, f32 rotation (+0x29c), u16 team (+0x1e0; the player is team 0: 0 = friendly, green outline;
-                // 1 = hostile, red), flags; flags1 0x02 + (hidden 0, shown 1) as for the player.
-                case "Positioned": w.I32(GridX).I32(GridY).F32(Rotation).U16(Team).U8(0).U8(0x02).U8(0).U8(1); break;
+                // 1 = hostile, red); blocking is the type's own.
+                case "Positioned": w.Positioned(GridX, GridY, Rotation, Team); break;
                 case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
                 // base magic properties (0x142208700, Instance.MagicProperties): u16 flags (bits 0-2 rarity → +0x7c,
                 // 0 = normal; bit 3 identified → +0x78, which gates the name and the explicit list), u8 +0x7a, the mod
@@ -790,9 +790,9 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported pet components: {string.Join(", ", Components!)}");
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                        // object flags, base data entries
-        // Positioned: team 0 (the player's), shown, and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
+        // Positioned: team 0 (the player's), and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
         // collision test (0x141e65ae0) skips: walkers, the player's own included, pass through the pet.
-        w.I32(GridX).I32(GridY).U32(0).U16(0).U8(0).U8(0x0a).U8(0).U8(1).U8(1);
+        w.Positioned(GridX, GridY, blocksNoWalker: true);
         w.Stats([]).U32(0).U32(0).U8(0);                                      // Stats
         w.U16(0);                                                             // Buffs
         Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);                          // Life: alive
@@ -916,12 +916,10 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     public byte[] Blob()
     {
         var w = new BlobWriter();
-        bool scaled = Scale != 1;
         w.U8(0).U8(0);                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
-        if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
-        if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
-        w.U8(0).U8(1);
+        // Positioned: on the terrain; flags0 0x04's pair carries the native animation fields.
+        w.Positioned(GridX, GridY, Rotation, scale: Scale, flags0: (byte)(Flags0 & 0x81),
+            fixedHeight: (Flags0 & 4) != 0 ? ((int)AnimationWord, AnimationValue) : null);
         w.U8(AnimatedFlags != 0 ? AnimatedFlags : Parent != 0 ? (byte)5 : (byte)1).WStr32(AnimatedObject); // Animated
         // Bit 3 makes the client read the animation's id, a second word and its speed after the path (the official
         // rain rig's 12 bytes: id, 0, 1.0); without them the read runs past the blob and crashes the client.
@@ -991,8 +989,7 @@ public sealed record RitualPillarObject(int GridX, int GridY, float Rotation, st
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        // Positioned: the room's static blocking object, team 0 and shown (as the hideout doodads).
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        w.Positioned(GridX, GridY, Rotation);                                       // Positioned
         w.U8(1).WStr32(Model);                                                      // Animated: explicit art
         States.Write(w);                                                            // StateMachine: active_pillars
         w.Stats([]).U32(0).U32(0).U8(0);                                            // Stats: the .ot's own stat defaults
@@ -1016,10 +1013,7 @@ public sealed record BlockerObject(int GridX, int GridY, float Rotation, float S
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                                              // object flags, base data entry count
-        bool scaled = Scale != 1;
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)(scaled ? 0x20 : 0)).U8(0x02);
-        if (scaled) w.F32(Scale).F32(1).F32(1);                                     // uniform scale, x and y stretch
-        w.U8(0).U8(1);                                                              // shown
+        w.Positioned(GridX, GridY, Rotation, scale: Scale);                         // Positioned: the room's scale
         w.U8(0);                                                                    // Animated: the type's own
         w.U8(1).U8(0);                                                              // TriggerableBlockage: blocked
         w.U8(1);                                                                    // Transitionable: state 1
@@ -1109,6 +1103,37 @@ public sealed class BlobWriter
 {
     private readonly List<byte> _b = [];
     public byte[] ToArray() => [.. _b];
+    /// <summary>
+    /// The Positioned component (reader 0x141e323f0), written in the reader's order: x, y, rotation, u16 team (+0x1e0), u8
+    /// flags0, u8 flags1, then flags0 0x20's uniform scale and x / y stretch, flags0 0x04's i32 and f32, flags1 0x02's
+    /// pair, flags1 0x08's u8.
+    /// <para>Blocking is the object type's own unless <paramref name="blocking"/> overrides it. The client's Positioned
+    /// constructor (0x141e31ca0) copies the type's <c>blocking</c> (.ot Positioned, type +0x16; unset is false, the type
+    /// constructor 0x141e281d0) into +0x1e5 bit 0x08 and clears +0x1e7. flags1 0x02's pair then sets +0x1e7 bit 0 and,
+    /// in its second byte, that blocking bit. So the pair is written only to override.</para>
+    /// <para><paramref name="dynamic"/>: flags1 0x20, +0x1e7 bit 1 (no static position: the walk grid gets the
+    /// object's Hull only while its TriggerableBlockage is blocked). <paramref name="blocksNoWalker"/>: flags1 0x08 with 1,
+    /// +0x1e6 bit 0x40 (the body test 0x141e65ae0 skips the object). <paramref name="flags0"/>: flags0's other bits (0x01,
+    /// 0x80); 0x04 and 0x20 follow <paramref name="fixedHeight"/> and <paramref name="scale"/>.</para>
+    /// </summary>
+    public BlobWriter Positioned(int x, int y, float rotation = 0, ushort team = 0, float scale = 1, (int I, float F)? fixedHeight = null,
+        bool? blocking = null, bool dynamic = false, bool blocksNoWalker = false, byte flags0 = 0)
+    {
+        bool scaled = scale != 1;
+        byte f0 = (byte)((flags0 & ~0x24) | (scaled ? 0x20 : 0) | (fixedHeight is null ? 0 : 0x04));
+        byte f1 = (byte)((blocking is null ? 0 : 0x02) | (blocksNoWalker ? 0x08 : 0) | (dynamic ? 0x20 : 0));
+        I32(x).I32(y).F32(rotation).U16(team).U8(f0).U8(f1);
+        if (scaled) F32(scale).F32(1).F32(1);
+        if (fixedHeight is { } h) I32(h.I).F32(h.F);
+        if (blocking is bool b) U8(0).U8((byte)(b ? 1 : 0));
+        if (blocksNoWalker) U8(1);
+        return this;
+    }
+
+    /// <summary>Positioned flags0 0x04's pair for a fixed height <paramref name="z"/> (world z, down): whole steps of 7.8125
+    /// and the z itself, as a tile record's height (<see cref="Positioned"/>).</summary>
+    public static (int I, float F) FixedHeight(float z) => ((int)MathF.Round(z / 7.8125f), z);
+
     public BlobWriter U8(byte v) { _b.Add(v); return this; }
     public BlobWriter U16(ushort v) { _b.Add((byte)v); _b.Add((byte)(v >> 8)); return this; }
     public BlobWriter U32(uint v) { U16((ushort)v); return U16((ushort)(v >> 16)); }
@@ -1139,7 +1164,7 @@ public sealed class BlobWriter
 /// 0x1421993f0). Pathfinding and 0x1435aa590 read nothing. Comps 10/11 (0x1434730b8, 0x143476978) are still unverified.
 /// </summary>
 public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int GridY,
-    uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, bool Shown = true, string? AnimatedObject = null,
+    uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, string? AnimatedObject = null,
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
@@ -1207,11 +1232,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         var w = new BlobWriter();
         w.U8(0);            // object flags (0x141ec4a40: bit0 → +0x8c|0x80, bit1 → +0x8d|2)
         w.U8(0);            // base data entry count (0x141dedf80)
-        // Positioned (0x141e323f0): x, y, u32 +0x29c, u16 +0x1e0, two flag bytes. The type's +0x21 prefix (Sector) is off.
-        // flags1 0x02 adds two bytes: hidden (→ +0x1e7 bit0) and shown (→ +0x1e5 bit3); both changes call the object's
-        // vtable +0xb0 (visibility). Without "shown" the player entity exists but its model is not drawn.
-        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(Shown ? (byte)0x02 : (byte)0);
-        if (Shown) w.U8(0).U8(1);
+        // Positioned (BlobWriter.Positioned): the type's +0x21 prefix (Sector) is off; blocking is the character type's
+        // own (true for every class's .ot).
+        w.Positioned(GridX, GridY, Rotation);
         // comp1 = Stats (0x1421c98b0): compact-int count of (compact-int key, value) pairs, then u32 +0x28, u32 +0x2c, u8
         // +0x30. Keys are the client's stat ids (Stats.dat row + 1).
         w.Stats(Stats).U32(0).U32(0).U8(0);

@@ -4,6 +4,12 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadOwnAurasData()
+    {
+        SublimeRestrictions = LoadSublimeRestrictions();
+    }
+
     sealed record AuraReconcileInputs(object? ItemSources, ItemCatalog Items, SkillCatalog Skills,
         CharacterStats.Pools Pools, Dictionary<uint, int> Sources, Dictionary<uint, int> Overrides,
         (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras,
@@ -61,20 +67,22 @@ public static partial class Game
         }
     }
 
-    static readonly Lazy<(string Family, uint Key)[]> SublimeRestrictions = new(() =>
+    static (string Family, uint Key)[] SublimeRestrictions = default!;
+
+    static (string Family, uint Key)[] LoadSublimeRestrictions() =>
         (from family in new[] { "Anger", "Clarity", "Determination", "Discipline", "Grace", "Haste", "Hatred",
             "Malevolence", "Precision", "Pride", "PurityOfElements", "PurityOfFire", "PurityOfIce",
             "PurityOfLightning", "Vitality", "Wrath", "Zealotry" }
          let name = ReservationStatName(family)
          let key = Stats.Key($"your_auras_except_{name}_are_disabled")
          where key.HasValue
-         select (family, key.Value)).ToArray());
+         select (family, key.Value)).ToArray();
 
     static bool SublimeDisables(ClientState conn, int effect, IReadOnlyDictionary<uint, int> sources)
     {
         string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
         lock (conn.Monsters)
-            return SublimeRestrictions.Value.Any(rule => rule.Family != family &&
+            return SublimeRestrictions.Any(rule => rule.Family != family &&
                 conn.PlayerStats.GetValueOrDefault(rule.Key, sources.GetValueOrDefault(rule.Key)) != 0);
     }
 

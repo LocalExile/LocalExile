@@ -102,6 +102,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
   live 2026-10-29: Spitters came in close). A straight projectile shooter inside range approaches instead when the
   projectile grid blocks its shot. `MinimumAttackDistance` is not read yet.
+  Stand, then act: an in-place action or a summon (a shot, a cast) is ordered only once the actor's walk has ended,
+  for every hostile monster, minion and Rampage weapon chase; in reach it gets no new walk (`StandsToAct`). Before, a
+  Brittle Poacher shot while it walked and teleported back at each order. Checked live 2026-11-16.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
@@ -161,6 +164,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- League encounters: each area rolls every CoreLeagues mechanic at its WorldAreaLeagueChances chance as the client does,
+  and modules place theirs after the packs. Anarchy: wild Rogue Exiles (5% in campaign and map areas), unique, with their
+  level's more life, weapons and archetype kits (hits, travel skills, war cries and buffs, auras, curses on the player,
+  and for any monster: the player's minions, totems, traps, Storm Call markers, shared projectiles, multi-strikes); the
+  map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
+  bosses and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items). Not confirmed live;
+  inert: bow skills, Cremation, and the ground and debuff skills whose radius the client does not hold (Fire Trap, Bear
+  Trap, Desecrate, Caustic Arrow, Wither, Flameblast, Rain of Arrows); possessed exiles (Torment) and the special and
+  exceptional rewards' contents are guesses or missing; the active Atlas preset is the last one changed.
+  Docs: [league encounters](../docs/game/league-encounters.md).
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 

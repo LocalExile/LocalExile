@@ -45,7 +45,7 @@ public static partial class Game
             return false;
         }
         var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
-        if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt.Value;
+        if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
         if (await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentUse, _ =>

@@ -60,13 +60,13 @@ public class OpeningSceneTests
         byte[] standing = player.Blob();
         byte[] washed = (player with { WashedUp = true, Rotation = MathF.PI }).Blob();
         Assert.Equal(MathF.PI, BitConverter.ToSingle(washed, 10));
-        Assert.Equal((byte)1, washed[126]); // Player's WashedUp flag.
-        Assert.Equal(PlayerObject.WashedUpStance, washed[145]); // Actor stance, before its variable-length skill/soul list.
+        Assert.Equal((byte)1, washed[124]); // Player's WashedUp flag.
+        Assert.Equal(PlayerObject.WashedUpStance, washed[143]); // Actor stance, before its variable-length skill/soul list.
         // Exactly one (row, capacity, current) tuple, followed by the cooldown count and tasks.
         Assert.EndsWith("01570000001E000000070000000000000000", Convert.ToHexString(washed));
         Array.Clear(washed, 10, 4);
-        washed[126] = 0;
-        washed[145] = 0;
+        washed[124] = 0;
+        washed[143] = 0;
         Assert.Equal(standing, washed);
 
         using var wire = new Wire();
@@ -292,7 +292,7 @@ public class OpeningSceneTests
         public NetworkStream Stream => writer.GetStream();
         public Wire(InstanceState? instance = null)
         {
-            Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { Instance = instance ?? new(), PlayerLife = 50 };
+            Conn = new(new(0, TutorialObjects.Strand, 32, 32, 10, 10, null, []), 0, 1) { LockstepClient = false, Instance = instance ?? new(), PlayerLife = 50 };
             listener.Start();
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);

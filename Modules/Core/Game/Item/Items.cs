@@ -856,36 +856,87 @@ public static partial class Game
 
     public static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
 
-    internal static async Task PickUpNearbyGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // The longest step between two gold checks that counts as a path walked (a dash, a late tick): a longer one is a
+    // teleport (a gate, a portal), whose line crosses ground the player never stood near.
+    const double GoldPathLimit = 80;
+
+    /// <summary>Picks up the gold within the auto-loot radius of the way the player went since the last check
+    /// (<paramref name="from"/>, as a straight line), not only of where it stands now: at a walk's 37 cells/s a 250 ms
+    /// tick moves 9 cells, a movement skill or a late tick many more, and gold passed between two checks stayed there.
+    /// Returns where the player stood, for the next check.</summary>
+    internal static async Task<(int X, int Y)> PickUpNearbyGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        (int X, int Y)? from = null)
     {
-        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0
-            || !GameEvents.AllowsLoot(conn)) return;
         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold))
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0
+            || !GameEvents.AllowsLoot(conn)) return at;
+        var start = from is { } f && Dist(f, at) <= GoldPathLimit ? f : at;
+        double radius = SystemSettings.Default.GoldAutoLootRadius;
+        var middle = ((start.X + at.X) / 2, (start.Y + at.Y) / 2);
+        foreach (var (id, gold) in conn.Instance.Ground.Within(middle.Item1, middle.Item2, radius + Dist(start, at) / 2 + 1, IsGold))
         {
-            await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
+            if (DistanceToPath((gold.GridX, gold.GridY), start, at) > radius) continue;
+            await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted", start);
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return at;
         }
+        return at;
     }
 
-    // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
-    public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
+    // How far a cell is from the straight way between two others.
+    static double DistanceToPath((int X, int Y) at, (int X, int Y) from, (int X, int Y) to)
     {
-        await Send(remote, stream, ciphers, [], $"gold 0x{id:x} {how} (+{ground.Item.StackSize})", atGate: () =>
+        double dx = to.X - from.X, dy = to.Y - from.Y, length = dx * dx + dy * dy;
+        double t = length <= 0 ? 0 : Math.Clamp(((at.X - from.X) * dx + (at.Y - from.Y) * dy) / length, 0, 1);
+        double x = from.X + t * dx - at.X, y = from.Y + t * dy - at.Y;
+        return Math.Sqrt(x * x + y * y);
+    }
+
+    // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory. Auto-loot takes it
+    // within the radius of the way from pathFrom to where the player is when the pickup is sent.
+    public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how,
+        (int X, int Y)? pathFrom = null)
+    {
+        // The removal goes as a world record, after the pile's create: on a lockstep client the create applies only at
+        // its frame's end, and a removal sent at once beside it (gold dropped at the player's feet) came first, was
+        // ignored, and left a pile on the ground that was already taken.
+        byte[]? update = null;
+        string log = $"gold 0x{id:x} {how} (+{ground.Item.StackSize})";
+        if (conn.LockstepClient)
+        {
+            // Only a pile whose create was admitted (SeenGround is set at that gate): asking for the removal of one not yet
+            // sent marked its id as published, and its create, still to come in the kill's output, then failed and closed
+            // the connection (live 2026-11-16). The next tick takes it.
+            lock (conn.Monsters)
+                if (!conn.SeenGround.Contains(id)) return;
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, log, atGate: () =>
+            {
+                if (Take() is not { } bytes) return null;
+                update = bytes[InstanceProtocol.RemoveObject(id).Length..];
+                return bytes[..InstanceProtocol.RemoveObject(id).Length];
+            });
+            if (update is { Length: > 0 }) await Send(remote, stream, ciphers, update, null);
+            return;
+        }
+        await Send(remote, stream, ciphers, [], log, atGate: Take);
+
+        byte[]? Take()
         {
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
                     || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return null;
-                if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
-                    > SystemSettings.Default.GoldAutoLootRadius) return null;
+                if (how == "auto-looted")
+                {
+                    var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    if (DistanceToPath((ground.GridX, ground.GridY), pathFrom ?? here, here) > SystemSettings.Default.GoldAutoLootRadius) return null;
+                }
                 var (by, shared) = conn.Instance.Ground.Origin(id);
                 if (!shared && !ReferenceEquals(by, conn)) return null;
                 if (TakeGroundStack(conn, id, ground) is not { } pickup) return null;
                 conn.SeenGround.Remove(id);
                 return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
             }
-        });
+        }
     }
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);

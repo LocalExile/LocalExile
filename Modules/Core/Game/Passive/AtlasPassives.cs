@@ -7,22 +7,30 @@ using GameServer.Core;
 /// start with <c>atlas_</c>. The client supplies the tree's geometry and connectivity, so the server needs the node ids
 /// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests.
 /// </summary>
-public sealed class AtlasPassives(string folder = "data")
+public sealed class AtlasPassives
 {
+    readonly string folder;
+
+    public AtlasPassives(string folder = "data")
+    {
+        this.folder = folder;
+        _nodes = LoadNodes(folder);
+    }
+
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
         IReadOnlyList<(uint Key, int Value)> Stats);
 
-    readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder));
+    readonly Dictionary<ushort, Node> _nodes;
 
-    public IReadOnlyCollection<Node> Nodes => _nodes.Value.Values;
+    public IReadOnlyCollection<Node> Nodes => _nodes.Values;
 
-    public int Count => _nodes.Value.Count;
+    public int Count => _nodes.Count;
 
-    public bool Loaded => _nodes.Value.Count > 0;
+    public bool Loaded => _nodes.Count > 0;
 
-    public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
+    public Node? Find(ushort graphId) => _nodes.GetValueOrDefault(graphId);
 
-    public Node? FindById(string id) => _nodes.Value.Values.FirstOrDefault(n => n.Id == id);
+    public Node? FindById(string id) => _nodes.Values.FirstOrDefault(n => n.Id == id);
 
     static Dictionary<ushort, Node> LoadNodes(string folder)
     {

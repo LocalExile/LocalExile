@@ -75,54 +75,8 @@ public static class InstanceProtocol
     /// 100–500 ms in state 3 by 0x14214f1d0) and 0x7d area generated (two u32 hashes; 10 in all).</summary>
     public const ushort UseSkillAtLocationId = 0x25, ActionStartedId = 0x1ab;
 
-    /// <summary>Encrypted C→S messages whose length is known (live captures 2026-10-16): 0x1b tick, 0x7d area generated,
-    /// 0x25 use skill at location (16), 0x015a and 0x01ef (id only). 0x0099 is 4 bytes (class 0x1435cac90, write
-    /// 0x141f9bc30: two u8, meaning unknown), sent after entering an area together with the chat channel joins
-    /// (<see cref="InstanceChat.JoinChannelId"/>) and 0x0129 (id only); the 20 bytes once taken for 0x0099 were all four.</summary>
-    public static int? KnownClientLength(ushort id) => id switch
-    {
-        InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
-        InstanceDivination.MoveId => InstanceDivination.MoveLength,
-        InstanceDelve.UpgradesRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
-        TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
-        InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
-        InstanceChat.LinkAnotherId => InstanceChat.LinkAnotherLength,
-        // Primary 3.29.3c writers: 0x140e27920 (u16 + u8), 0x141f99e90 (u16 + 4/2/2/4/1/1 bytes).
-        0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
-        InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
-        InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
-        InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
-        InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
-        InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
-        InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
-        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength,
-        InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
-        InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
-        // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
-        InstanceMapDevice.MoveIntoDeviceId => InstanceMapDevice.MoveItemLength,
-        InstanceMapDevice.MoveOutOfDeviceId => InstanceMapDevice.MoveItemLength,
-        InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
-        InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
-        InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
-        InstanceItems.LevelUpGemId => 14, InstanceItems.LevelUpAllGemsId => InstanceItems.LevelUpAllGemsLength, InstanceItems.LockGemId => InstanceItems.LockGemLength,
-        InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
-        InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
-        UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
-        InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
-        InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
-        InstanceWaypoints.AscendancyChosenId => InstanceWaypoints.AscendancyChosenLength,
-        InstanceWaypoints.DescendancyChosenId => InstanceWaypoints.DescendancyChosenLength,
-        InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
-        InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
-        InstanceHideouts.SelectId => InstanceHideouts.SelectLength,
-        InstanceHideoutEditing.MoveId => InstanceHideoutEditing.MoveLength,
-        InstanceBench.CraftId => InstanceBench.CraftLength, InstanceBench.MoveId => InstanceBench.MoveLength, InstanceHarvest.CraftId => InstanceHarvest.CraftLength,
-        InstanceCurrencyExchange.RequestOrdersId => InstanceCurrencyExchange.RequestOrdersLength, InstanceCurrencyExchange.PlaceOrderId => InstanceCurrencyExchange.PlaceOrderLength,
-        InstanceCurrencyExchange.CloseOrderId => InstanceCurrencyExchange.CloseOrderLength, InstanceCurrencyExchange.ClaimId => InstanceCurrencyExchange.ClaimLength,
-        InstanceCurrencyExchange.RequestMarketId => InstanceCurrencyExchange.RequestMarketLength, InstanceCurrencyExchange.RequestPartnersId => InstanceCurrencyExchange.RequestPartnersLength,
-        InstanceCurrencyExchange.RequestFeeId => InstanceCurrencyExchange.RequestFeeLength, _ => null,
-    };
+    /// <summary>The fixed length of a C→S message (<see cref="ClientPackets"/>), null for one read from the message or not listed.</summary>
+    public static int? KnownClientLength(ushort id) => ClientPackets.Find(id)?.FixedLength;
 
     /// <summary>
     /// C→S 0x190 (12 bytes): use an instant skill at a ground point, without an action sequence.
@@ -496,6 +450,18 @@ public static class InstanceProtocol
     /// selects terrain and ignores worldZ; any other marker pins the object at that world z. The default was once 0,
     /// which pinned every teleported player at z = 0: under the ground wherever the ground is raised (/tp, arena gates,
     /// Resurrect at Checkpoint).</summary>
+    public const ushort FadeMoveId = 0xcb;
+
+    /// <summary>S→C 0xcb (class 0x1435e7860, dispatcher case 0x3d, read 0x1421ab370; no object header): u32 object id,
+    /// i32 x, i32 y, f32 seconds, u32, f32, f32 (all big-endian), u8 flags (bit0 fade, bit1, bit2 → one u8 more). The case
+    /// calls the world's slot +0x350 (0x141659e10), which hands the object, the seconds and the cell to 0x14218ba10 and,
+    /// when the object is the local player and bit0 is set, darkens the screen over 0.8 × seconds (the UI fade
+    /// 0x1410c3720 that ClientGameWorld::FadeToBlack uses too). Both floats above 0 schedule another step (not traced),
+    /// so they stay 0. The u32 is not traced either.</summary>
+    public static byte[] FadeMove(uint objectId, int x, int y, float seconds, bool fade = true) =>
+        new LoginWriter().U16(FadeMoveId).U32(objectId).U32((uint)x).U32((uint)y).U32(BitConverter.SingleToUInt32Bits(seconds))
+            .U32(0).U32(0).U32(0).U8((byte)(fade ? 1 : 0)).ToArray();
+
     public static byte[] Teleport(uint objectId, int x, int y, uint height = FollowTerrain, float worldZ = 0) =>
         new LoginWriter().U16(TeleportId).U32(objectId).U32(0).U16(0).U32((uint)x).U32((uint)y)
             .U32(height).U32(BitConverter.SingleToUInt32Bits(worldZ)).ToArray();
@@ -542,7 +508,7 @@ public static class InstanceProtocol
     }
 
     /// <summary>
-    /// Splits decrypted C→S bytes into messages of known length (fixed, or parsed for 0x15 chat). Stops at the first unknown id (there is no length
+    /// Splits decrypted C→S bytes into the messages <see cref="ClientPackets"/> lists (fixed length, or read from the message). Stops at the first unknown id (there is no length
     /// prefix, so the rest cannot be framed) and returns it as <paramref name="unknown"/>; a known message cut off at the
     /// end is returned as <paramref name="partial"/> to prepend to the next chunk.
     /// </summary>
@@ -555,21 +521,7 @@ public static class InstanceProtocol
         {
             if (data.Length - pos < 2) { partial = data[pos..].ToArray(); break; }
             ushort id = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[pos..]);
-            int? known = id == InstanceDelve.RouteId ? InstanceDelve.RouteLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceChat.ChatId ? InstanceChat.Length(data[pos..]) ?? int.MaxValue
-                : id == InstanceItems.CommandId ? InstanceItems.CommandLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceNpcs.BuyId ? InstanceNpcs.BuyLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.ReorderTabsId ? InstanceStash.ReorderTabsLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.RenameTabId ? InstanceStash.RenameTabLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.ColourTabId ? InstanceStash.ColourTabLength
-                : id == InstanceStash.MoveToAffinityTabId ? InstanceStash.MoveToAffinityTabLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceStash.SetAffinitiesId ? InstanceStash.SetAffinitiesLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceNpcs.CtrlBuyId ? InstanceNpcs.CtrlBuyLength(data[pos..]) ?? int.MaxValue
-                : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
-                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                    ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
+            int? known = ClientPackets.Length(id, data[pos..]);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }
             if (data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
             result.Add((id, data.Slice(pos, len).ToArray()));

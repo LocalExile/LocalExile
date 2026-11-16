@@ -13,11 +13,11 @@ public static class NessaMapStock
         public bool Originator { get; init; }
     }
 
-    public static List<Entry> Build(ItemCatalog items, string folder = "data")
+    /// <summary>Built once by the item catalog (<see cref="ItemCatalog.MapStock"/>), when it is made.</summary>
+    internal static List<Entry> Build(ItemCatalog items)
     {
         if (!ClientTables.Has("Maps")) return [];
-        var maps = ClientTables.Table("Maps");
-        var rows = maps.ToArray();
+        var byUniqueArea = ClientTables.Table("Maps").By("Unique_WorldAreasKey");
         // The generic map keys name their tier themselves (MapKey component); the client reads the tier from the base.
         var result = new List<Entry>();
         for (int tier = 1; tier <= 16; tier++)
@@ -51,8 +51,7 @@ public static class NessaMapStock
             .Select(g => g.First()).OrderBy(r => r.Text("Name")))
         {
             int area = unique.Int("WorldAreasKey");
-            var match = rows.Where(r => r.IntOrNull("Unique_WorldAreasKey") is int a
-                    && a == area)
+            var match = byUniqueArea[area]
                 .Select(r => (Row: r, Type: items.Row(r.Int("BaseItemTypesKey"))))
                 .FirstOrDefault(p => p.Type is { Supported: true, Class: "Map" }
                     && p.Type.Id.StartsWith("Metadata/Items/Maps/MapWorlds", StringComparison.Ordinal));

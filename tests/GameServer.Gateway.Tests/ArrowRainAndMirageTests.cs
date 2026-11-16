@@ -141,7 +141,7 @@ public class ArrowRainAndMirageTests
             Assert.Equal(new byte[] { 3, 0x22 }, display[23..25]);
             Assert.Equal(new byte[] { 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, display[^16..]);
             using var observerWire = new SpellTotemExecutionTests.Wire();
-            var observer = new ClientState(b.Conn.Layout, 1, 1) { Instance = b.Conn.Instance, PlayerSent = true, PlayerLife = 1000 };
+            var observer = new ClientState(b.Conn.Layout, 1, 1) { LockstepClient = false, Instance = b.Conn.Instance, PlayerSent = true, PlayerLife = 1000 };
             b.Conn.PlayerSent = true;
             b.Conn.Instance.Presence.PublishPlayer(new(b.Conn.PeerId, 0, null!, 100, 100, 1000, b.Conn));
             var actor = b.Conn.Monsters[visual.Key];

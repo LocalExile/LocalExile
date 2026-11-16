@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static readonly SummonCatalog SummonData = new();
+    public static SummonCatalog SummonData = null!;
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
@@ -47,6 +47,12 @@ public static partial class Game
         return exact.Name is not null ? exact.Id : candidates.FirstOrDefault().Id;
     }
 
+    /// <summary>How many minions one use brings: Summon Skeletons its melee, archer and mage counts together (at least
+    /// one), every other summon one.</summary>
+    public static int SummonCount(SummonCatalog.Definition definition, Func<string, int> stat) =>
+        definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
+            "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(stat)) : 1;
+
     public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.LimitStat.Length == 0) return 1;
@@ -80,8 +86,7 @@ public static partial class Game
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(conn, source);
-            int count = definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
-                "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n))) : 1;
+            int count = SummonCount(definition, n => GolemStat(gem.Stats, n));
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")

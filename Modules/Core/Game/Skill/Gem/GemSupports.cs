@@ -4,18 +4,32 @@ using GameServer.Core;
 
 
 /// <summary>Compatibility uses skill types, not the display tags printed on a gem.</summary>
-public sealed class GemSupports(string folder = "data")
+public sealed class GemSupports
 {
+    readonly string folder;
+
+    public GemSupports(string folder = "data")
+    {
+        this.folder = folder;
+        _effects = Load(folder);
+        _grantedLevels = LoadGrantedLevels();
+        _levels = LoadLevels();
+    }
+
     public sealed record Effect(int Row, string Id, bool Support, int[] Allowed, int[] Excluded, int[] Added,
         int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions);
     public sealed record Candidate(int Effect, int Level, int Quality, int Socket);
     public sealed record Applied(Candidate Gem, Effect Effect, uint PerLevel, int CostMultiplier,
         IReadOnlyList<(uint Key, int Value)> Stats);
-    readonly Lazy<Effect[]> _effects = new(() => Load(folder));
-    readonly Lazy<(int Effect, int Level)[]> _grantedLevels = new(() =>
+    readonly Effect[] _effects;
+    readonly (int Effect, int Level)[] _grantedLevels;
+
+    (int Effect, int Level)[] LoadGrantedLevels() =>
         [.. Read("GrantedEffectsPerLevel").Select(row =>
-            (row.Int("GrantedEffect"), row.Int("Level")))]);
-    readonly Lazy<Dictionary<(int Effect, int Level), (uint Row, int Cost, int Speed)>> _levels = new(() =>
+            (row.Int("GrantedEffect"), row.Int("Level")))];
+    readonly Dictionary<(int Effect, int Level), (uint Row, int Cost, int Speed)> _levels;
+
+    Dictionary<(int Effect, int Level), (uint Row, int Cost, int Speed)> LoadLevels()
     {
         var result = new Dictionary<(int, int), (uint, int, int)>();
         uint row = 0;
@@ -23,10 +37,10 @@ public sealed class GemSupports(string folder = "data")
             result.TryAdd((r.Int("GrantedEffect"), r.Int("Level")),
                 (row++, r.Int("CostMultiplier"), r.Int("AttackSpeedMultiplier")));
         return result;
-    });
+    }
 
-    public IReadOnlyList<Effect> Effects => _effects.Value;
-    public Effect? Of(int effect) => effect >= 0 && effect < _effects.Value.Length ? _effects.Value[effect] : null;
+    public IReadOnlyList<Effect> Effects => _effects;
+    public Effect? Of(int effect) => effect >= 0 && effect < _effects.Length ? _effects[effect] : null;
 
     /// <summary>Item supports apply to every compatible gem in this item, independently of links.
     /// Use the mod's actual granted effects, not a guessed effect based on its translated tooltip.</summary>
@@ -36,8 +50,8 @@ public sealed class GemSupports(string folder = "data")
         foreach (var itemMod in host.Mods)
         {
             if (mods.ByHash(itemMod.Hash) is not { } mod) continue;
-            var grants = mod.GrantedEffectLevels.Where(row => row >= 0 && row < _grantedLevels.Value.Length)
-                .Select(row => _grantedLevels.Value[row])
+            var grants = mod.GrantedEffectLevels.Where(row => row >= 0 && row < _grantedLevels.Length)
+                .Select(row => _grantedLevels[row])
                 .Where(row => Of(row.Effect) is { Support: true }).ToArray();
             // A developer can change a displayed support level with /mod set. Ordinary support mods have one
             // level stat even when the mod also grants a secondary active effect. Non-level pseudo-supports
@@ -120,8 +134,8 @@ public sealed class GemSupports(string folder = "data")
 
     (uint Row, int Cost, int Speed)? Level(int effect, int level)
     {
-        if (_levels.Value.TryGetValue((effect, level), out var exact)) return exact;
-        var rows = _levels.Value.Where(kv => kv.Key.Effect == effect).OrderBy(kv => Math.Abs(kv.Key.Level - level));
+        if (_levels.TryGetValue((effect, level), out var exact)) return exact;
+        var rows = _levels.Where(kv => kv.Key.Effect == effect).OrderBy(kv => Math.Abs(kv.Key.Level - level));
         return rows.Any() ? rows.First().Value : null;
     }
 

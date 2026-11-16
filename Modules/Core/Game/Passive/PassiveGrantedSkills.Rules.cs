@@ -6,9 +6,15 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static readonly Lazy<PassiveGrantedSkills> GrantedSkills = new(() => NewGrantedSkills(false));
-    static readonly Lazy<PassiveGrantedSkills> RuthlessGrantedSkills = new(() => NewGrantedSkills(true));
-    static PassiveGrantedSkills NewGrantedSkills(bool ruthless) => new(ruthless ? HardModeSkills.Value : Skills, ruthless: ruthless);
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadPassiveGrantedSkillsRulesData()
+    {
+        GrantedSkills = NewGrantedSkills(false);
+    }
+
+    static PassiveGrantedSkills GrantedSkills = default!;
+    static PassiveGrantedSkills RuthlessGrantedSkills = default!;
+    static PassiveGrantedSkills NewGrantedSkills(bool ruthless) => new(ruthless ? HardModeSkills : Skills, ruthless: ruthless);
 
     /// <summary>The skills the player's allocated passives grant whose node carries this trigger stat
     /// (<c>has_trigger_on_crit_by_unique_enemy</c> and the like; the level row's AdditionalFlags name the same trigger).
@@ -18,7 +24,7 @@ public static partial class Game
     {
         if (Stats.Key(trigger) is not uint key) return [];
         var passives = PassivesFor(conn);
-        var passiveGrants = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value
+        var passiveGrants = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills)
             .For([.. conn.Passives, .. conn.MainAscendancy.Allocated])
             .Where(g => passives.Find(g.Node)?.Stats.Any(s => s.Key == key && s.Value != 0) == true);
         return passiveGrants.Concat(TattooTriggeredGrantsLocked(conn, key));
@@ -72,7 +78,7 @@ public static partial class Game
     {
         ushort[] nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
-        return [.. (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes)
+        return [.. (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
             .Where(g => AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId)))];
     }
@@ -92,7 +98,7 @@ public static partial class Game
         uint? enables = Stats.Key("can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique");
         if (PassiveBuffAuras.AllyAurasFor(nodes, LeagueFor(conn).HardMode).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
             is not { } buff) return null;
-        var grant = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
+        var grant = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).FirstOrDefault(g => IsRelicSkill(g.EffectId));
         return grant.Node == 0 ? null : (grant, buff.Radius);
     }
 
@@ -196,7 +202,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || PlayerActionBlocked(conn, now, now)) return [];
             nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
         }
-        var skills = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
+        var skills = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
         if (skills.Count == 0 || InTown(conn) || InGracePeriod(conn)) return [];
         return [.. skills.Where(s => ActorSkillDisabledCore(conn, s.Effect, null) is null)];
     }

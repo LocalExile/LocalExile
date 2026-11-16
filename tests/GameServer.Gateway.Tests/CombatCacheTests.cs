@@ -18,7 +18,7 @@ public sealed class CombatCacheTests
         conn.Clock.Stop();
         try
         {
-            var rewards = QuestStaticRewards.Default.Value.Rewards.Where(r => r.Stats.Count > 0
+            var rewards = QuestStaticRewards.Default.Rewards.Where(r => r.Stats.Count > 0
                 && !Quests.EveryCharacter.Contains(r.Flag) && !Game.ResistancePenaltyAct5.Contains(r.Flag)
                 && !Game.ResistancePenaltyAct10.Contains(r.Flag)).Take(2).ToArray();
             Assert.Equal(2, rewards.Length);

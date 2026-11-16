@@ -13,7 +13,7 @@ public sealed class SpellTotemExecutionTests
     {
         var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
-            Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+            LockstepClient = false, Character = name, PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Experience = CharacterStats.ExperienceFor(100),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
