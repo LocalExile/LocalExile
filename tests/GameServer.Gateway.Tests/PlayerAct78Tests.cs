@@ -176,12 +176,12 @@ public sealed class PlayerAct78Tests
             Assert.Equal(new(249, 95), Game.SeededEnd(new(118, 100), new(100, 100), [0xffff, 3, 0], 150, turn: Game.FlameTurn(1)).End);
             Assert.Equal(new(241, 154), Game.SeededEnd(new(250, 140), new(102, 100), [0x80bc, 5, 0], 150, turn: Game.FlameTurn(9)).End);
             Assert.Equal(new(30, 231), Game.SeededEnd(new(60, 230), new(101, 99), [0x8123, 2, 0], 150, turn: Game.FlameTurn(14)).End);
-            // A monster weapon shot whose mover turns it by its seed is the client's (the Plumed Chimeral's spines, the
-            // Alpha Paradisae's three, the Rakango's spike), turned 0.2 or 0.5 (variation 8); 4, 24 and 26 pierce all.
+            // Seeded weapon ends have unresolved native discrepancies, so the server draws their flight.
+            // Keep the Plumed Chimeral's spines, Alpha Paradisae's three and Rakango's spike, including piercing.
             foreach (var (effect, row, count, pierce) in new[] { ("IguanaProjectile", "SnakeSpine", 1, -1),
                 ("IguanaProjectileInvasion", "SnakeSpine", 3, -1), ("TaniwhaSpike", "TaniwhaSpike", 1, 0),
                 ("IguanaProjectileFire", "BasiliskProjectile", 1, -1), ("SkeletonCannonProjectile", "AbyssBoneHuskSpike", 1, 0) })
-                Assert.Equal(("Metadata/Projectiles/" + row, count, true, "WeaponJitter", pierce),
+                Assert.Equal(("Metadata/Projectiles/" + row, count, false, "WeaponJitter", pierce),
                     (Shot("", effect)!.Metadata, Shot("", effect)!.Count, Shot("", effect)!.ClientDraws, Shot("", effect)!.Recipe,
                         MonsterShots.ClientDrawnProfile(conn, Shot("", effect)!, true, new(30, 0), 0x8001, 0x40).Pierce));
             Assert.Equal(new(249, 131), Game.SeededEnd(new(250, 130), new(103, 101), [0x80bc, 3, 0, 1], 150, turn: .2f).End);

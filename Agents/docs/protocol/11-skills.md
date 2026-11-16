@@ -1027,8 +1027,13 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   range, contact and volley for the hidden flight, released at the contact toward the order's cell. A spell mortar
   lands its flight clip's first `contact` after the release (its length without one; 666 ms on most mortar rigs),
   over its speed multiplier, at any distance. A clip with several contacts releases at each, turned by that contact's
-  direction. Per-projectile ends (sprays, knives, weapon jitter) come from the client's seeded RNG, seed byte
-  2 + (release · count + i) % 254. A weapon-table shot (start 0x141b720e0) plays its GE animation, else Throw (Animation
+  direction. Per-projectile ends (sprays, knives) come from the client's seeded RNG, seed byte
+  2 + (release · count + i) % 254. Weapon jitter uses that seed too, but only 70/90 recorded endpoints matched:
+  variations 4, 8, 24, 26 and 29 remain server-drawn, using the same simulated flight for presentation and hits.
+  The native mover (0x141b6e1d0) normalizes to 100, adds rounded jitter (0.5 for variation 8, otherwise 0.2),
+  then stretches to 150 with truncation. It subsequently applies the row offset/scatter; the five weapon rows'
+  `__col5` offsets are all zero in the local client data, so offset ordering alone does not explain the mismatch.
+  A weapon-table shot (start 0x141b720e0) plays its GE animation, else Throw (Animation
   row 40), or SpectralThrow (95) with `animation_effect_variation` 1, and launches 30 units from its cell's centre
   toward the aim. A skill with a GEPL Cooldown waits it out; the monster's other attacks do not.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.

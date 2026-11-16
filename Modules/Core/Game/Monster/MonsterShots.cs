@@ -475,6 +475,9 @@ public static class MonsterShots
             "SpiritMortar" => (0, Get("projectile_speed_variation_+%")),
             _ => (0, 0),
         };
+        // Only 70/90 captured weapon ends matched. Keep the seeded flight, but publish that same flight as a
+        // server object until the full launch/fan/mover path agrees with the native client. Preserve other reasons.
+        if (recipe == "WeaponJitter") reason ??= "weapon jitter endpoint mismatch";
         var shot = new SkillCatalog.MonsterProjectileInfo(id, row2.Speed, Lobbed: lobbed, Math.Max(1, catalog.ProjectileRadius(id) ?? 1))
         {
             FixedFlight = contact is > 0, ContactSeconds = (contact ?? 666) / 1000.0, MortarSpeed = mortarSpeed,

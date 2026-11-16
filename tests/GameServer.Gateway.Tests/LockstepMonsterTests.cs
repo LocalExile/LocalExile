@@ -952,6 +952,48 @@ public class LockstepMonsterTests : IDisposable
             finally { session.Invalidate(); }
         }
 
+        // Native parity is not established for weapon jitter. Exercise the real release path in both modes:
+        // no actor-record count, one visible simulated flight per target, retained seeds/count/piercing, impact damage.
+        foreach (bool lockstep in new[] { false, true })
+        foreach (int variation in new[] { 4, 8, 24, 26, 29 })
+        {
+            var conn = Connection(lockstep);
+            conn.Clock.Stop();
+            conn.Walk.Teleport(140, 100, 0);
+            var jitter = MonsterShots.Resolve(skills, null, skills.EffectRow("IguanaProjectile"), 10,
+                new Dictionary<string, int> { ["monster_projectile_variation"] = variation - 4,
+                    ["number_of_additional_projectiles"] = 2 })!;
+            Assert.False(jitter.ClientDraws);
+            Assert.Equal("weapon jitter endpoint mismatch", jitter.ServerReason);
+            Assert.Equal("WeaponJitter", jitter.Recipe);
+            Assert.Equal(3, jitter.Count);
+            var source = new SpawnedMonster("Jitter", new(100, 100, 20), 60, 2, 30);
+            var attack = new MonsterAttack(0x4000, 1, 60, DamagePacket.Empty) { Ranged = true, Projectile = jitter };
+            var stats = Game.MonsterProjectileSkillStats(conn, skills.EffectRow("IguanaProjectile"), 10, attack);
+            Assert.DoesNotContain(stats, s => s.Item1 == StatKeys.VirtualTotalProjectiles
+                || s.Item1 == StatKeys.TotalProjectilesToFire || s.Item1 == StatKeys.VirtualTotalArrows);
+            var session = new Game.ProjectileSession("jitter", null!, null!, conn);
+            try
+            {
+                var use = Game.MonsterProjectileUse(session, 0x8000040, source, attack, jitter, 0, orderedAim: (140, 100));
+                Assert.False(use.Profile.HideVisual);
+                Assert.Equal(variation is 4 or 24 or 26 ? -1 : 0, use.Profile.Pierce);
+                Assert.Equal(3, use.ProjectileTargets!.Count);
+                Assert.True(use.ProjectileTargets.Distinct().Count() > 1);
+                var target = use.Origin + (use.ProjectileTargets[0] - use.Origin).Unit * 30;
+                var world = new ShotWorld(target, false, null);
+                var runtime = new ProjectileRuntime(world);
+                runtime.Release(use);
+                Assert.Equal(3, runtime.Projectiles.Count);
+                Assert.All(runtime.Projectiles, p => Assert.False(p.Profile.HideVisual));
+                Assert.Empty(world.Hits);
+                runtime.AdvanceTo(ProjectileRuntime.Time(3));
+                Assert.NotEmpty(world.Hits);
+                Assert.All(world.Hits, t => Assert.True(t > 0));
+            }
+            finally { session.Invalidate(); }
+        }
+
         static double use0Speed(Game.ProjectileSession session, SpawnedMonster source, MonsterAttack attack, SkillCatalog.MonsterProjectileInfo shot) =>
             Game.MonsterProjectileUse(session, 0x8000040, source, attack, shot, 0, orderedAim: (140, 100)).Profile.Speed;
     }

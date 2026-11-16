@@ -77,7 +77,11 @@ public static partial class Game
         double[]? nativeSpeeds = null;
         string contactRow = projectile.Metadata;
         bool mortar = projectile.Target == SkillCatalog.MonsterShotTarget.MortarScatter;
-        if (projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))
+        // Weapon jitter retains its seeded targets while the server draws the authoritative flight; its native
+        // endpoint agreement is incomplete. Do not let the presentation fallback discard spread or piercing.
+        bool seededWeapon = projectile.Recipe == "WeaponJitter";
+        bool seededFlight = (projectile.ClientDraws || seededWeapon) && (!projectile.Lobbed || mortar);
+        if (seededFlight)
         {
             // The contact offset is rotated with the facing model, then quantized to Positioned cells.
             // maintain_projectile_direction_when_using_contact_position translates the aim by the same offset.
@@ -224,7 +228,7 @@ public static partial class Game
             }
         }
         // The server's own object turns by its contact too.
-        if (!(projectile is { ClientDraws: true } && (!projectile.Lobbed || mortar))) TurnAim();
+        if (!seededFlight) TurnAim();
         if (projectile is { ClientDraws: false, Lobbed: true } && projectile.Recipe is "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
             or "SummonMortar")
         {
@@ -311,13 +315,14 @@ public static partial class Game
         if (projectile.Recipe == "Spark") origin = from;
         // A UseTargetLocation shot ends at the aimed cell; any other straight one flies past it.
         double straightRange = projectile.EndsAtTarget ? Math.Max(.001, (aim - origin).Length) : Math.Max(distance, a.Range) * 1.5 + 5;
-        var profile = projectile is { ClientDraws: true, Lobbed: false } && !mortar
+        var profile = (projectile.ClientDraws || seededWeapon) && !projectile.Lobbed && !mortar
             ? MonsterShots.ClientDrawnProfile(conn, projectile, attack: !a.Spell, aim - origin, sequence, id,
                 thrower: () => ProjectileSession.Vector(m.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond)),
                 fromActor: aim - from) with
                 {
                     // A lantern reaches its aim its clip's contact after the release, at any distance.
                     Speed = projectile.FixedFlight ? Math.Max(.001, (aim - origin).Length) / projectile.ContactSeconds : speed,
+                    HideVisual = projectile.ClientDraws,
                 }
             : projectile.Recipe is not (null or "BreachBarrage" or "FireMortar" or "InLine" or "SpiritMortar" or "AroundCaster" or "GroundMortar"
                 or "SummonMortar" or "Flames" or "FigureheadFlames")

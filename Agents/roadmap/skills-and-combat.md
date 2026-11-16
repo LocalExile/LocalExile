@@ -175,7 +175,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Monster shots still drawn as the server's objects (`ServerReason`): flame waves (13 per cast) and the incinerate
     channel, spell mortars with swapped ends, forks or chains, Kaom's, the riptide (its speed unit), the Elder's storm
     burst, a spray's contact offset, breach barrage facing, `spell_self` shots, and the trap, totem and mine forms (Ethereal
-    Knives, Rigwald's trap knives). Weapon jitter lands on the client's end cell 70 of 90 times; the rest is open.
+    Knives, Rigwald's trap knives), and weapon jitter (weapon variations 4, 8, 24, 26, 29). Only 70 of 90 weapon
+    endpoints matched; all five variations therefore use a visible server flight with the seeded spread retained.
+    Native launch/fan/mover endpoint agreement remains open; internal consistency tests do not establish it.
     A shot at a golem aims at its cell at release, not the order's. Not modelled: Lunaris's chill ring, a lantern's
     MinAgroRange throw reach (75, not 105) and fire damage, Arakaali's riptide speed (no recording of her phase 2), a
     repeated monster cast (skill_repeat_count: the record sends no spell_repeat_count, so the client casts once).
