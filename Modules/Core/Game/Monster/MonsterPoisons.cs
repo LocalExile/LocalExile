@@ -82,8 +82,8 @@ public static partial class Game
             {
                 if (m.Poisons.Idle) continue;
                 int damage = 0;
-                if (m.Dead || m.Life == 0) m.Poisons.Clear();
-                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
+                if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
+                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {
                     (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
@@ -92,7 +92,7 @@ public static partial class Game
                     {
                         m.Dead = true;
                         CollectVaalSoulAtDeathLocked(conn, m);
-                        m.Poisons.Clear();
+                        m.Poisons.ClearAtDeath(now, poisonDeath: true);
                     }
                     hits.Add((id, m, m.Life, damage));
                     if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);

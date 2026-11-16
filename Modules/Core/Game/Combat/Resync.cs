@@ -174,8 +174,8 @@ public static partial class Game
     const double MovementResyncSeconds = .5;
 
     /// <summary>How long a movement skill's action lasts on the client: its attack time, or its cast time.</summary>
-    public static double MovementSeconds(ClientState conn, int effect, int level) =>
-        SkillsFor(conn).IsAttack(effect) ? SkillAttackSeconds(conn, effect, level)
+    public static double MovementSeconds(ClientState conn, int effect, int level, ushort skillId = 0) =>
+        SkillsFor(conn).IsAttack(effect) ? skillId == 0 ? SkillAttackSeconds(conn, effect, level) : SupportedAttackSeconds(conn, skillId)
             : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
 
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
