@@ -735,7 +735,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
-            if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
+            if (_projectiles.Value.TryGetValue(id, out var row)) return (id, row.Speed);
         return null;
     }
 
@@ -823,7 +823,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
-        _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+        _projectiles.Value.TryGetValue(id, out var row) ? (id, row.Speed) : null;
+
+    /// <summary>A Projectiles.dat row's CollisionRadius (world units), or null without the row.</summary>
+    public int? ProjectileRadius(string id) => _projectiles.Value.TryGetValue(id, out var row) ? row.Radius : null;
+
+    /// <summary>A Projectiles.dat row's UseTargetLocation: the client's flight ends at the aimed cell (the finalizer
+    /// 0x141bac460 keeps the aim) instead of flying its full range.</summary>
+    public bool ProjectileEndsAtTarget(string id) => _projectiles.Value.TryGetValue(id, out var row) && row.EndsAtTarget;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
     /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
@@ -840,16 +847,25 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
-    private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
+    private readonly Lazy<Dictionary<string, (int Speed, int Radius, bool EndsAtTarget)>> _projectiles = new(() =>
     {
-        var result = new Dictionary<string, int>();
+        var result = new Dictionary<string, (int, int, bool)>();
         if (!ClientTables.Has("Projectiles")) return result;
         var d = ClientTables.Table("Projectiles");
         foreach (var r in d)
             if (r.Text("Id") is { } id)
-                result.TryAdd(id, r.IntOrNull("ProjectileSpeed") is int v ? v : 0);
+                result.TryAdd(id, (r.IntOrNull("ProjectileSpeed") is int v ? v : 0, r.IntOrNull("CollisionRadius") ?? 1,
+                    r.BoolOrNull("UseTargetLocation") ?? false));
         return result;
     });
+
+    /// <summary>Animation.dat's Ids by row (empty for a row without one): the ACT keys MonsterMortar,
+    /// MonsterProjectileSpell and GrantedEffects name for the clips their actions play.</summary>
+    static readonly Lazy<string[]> AnimationIds = new(() =>
+        ClientTables.TableOrNull("Animation") is { } animations ? [.. animations.Select(r => r.TextOrNull("Id") ?? "")] : []);
+
+    static string? AnimationId(int? row) =>
+        row is int a && a >= 0 && a < AnimationIds.Value.Length && AnimationIds.Value[a].Length > 0 ? AnimationIds.Value[a] : null;
 
     /// <summary>A Projectiles.dat row's first AOFiles entry: the art the client plays for that projectile object
     /// (SplitArrowDefault's split_arrow.ao, which Arrow Nova attaches to its rain rig).</summary>
@@ -868,8 +884,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     });
 
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
-    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
+    /// first "contact" in ms (its length without one), by which the client times a spell mortar's landing.</summary>
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null)
+    {
+        /// <summary>The flight's candidate clips (a group, several names) land at different contacts.</summary>
+        public bool Varies { get; init; }
+    }
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
     /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
@@ -887,7 +908,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             ProjectileClip? Clip(string key) =>
                 r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
-                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact"))
+                        { Varies = r.BoolOrNull(key + "_varies") ?? false } : null;
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
@@ -906,7 +928,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public string? AnimationKey { get; init; }
         /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
-        /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
+        /// forms (<c>monster_mortar</c>, whose row MonsterShots sets where the client draws it) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
         /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b6c630; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
@@ -916,13 +938,146 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }
+        /// <summary>The client draws this shot itself: its actor record carries the shot's count (and a mortar its row),
+        /// and the server flies the same shot hidden for its hit, as GGG's server sends no object for a monster's shot
+        /// (3.30.0b, predictive and lockstep). False: no count on the record, and the server's object is the shot
+        /// the player sees.</summary>
+        public bool ClientDraws { get; init; }
+        /// <summary>The shot is a bow's arrows: the record's count also goes on the arrow totals, and arrow modifiers apply.</summary>
+        public bool Arrows { get; init; }
+        /// <summary>Where the shot flies: the cell the action was ordered at (the client stores the target's grid when the
+        /// 0x1ab arrives and releases toward it, 0x14193e340 → 0x141ba7c30), the target's cell at release, or a mortar's
+        /// scattered landing cells (MonsterMortarTarget).</summary>
+        public MonsterShotTarget Target { get; init; }
+        /// <summary><c>maintain_projectile_direction_when_using_contact_position</c>: the aim moves with the release's
+        /// contact offset, so the shot keeps the monster's line to its target.</summary>
+        public bool AimTranslates { get; init; }
+        /// <summary>The skill's own stats at the monster's level (raw, by key), which its speed, count and volley read.</summary>
+        public IReadOnlyDictionary<uint, int>? SkillStats { get; init; }
+        /// <summary>Why a resolved shot is the server's object rather than the client's (a behaviour the server does not
+        /// reproduce yet), for the logs; null when the client draws it or it is a scripted literal.</summary>
+        public string? ServerReason { get; init; }
+        /// <summary>The row's UseTargetLocation: the shot ends at the aimed cell.</summary>
+        public bool EndsAtTarget { get; init; }
+        /// <summary>The player skill whose flight recipe the server flies this shot with (its Gateway profile: Rolling
+        /// Magma's bouncing lob, Spectral Throw's return), or null for a plain flight.</summary>
+        public string? Recipe { get; init; }
+        /// <summary>A spell mortar's flight lasts a fixed time instead of flying at its row's speed (the client's mover
+        /// 0x141a13760: <see cref="ContactSeconds"/> over the speed multiplier); false for every other shot.</summary>
+        public bool FixedFlight { get; init; }
+        /// <summary>A fixed-time spell mortar's flight at a multiplier of 1: its flight clip's first contact (666 ms on most
+        /// mortar rigs), else the clip's length (<see cref="ProjectileClip.Contact"/>).</summary>
+        public double ContactSeconds { get; init; } = .666;
+        /// <summary>A mortar's launch moves this many cells toward its target first (MonsterMortar <c>__col9</c>).</summary>
+        public int StartOffset { get; init; }
+        /// <summary>A mortar's <c>mortar_projectile_distance_override</c> in cells (0: none): its landing is rescaled to
+        /// that distance from the launch point.</summary>
+        public int DistanceOverride { get; init; }
+        /// <summary>A spell mortar's speed multiplier terms in percent: the fixed part (MonsterMortar <c>__col11</c>,
+        /// <c>monster_mortar_additional_speed_+%</c>) and the seeded variation (<c>__col4</c>).</summary>
+        public (int Fixed, int Variation) MortarSpeed { get; init; }
+        /// <summary>Cells the action moves its aim on along the shot (MonsterProjectileSpell <c>__col4</c>,
+        /// MonsterProjectileAttack <c>__col5</c>: aim + N × unit(aim − release)); the flight's range grows by as much.</summary>
+        public int AimOffset { get; init; }
+        /// <summary>The class pierces every target (its byte +0x330 = 5: Frost Bolt, Freezing Pulse, snipes, fading spell
+        /// projectiles, the Breach barrage), unless the target cannot be pierced.</summary>
+        public bool PiercesAll { get; init; }
     }
+
+    /// <summary>Where a monster's shot flies (<see cref="MonsterProjectileInfo.Target"/>).</summary>
+    public enum MonsterShotTarget { Ordered, AtRelease, MortarScatter }
+
+    /// <summary>A MonsterProjectileSpell (<paramref name="spell"/>) or MonsterProjectileAttack row by its Id, the
+    /// variation a <c>monster_projectile_spell</c> or <c>monster_projectile_weapon</c> skill's
+    /// <c>monster_projectile_variation</c> names (0x141a15a70, 0x141b6e890; both tables' Id equals the row): its
+    /// Projectiles row, the spell row's Animation (the ACT key its clips are in), and the unnamed trailing columns
+    /// (<c>__col3</c>–<c>__col5</c>; the client's movers read them as end height and lateral offsets). Null for a
+    /// variation the table lacks (the client throws "Variation not recognized").</summary>
+    public (string Projectile, string? AnimationKey, int[] Extra)? MonsterProjectileRow(bool spell, int variation) =>
+        (spell ? _monsterSpellRows : _monsterAttackRows).Value.TryGetValue(variation, out var row) ? row : null;
+
+    private readonly Lazy<Dictionary<int, (string, string?, int[])>> _monsterSpellRows = new(() => MonsterProjectileRows("MonsterProjectileSpell"));
+    private readonly Lazy<Dictionary<int, (string, string?, int[])>> _monsterAttackRows = new(() => MonsterProjectileRows("MonsterProjectileAttack"));
+
+    static Dictionary<int, (string, string?, int[])> MonsterProjectileRows(string table)
+    {
+        var result = new Dictionary<int, (string, string?, int[])>();
+        if (ClientTables.TableOrNull(table) is not { } rows || ClientTables.TableOrNull("Projectiles") is not { } projectiles) return result;
+        foreach (var r in rows)
+        {
+            if (r.IntOrNull("Id") is not int id || r.IntOrNull("Projectile") is not (>= 0 and var p) || p >= projectiles.Count
+                || projectiles[p].TextOrNull("Id") is not { Length: > 0 } projectile) continue;
+            int[] extra = [.. new[] { "__col2", "__col3", "__col4", "__col5" }.Select(c => r.IntOrNull(c) ?? 0)];
+            result.TryAdd(id, (projectile, AnimationId(r.IntOrNull("Animation")), extra));
+        }
+        return result;
+    }
+
+    /// <summary>A MonsterMortar row's columns the client's spell mortar reads (0x141a13760, dat64 offsets +0x34..+0x4e):
+    /// the speed variation % (<c>__col4</c>), one projectile only (<c>__col5</c>), the launch's start offset in cells
+    /// (<c>__col9</c>), the speed % (<c>__col11</c>), a ground effect on landing (<c>__col12</c>), the speed modifier
+    /// applies (<c>__col14</c>), a per-bounce speed scale (<c>__col15</c>). Null for an unknown row.</summary>
+    public (int SpeedVariation, bool Single, int StartOffset, int Speed, bool Ground, bool SpeedModifier, bool BounceScale)? MonsterMortarColumns(int row) =>
+        _mortarColumns.Value.TryGetValue(row, out var c) ? c : null;
+
+    private readonly Lazy<Dictionary<int, (int, bool, int, int, bool, bool, bool)>> _mortarColumns = new(() =>
+    {
+        var result = new Dictionary<int, (int, bool, int, int, bool, bool, bool)>();
+        if (ClientTables.TableOrNull("MonsterMortar") is not { } mortars) return result;
+        int I(ClientRow r, string c) => r.IntOrNull(c) ?? 0;
+        foreach (var r in mortars)
+            if (r.IntOrNull("Id") is int id)
+                result.TryAdd(id, (I(r, "__col4"), I(r, "__col5") != 0, I(r, "__col9"), I(r, "__col11"), I(r, "__col12") != 0,
+                    I(r, "__col14") != 0, I(r, "__col15") != 0));
+        return result;
+    });
+
+    /// <summary>A GrantedEffects row's ActiveSkills Id (<c>monster_projectile_spell</c>, <c>fireball</c>, <c>melee</c>), or null.</summary>
+    public string? ActiveSkillId(int effectRow) => _activeSkillIds.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, string>> _activeSkillIds = new(() =>
+    {
+        var result = new Dictionary<int, string>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects || ClientTables.TableOrNull("ActiveSkills") is not { } active)
+            return result;
+        int row = -1;
+        foreach (var e in effects)
+        {
+            row++;
+            if (e.IntOrNull("ActiveSkill") is int a && a >= 0 && a < active.Count && active[a].TextOrNull("Id") is { } id)
+                result[row] = id;
+        }
+        return result;
+    });
+
+    /// <summary>A GrantedEffects row's Animation Id (the ACT key of the clips its action plays: the Elder's
+    /// <c>SpellProjectile</c>), or null when the row names none.</summary>
+    public string? EffectAnimationKey(int effectRow) => _effectAnimations.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, string>> _effectAnimations = new(() =>
+    {
+        var result = new Dictionary<int, string>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects) return result;
+        int row = -1;
+        foreach (var e in effects)
+        {
+            row++;
+            if (AnimationId(e.IntOrNull("Animation")) is { } id) result[row] = id;
+        }
+        return result;
+    });
+
+
 
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
     /// its index in the rig's animation list, its length, and its contact keyframe's time and position when it has one
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
     {
+        /// <summary>Every contact of a clip with several (monster_contact_clip_frames: the Iguana's five spines), in time
+        /// order; null for a clip with one or none.</summary>
+        public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
+
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
@@ -941,18 +1096,27 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return pool[AnimationVariantSelector.Select(sequence, weights)];
     }
 
+    /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
+    public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
+        _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
         var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        var framesByClip = ClientTables.TableOrNull("monster_contact_clip_frames")?.By("clip");
+        IReadOnlyList<(int, ContactPoint?)>? Frames(int clip) => framesByClip is null ? null
+            : framesByClip[clip].OrderBy(f => f.Int("ord")).Select(f => (f.Int("ms"), AnimationContacts.Point(f, "position"))).ToArray() is { Length: > 1 } all
+                ? all : null;
         foreach (var variety in varieties)
         {
             var byKey = clipsByVariety[variety.Index]
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
                 .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
-                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position")) { Contacts = Frames(c.Index) }).ToArray(),
+                    StringComparer.Ordinal);
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
@@ -960,9 +1124,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>The projectile of a monster's granted effect: for a mortar skill (ActiveSkills Id <c>monster_mortar*</c>)
     /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
-    /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Weapon projectile attacks
-    /// (<c>monster_projectile_weapon</c>, <c>monster_snipe</c>: SkillID 0 for all) take their projectile from the monster's
-    /// weapon art, which is not resolved here: null, and such a monster keeps its instant contact. The count is the skill's:
+    /// MonsterMortar 183 → <c>Metadata/Projectiles/SandspitterMortarProjectile</c>, 1170). Every other monster shot is
+    /// the Game module's MonsterShots (by the tables below and the skill's art); this reader names only mortars, null
+    /// otherwise. The attack form's shot is the client's (<see cref="MonsterProjectileInfo.ClientDraws"/>). The count is the skill's:
     /// <c>number_of_projectiles_override</c> when set, else <c>base_number_of_projectiles</c> (1 without) plus
     /// <c>number_of_additional_projectiles</c> (the side-area Spitter's 3, the Elder Guardian's strafe 5).</summary>
     public MonsterProjectileInfo? MonsterProjectile(int effectRow)
@@ -1022,28 +1186,19 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Id: r.TextOrNull("Id") ?? "",
             Speed: (r.IntOrNull("ProjectileSpeed") ?? 0),
             Radius: (r.IntOrNull("CollisionRadius") ?? 1))).ToList();
-        // Animation.dat Ids: a mortar row's Animation names the ACT key of the clips the client plays for the skill.
-        var animationIds = new List<string>();
-        if (ClientTables.Has("Animation"))
-        {
-            var animations = ClientTables.Table("Animation");
-            foreach (var r in animations)
-                animationIds.Add(r.TextOrNull("Id") ?? "");
-        }
         var mortars = ClientTables.Table("MonsterMortar");
         var mortarRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
         foreach (var r in mortars)
             if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
             {
-                string? key = r.IntOrNull("Animation") is int a
-                    && a >= 0 && a < animationIds.Count && animationIds[a].Length > 0
-                    ? animationIds[a] : null;
+                // A mortar row's Animation names the ACT key of the clips the client plays for the skill.
+                string? key = AnimationId(r.IntOrNull("Animation"));
                 mortarRows.TryAdd(id, (p, key));
             }
         var active = ClientTables.Table("ActiveSkills");
         var mortarSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") is { } name
-                && name.StartsWith("monster_mortar", StringComparison.Ordinal))
+                && name.StartsWith("monster_mortar", StringComparison.Ordinal) && name != "monster_mortar_around_caster")
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
         var effects = ClientTables.Table("GrantedEffects");
         int row = -1;
@@ -1056,10 +1211,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 || !mortarRows.TryGetValue(k, out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            // Only the attack form's action (0x141b6c390) is traced and checked live drawing its own; the spell forms
-            // (monster_mortar, monster_mortar_around_caster) keep the server's object.
+            // The attack form's action (0x141b6c390) is traced and checked live drawing its own. A spell form starts as
+            // the server's object here: the Game module's MonsterShots hands a monster_mortar to the client where it
+            // reproduces its landing.
             result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
-                { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k : 0 };
+            {
+                AnimationKey = mortar.AnimationKey, Variation = attackForm ? k : 0,
+                ClientDraws = attackForm,
+                Target = attackForm ? MonsterShotTarget.MortarScatter : MonsterShotTarget.AtRelease,
+            };
         }
         return result;
     });

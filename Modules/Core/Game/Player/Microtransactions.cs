@@ -267,6 +267,49 @@ public sealed class SkillArt
         return projectile;
     }
 
+    /// <summary>
+    /// The projectile a skill's action flies when its class names none (the shared resolver 0x141ba6e70 falls back to
+    /// art slot <paramref name="slot"/>): its SkillArtVariations candidates, the GrantedEffect's rows and then its
+    /// ActiveSkill's, each in row order (0x141945930 → 0x141945240), each read at <paramref name="slot"/> of its
+    /// ProjectileArt and at the variant its own stat holds (<c>skill_art_variation</c>, <c>arrow_projectile_variation</c>
+    /// for <c>default_ranged</c>), the first that the ProjectilesArtVariations directory has (0x141f79a50; a missing
+    /// entry goes on to the next candidate, no retry at variant 0). Null when none has one
+    /// (resource-selection.md §2–3). <paramref name="get"/> reads the skill's stats by name.
+    /// </summary>
+    public string? SkillProjectile(int effectRow, int slot, Func<string, int> get)
+    {
+        var (byEffect, byActive) = _skillArtRows.Value;
+        var effects = Rows("GrantedEffects");
+        int? active = effectRow >= 0 && effectRow < effects.Count ? effects[effectRow].IntOrNull("ActiveSkill") : null;
+        var candidates = byEffect.GetValueOrDefault(effectRow, []).Concat(active is int a ? byActive.GetValueOrDefault(a, []) : []);
+        var stats = Rows("Stats");
+        foreach (var (art, stat) in candidates)
+        {
+            if (slot >= art.Length) continue;
+            int variant = stat >= 0 && stat < stats.Count && stats[stat].TextOrNull("Id") is { } name ? get(name) : 0;
+            if (_data.Value.Projectiles.TryGetValue((art[slot], variant), out var projectile)) return projectile;
+        }
+        return null;
+    }
+
+    /// <summary>A projectile art's ProjectilesArtVariations Id by SkillArtVariations row: per GrantedEffect and per
+    /// ActiveSkill row, the (ProjectileArt Ids, Stats row) of each SkillArtVariations row that names it, in row order.</summary>
+    readonly Lazy<(Dictionary<int, List<(string[], int)>>, Dictionary<int, List<(string[], int)>>)> _skillArtRows = new(() =>
+    {
+        var byEffect = new Dictionary<int, List<(string[], int)>>();
+        var byActive = new Dictionary<int, List<(string[], int)>>();
+        var pav = Rows("ProjectilesArtVariations");
+        foreach (var row in Rows("SkillArtVariations"))
+        {
+            string[] art = [.. row.Ints("ProjectileArt").Where(i => i >= 0 && i < pav.Count).Select(i => pav[i].TextOrNull("Id") ?? "")];
+            if (art.Length == 0) continue;
+            var entry = (art, row.IntOrNull("Stat") ?? -1);
+            foreach (int e in row.Ints("GrantedEffect")) (byEffect.TryGetValue(e, out var l) ? l : byEffect[e] = []).Add(entry);
+            foreach (int a in row.Ints("ActiveSkill")) (byActive.TryGetValue(a, out var l) ? l : byActive[a] = []).Add(entry);
+        }
+        return (byEffect, byActive);
+    });
+
     /// <summary>The .ao a variation draws in place of <paramref name="ao"/>, an art's default (variant 0) .ao, e.g.
     /// Fireball's explosion (<c>fireball_standard</c>); the default itself when the variation has no row there.</summary>
     public string AnimatedInPlaceOf(string ao, int variation)

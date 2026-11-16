@@ -37,6 +37,8 @@ public static partial class Game
         Gain("map_monsters_%_physical_damage_to_add_as_fire", "physical_damage_%_to_add_as_fire");
         Gain("map_monsters_%_physical_damage_to_add_as_cold", "physical_damage_%_to_add_as_cold");
         Gain("map_monsters_%_physical_damage_to_add_as_lightning", "physical_damage_%_to_add_as_lightning");
+        // "Monsters fire # additional Projectiles": their shots' count (MonsterShots), the one the client draws.
+        Gain("map_monsters_additional_number_of_projecitles", "number_of_additional_projectiles");
         return extra;
     }
 

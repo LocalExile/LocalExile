@@ -1934,50 +1934,6 @@ static partial class QuestobjectsRules
         finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
     }
 
-    // A trap's degeneration on the player while they are in it (RunResourceRecovery deals ClientState.TrapDegenPerSecond)
-    // and the trap's buff shown on them (its instance and row).
-    sealed class TrapDegen
-    {
-        (ushort Instance, ushort Row)? shown;
-        // This trap runner's share of ClientState.TrapDegenPerSecond: the runners (hot plates, roombas, doorway rollers)
-        // add theirs up, so one out of its traps does not cancel another's.
-        double mine;
-
-        // This tick's degeneration (0 out of the trap) and buff row: the buff swapped as the row changes, and the client's
-        // recovery rates sent again on entering and leaving (PlayerStatsUpdateAtGate).
-        public async Task Set(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double perSecond, ushort? row,
-            string where)
-        {
-            bool was, degen;
-            ushort instance = 0;
-            lock (conn.Monsters)
-            {
-                was = mine > 0;
-                if (conn.PlayerLife == 0) perSecond = 0;
-                conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - mine + perSecond);
-                mine = perSecond;
-                degen = mine > 0;
-                if (!degen) row = null;
-                if (row is not null && shown?.Row != row) instance = conn.NextBuff++;
-            }
-            if (shown is { } old && old.Row != row)
-            {
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old.Instance), null);
-                shown = null;
-            }
-            if (row is ushort buffRow && shown is null)
-            {
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, instance, buffRow), null);
-                shown = (instance, buffRow);
-            }
-            if (degen && !was && CharacterPlayerStatsCore(conn, out double lifeRegen) is not null)
-                Console.WriteLine($"[gateway] {remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
-                    $"energy shield {conn.EnergyShield.Maximum}), life regeneration {lifeRegen:0.#}/s, life {conn.PlayerLife}, " +
-                    $"energy shield {conn.EnergyShield.Current}");
-            if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? where : "out of the trial's traps");
-        }
-    }
-
     // A Bronze Monograph reads at once (live 2026-10-31, the original: no "Read" option to choose, and the voice goes on
     // after the player walks away): S→C 0x84 with its only NPCTalk row's index (0, "Read") opens the talk on that row.
     internal static Task ReadTrialMonograph(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,

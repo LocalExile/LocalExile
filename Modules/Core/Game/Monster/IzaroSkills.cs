@@ -16,7 +16,7 @@ using static Program;
 /// </summary>
 static class IzaroSkills
 {
-    enum Shape { Circle, Ahead, Line, Cone, Leap, Charge, Self }
+    enum Shape { Circle, Ahead, Line, Cone, Leap, Charge, Self, Projectile }
 
     // Effect: GrantedEffects row. Contact: the clip's contact over its length (LabyrinthBoss's rig.amd). Reach: how far the
     // player may be for him to use it, from at least Near. Size: the radius, or the line's or cone's length; Width: the line's
@@ -79,7 +79,9 @@ static class IzaroSkills
         // a moment later (ours).
         new(1537, "Rain of Arrows", 533.0 / 1166, 0, 60, Shape.Circle, 18, 0, 15, DelaySeconds: 0.5),
         // Lieutenant of the Bow: six arrows (number_of_additional_arrows 5), its Melee attack1_bow (arrow_appear 749 of 1333 ms).
-        new(1548, "Split Arrow", 749.0 / 1333, 0, 60, Shape.Cone, 60, 20, 15),
+        // They fly (MonsterShots: SplitArrowDefault in the client's fan) and each hits as it reaches the player; the cone
+        // is only the fallback for a shot that does not resolve.
+        new(1548, "Split Arrow", 749.0 / 1333, 0, 60, Shape.Projectile, 60, 20, 15),
     ];
 
     // Off the elevator he uses one at once, and nearly all the fight he goes from skill to skill, with only a couple of plain
@@ -115,7 +117,10 @@ static class IzaroSkills
         var damage = move.MonsterDamage is { } scaled && Monsters.BaseDamage(level) is int baseDamage
             ? DamagePacket.Of(scaled.Type, baseDamage * scaled.Low, baseDamage * scaled.High).Scale(more)
             : spell ? catalog.HitDamage(move.Effect, effectLevel).Scale(more) : plain.Damage.Scale(more);
-        return plain with { SkillId = SkillId(move), Seconds = seconds, Range = move.Reach, Damage = damage, Spell = spell, Scripted = true, Projectile = null, Release = null };
+        // A projectile move flies the shot its skill's action fires (a bow skill of an encounter is taken to hold a bow).
+        var shot = move.Shape == Shape.Projectile ? MonsterShots.Resolve(catalog, null, move.Effect, effectLevel) : null;
+        return plain with { SkillId = SkillId(move), Seconds = seconds, Range = move.Reach, Damage = damage, Spell = spell, Scripted = true,
+            Projectile = shot, Release = null, ReleaseEffect = null };
     }
 
     /// <summary>The actor's skill list (Izaro's, a lieutenant's): the plain attack first, then each skill he uses, with the 0x1ab ids it names.</summary>
@@ -133,7 +138,8 @@ static class IzaroSkills
             var own = Attack(conn, attack, move, level).InPlaceSkillStats();
             // The client takes neither from the effect's row: its art (the Upheaval's Ornaments, else Glacial Cascade's ice) and
             // the final radius its effect builders read (11-skills.md: without it Ice Nova drew nothing).
-            List<(uint, int)> drawn = [.. own];
+            // A shot the client draws needs its count on the record (MonsterShots.CountStats), the one the server flies.
+            List<(uint, int)> drawn = [.. own, .. MonsterShots.CountStats(Attack(conn, attack, move, level).Projectile)];
             if (catalog.ArtVariation(move.Effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint artKey) drawn.Add((artKey, art));
             if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey)
                 drawn.Add((radiusKey, (int)(move.Shape is Shape.Line or Shape.Charge ? move.Width : move.Size)));
@@ -254,6 +260,14 @@ static class IzaroSkills
         }, $"0x01ab {boss.Variety?.Name ?? "Izaro"} 0x{id:x} uses {move.Name} (0x{use.SkillId:x4}, {use.Seconds:0.00} s)")) return;
         if (move.StartArt is { } start) await ShowArt(remote, stream, ciphers, conn, id, start);
         double contact = startedAt + use.Seconds * move.Contact;
+        // A volley the client draws leaves at the clip's contact (on a lockstep client's frame tick) toward the ordered cell
+        // and lands each hit as it reaches the player, as an ordinary monster's shot does (Monsters.MonsterSwing).
+        if (move.Shape == Shape.Projectile && use.Projectile is { } shot)
+        {
+            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, boss, use, shot, action, shot.ClientDraws ? aim : null,
+                conn.LockstepClient ? LockstepShotAt(startedAt, use.Seconds * move.Contact) : contact, sequence);
+            return;
+        }
         if (!await WaitMonsterActionTime(conn, id, boss, action, contact)) return;
         // The leap and the charge carry him to where they aimed (the client's action moves its copy).
         if (move.Shape is Shape.Leap or Shape.Charge && conn.Layout.WalkableFor(aim.X, aim.Y, 0))

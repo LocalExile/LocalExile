@@ -59,7 +59,7 @@ public static partial class Game
             int? fallback = null;
             foreach (int effect in effects)
             {
-                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect)) continue;
+                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || ServerDoesNotUse(skills, effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
@@ -80,8 +80,17 @@ public static partial class Game
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
-            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e), -1);
+            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e) && !ServerDoesNotUse(skills, e), -1);
         }
+
+        /// <summary>A skill that is no swing of the monster's own, so it must not hit on the AI's cadence: a siege
+        /// ballista places a totem, the rotating frost orbs are a rectangle of orbs, a when-hit daemon
+        /// (is_trigger_daemon_when_hit_triggered_skill, Lightning Clone retaliation's among them) fires only when its
+        /// host is hit. The server creates none of these, so without this rule each fell to an instant hit.</summary>
+        public static bool ServerDoesNotUse(SkillCatalog skills, int effect) =>
+            skills.ActiveSkillId(effect) is "siege_ballista" or "rectangle_mortar_with_rotating_orbs" or "lightning_clone_retaliation"
+            || Stats.Key("is_trigger_daemon_when_hit_triggered_skill") is uint daemon
+                && skills.EffectStats(effect, 1).Any(s => s.Item1 == daemon && s.Item2 != 0);
 
         public static bool AttackIsRanged(SkillCatalog skills, int effect) =>
             effect >= 0 && (skills.IsRangedAttack(effect)
@@ -100,6 +109,14 @@ public static partial class Game
                 _ => null,
             };
         }
+
+        /// <summary>The shot an attack built from <paramref name="effect"/> flies: the Maven's named shots as above (the
+        /// server's objects), else what the client's action fires (MonsterShots). <see cref="Shot"/> stays the narrower
+        /// test CombatEffect picks an effect by, so resolving more shots does not change which effect a monster uses.</summary>
+        public static SkillCatalog.MonsterProjectileInfo? ShotFor(SkillCatalog skills, MonsterCatalog.Variety? variety, int effect, int level,
+            IReadOnlyDictionary<string, int>? monsterStats = null) =>
+            Shot(skills, effect) is { Variation: 0 } named && skills.MonsterProjectile(effect) is null ? named
+                : MonsterShots.Resolve(skills, variety, effect, level, monsterStats);
 
         static SkillCatalog.MonsterProjectileInfo Named(string id, int speed) =>
             new($"Metadata/Projectiles/{id}", speed, false, 1) { AnimationKey = "SpellProjectile" };

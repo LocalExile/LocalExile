@@ -177,8 +177,9 @@ static class AtlasBosses
         return [.. effects.Select(effect =>
         {
             var use = Attack(conn, variety, level, effect, attack);
+            // A shot the client draws carries its count (MonsterShots.CountStats), the one the server flies.
             return catalog.FindByRow(Skill(variety, effect), effect, level,
-                WithBehaviourVariation(conn, effect, use.SkillStats()));
+                [.. WithBehaviourVariation(conn, effect, use.SkillStats()), .. MonsterShots.CountStats(use.Projectile)]);
         }).OfType<GrantedSkill>()];
     }
 
@@ -233,7 +234,7 @@ static class AtlasBosses
         double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
         double reach = melee ? variety.AttackRange : 45;
         if (melee && swing is not null) return swing with { SkillId = Skill(variety, effect), Scripted = true };
-        var projectile = ProjectileFor(conn, effect);
+        var projectile = ProjectileFor(conn, variety, effect, level);
         return new MonsterAttack(Skill(variety, effect), seconds, reach, damage)
         {
             Spell = catalog.IsSpell(effect),
@@ -243,14 +244,14 @@ static class AtlasBosses
         };
     }
 
-    /// <summary>The shot a skill launches: its own MonsterProjectileVariation row when the skill has one, and the
-    /// Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill record
-    /// makes, and the doom shot is a single slow one).</summary>
-    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect) => effect switch
+    /// <summary>The shot a skill launches: what its action fires (MonsterShots: the Elder's MonsterProjectileSpell row),
+    /// and the Projectiles.dat row for the two that name none (the bullet-hell ring is twelve in a circle, which no skill
+    /// record makes, and the doom shot is a single slow one).</summary>
+    internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, MonsterCatalog.Variety variety, int effect, int level) => effect switch
     {
         BulletHellEffect => BulletHellShot,
         DoomProjectileEffect => DoomShot,
-        _ => Game.SkillsFor(conn).MonsterProjectile(effect),
+        _ => MonsterShots.Resolve(Game.SkillsFor(conn), variety, effect, level),
     };
 
     /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos
@@ -261,12 +262,17 @@ static class AtlasBosses
     internal static DamagePacket DamageOverTime(ClientState conn, int effect, int level)
     {
         var stats = Game.SkillsFor(conn).EffectStats(effect, level);
-        int Get(string name)
+        return DamageOverTime(name =>
         {
             if (Stats.Key(name) is not uint key) return 0;
             foreach (var (id, value) in stats) if (id == key) return value;
             return 0;
-        }
+        });
+    }
+
+    /// <summary>The same from any stats (a monster shot's, MonsterGrounds).</summary>
+    internal static DamagePacket DamageOverTime(Func<string, int> get)
+    {
         var packet = DamagePacket.Empty;
         foreach (var (type, name) in new[]
         {
@@ -277,7 +283,7 @@ static class AtlasBosses
             (DamageType.Chaos, "base_chaos_damage_to_deal_per_minute"),
         })
         {
-            double perSecond = Get(name) / 60.0;
+            double perSecond = get(name) / 60.0;
             if (perSecond < 1) continue;
             packet = packet.Add(type, new DamageRange(Math.Floor(perSecond), Math.Ceiling(perSecond)));
         }

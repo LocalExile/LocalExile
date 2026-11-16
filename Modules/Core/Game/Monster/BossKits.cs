@@ -55,7 +55,7 @@ public static class BossKits
         foreach (int effect in effects)
         {
             if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
-            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
+            if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect) || MavenNucleus.ServerDoesNotUse(catalog, effect)) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                 || id.Contains("Daemon", StringComparison.Ordinal)
@@ -97,7 +97,8 @@ public static class BossKits
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
             // never answers. The boss stands through it and the player sees a swing that does nothing. The monster's own
             // default attack is kept whatever it is: it is the attack it had before the kit.
-            bool acts = !attack.Damage.IsZero || attack.Summon is not null || attack.Projectile is not null;
+            // A shot acts by the hit it carries; a mortar or a named shot does by itself (its landing area, the Maven's orbs).
+            bool acts = !attack.Damage.IsZero || attack.Summon is not null || MavenNucleus.Shot(catalog, effect) is not null;
             if (!acts && kit.Count > 0) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)));
         }
@@ -130,14 +131,7 @@ public static class BossKits
         var native = GolemData.Skill(catalog, effect, actorLevel);
         int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
         bool spell = catalog.IsSpell(effect);
-        var damage = DamagePacket.Empty;
-        if (spell)
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string slug = type.ToString().ToLowerInvariant();
-                int min = Raw($"spell_minimum_base_{slug}_damage"), max = Raw($"spell_maximum_base_{slug}_damage");
-                if (max > 0) damage = damage.Add(type, new(min, max));
-            }
+        var damage = spell ? SpellDamage(catalog, effect, actorLevel) : DamagePacket.Empty;
         if (!spell)
         {
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
@@ -150,17 +144,32 @@ public static class BossKits
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
         double reach = ranged && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
-        var projectile = ranged ? MavenNucleus.Shot(catalog, effect) : null;
-        var summon = catalog.MonsterSummon(effect, actorLevel);
+        var projectile = ranged ? MavenNucleus.ShotFor(catalog, variety, effect, actorLevel) : null;
+        var summon = SummonsMonsters(catalog, effect) ? catalog.MonsterSummon(effect, actorLevel) : null;
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
-            ReleaseEffect = projectile is null ? null : effect,
+            ReleaseEffect = effect,
             Release = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, actorLevel, projectile),
         };
+    }
+
+    /// <summary>A spell's own base hit at the actor's level: its spell_minimum/maximum_base damage of each type.</summary>
+    public static DamagePacket SpellDamage(SkillCatalog catalog, int effect, byte actorLevel)
+    {
+        var native = GolemData.Skill(catalog, effect, actorLevel);
+        var damage = DamagePacket.Empty;
+        foreach (var type in DamageTypes.ConversionOrder)
+        {
+            string slug = type.ToString().ToLowerInvariant();
+            int min = Stats.Key($"spell_minimum_base_{slug}_damage") is uint lo ? native.Stats.GetValueOrDefault(lo) : 0;
+            int max = Stats.Key($"spell_maximum_base_{slug}_damage") is uint hi ? native.Stats.GetValueOrDefault(hi) : 0;
+            if (max > 0) damage = damage.Add(type, new(min, max));
+        }
+        return damage;
     }
 
     /// <summary>The attack this boss acts with now: a ready skill of its kit that reaches the player, else the attack it

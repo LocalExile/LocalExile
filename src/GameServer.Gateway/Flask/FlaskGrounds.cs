@@ -98,20 +98,48 @@ public static class FlaskGrounds
     public static Dictionary<Kind, (string Ao, int ArtRadius)> LoadArt(string folder)
     {
         var art = new Dictionary<Kind, (string, int)>();
-        if (!ClientTables.Has("GroundEffectTypes") || !ClientTables.Has("GroundEffects")) return art;
-        var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
-        var e = ClientTables.Table("GroundEffects");
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
             (Kind.ProfaneGround, "Profane") })
-            foreach (var r in e)
-                if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == id
-                    && r.Int("__col1") == 0 && r.Int("__col2") == 2
-                    && r.Texts("AOFile").FirstOrDefault() is { Length: > 0 } ao)
-                {
-                    art[kind] = (ao, r.Int("__col4"));
-                    break;
-                }
+            if (Art(id, 0) is { } found) art[kind] = found;
         return art;
+    }
+
+    /// <summary>A GroundEffectTypes Id's current art (GroundEffects __col2 2) at a variation (__col1): its animated object
+    /// and its size (__col4, as <see cref="LoadArt"/>). Null when the tables have none.</summary>
+    public static (string Ao, int ArtRadius)? Art(string type, int variation)
+    {
+        if (!ClientTables.Has("GroundEffectTypes") || !ClientTables.Has("GroundEffects")) return null;
+        var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
+        foreach (var r in ClientTables.Table("GroundEffects"))
+            if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == type
+                && r.Int("__col1") == variation && r.Int("__col2") == 2
+                && r.Texts("AOFile").FirstOrDefault() is { Length: > 0 } ao)
+                return (ao, r.Int("__col4"));
+        return null;
+    }
+
+    /// <summary>The buff a GroundEffects art row names of its own (its BuffVisual2 column, a BuffDefinitions row:
+    /// Lunaris's Maelstorm art 4 names ground_maelstrom_chill_lunaris), or null.</summary>
+    public static ushort? ArtBuff(string type, int variation)
+    {
+        if (!ClientTables.Has("GroundEffectTypes") || !ClientTables.Has("GroundEffects")) return null;
+        var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
+        foreach (var r in ClientTables.Table("GroundEffects"))
+            if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == type
+                && r.Int("__col1") == variation && r.Int("__col2") == 2)
+                return r.IntOrNull("BuffVisual2") is int buff ? (ushort)buff : null;
+        return null;
+    }
+
+    /// <summary>The GroundEffectTypes row whose art variation a stat names (its Stat, a Stats row: ground_caustic_art_variation
+    /// is CausticCloud's): its Id and the buff a player standing in it shows (BuffDefinition1).</summary>
+    public static (string Type, ushort? Buff)? TypeOfArtStat(int statRow)
+    {
+        if (!ClientTables.Has("GroundEffectTypes")) return null;
+        foreach (var r in ClientTables.Table("GroundEffectTypes"))
+            if (r.IntOrNull("Stat") == statRow && r.Text("Id") is { } id)
+                return (id, r.IntOrNull("BuffDefinition1") is int buff ? (ushort)buff : null);
+        return null;
     }
 
     /// <summary>One ground a flask made: where, how far it reaches, when it ends (connection clock seconds) and its effect

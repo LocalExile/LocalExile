@@ -1020,8 +1020,22 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   trackers refuse an earlier time than their last read, and the pump once closed a connection over it (live
   2026-10-29). A melee contact commits at the same rule: the runtime's time, read at the send gate without advancing
   it, lagged the life tick's clock read, and the tracker's refusal faulted the swing's task unobserved (review
-  2026-10-30; such faults are logged now). Weapon projectile skills (`monster_projectile_weapon`, SkillID 0) take their projectile from the
-  monster's weapon art, not resolved yet.
+  2026-10-30; such faults are logged now).
+  Every other monster shot goes the same way (`MonsterShots`): the row its client action fires (MonsterProjectileSpell
+  or MonsterProjectileAttack by `monster_projectile_variation`, a fixed skeleton row, a bow's `default_ranged` art by
+  `arrow_projectile_variation` or a wand's bolt, else the skill's art slot 0), its count on the record, the client's
+  range, contact and volley for the hidden flight, released at the contact toward the order's cell. A spell mortar
+  lands its flight clip's first `contact` after the release (its length without one; 666 ms on most mortar rigs),
+  over its speed multiplier, at any distance. A clip with several contacts releases at each, turned by that contact's
+  direction. Per-projectile ends (sprays, knives) come from the client's seeded RNG, seed byte
+  2 + (release · count + i) % 254. Weapon jitter uses that seed too, but only 70/90 recorded endpoints matched:
+  variations 4, 8, 24, 26 and 29 remain server-drawn, using the same simulated flight for presentation and hits.
+  The native mover (0x141b6e1d0) normalizes to 100, adds rounded jitter (0.5 for variation 8, otherwise 0.2),
+  then stretches to 150 with truncation. It subsequently applies the row offset/scatter; the five weapon rows'
+  `__col5` offsets are all zero in the local client data, so offset ordering alone does not explain the mismatch.
+  A weapon-table shot (start 0x141b720e0) plays its GE animation, else Throw (Animation
+  row 40), or SpectralThrow (95) with `animation_effect_variation` 1, and launches 30 units from its cell's centre
+  toward the aim. A skill with a GEPL Cooldown waits it out; the monster's other attacks do not.
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final
@@ -4086,6 +4100,15 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
   level 1 `Damage` 4.99 × `DamageMultiplier` 120 = 5.99, ±20% `DamageSpread`) cannot give a constant 4, so the server
   computes or rolls this hit differently; how is open.
   A Spitter's spits were at least about 990 ms apart (its `AttackSpeed` 990), often 1–2.5 s.
+- **Other monster shots (3.30.0b, 2026-11-14, both network modes):** no object for any Goatman Shaman fireball,
+  bow skeleton arrow, Axiom Frostguard shot or Bramble Cobra spit; the hit's delay grows with distance at the resolved
+  row's speed (fireball 9.7 ms per cell against the row's 10.5, spit 6.3 against 6.0), where melee hits show none.
+- **Act bosses (3.30.0b, 2026-11-15, lockstep):** still no shot objects. A Pocked Lanternbearer's lantern lands 889 ms
+  after the order (its Throw clip), hits by a 12-cell area there and leaves a FillGroundEffect (ground_fire_burn, 3.9 s).
+  Lunaris's orb never hits; its VisibleServerGroundEffect hurts within 18 cells at her level's value × 1.7 (unique, no
+  33 % less) for 7 s, with a damage-free chill ring growing 18 → 44 cells. A ball strikes every 7 server frames.
+  Arakaali's web and eggs land half her SpellProjectile cast plus the flight after the order. A server frame is 33 ms
+  in both modes.
 
 ## Open
 

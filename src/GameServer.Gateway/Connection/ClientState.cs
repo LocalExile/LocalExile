@@ -25,7 +25,17 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// (Program.MonsterReleaseFor): the clip, its contact keyframe as a fraction of the attack, the keyframe's position when
 /// the skill spawns the shot there (<c>projectile_uses_contact_position</c>), and whether the monster turns its back for
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
-public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
+public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway)
+{
+    /// <summary>The contact point the shot turns by (<c>projectile_uses_contact_direction</c>), also without the
+    /// position stat.</summary>
+    public ContactPoint? Turn { get; init; }
+    /// <summary>One release per contact of a clip with several (the client releases on each contact event), in order;
+    /// null for one.</summary>
+    public IReadOnlyList<MonsterRelease>? Repeats { get; init; }
+    /// <summary>This release's place among the clip's contacts (0 for the first), which seeds its shots.</summary>
+    public int Ordinal { get; init; }
+}
 
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
@@ -33,13 +43,16 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>The seconds before the skill may be used again (its GrantedEffectsPerLevel Cooldown), 0 for none.</summary>
+    public double CooldownSeconds { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
     public MonsterRelease? Release { get; init; }
-    /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
+    /// <summary>The granted effect the attack uses; a projectile's rig contact is selected by it for each ordered action.
+    /// Null for a scripted release.</summary>
     public int? ReleaseEffect { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
@@ -186,6 +199,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>A flame skill's stage by its skill id (Clock seconds it holds until, and the stage trackers its current
+    /// action has made), kept by its releases under the Monsters lock.</summary>
+    public readonly Dictionary<ushort, (int Stage, double Until, int Trackers)> FlameStages = [];
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
@@ -201,7 +217,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
-    public double SummonReadyAt;
+    /// <summary>When the monster's own skill comes off its cooldown (a summon's, or any skill with one).</summary>
+    public double SkillReadyAt;
     public double RampageBlindUntil;
     public int StunSerial;
     /// <summary>Server-side stun immunity independent of the rolled mods (pinnacle bosses such as The King in the Mists).</summary>

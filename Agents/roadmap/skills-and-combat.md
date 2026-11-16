@@ -172,10 +172,15 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster weapon projectiles: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` (109 varieties'
-    first effect) take their projectile from the monster's weapon art (MonsterVarieties
-    `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), which the server does not read, so they hit instantly
-    with no shot. Monster spell projectiles (`MonsterProjectileSpell`) need their own adapter.
+  - Monster shots still drawn as the server's objects (`ServerReason`): flame waves (13 per cast) and the incinerate
+    channel, spell mortars with swapped ends, forks or chains, Kaom's, the riptide (its speed unit), the Elder's storm
+    burst, a spray's contact offset, breach barrage facing, `spell_self` shots, and the trap, totem and mine forms (Ethereal
+    Knives, Rigwald's trap knives), and weapon jitter (weapon variations 4, 8, 24, 26, 29). Only 70 of 90 weapon
+    endpoints matched; all five variations therefore use a visible server flight with the seeded spread retained.
+    Native launch/fan/mover endpoint agreement remains open; internal consistency tests do not establish it.
+    A shot at a golem aims at its cell at release, not the order's. Not modelled: Lunaris's chill ring, a lantern's
+    MinAgroRange throw reach (75, not 105) and fire damage, Arakaali's riptide speed (no recording of her phase 2), a
+    repeated monster cast (skill_repeat_count: the record sends no spell_repeat_count, so the client casts once).
   - Mortars: the splash radius is a development default and `projectile_spread_radius` (3) is not modelled; monster
     melee still lands at half the attack time although the pools carry `Melee` keyframes. Check live whether the
     client seeds a monster's clip choice from the 0xffff sequence (the Spitter's attack2 would spit 75 ms earlier and

@@ -138,31 +138,47 @@ static class GoddessOfJustice
     }
 
     // Her volley: the Spirit Mortar's action at the player's cell, which the client plays and fires (SkillsFor). The server
-    // lands the same mortars there, unseen, one at each of the volly clip's contacts, for their hits.
+    // flies the same mortars, unseen, one at each of the volly clip's contacts, for their hits.
     static async Task Volley(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
     {
         int action;
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
         double started = 0;
         (int X, int Y) aim = default;
+        ushort sequence = 0;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
         {
-            started = conn.Clock.Elapsed.TotalSeconds;
+            // A lockstep client starts the action at its frame's start (LockstepOrderStart), as any monster's.
+            started = Game.LockstepOrderStart(conn, conn.Clock.Elapsed.TotalSeconds);
             var from = goddess.Walk.Position(started);
             aim = conn.Walk.Position(started);
+            sequence = conn.NextActionSequence();
             return [.. InstanceProtocol.ActionEnded(id),
-                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, MortarSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags)];
+                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, MortarSkillId, sequence, conn.MonsterOrderFlags)];
         }, $"0x01ab the Goddess of Justice 0x{id:x} lobs her Spirit Mortars")) return;
+        // Each mortar lands as the client's mover puts it, its flight clip's contact after its release (SpiritMortarTarget).
+        var catalog = Game.SkillsFor(conn);
+        var stats = catalog.EffectStats(IzaroGoddess.MortarEffect, goddess.Level);
+        int Stat(string name) => Stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
         var mortar = MortarAttack(conn, goddess);
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
         double cast = Game.SkillsFor(conn).CastTimeMs(IzaroGoddess.MortarEffect) / 1000.0;
+        // One mortar on each of her volly clip's contacts (566 to 1400 of 1900 ms), stretched to the cast, as any monster's
+        // shot releases on each contact of its clip (MonsterReleaseFor); each seeds its landing by its place in the volley.
+        var release = goddess.Variety is { } variety && mortar.Projectile is { } shot
+            ? Game.MonsterReleaseFor(conn, variety, IzaroGoddess.MortarEffect, goddess.Level, shot with { AnimationKey = "SpellProjectileFire" }, sequence)
+            : null;
+        IReadOnlyList<MonsterRelease> releases = release?.Repeats ?? (release is null ? [] : [release]);
         for (int i = 0; i < IzaroGoddess.MortarCount; i++)
         {
-            double release = started + cast * IzaroGoddess.VolleyContacts[Math.Min(i, IzaroGoddess.VolleyContacts.Length - 1)] / IzaroGoddess.VolleySeconds;
-            session.Schedule(ProjectileRuntime.Time(release), () => fighting() && conn.PlayerLife > 0 && !InGracePeriod(conn),
+            double fraction = releases.Count > 0 ? releases[Math.Min(i, releases.Count - 1)].Fraction : .5;
+            double at = conn.LockstepClient ? Game.LockstepShotAt(started, cast * fraction) : started + cast * fraction;
+            var landing = (sequence, i, Stat("projectile_minimum_range"), Stat("projectile_spread_radius"),
+                (catalog.Clips(IzaroGoddess.SpiritMortar)?.Flight?.Contact ?? 666) / 1000.0);
+            session.Schedule(ProjectileRuntime.Time(at), () => fighting() && conn.PlayerLife > 0 && !InGracePeriod(conn),
                 () => Mortar(session, conn, id, goddess, IzaroGoddess.SpiritMortar, aim,
-                    new HostileProjectileOffense(id, goddess, mortar, action, "the Goddess of Justice's Spirit Mortar"), hidden: true));
+                    new HostileProjectileOffense(id, goddess, mortar, action, "the Goddess of Justice's Spirit Mortar"), hidden: true, landing));
         }
     }
 
@@ -208,12 +224,19 @@ static class GoddessOfJustice
 
     // A mortar from her (her place, the volley's height) to a cell: a damaging one lands its area there.
     static ProjectileUse Mortar(ProjectileSession session, ClientState conn, uint id, SpawnedMonster goddess, string metadata, (int X, int Y) target,
-        object payload, bool hidden = false)
+        object payload, bool hidden = false, (ushort Sequence, int Index, int Minimum, int Spread, double Seconds)? spirit = null)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var from = ProjectileSession.Vector(goddess.Walk.Position(now));
         var to = ProjectileSession.Vector(target);
-        double speed = Speed(), distance = Math.Max(1, (to - from).Length);
+        if (spirit is { } s)
+        {
+            // A Spirit Mortar's launch and landing (0x141a0bda0), one projectile a release.
+            var actor = from;
+            from = SpiritMortarLaunch(actor, to);
+            to = SpiritMortarTarget(actor, from, to, s.Minimum, s.Spread, s.Sequence, id, s.Index, out _);
+        }
+        double distance = Math.Max(1, (to - from).Length), speed = spirit is { } fixedTime ? distance / fixedTime.Seconds : Speed();
         bool damages = payload is HostileProjectileOffense;
         var profile = new ProjectileProfile(metadata)
         {
