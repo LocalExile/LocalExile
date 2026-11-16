@@ -91,6 +91,7 @@ public static partial class Game
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
+        ApplyBloodAndSandMeleeStats(conn, selected.Effect, own);
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
@@ -560,24 +561,16 @@ public static partial class Game
             Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
+    // Compatibility view for one-pool callers: select the resource the caller's context will use, never a Mana-only
+    // projection that would erase a Life cost. Full callers use SupportedReservationCost's four raw slots.
     public static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
     {
-        var gem = SupportedSkill(conn, skillId);
-        var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
-        if (CurseCatalog.Hex(SkillsFor(conn).EffectId(gem.Effect)))
-        {
-            var blasphemy = gem.Supports.FirstOrDefault(s => IsBlasphemySupport(s.Effect.Id));
-            if (blasphemy is null) return null;
-            sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
-            var sources = CharacterStatSources(conn).Stats;
-            if (SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
-                && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
-        }
-        if (sourceReservation is not { } reservation) return null;
-        // Integer multipliers are exact percentages (Arrogance's 201% of Grace's 50% is 100.50%), so binary floating
-        // point must not cost the reservation its last permyriad (2.01 * 5000 = 10049.99...).
-        decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
-        return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
+        if (SupportedReservationCost(conn, skillId) is not { } cost) return null;
+        var context = ReservationContext(conn, skillId);
+        bool explicitLife = cost.LifeFlat != 0 || cost.LifePercent != 0;
+        return context.Life
+            ? (explicitLife ? cost.LifeFlat : cost.ManaFlat, explicitLife ? cost.LifePercent : cost.ManaPercent)
+            : (cost.ManaFlat, cost.ManaPercent);
     }
 
     public static int SupportedCriticalMultiplier(ClientState conn, ushort skillId)
@@ -749,6 +742,52 @@ public static partial class Game
                         if (Stats.Key($"{kind}_{bound}_added_{type}_damage") is uint target)
                             own[target] = own.GetValueOrDefault(target) + damage;
 
+    }
+
+
+    public static SkillCatalog.ReservationCost? SupportedReservationCost(ClientState conn, ushort skillId)
+    {
+        var gem = SupportedSkill(conn, skillId);
+        if (SkillsFor(conn).EffectId(gem.Effect) is not { } effectId) return null;
+        var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
+        if (CurseCatalog.Hex(effectId) || effectId == "TemporalChains")
+        {
+            var blasphemy = gem.Supports.FirstOrDefault(s => IsBlasphemySupport(s.Effect.Id));
+            if (blasphemy is null) return null;
+            sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
+            var curseSources = CharacterStatSources(conn).Stats;
+            if (effectId == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
+                && conn.PlayerStats.GetValueOrDefault(free, curseSources.GetValueOrDefault(free)) != 0) return new(0, 0, 0, 0);
+        }
+        if (sourceReservation is not { } reservation) return null;
+        var sources = CharacterStatSources(conn).Stats;
+        int Own(string name) => GolemStat(gem.Stats, name);
+        int Get(string name) => Own(name) + (Stats.Key(name) is uint key
+            ? conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key)) : 0);
+        int manaFlat = reservation.ManaFlat, manaPercent = reservation.ManaPercent;
+        int lifeFlat = reservation.LifeFlat, lifePercent = reservation.LifePercent;
+        bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
+        bool mine = Supports.Of(gem.Effect)?.Types.Contains(35) == true;
+        bool lifeInstead = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
+            || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
+            || curse && Get("curse_aura_skills_reserve_life") != 0
+            || mine && Get("skills_that_throw_mines_reserve_life") != 0;
+        if (lifeInstead)
+        {
+            lifeFlat += manaFlat;
+            lifePercent += manaPercent;
+            manaFlat = manaPercent = 0;
+        }
+        if (Get("base_skill_no_life_reservation") != 0 || Get("skill_no_life_reservation") != 0)
+            lifeFlat = lifePercent = 0;
+        // Mana-only exemptions never erase a Life reservation.
+        if (AuraCatalog.Supported(effectId) && Get(AuraCatalog.NoManaReservationStat(effectId)) != 0)
+            manaFlat = manaPercent = 0;
+        if (effectId == "TemporalChains" && Get("temporal_chains_no_reservation") != 0)
+            manaFlat = manaPercent = 0;
+        decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
+        return new((int)Math.Floor(manaFlat * factor), (int)Math.Floor(manaPercent * factor),
+            (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor));
     }
 
 }

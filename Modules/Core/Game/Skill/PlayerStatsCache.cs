@@ -15,6 +15,7 @@ public static partial class Game
         public object? Pools;
         public long NextBuff, Life, Mana;
         public long Golems;
+        public long AspectRevision;
         public (int Endurance, int Frenzy, int Power) HeldCharges;
         public long Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
@@ -55,7 +56,7 @@ public static partial class Game
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
             GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
-            HeldCharges = heldCharges,
+            HeldCharges = heldCharges, AspectRevision = conn.Reservations.AspectRevision,
             Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
@@ -66,6 +67,7 @@ public static partial class Game
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
         && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
+        && a.AspectRevision == b.AspectRevision
         && a.HeldCharges == b.HeldCharges
         && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty

@@ -27,6 +27,7 @@ public static partial class Game
         (physical, other, chaos) = TriggeredGuardHit(conn, physical, other, chaos, at);
         RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
+        CrabPhysicalHitLocked(conn, physical, at, player);
         // Eldritch Battery: "Energy Shield protects Mana instead of Life". The hit goes past it to Life (it still stops
         // the recharge), and the share defensive Mana takes (Mind Over Matter) is taken from Energy Shield first.
         bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;

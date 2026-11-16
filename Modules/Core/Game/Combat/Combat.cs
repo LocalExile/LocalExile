@@ -1176,7 +1176,7 @@ public static partial class Game
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
     // off. The reserved mana is sent in the Life pool and in every later 0x1b1 mana update; the client does not derive it.
     public static async Task<bool> ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
+        ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         string? effectId = SkillsFor(conn).EffectId(effect);
         if (effectId is null || !AuraCatalog.Supported(effectId))
@@ -1184,6 +1184,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: reservation is known but this aura's effect is not implemented yet");
             return false;
         }
+        // Both stance gems have one atomic source/cooldown/action admission. A direct generic toggle would bypass it.
+        if (StanceCatalog.IsSource(effectId)) return false;
         AuraCatalog.Aura? ended = null;
         AuraCatalog.Aura? started = null;
         lock (conn.Monsters)
@@ -1197,16 +1199,6 @@ public static partial class Game
                 if (packets.Length > 0) conn.Minions.OutputQueue.Add(new(packets, "Temporal Rift recalls resources and position"));
                 started = conn.Auras[skillId];
             }
-            else if (AuraCatalog.IsStance(effectId) && conn.Auras.ContainsKey(skillId))
-            {
-                conn.Stance = AuraCatalog.OtherStance(conn.Stance);
-                foreach (var active in conn.Auras.Values.Where(a => AuraCatalog.IsStance(a.EffectId)).ToArray())
-                    conn.Auras[active.SkillId] = active with { Stance = conn.Stance,
-                        BuffRow = AuraCatalog.BuffRow(active.EffectId, conn.Stance), Buff = conn.NextBuff++,
-                        SourceBuff = active.SourceBuff is not null ? conn.NextBuff++ : null };
-                CharacterSaves.SetStance(CharacterName(conn), conn.Stance);
-                started = conn.Auras[skillId];
-            }
             else if (conn.Auras.Remove(skillId, out var old))
             { ended = old; EndReservationRuntimeLocked(conn, old); }
             else if (conn.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
@@ -1215,25 +1207,34 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: refused, {same.Name} already runs (skill 0x{same.SkillId:x4})");
                 return false;
             }
+            else if (AuraCatalog.IsAspect(effectId) && conn.Auras.Values.Any(a => AuraCatalog.IsAspect(a.EffectId)))
+                return false;
             else
             {
-                // Generosity: the supported aura's own increased effect, and "Supported Auras do not affect you".
+                var supported = SupportedSkill(conn, skillId);
                 var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
                 var context = ReservationContext(conn, skillId);
                 string? stance = AuraCatalog.IsStance(effectId) ? conn.Stance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(SupportedSkill(conn, skillId).Stats) ? conn.NextBuff++ : null,
+                    AuraCatalog.BuffRow(effectId, stance), reservation.ManaFlat, reservation.ManaPercent,
+                    Level: level, Quality: quality, LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
+                    SourceBuff: conn.NextBuff++, WornGrant: supported.WornGrant,
+                    SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
-                    IsHerald: IsHeraldAura(effectId));
-                conn.Auras[skillId] = aura;
-                if (!ReservationBudgetFits(conn))
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId));
+                var proposedAuras = conn.Auras.Values.Append(aura).ToArray();
+                long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, proposedAuras)
+                    + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
+                    + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
+                var lifeReservation = LifeReservationFor(conn, proposedAuras);
+                int requiredLife = lifeReservation.Required;
+                if (reserved > conn.Pools.Mana || requiredLife >= conn.Pools.Life)
                 {
-                    conn.Auras.Remove(skillId);
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: needs {reserved} mana and " +
+                        $"{requiredLife} life reserved, maximum is {conn.Pools.Mana} mana and {conn.Pools.Life} life");
                     return false;
                 }
+                conn.Auras[skillId] = aura;
                 started = aura;
                 ClampReservedResources(conn);
             }
@@ -1259,10 +1260,20 @@ public static partial class Game
         lock (conn.Monsters)
         {
             bool all = name.Equals("all", StringComparison.OrdinalIgnoreCase);
+            string compactName = string.Concat(name.Where(c => !char.IsWhiteSpace(c)));
+            string stanceFamily = compactName.Equals(StanceCatalog.BloodAndSand, StringComparison.OrdinalIgnoreCase)
+                ? StanceCatalog.BloodAndSand
+                : compactName.Equals(StanceCatalog.FleshAndStone, StringComparison.OrdinalIgnoreCase)
+                    ? StanceCatalog.FleshAndStone : "";
+            bool MatchesSource(string effectId) =>
+                stanceFamily.Length > 0 && StanceCatalog.SourceFamily(effectId) == stanceFamily;
             var matches = conn.Auras.Values.Where(a => all
-                || a.EffectId.Equals(name, StringComparison.OrdinalIgnoreCase) || a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                || a.EffectId.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || MatchesSource(a.EffectId)
+                || a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
             var saved = CharacterSaves.Load(CharacterName(conn));
             var remembered = (saved?.ActiveAuras ?? []).Where(id => all || id.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || MatchesSource(id)
                 || GemSkillEffects(conn).Any(g => SkillsFor(conn).EffectId(g.Effect) == id
                     && g.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
             bool petrified = (all || name.Equals("Petrified Blood", StringComparison.OrdinalIgnoreCase)
@@ -1279,6 +1290,8 @@ public static partial class Game
                 CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
                 EndReservationRuntimeLocked(conn, aura);
             }
+            if (matches.Any(a => StanceCatalog.IsStance(a.EffectId)))
+                ReconcileStanceSelectionLocked(conn, persist: true);
             conn.AuraStatsDirty = true;
             conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -2815,5 +2828,36 @@ public static partial class Game
             await SendGroundItem(remote, stream, ciphers, conn, id, ground,
                 $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})", justDropped: true);
         }
+    }
+
+    // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
+    // final 0x1ce at-gate commit, so a stale or cancelled Frostblink cannot activate a recent event.
+    static void RecordAcceptedGemUse(ClientState conn, int effect) =>
+        RecordAcceptedGemUseAt(conn, effect, conn.Clock.Elapsed.TotalSeconds);
+
+
+    static void RecordAcceptedGemUseAt(ClientState conn, int effect, double acceptedAt)
+    {
+        lock (conn.Monsters)
+        {
+            conn.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
+            bool movement = SkillsFor(conn).IsMovement(effect);
+            if (movement) conn.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
+            if (movement && IsDashEffect(SkillsFor(conn).EffectId(effect)))
+                conn.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
+            if (SkillsFor(conn).HasType(effect, "Fire"))
+                conn.RecentEvents.Record(StatConditions.UsedFireSkill, acceptedAt);
+            if (SkillsFor(conn).HasType(effect, "Cold"))
+                conn.RecentEvents.Record(StatConditions.UsedColdSkill, acceptedAt);
+        }
+    }
+
+    public static Task<bool> ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
+    {
+        bool life = ReservationContext(conn, skillId).Life;
+        return ToggleAura(remote, stream, ciphers, conn, skillId, effect, name,
+            life ? new SkillCatalog.ReservationCost(0, 0, reservation.Flat, reservation.Percent)
+                : new SkillCatalog.ReservationCost(reservation.Flat, reservation.Percent, 0, 0), level, quality);
     }
 }

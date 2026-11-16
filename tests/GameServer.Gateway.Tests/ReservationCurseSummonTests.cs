@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ReservationCurseSummonTests
+public sealed partial class ReservationCurseSummonTests
 {
     [Fact]
     public void LifeReservationIsSeparateCappedAndCursesReplaceWithoutMutatingMods()
@@ -69,6 +69,8 @@ public sealed class ReservationCurseSummonTests
         foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
         try
         {
+            await AvianAspectFixture(conn, lifetime);
+            await CrabAspectFixture(conn, lifetime);
             var catalog = new SummonCatalog(); var monsters = new MonsterCatalog();
             foreach (var definition in catalog.All.Where(d => d.Variety.Length > 0 && d.Family != "Clone"))
             {
@@ -252,4 +254,17 @@ public sealed class ReservationCurseSummonTests
         }
         public void Dispose() { reader.Dispose(); writer.Dispose(); listener.Stop(); drain.GetAwaiter().GetResult(); }
     }
+
+    sealed class CatClockSchedule : IPlayerUpdateSchedule
+    {
+        public double At;
+        public bool AdvanceOnWait = false;
+        public double Now(ClientState conn) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            if (AdvanceOnWait) At += milliseconds / 1000.0;
+            return Task.CompletedTask;
+        }
+    }
+
 }

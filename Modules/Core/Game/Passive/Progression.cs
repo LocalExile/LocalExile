@@ -921,16 +921,23 @@ public static partial class Game
         }
     }
 
+
     public static CharacterStats.Pools BuildPoolsFor(ClientState conn, int level)
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
         // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
         // Bite's conditional base critical chance becomes qualified only once the exact root owner exists.
+        if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
             snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
         if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
             sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + 0);
+        AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
+        CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
+        foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats, includeReceived: true).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
+            sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+        conn.Reservations.CrabPoolsDirty = false;
         AddGolemStats(conn, sources);
         AddSelfOfferingStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
@@ -962,6 +969,9 @@ public static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
+        int CatInput(string name) => Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
+        var cat = CatAspectPhaseStatsLocked(conn, bonus.AuraEffectPct, CatInput);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
         Dictionary<uint, int> devStats;
@@ -1012,7 +1022,7 @@ public static partial class Game
             if (devStats.TryGetValue(key, out int value)) return value;
             return (long)sources.GetValueOrDefault(key) + (name switch
             {
-                "critical_strike_chance_+%" => aura.CriticalStrikeChancePct,
+                "critical_strike_chance_+%" => aura.CriticalStrikeChancePct + cat.CriticalStrikeChancePct,
                 "spell_critical_strike_chance_+%" => aura.SpellCriticalStrikeChancePct - aura.CriticalStrikeChancePct,
                 _ => 0,
             });
@@ -1055,7 +1065,7 @@ public static partial class Game
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
-            AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
+            AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
@@ -1193,6 +1203,7 @@ public static partial class Game
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),
         };
     }
+
 
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),
     // flat and increased life, mana and accuracy, flat and increased armour and evasion, energy shield and melee physical

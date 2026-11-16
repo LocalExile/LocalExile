@@ -29,6 +29,12 @@ public static partial class Game
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
         var lowLifeSources = SelfCurseConditionInputs(conn, activeItems, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
+        string stance = StanceCatalog.Selected(conn.Auras.Values);
+        bool blood = stance == StanceCatalog.BloodSelection, sand = stance == StanceCatalog.SandSelection;
+        bool changedStance = conn.RecentEvents.Happened(StatConditions.ChangedStance, now);
+        bool catAspect = CatAspectRootActiveLocked(conn);
+        bool catsStealth = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Stealth;
+        bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
         var flags = new Dictionary<string, bool>
         {
             [RecentSavageHitItemFlag] = alive && !conn.Closed && !conn.LeavingArea
@@ -97,6 +103,22 @@ public static partial class Game
             && lowLifeSources.GetValueOrDefault(curseKey) != 0;
         flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
         flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
+        flags["_in_blood_stance"] = flags["_while_in_blood_stance"] = blood;
+        flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
+        flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
+        flags["has_cat_aspect"] = catAspect;
+        flags["has_cats_stealth"] = catsStealth;
+        flags["has_cats_agility"] = catsAgility;
+        flags["_while_you_have_cat_aspect"] = catAspect;
+        flags["_while_have_cat_aspect"] = catAspect;
+        flags["_if_you_have_cat_aspect"] = catAspect;
+        flags["_while_you_have_cats_stealth"] = catsStealth;
+        flags["_while_have_cats_stealth"] = catsStealth;
+        flags["_if_you_have_cats_stealth"] = catsStealth;
+        flags["_while_you_have_cat_stealth"] = catsStealth;
+        flags["_while_you_have_cats_agility"] = catsAgility;
+        flags["_while_have_cats_agility"] = catsAgility;
+        flags["_if_you_have_cats_agility"] = catsAgility;
         var charges = ChargesOf(conn);
         foreach (var type in Charges.Types)
         {
