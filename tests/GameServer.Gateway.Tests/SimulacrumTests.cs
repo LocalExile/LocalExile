@@ -76,8 +76,8 @@ public sealed class SimulacrumTests
         Assert.False(QuestObject.CanSerialize(DeliriumModule.StarterComponents));
         Assert.True(QuestObject.CanSerialize(DeliriumModule.StarterComponents, haveStateMachine: true));
         var blob = new QuestObject(10, 20, DeliriumModule.StarterComponents) { StateMachine = idle }.Blob();
-        Assert.Equal(5, blob[21]); // Five shared states, not the local affliction_endgame_initiator selector.
-        Assert.Equal(0, blob[22]); // No shared timers.
+        Assert.Equal(5, blob[19]); // Five shared states, not the local affliction_endgame_initiator selector.
+        Assert.Equal(0, blob[20]); // No shared timers.
         Assert.All(idle.Overridden, i => Assert.InRange(i, 0, 4));
         Assert.Equal(5, SimulacrumRules.ArenaIds.Select(DeliriumModule.StarterType).Distinct().Count());
 

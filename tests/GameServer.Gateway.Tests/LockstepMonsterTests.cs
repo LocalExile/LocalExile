@@ -52,7 +52,9 @@ public class LockstepMonsterTests : IDisposable
         Assert.Empty(blocked.Swings);
         Assert.NotEmpty(blocked.MoveLegs);
         open = true;
-        Assert.Single(Game.PlanMonsterAi(conn, cadence, 1.25).Swings);
+        // Stand, then act: in reach mid-walk it gets no new walk and shoots once the walk has ended.
+        Assert.Empty(Game.PlanMonsterAi(conn, cadence, 1.25).Swings);
+        Assert.Single(Game.PlanMonsterAi(conn, cadence, shooter.Walk.ArrivesAt + 0.01).Swings);
     }
 
     static SpawnedMonster Drowned(PlayerWalk walk) => new("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23)
@@ -271,8 +273,8 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal((106, 40), mover.Walk.Destination);
         Assert.True(mover.Walk.Moving(3.003));
 
-        // A ranged monster's in-place attack leaves its Move running to the end, on a lockstep client as on a predictive
-        // one: the estimate keeps its walk.
+        // Stand, then act: a ranged monster's in-place attack is not ordered while it walks (the client's leaves the Move
+        // running, so the shot flew mid-walk and the next order put it back); in reach it walks on to its Move's end.
         SpawnedMonster Spitter(PlayerWalk walk) => new("Spitter", walk, aggroRange: 60, stopRange: 2, maxLife: 10)
         {
             Attack = new(0x1535, 1.0, 30, DamagePacket.Empty) { Ranged = true }, Aggro = true, LastTarget = (120, 100),
@@ -282,8 +284,9 @@ public class LockstepMonsterTests : IDisposable
         shooter.Walk.Order(120, 100, now: 6);
         ranged.Monsters[0x3004] = shooter;
         plan = Game.PlanMonsterAi(ranged, new MonsterAiCadence(), now: 6.5);
-        Assert.Equal([0x3004u], plan.Swings.Select(s => s.Id));
+        Assert.Empty(plan.Swings);
         Assert.True(shooter.Walk.Moving(6.6));
+        Assert.Equal((120, 100), shooter.Walk.Destination);
         // Its order starts at the start of the frame it goes out in, from where the steps before it leave it. Written after
         // the 0x2b7 that ended the frame from 0.099 and before that frame's steps were replayed: the Drowned's step at
         // 0.105 blocks the Spitter's to (50, 55) at 0.100, so it shoots from (50, 56), busy from 0.132. A freeze sent
@@ -347,7 +350,7 @@ public class LockstepMonsterTests : IDisposable
         predictive.Monsters[0x3004] = walker;
         plan = Game.PlanMonsterAi(predictive, new MonsterAiCadence(), now: 1);
         Assert.Empty(plan.ArrivedSwings);
-        Assert.Equal([0x3000u, 0x3004u], plan.Swings.Select(s => s.Id).Order());
+        Assert.Equal([0x3000u], plan.Swings.Select(s => s.Id));   // the walking Spitter shoots once it stands
         Assert.True(walker.Walk.Moving(1.1));
     }
 

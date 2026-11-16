@@ -1302,7 +1302,12 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     readonly SortedSet<ushort> _predictiveIds = [], _lockstepIds = [];
     volatile bool _modeSeen, _lockstep;
     bool _mixedReported;
-    public bool LockstepClient => _modeSeen ? _lockstep : !Controlled;
+    // Set: the mode is known (a test, or a connection whose mode is given).
+    public bool LockstepClient
+    {
+        get => _modeSeen ? _lockstep : !Controlled;
+        set { _lockstep = value; _modeSeen = true; }
+    }
 
     /// <summary>Notes a C→S message from the client's wire (not the server's own made-up inputs). Returns the ids of
     /// both modes the first time this area has had messages of both, else null.</summary>

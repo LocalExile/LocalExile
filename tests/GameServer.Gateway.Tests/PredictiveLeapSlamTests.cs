@@ -107,5 +107,5 @@ public sealed class PredictiveLeapSlamTests
     }
 
     static ClientState Connection(InstanceState instance) =>
-        new(new(0, "Delve_Main", 2048, 2048, 1041, 651, null, []), 0, 1) { Instance = instance, PlayerLife = 50 };
+        new(new(0, "Delve_Main", 2048, 2048, 1041, 651, null, []), 0, 1) { LockstepClient = false, Instance = instance, PlayerLife = 50 };
 }

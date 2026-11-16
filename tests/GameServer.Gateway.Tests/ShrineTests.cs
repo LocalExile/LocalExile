@@ -65,19 +65,19 @@ public sealed class ShrineTests
         Assert.Equal(["Positioned", "BaseEvents", "Stats", "Animated", "Buffs", "Life", "ObjectMagicProperties",
             "Shrine", "MinimapIcon", "InteractionAction"], ShrineObject.Components);
 
-        // Two header bytes, 18 Positioned, 10 Stats, 1 Animated, 2 Buffs, 55 Life, 4 magic properties, 2 Shrine,
+        // Two header bytes, 16 Positioned, 10 Stats, 1 Animated, 2 Buffs, 55 Life, 4 magic properties, 2 Shrine,
         // 1 MinimapIcon, 1 InteractionAction, 1 trailing task count.
         var blob = new ShrineObject(120, 45).Blob();
-        Assert.Equal(98, blob.Length);
+        Assert.Equal(96, blob.Length);
         Assert.Equal(0, blob[0]);
         Assert.Equal(0, blob[^1]);
         // The Shrine component starts with the Shrines row the client looks up for the icon.
-        Assert.Equal(0, blob[92]);
-        Assert.Equal(11, new ShrineObject(120, 45, Row: 11).Blob()[92]);
+        Assert.Equal(0, blob[90]);
+        Assert.Equal(11, new ShrineObject(120, 45, Row: 11).Blob()[90]);
         Assert.Equal([.. ShrineObject.Components, "Transitionable", "DiesAfterTime"], ShrineObject.LesserComponents);
         var lesser = new ShrineObject(120, 45, Row: 24, Lesser: true).Blob();
-        Assert.Equal(99, lesser.Length);
-        Assert.Equal(24, lesser[92]);
+        Assert.Equal(97, lesser.Length);
+        Assert.Equal(24, lesser[90]);
         Assert.Equal(1, lesser[^2]); // Untransitioned: native states are one-based; state 0 crashes post-create.
 
         // A shrine room line is a shrine only on walkable ground, and the same layout and seed roll the same types.
@@ -390,7 +390,7 @@ public sealed class ShrineTests
             await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
             var reader = await accepting;
             var conn = new ClientState(new(0, "ShrineLifecycleTest", 1000, 1000, 100, 100, (_, _) => true, []), 0, 1)
-            {
+            { LockstepClient = false,
                 Instance = instance, PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true,
                 Pools = new(1, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("shrine-test", "Standard", false, false),
