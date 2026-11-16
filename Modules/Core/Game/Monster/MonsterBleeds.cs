@@ -67,9 +67,17 @@ public static partial class Game
     {
         if (spell) return MonsterIgnites.Settings.None;
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
-        return WithOverheat(conn, skillId, BleedSettings(SupportedAilmentRows(conn, skillId, "main_hand", weapon), "main_hand",
+        var bleedSettings = BleedSettings(SupportedAilmentRows(conn, skillId, "main_hand", weapon), "main_hand",
             name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false));
+            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false);
+        if (Lifetap.ActiveAt(conn, conn.Clock.Elapsed.TotalSeconds))
+        {
+            double lifetapMore = Math.Max(0, 1 + Lifetap.Stat(merged, Lifetap.DamageStat) / 100.0);
+            if (lifetapMore != 1)
+                bleedSettings = bleedSettings with { Min = bleedSettings.Min * lifetapMore, Max = bleedSettings.Max * lifetapMore,
+                    CriticalMin = bleedSettings.CriticalMin * lifetapMore, CriticalMax = bleedSettings.CriticalMax * lifetapMore };
+        }
+        return WithOverheat(conn, skillId, bleedSettings);
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>

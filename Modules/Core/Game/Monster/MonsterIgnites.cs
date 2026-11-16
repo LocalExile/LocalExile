@@ -127,6 +127,14 @@ public static partial class Game
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
+        // Lifetap: while its buff runs, supported hits and their ailments take the more damage.
+        if (Lifetap.ActiveAt(conn, conn.Clock.Elapsed.TotalSeconds))
+        {
+            double lifetapMore = Math.Max(0, 1 + Lifetap.Stat(SupportedSkill(conn, skillId).Stats, Lifetap.DamageStat) / 100.0);
+            if (lifetapMore != 1)
+                settings = settings with { Min = settings.Min * lifetapMore, Max = settings.Max * lifetapMore,
+                    CriticalMin = settings.CriticalMin * lifetapMore, CriticalMax = settings.CriticalMax * lifetapMore };
+        }
         return WithOverheat(conn, skillId,
             WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand));
     }
