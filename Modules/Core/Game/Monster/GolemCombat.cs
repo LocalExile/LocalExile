@@ -121,7 +121,8 @@ public static partial class Game
     }
 
     static bool GolemUsable(GolemState.Golem g, GolemState.Ability a) =>
-        g.Definition.Kind == "Zombie" ? g.Definition.Id == "RaiseZombieAltX" ? a.Effect == 5590
+        g.Definition.Kind == "Absolution" ? a.Effect is 11994 or 11995
+        : g.Definition.Kind == "Zombie" ? g.Definition.Id == "RaiseZombieAltX" ? a.Effect == 5590
             : g.Definition.Id == "RaiseZombieAltY" ? a.Effect == 7133 : a.Effect != 7133 : a.Effect switch
     {
         4839 or 5026 or 5268 or 10801 or 12032 or 12033 or 10584 => false,

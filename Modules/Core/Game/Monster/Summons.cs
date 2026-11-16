@@ -60,7 +60,8 @@ public static partial class Game
     static double SummonDuration(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.Persistent) return double.PositiveInfinity;
-        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms" : "base_skill_effect_duration");
+        int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms"
+            : definition.Family == "Absolution" ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
         var player = CharacterPlayerStats(conn);
         return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
     }
@@ -113,13 +114,13 @@ public static partial class Game
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
-        bool triggered = false)
+        bool triggered = false, SpawnedMonster? consumedCorpse = null)
     {
         var gem = SupportedSkill(conn, source);
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
         int limit = SummonLimit(conn, definition, gem);
         if (limit < 1) return 0;
-        SpawnedMonster? corpse = null;
+        SpawnedMonster? corpse = consumedCorpse;
         AnimatedSource? animated = null;
         string path = restoredVariety ?? definition.Variety;
         lock (conn.Monsters)
@@ -202,6 +203,7 @@ public static partial class Game
 
     public static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
+        await HitSummonsTick(remote, stream, ciphers, conn, now);
         var state = conn.Summons;
         if (!state.Restored)
         {
