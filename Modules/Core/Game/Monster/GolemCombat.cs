@@ -98,8 +98,8 @@ public static partial class Game
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
                 && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => Dist(t.At, here) <= m.AggroRange && Dist(t.At, owner) <= 100)
-            .OrderBy(t => Dist(t.At, here)).FirstOrDefault();
+            .Where(t => (IsPrey(conn, g, t.Key, t.M, now) || Dist(t.At, here) <= m.AggroRange) && Dist(t.At, owner) <= 100)
+            .OrderByDescending(t => IsPrey(conn, g, t.Key, t.M, now)).ThenBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(conn, g, owner, now); return; }
         g.Target = target.Key;
         double distance = Dist(target.At, here);
@@ -223,7 +223,7 @@ public static partial class Game
         if (a.Effect is 4336 or 4337)
         {
             double dps = GolemStat(a.Stats, "base_chaos_damage_to_deal_per_minute") / 60.0;
-            dps *= GolemDamageFactor(g, area: true) * DoedreSewers.MinionDamageFactor(conn);
+            dps *= GolemDamageFactor(conn, g, now, area: true) * DoedreSewers.MinionDamageFactor(conn);
             g.Hazards.Add(new(a.Effect, at, now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0, a.Radius,
                 dps, DamageType.Chaos, Follows: true, Wither: a.Effect == 4337) { LastAt = now });
             return;
@@ -280,7 +280,7 @@ public static partial class Game
         }
         if (a.Effect == 5268)
         {
-            double dps = GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0 * GolemDamageFactor(g, area: true) * DoedreSewers.MinionDamageFactor(conn);
+            double dps = GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0 * GolemDamageFactor(conn, g, now, area: true) * DoedreSewers.MinionDamageFactor(conn);
             if (dps > 0) g.Hazards.Add(new(a.Effect, at, now + 5, a.Radius, dps, DamageType.Fire) { LastAt = now });
         }
         if (a.Effect == 4839)
@@ -293,7 +293,7 @@ public static partial class Game
         if (a.Effect == 7133 && g.Definition.Id == "RaiseZombieAltY") GolemDieLocked(conn, g, now);
     }
 
-    static double GolemDamageFactor(GolemState.Golem g, bool area = false) => Math.Max(0, 1 +
+    static double GolemDamageFactor(ClientState conn, GolemState.Golem g, double now, bool area = false) => MinionTacticsBaseDamage(conn, g, now) * Math.Max(0, 1 +
         (g.Monster.Mods.Effects["damage_+%"] + (area ? g.Monster.Mods.Effects["area_damage_+%"] : 0)) / 100.0)
         * Math.Max(0, 1 + GolemStat(g.Own, "active_skill_minion_damage_+%_final") / 100.0)
         * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_damage_+%_final") / 100.0)
@@ -330,7 +330,7 @@ public static partial class Game
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
         if (MonsterBlocks(target, Random.Shared, a.Attack.Spell)) return false;
-        double factor = DoedreSewers.MinionDamageFactor(conn);
+        double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, g, id, target, now);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -340,11 +340,13 @@ public static partial class Game
             if (a.Effect == 10802 && g.Combo >= 3) factor *= 1 + GolemStat(a.Stats, "bone_golem_damage_+%_final_after_third_combo_index") / 100.0;
         }
         int crit = (int)(a.Crit * (1 + (g.Monster.Mods.Effects["critical_strike_chance_+%"]
-            + (a.Attack.Spell ? g.Monster.Mods.Effects["spell_critical_strike_chance_+%"] : 0)) / 100.0));
+            + (a.Attack.Spell ? g.Monster.Mods.Effects["spell_critical_strike_chance_+%"] : 0)
+            + (IsPrey(conn, g, id, target, now) ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_chance_+%_vs_focused_target") : 0)) / 100.0));
         bool critical = g.Monster.Mods.Effects["never_crit"] == 0 && (g.Monster.Mods.Effects["always_crit"] != 0 || Random.Shared.Next(10_000) < crit);
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] + g.Monster.Mods.Effects["critical_strike_multiplier_+"]
-                + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]) / 100.0;
+                + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]
+                + (IsPrey(conn, g, id, target, now) ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_multiplier_+_vs_focused_target") : 0)) / 100.0;
         var rolled = a.Attack.Damage.Scale(factor).Roll(Random.Shared);
         int damage = MonsterTakesRolled(target, rolled, a.Attack.Spell);
         if (ApplyMonsterHitLocked(conn, target, damage, allyAt: g.Monster.Walk.Position(now)) is not { } hit) return false;
@@ -361,6 +363,7 @@ public static partial class Game
             HitDebuffsOnHitLocked(target, n => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n), a.Attack.Spell, critical, now);
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
         }
+        if (damage > 0) FeedingFrenzyOnHitLocked(conn, g, now);
         return true;
     }
 

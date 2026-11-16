@@ -319,11 +319,11 @@ public sealed class ItemCatalog
     public GemType? Gem(BaseType t) => _gems.Value.GetValueOrDefault(t.Row);
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
-    /// skill. Support gems grant none: they modify the linked active skills (granting one as a skill crashed the client in
-    /// the Actor skill reader, 0x141eee1ba).</summary>
+    /// skill. Only active effects enter the Actor: a support can grant an active companion, but its support effect
+    /// crashes the Actor skill reader at 0x141eee1ba.</summary>
     public IEnumerable<int> GemEffects(Item gem)
     {
-        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
+        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
         if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
         if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;

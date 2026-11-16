@@ -64,6 +64,10 @@ public sealed class SummonedMinions
     public double HolyRegenerationUntil;
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;
+    public double FeedingFrenzyUntil;
+    public ushort FeedingFrenzyBuff;
+    public sealed record Prey(uint Id, SpawnedMonster Monster, ushort Source, double Until, ushort Buff);
+    public Prey? SignalledPrey;
     public readonly Queue<uint> Corpses = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
     public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null, uint? Host = null, int? Socket = null);
