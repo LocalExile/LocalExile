@@ -68,6 +68,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.SpreadPoisonOnKill);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
