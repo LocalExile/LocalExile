@@ -13,6 +13,22 @@ public static partial class Game
         public string? LegacySourceCharacter { get; set; }
     }
 
+    // Auth assigns the login destination before the first Gateway connection. Migrate existing homes when
+    // the Game module loads, so that first login also reads the shared selection through its existing fields.
+    public static void InitializeAccountHideouts(string? preferredSource = null)
+    {
+        if (!string.IsNullOrWhiteSpace(preferredSource)) InitializeAccountHideout(preferredSource);
+        var store = new SqliteAccountStore(Saves.Db);
+        foreach (var account in store.Accounts())
+            Saves.Atomically(() =>
+            {
+                if (Saves.LoadStash(account.Name)?.ModuleData?.ContainsKey(AccountHideoutKey) == true) return;
+                var source = store.CharactersOf(account.Id)
+                    .FirstOrDefault(c => CharacterHome.SelectedHideout(Saves.Db, c.Name) is not null);
+                if (source is not null) InitializeAccountHideout(source.Name);
+            });
+    }
+
     // The shared profile and Auth compatibility fields must commit or roll back together.
     public static void InitializeAccountHideout(string character) => Saves.Atomically(() =>
     {

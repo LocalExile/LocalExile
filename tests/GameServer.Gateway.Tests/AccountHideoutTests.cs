@@ -49,6 +49,9 @@ public sealed class AccountHideoutTests : IDisposable
         CharacterSaves.SetHideoutPlacement(founder.Character!, home.AreaId, "stash", position);
         CharacterSaves.AddMonsterStatue(founder.Character!, home.AreaId, statue);
 
+        Game.InitializeAccountHideouts();
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, alternate.Character!));
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, oldest.Character!));
         Assert.Equal(home.AreaId, Game.HomeHideout(alternate)!.AreaId);
         Assert.Equal(home.AreaId, Game.HomeHideout(oldest)!.AreaId);
         alternate.Use(founder.Layout);
