@@ -121,9 +121,18 @@ public static class GameEventOwners
     /// <inheritdoc cref="Guard(string, string, Action)"/>
     public static async Task<bool> Guard(string owner, string name, Func<Task> run)
     {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
         try { await run(); return true; }
         catch (Exception ex) { Failed(owner, name, ex); return false; }
+        finally
+        {
+            // The events a message's handler awaits hold that client's next messages: a slow one names its owner.
+            double ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            if (ms >= SlowMilliseconds) Console.WriteLine($"[events] {owner} {name} took {ms:0} ms");
+        }
     }
+
+    const double SlowMilliseconds = 30;
 
     static void Failed(string owner, string name, Exception ex) =>
         Console.WriteLine($"[events] {owner} {name} failed (skipped): {ex}");

@@ -13,6 +13,28 @@ public static partial class Game
     // The most a hold on the server has been seen to outlast the client's is 33 ms.
     const double HoldEndGraceSeconds = .06;
 
+    // Where the player appears in the area, with the line that says why. Back through a town portal: where the portal
+    // stands (OpenTownPortal). Waypoint travel: next to the destination's waypoint, which a generated area has only from
+    // the walk-map recorder's capture for this seed (live.ps1 -Walkmaps). Otherwise next to the exit back; Resurrect at
+    // Checkpoint and the monster packs' clearance use it too. Read when 0x1d goes out (the packs' plan) and at 0x7d.
+    static (AreaLayout Layout, string? Note) ArrivalLayout(ClientState conn)
+    {
+        var layout = conn.Layout;
+        if (conn.ArriveAt is var (sx, sy))
+            return (layout with { SpawnX = sx, SpawnY = sy }, $"back at the portal ({sx}, {sy})");
+        if (conn.ArriveAtWaypoint && layout.Waypoint is { } arrival)
+        {
+            var (ax, ay) = layout.Near((arrival.GridX, arrival.GridY));
+            return (layout with { SpawnX = ax, SpawnY = ay }, $"arrived by waypoint: spawn ({ax}, {ay}) next to the waypoint at ({arrival.GridX}, {arrival.GridY})");
+        }
+        if (layout.Arrival(conn.CameFrom, conn.ArrivalEntrance) is var (ex, ey) && (ex, ey) != (layout.SpawnX, layout.SpawnY))
+            return (layout with { SpawnX = ex, SpawnY = ey }, $"arrival from 0x{conn.CameFrom:x4}: ({ex}, {ey})");
+        if (conn.ArriveAtWaypoint)
+            return (layout, $"arrived by waypoint, but {layout.Id} seed {conn.Seed} has no captured waypoint " +
+                $"(run live.ps1 -Walkmaps): spawn ({layout.SpawnX}, {layout.SpawnY}){(layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
+        return (layout, null);
+    }
+
     // How long the hold on the player still has to run, if it is within limit; else 0.
     static double HoldEndsWithin(ClientState conn, double limit)
     {
@@ -726,26 +748,9 @@ public static partial class Game
                     // Waypoint travel: next to the destination's waypoint instead of the area's spawn. A generated area's
                     // waypoint is only known from the walk-map recorder's capture for this seed (live.ps1 -Walkmaps).
                     // Back through a town portal: where the portal stands (OpenTownPortal).
-                    if (conn.ArriveAt is var (sx, sy))
-                    {
-                        conn.Use(conn.Layout with { SpawnX = sx, SpawnY = sy });
-                        Console.WriteLine($"[gateway] {remote} back at the portal ({sx}, {sy})");
-                    }
-                    else if (conn.ArriveAtWaypoint && conn.Layout.Waypoint is { } arrival)
-                    {
-                        var (ax, ay) = conn.Layout.Near((arrival.GridX, arrival.GridY));
-                        conn.Use(conn.Layout with { SpawnX = ax, SpawnY = ay });
-                        Console.WriteLine($"[gateway] {remote} arrived by waypoint: spawn ({ax}, {ay}) next to the waypoint at ({arrival.GridX}, {arrival.GridY})");
-                    }
-                    // Otherwise next to the exit back; Resurrect at Checkpoint and the monster packs' clearance use it too.
-                    else if (conn.Layout.Arrival(conn.CameFrom, conn.ArrivalEntrance) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
-                    {
-                        conn.Use(conn.Layout with { SpawnX = ex, SpawnY = ey });
-                        Console.WriteLine($"[gateway] {remote} arrival from 0x{conn.CameFrom:x4}: ({ex}, {ey})");
-                    }
-                    else if (conn.ArriveAtWaypoint)
-                        Console.WriteLine($"[gateway] {remote} arrived by waypoint, but {conn.Layout.Id} seed {conn.Seed} has no captured waypoint " +
-                            $"(run live.ps1 -Walkmaps): spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY}){(conn.Layout.Walkable is null ? ", no walk map either: the player may stand outside the map" : "")}");
+                    var (arrivalLayout, arrivalNote) = ArrivalLayout(conn);
+                    if (!ReferenceEquals(arrivalLayout, conn.Layout)) conn.Use(arrivalLayout);
+                    if (arrivalNote is not null) Console.WriteLine($"[gateway] {remote} {arrivalNote}");
                     Sirus.ConfigureArrival(conn);
                     RecordVisit(conn);
                     // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
@@ -763,6 +768,12 @@ public static partial class Game
                     // The equipment again (S→C 0x02bc), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
+                    // The world runs from here: the client shows the player and its area only once the frames start
+                    // (S→C 0x2b8 first), so they start before the monsters are placed, which may take a moment, and the
+                    // monsters come in while the player already stands there, as a summon or a pack spawned in a fight.
+                    ActivateResourceEffects(conn, ProjectileWorldTime(conn));
+                    StartWorldFrames(remote, stream, ciphers, conn);
+                    Program.ActivatePlayerUpdates(conn);
                     await PopulateArea(remote, stream, ciphers, conn);
                     // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
                     // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
@@ -779,9 +790,6 @@ public static partial class Game
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await GameEvents.RunAreaGenerated(conn);
-                    ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    StartWorldFrames(remote, stream, ciphers, conn);
-                    Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);

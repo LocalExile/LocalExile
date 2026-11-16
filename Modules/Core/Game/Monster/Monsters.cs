@@ -467,102 +467,22 @@ public static partial class Game
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
         if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
-        // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
-        var quests = QuestsOf(conn);
-        bool useWetlandsFallback = false;
-        // A boss a quest brings (an NPC that turns into it, a second form, an object's use: Quests.QuestSpawned) is not
-        // placed with the area.
-        bool Spawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.CanPlace(v) && (!quests.QuestSpawned(layout.Id, v.Id) || useWetlandsFallback && v.Id == RyslathaEncounter.Boss);
-        // A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) comes with its fight.
-        area = AreaPopulation.LaterForms(area, row => Monsters.Find(row.ToString()) is { } v ? (v.Id, v.Name) : null);
-        // Device-recipe phases hold the last WorldAreas boss (Maven's Nucleus, Sirus, Atziri) until the first wave is dead.
-        area = MapBossFights.Current.HoldFinal(area, row => Monsters.Find(row.ToString())?.Id);
-        // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
-        area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(conn)), row => Monsters.Find(row.ToString())?.Id);
-        var notes = new List<string>();
-        var placedRooms = new List<AreaPopulation.PlacedRoom>();
-        var (points, objects, _) = AreaPopulation.FitRooms(layout.Id, conn.Seed, notes, "data", placedRooms: placedRooms);
-        // A boss whose room has a spawner object for it (The Quay's Tolman) stands at the spawner.
-        points.AddRange(AreaPopulation.SpawnerPoints(area, objects, row => Monsters.Find(row.ToString())?.Id));
-        // A shrine the level generator placed is guarded (ShrineGuards): its own pack rows when the Shrines row names
-        // them, else one of the area's packs at that pack's own count. A shrine too close to an entrance or waypoint is not
-        // guarded (the 1.0.0d note). The guards are planned with the area's monsters, so an instance keeps them and a
-        // re-entry or an activation never spawns them again.
-        var shrineGuards = ServerLevels.For(layout.Id, conn.Seed) is { } shrineLevel
-            ? ShrinePlacement.Plan(shrineLevel.RoomObjects, walkable, conn.Seed)
-                .Where(p => !ShrineGuards.TooNearEntrance((p.X, p.Y), (layout.SpawnX, layout.SpawnY),
-                    [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], AreaPopulation.TransitionClearance))
-                .Select(p =>
-                {
-                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.IsMapArea(layout.Hash), Packs.Find);
-                    return (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
-                }).ToList()
-            : [];
-        // A Trial of Ascendancy's rooms (live 2026-10-31, the original): no monsters among the traps, so the area's
-        // scattered packs keep away from them (LabyrinthTrials.TrapClearance); what the room file places stands there:
-        // its normal / magic / rare pack points (the Lower Prison trial's plaque platform), its monsters (the Imperial
-        // Gardens trial's four Devourers) and its spawners' monsters (LabyrinthTrials.Spawners), rare.
-        var trialRooms = placedRooms.Where(r => r.Objects.Any(o => o.Type is LabyrinthTrials.Plaque or LabyrinthTrials.IntroDoor)).ToList();
-        // Any other room of a generated layout places its pack points the same way: the rooms the layout gives a magic
-        // or rare pack of their own (The Chamber of Innocence: twelve magic packs).
-        var layoutPacks = (layout.Level?.PackRooms ?? [])
-            .Where(r => !trialRooms.Any(t => t.Path.Equals(r.Path, StringComparison.OrdinalIgnoreCase))).SelectMany(r => r.Points);
-        var trapClear = new HashSet<(int X, int Y)>();
-        // The Labyrinth's own rooms keep their packs off their traps too: the generated rooms' and tiles' trap lines.
-        var labyrinthTraps = LabyrinthTrials.InLabyrinth(layout.Id) && ServerLevels.For(layout.Id, conn.Seed) is { } labyrinthLevel
-            ? labyrinthLevel.RoomObjects.Concat(labyrinthLevel.TileLabyrinthObjects).Select(o => (o.Type, o.X, o.Y))
-            : [];
-        foreach (var trap in trialRooms.SelectMany(r => r.Objects).Select(o => (o.Type, o.X, o.Y)).Concat(labyrinthTraps)
-                     .Where(o => o.Type.StartsWith("Metadata/Terrain/Labyrinth/Traps/", StringComparison.Ordinal)))
-            for (int dy = -LabyrinthTrials.TrapClearance; dy <= LabyrinthTrials.TrapClearance; dy++)
-                for (int dx = -LabyrinthTrials.TrapClearance; dx <= LabyrinthTrials.TrapClearance; dx++)
-                    trapClear.Add((trap.X + dx, trap.Y + dy));
-        // Where the later forms the area leaves out would stand, for a quest that forms one (Quests.FormsRule).
-        var laterForms = AreaPopulation.LaterFormPoints(area, points, walkable);
-        var nests = new List<AreaPopulation.Spawn>();
-        if (layout.Id == RyslathaEncounter.Area && quests.FormsAfter(layout.Id, RyslathaEncounter.Nest).Count > 0)
-        {
-            if (RyslathaEncounter.Place(points, walkable, nests) is { } arena)
-                laterForms[Monsters.Find(RyslathaEncounter.Boss)!.Row] = arena;
-            else
-                useWetlandsFallback = true;
-        }
+        var ahead = await PlannedPopulation(remote, conn, layout);
+        var plan = ahead ?? PlanPopulation(conn, layout, area);
+        string planned = $"planned {(ahead is null ? "on arrival" : "while the client generated the area")} in {plan.Milliseconds:0} ms";
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var spawns = plan.Spawns;
         lock (conn.Monsters)
         {
             conn.LaterFormPoints.Clear();
-            foreach (var (row, cell) in laterForms)
+            foreach (var (row, cell) in plan.LaterForms)
                 if (Monsters.Find(row.ToString()) is { } form) conn.LaterFormPoints[form.Id] = cell;
             // Recipe arenas have no captured mapboss point: the held last boss forms next to arrival.
             if (MapBossFights.Current.PhaseOf(layout.Id) is { } phase && !conn.LaterFormPoints.ContainsKey(phase.Last))
                 conn.LaterFormPoints[phase.Last] = (layout.SpawnX + 8, layout.SpawnY);
         }
-        var mapMods = MapModsOf(conn);
-        var scale = mapMods?.Packs ?? default;
-        var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
-            [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
-            AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
-            // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
-            guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
-        spawns.AddRange(nests);
-        foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
-            foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
-                foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
-                    if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row))
-                        spawns.Add(new AreaPopulation.Spawn(guard.Row, point.X, point.Y, MonsterRarity.Normal, "quest chest guard"));
-        foreach (var room in trialRooms)
-            foreach (var p in room.Points)
-            {
-                bool spawner = LabyrinthTrials.Spawners.TryGetValue(p.Name, out var spawned);
-                string? id = spawner ? spawned : p.Name.StartsWith("Metadata/Monsters/", StringComparison.Ordinal) ? p.Name : null;
-                if (id is null) continue;
-                if (Monsters.Find(id) is { } v && v.Id.Equals(id, StringComparison.OrdinalIgnoreCase) && Spawnable(v.Row))
-                    spawns.Add(new AreaPopulation.Spawn(v.Row, p.X, p.Y, spawner ? MonsterRarity.Rare : MonsterRarity.Normal, "trial room"));
-                else notes.Add($"trial room {room.Path.Split('/')[^1]}: {p.Name} at ({p.X}, {p.Y}) cannot be created");
-            }
-        foreach (var n in notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
-        int areaLevel = area.AreaLevel;
+        foreach (var n in plan.Notes) Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {n}");
+        int areaLevel = plan.Area.AreaLevel;
         if (MapRunOf(conn) is { Area.Level: > 0 } run)
             areaLevel = run.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
@@ -599,7 +519,8 @@ public static partial class Game
         // them with the packs.
         await GameEvents.RunAreaPopulated(new AreaPopulated(conn, level, AreaPopulation.PopulationSeed(layout.Hash, conn.Seed),
             [.. spawns.Select(s => (s.X, s.Y))]));
-        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count + extra} at level {level}: " +
+        Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: created {spawns.Count + extra} at level {level}, {planned}, " +
+            $"placed in {watch.ElapsedMilliseconds} ms: " +
             string.Join(", ", spawns.GroupBy(s => s.Pack).Select(g => $"{g.Key} × {g.Count()}")) +
             (extra > 0 ? $", invitation × {extra}" : "") +
             $"; waiting to rise: {MonsterEmerge.Unrisen(conn).Count} ({MonsterEmerge.Buried(conn).Count} buried)" +

@@ -207,6 +207,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
 
     public async Task Entered(string remote, ClientState conn, int level, int ticketLevel)
     {
+        // The client generates the area from here (S→C 0x1d) until its 0x7d: the packs are planned meanwhile.
+        Rules.PlanPopulationAhead(conn);
         if (level != ticketLevel)
         {
             // The saved experience is the character's level: Auth's (the ticket's) was not updated at the last level-up.
