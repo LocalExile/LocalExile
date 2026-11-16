@@ -211,6 +211,15 @@ public sealed class SpellTotemExecutionTests
                 Assert.Equal(1000u, conn.PlayerMana);
                 if (corpse is not null) Assert.True(corpse.CorpseConsumed);
                 if (ground != 0) Assert.Null(conn.Instance.Ground.Get(ground));
+                if (Program.Skills.CooldownMs(gem.Effect, gem.Level) > 0)
+                {
+                    ushort sequence = totem.Sequence;
+                    totem.NextCast = 0;
+                    Game.TickSpellTotemsLocked("summon-totem", wire.Stream, wire.Ciphers, conn, new List<byte>());
+                    Assert.Equal(sequence, totem.Sequence);
+                    Assert.NotNull(totem.Cooldown);
+                    Assert.True(totem.Cooldown.RemainingSeconds > 0);
+                }
             }
             finally { session.Invalidate(); conn.Closed = true; PlayerInventories.Forget(conn.Character!); }
         }

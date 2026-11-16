@@ -137,6 +137,11 @@ public static partial class Game
                 summonTarget = source.Id;
                 aim = source.Ground is { } item ? (item.GridX, item.GridY) : totem.At;
             }
+            if (CooldownForSkill(conn, totem.SkillId) is { } cooldown)
+            {
+                totem.Cooldown ??= new(now, cooldown.RecoveryRate);
+                if (!totem.Cooldown.TryUse(now, cooldown)) continue;
+            }
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
