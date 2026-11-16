@@ -161,7 +161,19 @@ public class ArrowRainAndMirageTests
             b.Session.AdvanceTo(ProjectileRuntime.Time(1.4));
             await b.FlushOutput();
             Assert.Equal(visual.Key, Assert.Single(b.Conn.MinionOrigins).Key);
+            ushort playerSequence = b.Conn.NextActionSequence();
+            packets.Clear();
             b.Session.AdvanceTo(ProjectileRuntime.Time(4.8));
+            await b.FlushOutput();
+            Assert.Equal((ushort)(playerSequence + 1), b.Conn.NextActionSequence());
+            var attacks = packets.Where(p => p.Length >= 18 && p[0] == 1 && p[1] == 0xab).ToArray();
+            Assert.NotEmpty(attacks);
+            Assert.All(attacks, p =>
+            {
+                Assert.Equal(visual.Key, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(p.AsSpan(2)));
+                Assert.True(p.AsSpan().StartsWith(InstanceProtocol.ActionStarted(visual.Key,
+                    100, 100, 120, 100, gem.Id, 0xffff, 0x0408)));
+            });
             Assert.True(b.Enemy.Life < initial);
             Assert.Single(b.Conn.MinionOrigins);
             b.Session.AdvanceTo(ProjectileRuntime.Time(6));

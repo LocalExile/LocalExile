@@ -252,6 +252,12 @@ attached at `Head_Attachment` and tinted by BuffVisuals 802 `mirage_archer_effec
 BuffDefinitions 1748 `MirageArcherDisplayBuff` reads list element 1 in `0x1417c7010` and
 elements 0 and 2 in `0x1417c7260`; `[0, 0, 0]` selects default art without the separate proximity ring.
 The native actor is presentation for the existing server-side archer, outside the summon combat roster.
+Its autonomous actions use sequence `0xffff`, independently of the player's action counter.
+Consuming that counter for the visual actor inserted extra player sequence values between real attacks.
+The head attachment still controls model orientation: dropping its rotation with attachment kind 4 leaves
+the mirage fixed in world space rather than letting its action aim turn the mesh (native predictive check).
+Independent facing and the reported client CPU spikes remain unresolved; a rendered character model alone
+is not evidence that either is correct.
 Microtransaction variants and independent Occupying Force archers remain unverified.
 
 ## Remaining execution gaps
