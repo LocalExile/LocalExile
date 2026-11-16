@@ -1942,6 +1942,12 @@ public static partial class Game
                 damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
                     critical ? criticalImpale : impale, more).Damage;
                 stun = OwnerStun(conn, m, damage, mitigated, !spell && SkillsFor(conn).IsMelee(gem.Effect), spell, critical, player, skillStats);
+                // Ruthless Blow: the blow's 0.8 s stun override (support_ruthless_big_hit_stun_base_duration_override_ms).
+                if (ruthlessMore != 1 && Stats.Key("support_ruthless_big_hit_stun_base_duration_override_ms") is uint stunOverrideKey)
+                {
+                    int overrideMs = skillStats.GetValueOrDefault(stunOverrideKey);
+                    if (overrideMs > 0) stun = stun with { DurationOverrideSeconds = overrideMs / 1000.0 };
+                }
                 // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
                 // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                 var rampagePlayer = freshPlayer ? player : null;
