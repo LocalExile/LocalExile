@@ -47,7 +47,10 @@ public sealed class EnergyShield
     }
     /// <summary>Whether recharge would run now, full or not: no damage within the delay and a positive rate.</summary>
     public bool RechargeReady(double now, Func<string, int> get) =>
-        Maximum > 0 && now >= interruptedAt + Delay(get) && RechargePerMinute(Maximum, get) > 0;
+        Maximum > 0 && (NotDelayed(get) || now >= interruptedAt + Delay(get)) && RechargePerMinute(Maximum, get) > 0;
+    /// <summary>"Energy Shield Recharge is not delayed by Damage" (Vaal Discipline): while it holds, damage taken does not
+    /// hold back recharge, and a delay already running is dropped.</summary>
+    public static bool NotDelayed(Func<string, int> get) => get("energy_shield_recharge_not_delayed_by_damage") != 0;
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp(((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) + 50) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);
@@ -77,6 +80,7 @@ public sealed class EnergyShield
     public void Advance(double from, double to, Func<string, int> get, bool alive)
     {
         if (!alive) { Empty(); return; }
+        if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
         if (to <= from || Current >= Maximum) { Recharging = false; return; }
         double start = interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);

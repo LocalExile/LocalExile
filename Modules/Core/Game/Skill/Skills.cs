@@ -279,6 +279,7 @@ public static partial class Game
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet)
             .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
         WithVaalPrevention(conn, stats);
+        WithVaalAura(conn, stats);
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
