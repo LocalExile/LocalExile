@@ -20,6 +20,9 @@ public partial class ConditionalItemStatsTests
     [Fact]
     public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
     {
+        IncomingDamagingAilmentTestCases.Monster_applications_use_final_avoidance_and_rolled_damage_ranges();
+        IncomingDamagingAilmentTestCases.Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection();
+        UniqueVariantTestCases.World_variants_keep_coupled_modifiers_bases_and_default_creation();
         Legacy_json_saves_migrate_without_losing_item_fields();
         Incoming_damage_controls_run_through_the_shared_production_owner();
         Conditional_flask_uses_remove_and_protect_from_real_rows();
