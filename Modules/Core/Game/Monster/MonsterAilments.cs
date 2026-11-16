@@ -369,4 +369,5 @@ public static partial class Game
         AilmentsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m,
             mitigated, spell, critical, criticalMultiplier, player, skill, now, random, reflected, poison,
             sourceSkill, BlindHitInput.Capture(player, skill), hitOrigin);
+
 }

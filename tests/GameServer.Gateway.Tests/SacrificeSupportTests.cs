@@ -181,7 +181,8 @@ public class SacrificeSupportTests
         var victim = new SpawnedMonster("sacrifice poison", new(120,100,0), 0,0,1000000) { Hostile = true };
         player.Monsters[123] = victim;
         await Game.AreaSkillHit("poison", fixture.Stream, fixture.Ciphers, player, reap.Id, reap, (100,100),(120,100), immediate: true);
-        Assert.True(victim.Poisons.TotalDps(victim.Poisons.Until - .5) > 1000, "Sacrificed life must reach area poison base damage");
+        Assert.True(victim.Poisons.TotalDps(victim.Poisons.Until - .5) > 1000,
+            $"Sacrificed life must reach area poison base damage: life={player.PlayerLife}, target={victim.Life}, dps={victim.Poisons.TotalDps(victim.Poisons.Until - .5)}, until={victim.Poisons.Until}");
     }
 
     [Fact]

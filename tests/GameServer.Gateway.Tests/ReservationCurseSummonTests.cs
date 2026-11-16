@@ -216,8 +216,12 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
-            await Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, conn, [animated]);
+            var animatedHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn,
+                new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), animatedHost.Id, 0));
             Assert.Empty(conn.Summons.Fighters);
+            foreach (var cursor in Game.ItemsOf(conn).Items(PlayerInventories.Cursor).ToArray())
+                Game.ItemsOf(conn).Remove(PlayerInventories.Cursor, cursor.Id);
             ushort claritySource = Equip("Clarity");
             CharacterSaves.SetAuraActive(conn.Character!, "Clarity", true);
             conn.ClientSkillIds = [claritySource];

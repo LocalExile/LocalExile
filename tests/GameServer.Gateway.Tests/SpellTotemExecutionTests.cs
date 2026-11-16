@@ -53,6 +53,7 @@ public sealed class SpellTotemExecutionTests
         try
         {
             ushort skill = Equip(conn, "SkillGemArc", "SupportGemSpellTotem");
+            conn.PlayerStats[Program.Stats.Key("global_chance_to_blind_on_hit_%")!.Value] = 100;
             var source = Game.SupportedSkill(conn, skill);
             var gem = Game.GemSkillEffects(conn).Single();
             var totem = new TotemState.Totem(777, skill, (100, 100), 100, 100, null)
@@ -65,7 +66,12 @@ public sealed class SpellTotemExecutionTests
             Game.TickSpellTotemsLocked("arc", wire.Stream, wire.Ciphers, conn, actions);
             Assert.NotEmpty(actions);
             session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
-            foreach (uint id in new uint[] { 901, 902, 903, 904 }) Assert.True(conn.Monsters[id].Life < 10000);
+            foreach (uint id in new uint[] { 901, 902, 903, 904 })
+            {
+                Assert.True(conn.Monsters[id].Life < 10000);
+                double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                Assert.Equal(80, Game.MonsterBlindRating(conn, id, conn.Monsters[id], 100, now));
+            }
             Assert.Equal(10000u, conn.Monsters[905].Life);
             Assert.Equal(10000u, conn.Monsters[906].Life);
             Assert.Empty(session.Runtime.Projectiles);

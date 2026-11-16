@@ -34,7 +34,7 @@ features.
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
-  automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
+  automatic triggers with their ordinary hostile sources.
   Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack
   generation rules (`Sockets:` lines are dropped); ordinary default sockets, Tabula's six linked whites, Skin of the
   Loyal's six linked random colours, the 3.29 no-white property, fixed "Has X Sockets" counts and Malachai's all-white

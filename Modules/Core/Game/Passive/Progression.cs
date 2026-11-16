@@ -171,6 +171,7 @@ public static partial class Game
         sources = WithElusive(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
+        sources = WithRighteousFireSpellBonus(conn, sources);
         sources = WithSpreadPoisonRegeneration(conn, sources);
         lock (conn.Monsters)
         {
@@ -1733,7 +1734,21 @@ public static partial class Game
     public static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort node, bool allocate)
     {
-        bool socketed = ClusterJewelSocketed(conn);
+        bool socketed = false;
+        bool changed = false;
+        lock (conn.Monsters)
+        {
+            socketed = ClusterJewelSocketed(conn);
+            if (socketed && node <= MaxClusterNodeId)
+            {
+                bool willChange = allocate ? !conn.ClusterPassives.Contains(node) : conn.ClusterPassives.Contains(node);
+                IReadOnlyList<PlayerSkillSource> sourcesBefore = willChange
+                    ? CaptureGemSourceRowsLocked(conn) : [];
+                changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
+                if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
+                if (changed) CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+            }
+        }
         if (!socketed || node > MaxClusterNodeId)
         {
             Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocation" : "refund")} refused: " +
@@ -1741,14 +1756,10 @@ public static partial class Game
             await SendPassives(remote, stream, ciphers, conn);
             return;
         }
-        lock (conn.Monsters)
-        {
-            bool changed = allocate ? conn.ClusterPassives.Add(node) : conn.ClusterPassives.Remove(node);
-            Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocated" : "refunded")}" +
-                $"{(changed ? "" : " (no change)")}, {conn.ClusterPassives.Count} cluster node(s)");
-            if (changed) CharacterSaves.SetClusterPassives(CharacterName(conn), conn.ClusterPassives);
-        }
+        Console.WriteLine($"[gateway] {remote} cluster jewel node {node} {(allocate ? "allocated" : "refunded")}" +
+            $"{(changed ? "" : " (no change)")}, {conn.ClusterPassives.Count} cluster node(s)");
         await SendPassives(remote, stream, ciphers, conn);
+        if (!changed) return;
         // A cluster's passives give their stats only when the whole cluster is allocated (ClusterJewelStats), so the
         // node that completes it must refresh the character's stats as well as the tree.
         await SendPassiveJewelStats(remote, stream, ciphers, conn);
@@ -1830,6 +1841,8 @@ public static partial class Game
         int refundsSpent = 0;
         AscendancyProgress ascendancyNow;
         CharacterSaves.PassiveProgressSnapshot? expectedProgress;
+        AscendancyIdentity? selectionBefore = null;
+        IReadOnlyList<PlayerSkillSource> sourcesBefore = [];
         // Validate, save and publish under one connection lock; level changes cannot split these phases.
         // All network sends remain outside it (connection lock -> database, never connection lock -> cipher gate).
         lock (conn.Monsters)
@@ -1928,6 +1941,11 @@ public static partial class Game
             ascendancyNow = ascendancy;
             effectsNow = effects;
             refundsNow = (ushort)(conn.RefundPoints - (refundPoints && error is null ? refundsSpent : 0));
+            if (error is null)
+            {
+                selectionBefore = conn.MainAscendancy.Selection;
+                sourcesBefore = CaptureGemSourceRowsLocked(conn);
+            }
             // Saved before it applies, in one transaction: the gold (paid last, from the account's gold: nothing is taken when the
             // change is refused), the passives, their mastery effects and the refund points.
             if (error is null)
@@ -1956,9 +1974,19 @@ public static partial class Game
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, now, effectsNow, refundsNow);
                 // Also reconciles the ailments on the player with the new stats: a gained or refunded action-speed floor,
                 // Changing Seasons reversing a running chill.
-                RecomputePoolsAndSpeed(conn);
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
-                conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                using (new PlayerStatScope(conn, fresh: true))
+                    RecomputePoolsAndSpeed(conn);
+                // A passive can change gem qualification without changing the ascendancy provider. Reuse the actual
+                // equipment-source reconciliation so invalid direct owners and their durable activation end before the
+                // first output can resume. Selection changes keep their separate provider-retirement matrix.
+                if (selectionBefore == conn.MainAscendancy.Selection)
+                    ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                // Retirement can remove an aura or profile that supplied the pools. Clamp from a new snapshot after it.
+                using (new PlayerStatScope(conn, fresh: true))
+                {
+                    conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
+                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                }
             }
             now = [.. conn.Passives];
             effectsNow = new(conn.MasteryEffects);
@@ -1978,7 +2006,7 @@ public static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }
@@ -2023,7 +2051,7 @@ public static partial class Game
                 ref conn.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
             if (share == 0) return ([], false);
             var items = ItemsOf(conn);
-            var changed = items.ChangeSocketedGems((itemId, gem) =>
+            Item? AddExperience(uint itemId, Item gem)
             {
                 if (IsInactive(conn, itemId) || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
                 // The experience stops one point below the next level's threshold, where the client draws the "+", so a
@@ -2035,7 +2063,12 @@ public static partial class Game
                 int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
                 if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
                 return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
-            });
+            }
+            bool canLevel = items.SocketedGemPlaces().Any(place =>
+                AddExperience(place.ItemId, place.Gem) is { } after
+                && ItemsFor(conn).GemLevel(after) > ItemsFor(conn).GemLevel(place.Gem));
+            IReadOnlyList<PlayerSkillSource> sourcesBefore = canLevel ? CaptureGemSourceRowsLocked(conn) : [];
+            var changed = items.ChangeSocketedGems(AddExperience);
             bool leveled = false;
             foreach (var (before, after) in changed.SelectMany(c => c.Gems))
             {
@@ -2047,6 +2080,15 @@ public static partial class Game
                 else
                     Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} gains experience " +
                         $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(conn).GemLevel(after)})");
+            }
+            if (leveled)
+            {
+                using (new PlayerStatScope(conn, fresh: true))
+                {
+                    RecomputePoolsAndSpeed(conn);
+                    ReconcileBeastCompanionsLocked(conn);
+                    ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                }
             }
             var packets = new List<byte[]>();
             foreach (var row in changed.GroupBy(c => c.Row))

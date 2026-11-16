@@ -400,8 +400,10 @@ public static partial class Game
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                 SoulEaterHit(conn, m);
                 if (hit.Life == 0) DevourOnKill(conn, m, skillStats);
-                AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
-                    Random.Shared, reflected, poison, sourceSkill: skillId);
+                AilmentsOnHitLocked(conn, id, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
+                    Random.Shared, reflected: reflected, poison: poison, sourceSkill: skillId,
+                    blind: BlindHitInput.Capture(player, skillStats),
+                    attackGains: AttackAilmentGains.Capture(player, attack: true));
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
                 if (m.Life > 0 && ignite.CanIgnite(rolled) && IgniteOnHitLocked(conn, id, m, ignite, critical, now) is { } ignitePackets)
