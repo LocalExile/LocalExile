@@ -61,7 +61,7 @@ public static partial class Game
             if (changed.Count == 0) return null;
             CharacterSaves.ChangeQuestFlags(CharacterName(conn), changed, on);
             // A flag with refund points (QuestStaticRewards) was credited by the save: the balance follows it.
-            if (on && changed.Any(f => QuestStaticRewards.Default.Value.Find(f) is { RefundPoints: > 0 }))
+            if (on && changed.Any(f => QuestStaticRewards.Default.Find(f) is { RefundPoints: > 0 }))
             {
                 conn.RefundPoints = CharacterSaves.Load(CharacterName(conn))?.RefundPoints ?? conn.RefundPoints;
                 conn.SavedPassiveProgress = new(conn.MainAscendancy, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
@@ -251,7 +251,7 @@ public static partial class Game
         bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
         lock (conn.Monsters)
             if (conn.UnearnedQuestFlags.Contains(flag) && Quests.EndgameOnly.Contains(flag)
-                && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) return true;
+                && (inHideout || MapDevices.IsMapArea(conn.Layout.Hash))) return true;
         // Combat reads individual flags for every Pantheon/stat calculation. Keep the World panel's access and visit
         // semantics without rebuilding, sorting and allocating its complete flag list for each membership test.
         lock (conn.Waypoints)

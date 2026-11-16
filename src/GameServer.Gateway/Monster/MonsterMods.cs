@@ -202,8 +202,21 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 /// pool for tests). Counts: <see cref="AffixCount"/>. A rare monster is named from Words.dat lists 3 (monster prefix)
 /// and 4 (monster suffix) by the same tag weights.
 /// </summary>
-public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
+public sealed class MonsterModCatalog
 {
+    readonly ModCatalog mods;
+    readonly string folder;
+
+    public MonsterModCatalog(ModCatalog mods, string folder = "data")
+    {
+        this.mods = mods;
+        this.folder = folder;
+        _varietyTags = LoadVarietyTags(folder);
+        _words = LoadWords(folder);
+        _lifeTables = LoadLifeTables(folder);
+        _rarity = LoadRarity(folder);
+    }
+
     public const int Domain = 3, Prefix = 1, Suffix = 2;
     public const int MonsterPrefixWords = 3, MonsterSuffixWords = 4;
     /// <summary>The stat the rarity's level table (MagicMonsterLifeScalingPerLevel, RareMonsterLifeScalingPerLevel)
@@ -270,10 +283,10 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     /// <summary>Whether unsupported mods roll too (<c>Game_MONSTER_MODS=all</c>): for checking how the client shows them.</summary>
     public bool RollUnsupported { get; init; } = Environment.GetEnvironmentVariable("Game_MONSTER_MODS") == "all";
 
-    private readonly Lazy<Dictionary<int, IReadOnlySet<string>>> _varietyTags = new(() => LoadVarietyTags(folder));
-    private readonly Lazy<List<ItemRolls.Word>> _words = new(() => LoadWords(folder));
-    private readonly Lazy<(int[] Magic, int[] Rare)> _lifeTables = new(() => LoadLifeTables(folder));
-    private readonly Lazy<(int MaxPrefix, int MaxSuffix)[]> _rarity = new(() => LoadRarity(folder));
+    private readonly Dictionary<int, IReadOnlySet<string>> _varietyTags;
+    private readonly List<ItemRolls.Word> _words;
+    private readonly (int[] Magic, int[] Rare) _lifeTables;
+    private readonly (int MaxPrefix, int MaxSuffix)[] _rarity;
 
     public ModCatalog Mods => mods;
 
@@ -281,7 +294,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     /// its rarity (the client adds the same tag, 0x142205d50) and "not_part_of_pack" for a monster on its own.</summary>
     public IReadOnlySet<string> TagsOf(MonsterCatalog.Variety variety, MonsterRarity rarity, bool alone)
     {
-        var tags = new HashSet<string>(_varietyTags.Value.GetValueOrDefault(variety.Row) ?? new HashSet<string>()) { "default" };
+        var tags = new HashSet<string>(_varietyTags.GetValueOrDefault(variety.Row) ?? new HashSet<string>()) { "default" };
         if (rarity == MonsterRarity.Magic) tags.Add("magic");
         if (rarity == MonsterRarity.Rare) tags.Add("rare");
         if (alone) tags.Add("not_part_of_pack");
@@ -325,7 +338,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     /// "Life": magic +50% at level 1 to +75%, rare +33% to +100%), the server's monster_life_+%_final_from_rarity_table.</summary>
     public int RarityTableLifePct(MonsterRarity rarity, int level)
     {
-        var table = rarity switch { MonsterRarity.Magic => _lifeTables.Value.Magic, MonsterRarity.Rare => _lifeTables.Value.Rare, _ => [] };
+        var table = rarity switch { MonsterRarity.Magic => _lifeTables.Magic, MonsterRarity.Rare => _lifeTables.Rare, _ => [] };
         return table.Length == 0 ? 0 : table[Math.Clamp(level, 1, table.Length) - 1];
     }
 
@@ -403,7 +416,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
 
     (int MaxPrefix, int MaxSuffix) MaxAffixes(MonsterRarity rarity)
     {
-        var rows = _rarity.Value;
+        var rows = _rarity;
         int i = (int)rarity;
         if (i < rows.Length && rows[i].MaxPrefix + rows[i].MaxSuffix > 0) return rows[i];
         return rarity == MonsterRarity.Magic ? (1, 1) : (3, 3);
@@ -415,7 +428,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         uint? Draw(int list)
         {
-            var words = _words.Value.Where(w => w.List == list)
+            var words = _words.Where(w => w.List == list)
                 .Select(w => (w, w.SpawnWeights.FirstOrDefault(s => tags.Contains(s.Tag)).Weight)).Where(p => p.Weight > 0).ToList();
             return words.Count == 0 ? null : Pick(words, rng).Key;
         }
@@ -423,7 +436,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     }
 
     /// <summary>"Ashbite" from the keys (logs, /mob_mods).</summary>
-    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.Value.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
+    public string NameOf(IReadOnlyList<uint> keys) => string.Concat(keys.Select(k => _words.FirstOrDefault(w => w.Key == k)?.Text ?? $"[{k:x8}]"));
 
     /// <summary>"Quick (MonsterModAttackCastMovementSpeed)" per affix, for logs and /mob_mods.</summary>
     public string Describe(MonsterModSet set) => string.Join(", ", set.Affixes.Select(a => mods.ByHash(a.Hash) is { } m

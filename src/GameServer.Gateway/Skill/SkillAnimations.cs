@@ -16,6 +16,13 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class SkillAnimations
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        StanceNames = [.. ClientTables.TableOrEmpty("ItemStances").Select(r => r.Text("Id") ?? "")];
+        Stanced = LoadStanced();
+    }
+
     /// <summary>The row each action class plays whatever its stats.</summary>
     static readonly Dictionary<string, string> Fixed = new(StringComparer.Ordinal)
     {
@@ -92,7 +99,7 @@ public static class SkillAnimations
     /// <summary>The .act stance the hands' items select (VisibleItem.Stance is ItemClasses.ItemStance); "" for empty hands.</summary>
     public static string StanceName(IReadOnlyList<VisibleItem> held)
     {
-        var names = StanceNames.Value;
+        var names = StanceNames;
         string Name(byte slot) => held.FirstOrDefault(h => h.Slot == slot) is { Stance: var s and not 0xff } && s < names.Count ? names[s] : "";
         return Name(0) + Name(1);
     }
@@ -101,7 +108,7 @@ public static class SkillAnimations
     /// with the action's sequence); null when its .act has no stances or no pool for the row.</summary>
     public static SkillCatalog.MonsterClipContact? StanceClip(string varietyId, string stance, string key, ushort sequence)
     {
-        if (!Stanced.Value.TryGetValue(varietyId, out var pools)) return null;
+        if (!Stanced.TryGetValue(varietyId, out var pools)) return null;
         if (!(stance.Length > 0 && pools.TryGetValue($"{stance}/{key}", out var pool)) && !pools.TryGetValue(key, out pool)) return null;
         Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
         weights.Fill(1);
@@ -109,10 +116,9 @@ public static class SkillAnimations
     }
 
     /// <summary>Whether the variety's .act has stances (monster_stances lists it).</summary>
-    public static bool IsStanced(string varietyId) => Stanced.Value.ContainsKey(varietyId);
+    public static bool IsStanced(string varietyId) => Stanced.ContainsKey(varietyId);
 
-    static readonly Lazy<List<string>> StanceNames = new(() =>
-        [.. ClientTables.TableOrEmpty("ItemStances").Select(r => r.Text("Id") ?? "")]);
+    static List<string> StanceNames = default!;
 
     static string? ActionType(int effect) => SkillCatalog.ActionTypeId(effect);
 
@@ -121,7 +127,9 @@ public static class SkillAnimations
             ? ClientTables.TableOrNull("Animation")?.Row(row)?.Text("Id") : null;
 
     /// <summary>Per variety whose first .act has stances: its pools by "&lt;stance&gt;/&lt;key&gt;" and root key.</summary>
-    static readonly Lazy<Dictionary<string, Dictionary<string, SkillCatalog.MonsterClipContact[]>>> Stanced = new(() =>
+    static Dictionary<string, Dictionary<string, SkillCatalog.MonsterClipContact[]>> Stanced = default!;
+
+    static Dictionary<string, Dictionary<string, SkillCatalog.MonsterClipContact[]>> LoadStanced()
     {
         var result = new Dictionary<string, Dictionary<string, SkillCatalog.MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_stances") is not { } acts || ClientTables.TableOrNull("MonsterVarieties") is not { } varieties)
@@ -139,5 +147,5 @@ public static class SkillAnimations
             if (v.Texts("ACTFiles").FirstOrDefault() is { } act && byAct.TryGetValue(act, out var pools) && v.Text("Id") is { } id)
                 result.TryAdd(id, pools);
         return result;
-    });
+    }
 }

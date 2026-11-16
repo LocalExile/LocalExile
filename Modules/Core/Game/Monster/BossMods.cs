@@ -9,6 +9,12 @@ using GameServer.Core;
 /// </summary>
 public static class BossMods
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadBossModsData()
+    {
+        Rows = Load();
+    }
+
     /// <summary>BossHealOnPlayerDeath is not here: its stat (<c>heal_aura_owner_%_max_life_on_death</c>) is 0 in the
     /// extracted table for both it and its Minor form, so how much life comes back is not something the data says.</summary>
     public const string ImmuneToKnockback = "ImmuneToKnockback";
@@ -33,11 +39,11 @@ public static class BossMods
     /// floor they put under its action speed (0 when the rows state none).</summary>
     public sealed record Row(HashSet<string> Mods, int StunImmunityMs, int SlowFloorPct = 0);
 
-    static readonly Lazy<Dictionary<string, Row>> Rows = new(Load);
+    static Dictionary<string, Row> Rows = default!;
 
     /// <summary>Whether the variety's row names this mod in either of its mod lists.</summary>
     public static bool Has(MonsterCatalog.Variety? variety, string mod) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id)?.Mods.Contains(mod) == true;
+        variety is not null && Rows.GetValueOrDefault(variety.Id)?.Mods.Contains(mod) == true;
 
     /// <summary>Whether nothing may shove the monster: the client's ImmuneToKnockback component or its mod.</summary>
     public static bool KnockbackImmune(MonsterCatalog.Variety? variety) =>
@@ -46,7 +52,7 @@ public static class BossMods
     /// <summary>How long after a stun ends the monster cannot be stunned again, when its row says (an act boss's 2000 ms);
     /// null when the row does not, and the caller falls back to the wiki's rule for uniques.</summary>
     public static int? StunImmunityMilliseconds(MonsterCatalog.Variety? variety) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id) is { StunImmunityMs: > 0 } row ? row.StunImmunityMs : null;
+        variety is not null && Rows.GetValueOrDefault(variety.Id) is { StunImmunityMs: > 0 } row ? row.StunImmunityMs : null;
 
     /// <summary>Whether the monster's death gives no items and no experience.</summary>
     public static bool NoRewards(MonsterCatalog.Variety? variety) => Has(variety, NoDropsOrExperience);
@@ -54,7 +60,7 @@ public static class BossMods
     /// <summary>How far slows may take the monster's action speed, as a factor of its own: the floor its row states
     /// (<c>CannotBeSlowedBelowValueBosses</c>, -50% → half speed), else the .25 every monster has had.</summary>
     public static double SlowestActionFactor(MonsterCatalog.Variety? variety) =>
-        variety is not null && Rows.Value.GetValueOrDefault(variety.Id) is { SlowFloorPct: < 0 } row
+        variety is not null && Rows.GetValueOrDefault(variety.Id) is { SlowFloorPct: < 0 } row
             ? Math.Max(.01, 1 + row.SlowFloorPct / 100d)
             : .25;
 

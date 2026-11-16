@@ -17,9 +17,71 @@ public sealed class GameModule : IModule, IDisposable
         RuleTables.Empty();
     }
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        // The hard-mode data set and the catalogs the others read first.
+        Rules.LoadLeagueModesData();
+        Rules.LoadSettingsData();
+        // The catalogs the rules share (Settings.cs and the systems' own files), each after the ones it reads.
+        Rules.Monsters = new();
+        Rules.Packs = new();
+        Rules.Cosmetics = new();
+        Rules.Mtx = new();
+        Rules.MtxEffects = new();
+        Rules.Art = new();
+        Rules.Uniques = new(Program.Items);
+        Rules.Essences = new(Program.Items, Program.Rolls);
+        Rules.Drops = new(Program.Items, Program.Rolls, maps: Rules.MapDevices.Atlas, uniques: Rules.Uniques);
+        Rules.AtlasPassiveNodes = new();
+        Rules.TimelessJewels = new();
+        Rules.OrdinaryPassives = new();
+        Rules.Ascendancies = new();
+        Rules.Descendancies = new();
+        Rules.AscendancyRules = new(Rules.Ascendancies);
+        Rules.Animations = new();
+        Rules.Emerges = new();
+        Rules.GolemData = new();
+        Rules.SummonData = new();
+        Rules.RampageData = new();
+        Rules.Supports = new();
+        Rules.LoadModuleWorldData();
+        Rules.LoadMonsterModsData();
+        Rules.LoadPassiveGrantedSkillsRulesData();
+        // Combat, skills and projectiles.
+        Rules.LoadElusiveData();
+        Rules.LoadOwnAurasData();
+        global::StationaryCollision.LoadStationaryCollisionData();
+        Rules.LoadProjectilesData();
+        Rules.LoadPlacedSkillsData();
+        Rules.LoadTotemsRulesData();
+        // Flasks.
+        global::AntiquarianEffects.LoadAntiquarianEffectsData();
+        Rules.LoadFlaskGroundsData();
+        // Monsters.
+        global::BossKits.LoadBossKitsData();
+        global::BossMods.LoadBossModsData();
+        global::IzaroSkills.LoadIzaroSkillsData();
+        Rules.LoadMonsterContagionsData();
+        Rules.LoadMonsterMinionsData();
+        global::MonsterSkills.LoadMonsterSkillsData();
+        // Passives and the player.
+        global::ClusterJewelLayout.LoadClusterJewelLayoutData();
+        global::JewelPathEffects.LoadJewelPathEffectsData();
+        global::ForbiddenTattoo.LoadForbiddenTattooData();
+        global::JourneyMakanuiCatalogue.LoadJourneyMakanuiCatalogueData();
+        global::TattooCatalogue.LoadTattooCatalogueData();
+        // The world.
+        global::MapSulphite.LoadMapSulphiteData();
+        Rules.LoadQuestEngineData();
+        global::TourRecords.LoadTourRecordsData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         Rules.CombatLifetime = module.Lifetime;
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).

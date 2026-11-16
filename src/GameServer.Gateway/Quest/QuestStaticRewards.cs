@@ -13,6 +13,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class QuestStaticRewards
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(string Stat, int Value)> Stats);
 
     readonly Dictionary<string, Reward> byFlag = new(StringComparer.Ordinal);
@@ -43,7 +49,7 @@ public sealed class QuestStaticRewards
         return sum;
     }
 
-    public static readonly Lazy<QuestStaticRewards> Default = new(() => Load());
+    public static QuestStaticRewards Default = default!;
 
     public static QuestStaticRewards Load(string folder = "data")
     {

@@ -1226,7 +1226,7 @@ public static partial class Game
     public static PendingTransfer? MapCheckpointExit(ClientState conn) =>
         MapDevice.ForInstance(conn) is { } map && (map.ReturnTo ?? map.Entrance) is { } origin
             ? new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y))
-            : MapDevices.Value.IsMapArea(conn.Layout.Hash) && HomeHideout(conn) is { } hideout
+            : MapDevices.IsMapArea(conn.Layout.Hash) && HomeHideout(conn) is { } hideout
                 ? new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) : null;
 
     // The player in its class: the Characters.dat row's object type (Metadata/Characters/StrInt/StrInt for the Templar), model
@@ -1270,8 +1270,8 @@ public static partial class Game
             // A worn morph's animation set (WornMorph: the Goblin Shaman Skin in a town or hideout).
             ActorFile = WornMorph(conn)?.Actor,
             // The saved Pantheon gods (campaign/pantheon.md §5): the Player component's two bytes.
-            PantheonMajor = PantheonCatalog.Default.Value.Wire(conn.PantheonMajor),
-            PantheonMinor = PantheonCatalog.Default.Value.Wire(conn.PantheonMinor),
+            PantheonMajor = PantheonCatalog.Default.Wire(conn.PantheonMajor),
+            PantheonMinor = PantheonCatalog.Default.Wire(conn.PantheonMinor),
             Descendancy = conn.DescendancyRow,
             WashedUp = washedUp,
             Rotation = washedUp ? layout.SpawnRotation : 0,

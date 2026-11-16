@@ -12,6 +12,11 @@ namespace GameServer.Modules.Anarchy;
 /// </summary>
 sealed class RogueExiles
 {
+    public RogueExiles()
+    {
+        _data = Load();
+    }
+
     public static RogueExiles Current { get; } = new();
 
     /// <summary>The gigantified exile's mod (Mods MonsterSupporterGigantism1): 80% larger, 100% more area, 100% life.</summary>
@@ -20,14 +25,14 @@ sealed class RogueExiles
     sealed record Data(List<(MonsterCatalog.Variety Variety, int MinLevel)> Wild, Dictionary<string, MonsterCatalog.Variety> Giants,
         List<MonsterCatalog.Variety> Faridun, Dictionary<int, int> LifeMore);
 
-    readonly Lazy<Data> _data = new(Load);
+    readonly Data _data;
 
     /// <summary>A wild Rogue Exile that can appear at this level, every one alike (any level's when
     /// <paramref name="anyLevel"/>: map_override_rogue_exile_min_level), other than those in <paramref name="besides"/>
     /// while another is left; null when none can.</summary>
     public MonsterCatalog.Variety? Pick(int level, Random rng, bool anyLevel = false, IReadOnlyCollection<string>? besides = null)
     {
-        var allowed = _data.Value.Wild.Where(e => anyLevel || e.MinLevel <= level).Select(e => e.Variety).ToList();
+        var allowed = _data.Wild.Where(e => anyLevel || e.MinLevel <= level).Select(e => e.Variety).ToList();
         if (besides is { Count: > 0 } && allowed.Where(v => !besides.Contains(v.Id)).ToList() is { Count: > 0 } fresh) allowed = fresh;
         return allowed.Count == 0 ? null : allowed[rng.Next(allowed.Count)];
     }
@@ -35,7 +40,7 @@ sealed class RogueExiles
     /// <summary>As <see cref="Pick"/>, among the exiles that have a gigantified variety.</summary>
     public MonsterCatalog.Variety? PickWithGiant(int level, Random rng, bool anyLevel = false, IReadOnlyCollection<string>? besides = null)
     {
-        var allowed = _data.Value.Wild.Where(e => (anyLevel || e.MinLevel <= level) && _data.Value.Giants.ContainsKey(e.Variety.Id))
+        var allowed = _data.Wild.Where(e => (anyLevel || e.MinLevel <= level) && _data.Giants.ContainsKey(e.Variety.Id))
             .Select(e => e.Variety).ToList();
         if (besides is { Count: > 0 } && allowed.Where(v => !besides.Contains(v.Id)).ToList() is { Count: > 0 } fresh) allowed = fresh;
         return allowed.Count == 0 ? Pick(level, rng, anyLevel, besides) : allowed[rng.Next(allowed.Count)];
@@ -43,18 +48,18 @@ sealed class RogueExiles
 
     /// <summary>One of the Faridun exiles; null when the tables have none the server can create.</summary>
     public MonsterCatalog.Variety? PickFaridun(Random rng) =>
-        _data.Value.Faridun.Count == 0 ? null : _data.Value.Faridun[rng.Next(_data.Value.Faridun.Count)];
+        _data.Faridun.Count == 0 ? null : _data.Faridun[rng.Next(_data.Faridun.Count)];
 
     /// <summary>The gigantified variety of a wild exile (RogueExileGiants), if it has one.</summary>
-    public MonsterCatalog.Variety? Giant(MonsterCatalog.Variety exile) => _data.Value.Giants.GetValueOrDefault(exile.Id);
+    public MonsterCatalog.Variety? Giant(MonsterCatalog.Variety exile) => _data.Giants.GetValueOrDefault(exile.Id);
 
     /// <summary>Whether the variety is one of the Rogue Exiles this module places.</summary>
     public bool IsExile(string varietyId) =>
-        _data.Value.Wild.Any(e => e.Variety.Id == varietyId) || _data.Value.Giants.Values.Any(v => v.Id == varietyId)
-        || _data.Value.Faridun.Any(v => v.Id == varietyId);
+        _data.Wild.Any(e => e.Variety.Id == varietyId) || _data.Giants.Values.Any(v => v.Id == varietyId)
+        || _data.Faridun.Any(v => v.Id == varietyId);
 
     /// <summary>The exiles' more life at this level, in percent.</summary>
-    public int LifeMore(int level) => _data.Value.LifeMore.GetValueOrDefault(Math.Clamp(level, 1, 100));
+    public int LifeMore(int level) => _data.LifeMore.GetValueOrDefault(Math.Clamp(level, 1, 100));
 
     static Data Load()
     {

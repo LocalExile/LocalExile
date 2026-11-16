@@ -10,6 +10,17 @@ using GameServer.Core;
 /// </summary>
 public static class LabyrinthTrials
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        BuffRows = LoadBuffRows();
+        SpikeStats = TrapStats("LbRetractableTrap");
+        EdgeStats = TrapStats("LbEdgeTrap");
+        ArrowStats = TrapStats("LbArrowTrap");
+        LabyrinthAreas = LoadLabyrinthAreas();
+        All = LoadAll();
+    }
+
     public sealed record Trial(string Area, string Flag, int LeagueFlag);
 
     public const string IntroDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIntroDoor",
@@ -184,7 +195,7 @@ public static class LabyrinthTrials
     public static (double Life, double EnergyShield) LavaDamagePerSecond = (0.40, 0.50);
 
     /// <summary>The <c>labyrinth_lava_aura</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? LavaBuffRow => BuffRows.Value.TryGetValue("labyrinth_lava_aura", out ushort row) ? row : null;
+    public static ushort? LavaBuffRow => BuffRows.TryGetValue("labyrinth_lava_aura", out ushort row) ? row : null;
 
     public static bool IsSawblade(string type) => type is Sawblade or SlowSawblade;
 
@@ -1003,18 +1014,20 @@ public static class LabyrinthTrials
     public const double SpikeBleedPerSecond = 0.10, SpikeBleedMovingFactor = 3, SpikeBleedSeconds = 5 * (1 - 0.8);
 
     /// <summary>The <c>bleeding</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? BleedingBuffRow => BuffRows.Value.TryGetValue("bleeding", out ushort row) ? row : null;
+    public static ushort? BleedingBuffRow => BuffRows.TryGetValue("bleeding", out ushort row) ? row : null;
 
     /// <summary>The <c>poison</c> BuffDefinitions row ("Poisoned", a count of its stacks), or null without the table.</summary>
-    public static ushort? PoisonBuffRow => BuffRows.Value.TryGetValue("poison", out ushort row) ? row : null;
+    public static ushort? PoisonBuffRow => BuffRows.TryGetValue("poison", out ushort row) ? row : null;
 
     /// <summary>The buff a roomba of this type puts on the player in it (<c>roomba_damage</c>, <c>flying_roomba_damage</c>:
     /// invisible, BuffVisuals <c>rhoomba_damage</c> playing <c>labyrinth/traps/roomba/roomba.epk</c>), or null without the
     /// table.</summary>
     public static ushort? RoombaBuffRow(string type) =>
-        BuffRows.Value.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : IsSawblade(type) ? "sawblade_damage" : "roomba_damage", out ushort row) ? row : null;
+        BuffRows.TryGetValue(type == FlyingRoomba ? "flying_roomba_damage" : IsSawblade(type) ? "sawblade_damage" : "roomba_damage", out ushort row) ? row : null;
 
-    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
+    static Dictionary<string, ushort> BuffRows = default!;
+
+    static Dictionary<string, ushort> LoadBuffRows()
     {
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
         if (!ClientTables.Has("BuffDefinitions")) return rows;
@@ -1027,15 +1040,15 @@ public static class LabyrinthTrials
             row++;
         }
         return rows;
-    });
+    }
 
     /// <summary>A spike trap's hit on a player (GrantedEffectStatSets <c>LbRetractableTrap</c>):
     /// <c>%_of_life_to_deal_as_damage</c> of maximum life plus <c>%_of_es_to_deal_as_damage</c> of maximum energy
     /// shield, with <c>damage_+%_vs_players</c>; it always hits and cannot be blocked. Null without the table. Armour and
     /// resistances are not applied (our reading: the trap deals a share of the pools).</summary>
-    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats.Value, maxLife, maxEnergyShield);
+    public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> SpikeStats = new(() => TrapStats("LbRetractableTrap"));
+    static (int Life, int EnergyShield, int VsPlayers)? SpikeStats = default!;
 
     static int? TrapDamage((int Life, int EnergyShield, int VsPlayers)? stats, uint maxLife, uint maxEnergyShield) =>
         stats is { } s ? (int)Math.Min(int.MaxValue,
@@ -1193,9 +1206,9 @@ public static class LabyrinthTrials
 
     /// <summary>A blade's hit on a player (GrantedEffectStatSets <c>LbEdgeTrap</c>: 25% of maximum life plus 15% of
     /// maximum energy shield, 20% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
-    public static int? EdgeBladeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(EdgeStats.Value, maxLife, maxEnergyShield);
+    public static int? EdgeBladeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(EdgeStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> EdgeStats = new(() => TrapStats("LbEdgeTrap"));
+    static (int Life, int EnergyShield, int VsPlayers)? EdgeStats = default!;
 
     /// <summary>A blade's 0x2bb blob (Positioned, BaseEvents, Animated, TriggerableBlockage, Pathfinding, Stats, Buffs, Life,
     /// Transitionable, Actor): the room line's angle, team 14, flags1 0x08 (blocks no walker, as the pressure spikes),
@@ -1328,9 +1341,9 @@ public static class LabyrinthTrials
 
     /// <summary>A dart's hit on a player (GrantedEffectStatSets <c>LbArrowTrap</c>: 15% of maximum life plus 9% of maximum
     /// energy shield, 33% more against players), read as the spike trap's (<see cref="SpikeDamage"/>).</summary>
-    public static int? ArrowDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(ArrowStats.Value, maxLife, maxEnergyShield);
+    public static int? ArrowDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(ArrowStats, maxLife, maxEnergyShield);
 
-    static readonly Lazy<(int Life, int EnergyShield, int VsPlayers)?> ArrowStats = new(() => TrapStats("LbArrowTrap"));
+    static (int Life, int EnergyShield, int VsPlayers)? ArrowStats = default!;
 
     /// <summary>What a dart's poison is reckoned from: its hit's share of maximum life alone. The poison goes past energy
     /// shield, so the whole hit's would turn an energy shield character's own pool against their life (live 2026-10-31:
@@ -1354,7 +1367,7 @@ public static class LabyrinthTrials
     public const double ArrowSlowSeconds = 2;
 
     /// <summary>The <c>labyrinth_arrow_slow</c> BuffDefinitions row, or null without the table.</summary>
-    public static ushort? ArrowSlowBuffRow => BuffRows.Value.TryGetValue("labyrinth_arrow_slow", out ushort row) ? row : null;
+    public static ushort? ArrowSlowBuffRow => BuffRows.TryGetValue("labyrinth_arrow_slow", out ushort row) ? row : null;
 
     /// <summary>A dart trap's 0x2bb blob (LabyrinthArrowTrap.ot: Positioned, Transitionable, Animated, Pathfinding,
     /// BaseEvents, Stats, Buffs, Life, Actor), as the spike trap's (<see cref="SpikeTrapBlob"/>): the .ot's team 14, the
@@ -1466,13 +1479,15 @@ public static class LabyrinthTrials
     public static byte TransitionableIndex(string type) => (byte)Array.IndexOf(Components[Kind(type)], "Transitionable");
 
     /// <summary>The trial in this area, or null.</summary>
-    public static Trial? For(string areaId) => All.Value.GetValueOrDefault(areaId);
+    public static Trial? For(string areaId) => All.GetValueOrDefault(areaId);
 
     /// <summary>Whether the area is one of the Labyrinth's own (WorldAreas IsLabyrinthArea: the <c>1_Labyrinth_*</c> rooms
     /// of a run and Izaro's; not the plaza, not a trial): its rooms have the trials' traps.</summary>
-    public static bool InLabyrinth(string areaId) => LabyrinthAreas.Value.Contains(areaId);
+    public static bool InLabyrinth(string areaId) => LabyrinthAreas.Contains(areaId);
 
-    static readonly Lazy<HashSet<string>> LabyrinthAreas = new(() =>
+    static HashSet<string> LabyrinthAreas = default!;
+
+    static HashSet<string> LoadLabyrinthAreas()
     {
         try
         {
@@ -1486,10 +1501,10 @@ public static class LabyrinthTrials
             Console.WriteLine($"[gateway] WorldAreas: {ex.Message}");
             return [];
         }
-    });
+    }
 
     /// <summary>Every trial of the table (Normal, Cruel, Merciless and Eternal).</summary>
-    public static IReadOnlyCollection<Trial> Trials => All.Value.Values;
+    public static IReadOnlyCollection<Trial> Trials => All.Values;
 
     /// <summary>The Labyrinth tier that needs the trial (Labyrinths RequiredTrials): 1 Normal's six, 2 Cruel's three,
     /// 3 Merciless's three, 4 Eternal's six (the map trials), by its quest flag (NormalLabyrinthCompleted…, Cruel…,
@@ -1498,7 +1513,9 @@ public static class LabyrinthTrials
         trial.Flag.StartsWith("Normal", StringComparison.Ordinal) ? 1 : trial.Flag.StartsWith("Cruel", StringComparison.Ordinal) ? 2
         : trial.Flag.StartsWith("Merciless", StringComparison.Ordinal) ? 3 : 4;
 
-    static readonly Lazy<Dictionary<string, Trial>> All = new(() =>
+    static Dictionary<string, Trial> All = default!;
+
+    static Dictionary<string, Trial> LoadAll()
     {
         try
         {
@@ -1513,7 +1530,7 @@ public static class LabyrinthTrials
             Console.WriteLine($"[gateway] LabyrinthTrials: {ex.Message}");
             return [];
         }
-    });
+    }
 
     /// <summary>LabyrinthTrials rows: WorldAreas key, column 1 the league quest flag id, column 7 the QuestFlags row.</summary>
     public static List<Trial> Parse(ClientTable table, IReadOnlyList<string> areaIds, IReadOnlyDictionary<int, string> flagIds)

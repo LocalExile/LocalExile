@@ -11,6 +11,11 @@ using GameServer.Core;
 /// </summary>
 public sealed class LeagueChances
 {
+    public LeagueChances()
+    {
+        _data = Load();
+    }
+
     /// <summary>CoreLeagues rows, by index.</summary>
     public const int Anarchy = 0, Shrine = 1, VaalSideArea = 2, Ambush = 3, Beyond = 4, Torment = 5, Essence = 6, Breach = 7,
         Harbinger = 8, Abyss = 9, Legion = 15, Blight = 16, Delirium = 17, Harvest = 18, Heist = 19, Ritual = 20, Expedition = 21,
@@ -29,17 +34,17 @@ public sealed class LeagueChances
 
     sealed record Data(Dictionary<string, (int Normal, int Alternate)> Areas, List<int[]> Chances, List<League> Leagues);
 
-    readonly Lazy<Data?> _data = new(Load);
+    readonly Data? _data;
 
     public static LeagueChances Current { get; } = new();
 
     /// <summary>The CoreLeagues row, or null without the tables.</summary>
-    public League? LeagueOf(int row) => _data.Value is { } d && (uint)row < (uint)d.Leagues.Count ? d.Leagues[row] : null;
+    public League? LeagueOf(int row) => _data is { } d && (uint)row < (uint)d.Leagues.Count ? d.Leagues[row] : null;
 
     /// <summary>The area's chance for the CoreLeagues row and its repeat chance, in percent, before area stats.</summary>
     public (int Chance, int Repeat) ChanceOf(string areaId, int league, bool alternate = false)
     {
-        if (_data.Value is not { } d || (uint)league >= (uint)Offsets.Length || !d.Areas.TryGetValue(areaId, out var rows)) return (0, 0);
+        if (_data is not { } d || (uint)league >= (uint)Offsets.Length || !d.Areas.TryGetValue(areaId, out var rows)) return (0, 0);
         int row = alternate ? rows.Alternate : rows.Normal;
         if ((uint)row >= (uint)d.Chances.Count) return (0, 0);
         var (at, repeatAt) = Offsets[league];

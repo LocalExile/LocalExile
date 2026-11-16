@@ -387,7 +387,7 @@ public static class CharacterSaves
     /// flags as the passive points are.</summary>
     public static void ChangeQuestFlags(string character, IEnumerable<string> flags, bool on) => Update(character, s =>
     {
-        var states = QuestStates.Default.Value;
+        var states = QuestStates.Default;
         var changed = flags.Where(f => !states.IsSession(f)).ToList();
         var saved = new HashSet<string>(s.QuestFlags ?? []);
         if (on) saved.UnionWith(changed); else saved.ExceptWith(changed);
@@ -398,7 +398,7 @@ public static class CharacterSaves
     /// <summary>The save with the refund points of its quest flags that it has not been credited yet (QuestStaticRewards).</summary>
     public static Save CreditQuestRefunds(Save s)
     {
-        var (points, flags) = QuestStaticRewards.Default.Value.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
+        var (points, flags) = QuestStaticRewards.Default.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
         if (flags.Count == 0) return s;
         return s with
         {

@@ -10,6 +10,12 @@ using static Program;
 /// it the rest of its list.</summary>
 public static class BossKits
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadBossKitsData()
+    {
+        CampaignBosses = LoadCampaignBosses();
+    }
+
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
     /// the ten acts' named monsters, big and small) or one with a life bar of its own, with more
     /// than one effect the client can play. A boss with an encounter controller never asks (PlanMonsterAi skips it
@@ -23,9 +29,9 @@ public static class BossKits
     /// WorldAreas <c>Bosses_MonsterVarietiesKeys</c> (which index MonsterVarieties). That is every named monster of the
     /// ten acts, big and small, whether or not it has a life bar.</summary>
     public static bool IsCampaignBoss(MonsterCatalog.Variety? variety) =>
-        variety is not null && CampaignBosses.Value.Contains(variety.Id);
+        variety is not null && CampaignBosses.Contains(variety.Id);
 
-    static readonly Lazy<HashSet<string>> CampaignBosses = new(LoadCampaignBosses);
+    static HashSet<string> CampaignBosses = default!;
 
     static HashSet<string> LoadCampaignBosses()
     {

@@ -4,14 +4,21 @@ using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadModuleWorldData()
+    {
+        StandardCrafting = new(Items!, Rolls!);
+        HardModeCrafting = new(HardModeItems!, HardModeRolls!);
+    }
+
     public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
     }
 
-    public static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
-    public static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
+    public static ModuleItemCrafting StandardCrafting = default!;
+    public static ModuleItemCrafting HardModeCrafting = default!;
 
     public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
     {
@@ -76,7 +83,7 @@ public static partial class Game
         public ISavedData CharacterData => new ModuleSave(key => CharacterSaves.ModuleData(CharacterName(conn), key),
             (key, change) => CharacterSaves.ChangeModuleData(CharacterName(conn), key, change));
 
-        public IItemCrafting Crafting => LeagueFor(conn).HardMode ? HardModeCrafting.Value : StandardCrafting.Value;
+        public IItemCrafting Crafting => LeagueFor(conn).HardMode ? HardModeCrafting : StandardCrafting;
 
         SpawnedNpc? TalkingTo()
         {
@@ -151,13 +158,22 @@ public static partial class Game
 }
 
 /// <summary>The Gateway's item rules for one data set, as modules see them.</summary>
-public sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
+public sealed class ModuleItemCrafting : IItemCrafting
 {
-    readonly Lazy<IReadOnlySet<string>> _modTypes = new(() =>
-        catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    readonly ItemCatalog catalog;
+    readonly ItemRolls rolls;
+
+    public ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls)
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        _modTypes = catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    readonly IReadOnlySet<string> _modTypes;
 
     public uint? TypeHash(string id) => catalog.Find(id)?.Hash;
-    public IReadOnlySet<string> ModTypes => _modTypes.Value;
+    public IReadOnlySet<string> ModTypes => _modTypes;
 
     public bool HasExplicitStat(Item item, IReadOnlyCollection<string> stats) => item.Mods.Where(m => m.Section == ModSection.Explicit)
         .Any(m => catalog.Mods.ByHash(m.Hash)?.Stats.Any(s => stats.Contains(s.Id)) == true);

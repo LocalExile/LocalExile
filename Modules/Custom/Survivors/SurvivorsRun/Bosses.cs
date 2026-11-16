@@ -86,7 +86,7 @@ static partial class SurvivorsRunRules
     internal static MonsterModSet SurvivorsGateBossMods(SurvivorsRoster roster, MonsterCatalog.Variety boss,
         SurvivorsRun run, int stage, SurvivorsBossKit kit)
     {
-        var rolled = MonsterModRolls.Value.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
+        var rolled = MonsterModRolls.Roll(boss, roster.Level, MonsterRarity.Unique, Random.Shared, alone: true);
         int baseLife = Math.Max(1, Monsters.BaseLife(boss, roster.Level) ?? 100);
         int target = SurvivorsRules.BossGateLife(SurvivorsPoolTop(roster, stage), stage,
             stage * SurvivorsRules.StageSeconds);

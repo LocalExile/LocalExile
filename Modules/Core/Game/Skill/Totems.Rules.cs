@@ -6,6 +6,13 @@ using GameServer.Core;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadTotemsRulesData()
+    {
+        TotemVarieties = LoadTotemVarieties();
+        TotemBuffStats = LoadTotemBuffStats();
+    }
+
     /// <summary>"X% of Damage from Hits is taken from your nearest Totem's Life before you": Forest of Ancestors' 20 and
     /// Kaom's Leadership's 25 add.</summary>
     public const string TotemRedirectStat = "damage_removed_from_your_nearest_totem_before_life_or_es_%";
@@ -19,12 +26,13 @@ public static partial class Game
 
     // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
     // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
-    static readonly Lazy<(Dictionary<int, int> Effects, Dictionary<int, int> Skins)> TotemVarieties =
-        new(LoadTotemVarieties);
+    static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) TotemVarieties = default!;
 
     // The totem auras' BuffDefinitions stats (172: base_life_regeneration_rate_per_minute and five more); the totem's
     // skill gives their values.
-    static readonly Lazy<Dictionary<ushort, uint[]>> TotemBuffStats = new(() =>
+    static Dictionary<ushort, uint[]> TotemBuffStats = default!;
+
+    static Dictionary<ushort, uint[]> LoadTotemBuffStats()
     {
         var result = new Dictionary<ushort, uint[]>();
         if (!ClientTables.Has("BuffDefinitions")) return result;
@@ -33,7 +41,7 @@ public static partial class Game
             if (row < definitions.Count && !definitions[row].IsNull("StatsKeys"))
                 result[row] = [.. definitions[row].Ints("StatsKeys").Select(k => (uint)(k + 1))];
         return result;
-    });
+    }
 
     static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) LoadTotemVarieties()
     {
@@ -58,13 +66,13 @@ public static partial class Game
     public static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
     {
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
-            && TotemVarieties.Value.Effects.TryGetValue(effect, out int native))
+            && TotemVarieties.Effects.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
         if (!SpellTotemEffect(conn, effect) && !BallistaEffect(conn, effect)) return null;
         // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
-        if (TotemVarieties.Value.Effects.TryGetValue(effect, out int specific)
+        if (TotemVarieties.Effects.TryGetValue(effect, out int specific)
             && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
-        return TotemVarieties.Value.Skins.TryGetValue(BallistaEffect(conn, effect) ? 2 : 3, out int generic)
+        return TotemVarieties.Skins.TryGetValue(BallistaEffect(conn, effect) ? 2 : 3, out int generic)
             && Monsters.Find(generic.ToString()) is { Supported: true } spell ? spell : null;
     }
 
@@ -142,7 +150,7 @@ public static partial class Game
             var area = MergeSkillStats(AreaPlayerStats(conn), own);
             int Area(string name) => (name == "skill_area_of_effect_+%" ? conn.Pools.AuraAreaPct : 0)
                 + (Stats.Key(name) is uint k ? area.GetValueOrDefault(k) : 0);
-            var buffStats = TotemBuffStats.Value.GetValueOrDefault(source.Buff) ?? [];
+            var buffStats = TotemBuffStats.GetValueOrDefault(source.Buff) ?? [];
             aura = new(source.Buff, SkillArea.Radius(source.Radius, Area, spell: true),
                 [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)]);
         }

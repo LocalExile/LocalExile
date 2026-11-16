@@ -11,9 +11,22 @@ namespace GameServer.Modules.M_vendors;
 /// <summary>NPC shops: buying, and selling to a vendor.</summary>
 public sealed class VendorsModule : IModule
 {
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        global::VendorsRules.LoadRulesNpcsData();
+        // Every gem stock a league can ask for: each data set, with and without the support gem rewards.
+        foreach (bool hard in new[] { false, true })
+            foreach (bool supports in new[] { true, false })
+                GemVendorStock.For(hard ? global::Game.HardModeItems : Program.Items, global::Game.Npcs,
+                    hard ? global::Game.HardModeSkills : Program.Skills, hard, supports);
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         DivinationFeature.Load(module);
         GameEvents.NpcTalk.Add(module.Manifest.Id, (conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
         GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",

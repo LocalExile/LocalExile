@@ -13,6 +13,12 @@ using GameServer.Core;
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
 public static class ServerLevels
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Levels = LoadLevels();
+    }
+
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
     /// <summary>A generated layout: Width × Height cells, one walk value (0 … 5, walkable from 2) and one ground height
@@ -361,7 +367,9 @@ public static class ServerLevels
 
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
-    static readonly Lazy<Dictionary<string, int>> Levels = new(() =>
+    static Dictionary<string, int> Levels = default!;
+
+    static Dictionary<string, int> LoadLevels()
     {
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
@@ -371,8 +379,8 @@ public static class ServerLevels
         }
         catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
-    });
+    }
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    public static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.GetValueOrDefault(areaId, 1));
 }

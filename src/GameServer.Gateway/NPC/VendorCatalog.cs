@@ -2,10 +2,16 @@ using GameServer.Core;
 
 public sealed class VendorCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        DefaultCatalog = new();
+    }
+
     public sealed record Shop(string Kind, int Act, int TownLevel);
     public sealed record GemRule(string Vendor, int Class, string Base, int[] Offers);
-    static readonly Lazy<VendorCatalog> DefaultCatalog = new(() => new());
-    public static VendorCatalog Default => DefaultCatalog.Value;
+    static VendorCatalog DefaultCatalog = default!;
+    public static VendorCatalog Default => DefaultCatalog;
     readonly Dictionary<string, Shop> shops;
     readonly Dictionary<string, string[][][]> layouts;
     readonly ILookup<string,GemRule> byVendor;

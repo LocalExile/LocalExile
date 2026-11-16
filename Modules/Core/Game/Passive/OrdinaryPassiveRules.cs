@@ -7,22 +7,30 @@ using GameServer.Core;
 /// Callers validate the ascendancy allocation separately, then supply its candidate nodes so refunding an Ascendant
 /// Path of the class cannot leave an ordinary branch depending on the removed additional start.
 /// </summary>
-public sealed class OrdinaryPassiveRules(string folder = "data")
+public sealed class OrdinaryPassiveRules
 {
+    readonly string folder;
+
+    public OrdinaryPassiveRules(string folder = "data")
+    {
+        this.folder = folder;
+        _data = Load(folder);
+    }
+
     sealed record Node(bool IsAscendancy, bool IsMastery, bool RequiresExpansion,
         IReadOnlyList<byte> Starts, byte? GrantedStart);
     sealed record Data(IReadOnlyDictionary<ushort, Node> Nodes, IReadOnlyDictionary<byte, ushort> Starts,
         IReadOnlyDictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs);
 
-    readonly Lazy<Data?> _data = new(() => Load(folder));
+    readonly Data? _data;
 
-    public bool Loaded => _data.Value is not null;
+    public bool Loaded => _data is not null;
     public bool GraphLoaded => Loaded;
 
     /// <summary>The direct neighbours of an ordinary passive in the selected client graph, for tattoo adjacency
     /// requirements such as the Makanga tattoos' <c>RequiresAdjacent</c>/<c>MaxAdjacent</c>.</summary>
     public IReadOnlyCollection<ushort> Adjacent(ushort node, AscendancyFamily family) =>
-        _data.Value is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
+        _data is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
             ? set : [];
 
     /// <summary>The unallocated ordinary passives next to the class start or an allocated passive, ascending: what one more
@@ -30,7 +38,7 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
     /// starts, ascendancy, mastery and expansion nodes are not offered.</summary>
     public IReadOnlyList<ushort> Frontier(byte baseClass, AscendancyFamily family, IReadOnlyCollection<ushort> allocated)
     {
-        if (_data.Value is not { } data || !data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
+        if (_data is not { } data || !data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
             || !graph.ContainsKey(start)) return [];
         var have = allocated.ToHashSet();
         var result = new SortedSet<ushort>();
@@ -58,7 +66,7 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
         ushort[] requested = nodes.ToArray();
         // An empty/reset ordinary tree needs no graph and cannot contain an orphaned branch.
         if (requested.Length == 0) return;
-        var data = _data.Value ?? throw new AscendancyRuleException(
+        var data = _data ?? throw new AscendancyRuleException(
             "Passive graph data is missing; run scripts/dev/extract-data.ps1");
         if (!data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
             !graph.ContainsKey(start))

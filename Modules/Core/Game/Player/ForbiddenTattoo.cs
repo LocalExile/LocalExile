@@ -11,6 +11,12 @@ using GameServer.Core;
 /// </summary>
 public static class ForbiddenTattoo
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadForbiddenTattooData()
+    {
+        Pools = Load();
+    }
+
     /// <summary>The item name's class word -> the PassiveSkillOverrides pool Type.</summary>
     static readonly Dictionary<string, int> ClassTypes = new(StringComparer.Ordinal)
     {
@@ -27,12 +33,12 @@ public static class ForbiddenTattoo
     /// <summary>The class every Forbidden tattoo's name ends with ("Forbidden Tattoo of the Witch").</summary>
     static string ClassOf(string name) => name[(name.LastIndexOf(' ') + 1)..];
 
-    static readonly Lazy<PoolsData> Pools = new(Load);
+    static PoolsData Pools = default!;
 
     /// <summary>The class's non-multiple-choice ascendancy notables as PassiveSkillGraphIds; null when the name is not
     /// a Forbidden tattoo or the class's data is missing.</summary>
     public static IReadOnlyList<ushort>? Pool(string name) =>
-        IsForbidden(name) && Pools.Value.Pools.TryGetValue(ClassOf(name), out ushort[]? pool) && pool.Length > 0
+        IsForbidden(name) && Pools.Pools.TryGetValue(ClassOf(name), out ushort[]? pool) && pool.Length > 0
             ? pool : null;
 
     /// <summary>A random notable of the class's pool that the character does not already have allocated, that is not
@@ -42,7 +48,7 @@ public static class ForbiddenTattoo
     public static ushort? Pick(string name, ushort node, IReadOnlyCollection<ushort>? allocated = null)
     {
         if (Pool(name) is not { } pool) return null;
-        var data = Pools.Value;
+        var data = Pools;
         var taken = new HashSet<ushort>(allocated ?? []) { node };
         int replaced = data.Positions.GetValueOrDefault(node, -1);
         var candidates = pool.Where(id => !taken.Contains(id)
@@ -52,8 +58,8 @@ public static class ForbiddenTattoo
 
     /// <summary>Whether the client's row for this granted notable lists the replaced passive as TattooBlockingPassive.</summary>
     internal static bool Blocks(ushort granted, ushort node) =>
-        Pools.Value.Blocking.TryGetValue(granted, out var blocked)
-        && blocked.Contains(Pools.Value.Positions.GetValueOrDefault(node, -1));
+        Pools.Blocking.TryGetValue(granted, out var blocked)
+        && blocked.Contains(Pools.Positions.GetValueOrDefault(node, -1));
 
     /// <summary>The replacement stats of the notable a Forbidden tattoo saved on this node: the chosen ascendancy
     /// passive's own stats, or null when the saved id is missing.</summary>

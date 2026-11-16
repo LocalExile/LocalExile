@@ -41,7 +41,7 @@ public static partial class Game
         ImportedProgress.Restore(CharacterName(conn));
         var save = CharacterSaves.Load(CharacterName(conn));
         // Quest flags whose refund points were never credited (QuestStaticRewards; a save from before the credit): now, once.
-        if (save is not null && QuestStaticRewards.Default.Value.NewRefunds(save.QuestFlags ?? [], save.QuestRefundsCredited ?? []).Points > 0)
+        if (save is not null && QuestStaticRewards.Default.NewRefunds(save.QuestFlags ?? [], save.QuestRefundsCredited ?? []).Points > 0)
         {
             CharacterSaves.CreditQuestRefunds(CharacterName(conn));
             save = CharacterSaves.Load(CharacterName(conn));
@@ -77,7 +77,7 @@ public static partial class Game
             conn.AtlasPassivePoints = save?.AtlasPassivePoints ?? 0;
 
             // The Atlas layout picked on the map device is a character choice; fall back to the first starting node.
-            if (save?.SelectedAtlasLayout is { } atlasId && MapDevices.Value.Atlas is { } atlas
+            if (save?.SelectedAtlasLayout is { } atlasId && MapDevices.Atlas is { } atlas
                 && atlas.Find(atlasId) is { } selected && CharacterName(conn) is { } atlasCharacter)
                 atlas.Select(atlasCharacter, selected);
             conn.Waypoints.UnionWith(save?.Waypoints ?? []);

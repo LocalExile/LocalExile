@@ -18,6 +18,13 @@ using static Program;
 /// </summary>
 public static partial class MonsterSkills
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMonsterSkillsData()
+    {
+        CorpseSkills = LoadCorpseSkills();
+        BuffRows = LoadBuffRows();
+    }
+
     /// <summary>How long a buff or curse lasts when its skill names no duration.</summary>
     const double SelfSeconds = 4, CurseSeconds = 8;
 
@@ -66,9 +73,11 @@ public static partial class MonsterSkills
 
     /// <summary>A skill that targets a corpse (ActiveSkills ActiveSkillTargetTypes 6: Detonate Dead, Raise Zombie,
     /// Volatile Dead, Cremation, Bodyswap). Without one it does nothing in the client.</summary>
-    public static bool IsCorpseSkill(int effect) => CorpseSkills.Value.Contains(effect);
+    public static bool IsCorpseSkill(int effect) => CorpseSkills.Contains(effect);
 
-    static readonly Lazy<HashSet<int>> CorpseSkills = new(() =>
+    static HashSet<int> CorpseSkills = default!;
+
+    static HashSet<int> LoadCorpseSkills()
     {
         HashSet<int> effects = [];
         if (ClientTables.TableOrNull("ActiveSkills") is not { } active || ClientTables.TableOrNull("GrantedEffects") is not { } granted) return effects;
@@ -78,7 +87,7 @@ public static partial class MonsterSkills
         i = 0;
         foreach (var e in granted) { if (e.IntOrNull("ActiveSkill") is int a && skills.Contains(a)) effects.Add(i); i++; }
         return effects;
-    });
+    }
 
     /// <summary>A corpse skill's use from its stats: its area (active_skill_base_area_of_effect_radius), the corpses it
     /// takes (volatile_dead_base_number_of_corpses_to_consume), and a geyser's bursts (Cremation: one every
@@ -229,7 +238,7 @@ public static partial class MonsterSkills
         string snake = Snake(family);
         string[] names = shape == MonsterSkillShape.Curse ? ["curse_" + snake, snake] : [snake, "new_" + snake];
         foreach (string name in names)
-            if (BuffRows.Value.TryGetValue(name, out ushort row)) return row;
+            if (BuffRows.TryGetValue(name, out ushort row)) return row;
         return 0;
     }
 
@@ -244,14 +253,16 @@ public static partial class MonsterSkills
         return text.ToString();
     }
 
-    static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
+    static Dictionary<string, ushort> BuffRows = default!;
+
+    static Dictionary<string, ushort> LoadBuffRows()
     {
         Dictionary<string, ushort> rows = new(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("BuffDefinitions") is not { } table) return rows;
         foreach (var b in table)
             if (b.Text("Id") is { } id) rows.TryAdd(id, (ushort)b.Index);
         return rows;
-    });
+    }
 
     /// <summary>Sends the aura looks of a monster just created.</summary>
     public static async Task ShowAuras(ClientState conn, uint id, IReadOnlyList<ushort> rows, bool log)

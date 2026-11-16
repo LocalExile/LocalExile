@@ -6,6 +6,12 @@ using GameServer.Core.World;
 
 static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMonsterContagionsData()
+    {
+        MtxTypeIds = LoadMtxTypeIds();
+    }
+
     /// <summary>BuffDefinitions row 504 <c>contagion</c> ("You are taking Chaos Damage Over Time").</summary>
     internal const ushort ContagionBuffRow = 504;
 
@@ -96,14 +102,16 @@ static partial class Game
     ];
 
     // MtxTypes Ids in row order (an owned record's Id is its row + 1).
-    static readonly Lazy<string[]> MtxTypeIds = new(() =>
+    static string[] MtxTypeIds = default!;
+
+    static string[] LoadMtxTypeIds()
     {
         string path = Path.Combine("data", "tables", "MtxTypes.json");
         if (!File.Exists(path)) return [];
         using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray()
             .Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "")];
-    });
+    }
 
     /// <summary>The spread art of the Contagion skin worn on the gem (its Cosmetics tab slot), or null for none or a skin
     /// without art of its own.</summary>
@@ -114,7 +122,7 @@ static partial class Game
             foreach (var (key, worn) in CharacterSaves.SkillCosmetics(CharacterName(conn)))
             {
                 if (CharacterSaves.SkillCosmeticGem(key) != gem || Mtx.Find(worn.Record) is not { } record) continue;
-                var ids = MtxTypeIds.Value;
+                var ids = MtxTypeIds;
                 string type = record.Id >= 1 && record.Id <= ids.Length ? ids[record.Id - 1] : "";
                 if (!type.Contains("Contagion", StringComparison.Ordinal)) continue;
                 foreach (var (skin, ao) in ContagionSkinArt)

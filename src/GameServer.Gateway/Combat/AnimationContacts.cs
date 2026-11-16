@@ -51,13 +51,13 @@ public sealed class AnimationContacts
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
         Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools);
 
-    private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
+    private readonly Dictionary<string, ActorAnimations> _byAo;
 
     /// <summary>The rigs in client.db.</summary>
     public AnimationContacts() : this(ClientTables.TableOrNull) { }
 
     /// <summary>The rigs in the animation_* tables <paramref name="tables"/> gives by name (null: none), for a test.</summary>
-    public AnimationContacts(Func<string, ClientTable?> tables) => _byAo = new(() => Load(tables));
+    public AnimationContacts(Func<string, ClientTable?> tables) => _byAo = Load(tables);
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
@@ -76,7 +76,7 @@ public sealed class AnimationContacts
         CastAnimationKind kind, double start, double duration, bool cannotCancelBeforeContact)
     {
         if (CastClip(animatedObject, weapon, kind) is not { } selected
-            || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+            || !_byAo.TryGetValue(animatedObject, out var actor)
             || !actor.Clips.TryGetValue(selected.Name, out var clip) || !clip.CancellationKnown) return null;
         double? early = cannotCancelBeforeContact ? null
             : duration * Math.Max(.2, (double)clip.Contact / clip.Length - .3);
@@ -85,7 +85,7 @@ public sealed class AnimationContacts
 
     double? SpellContact(string animatedObject, string[] names, string[] prefixes)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
         foreach (string name in names)
             if (anims.TryGetValue(name, out var a) && a.Length > 0) return (double)a.Contact / a.Length;
@@ -153,7 +153,7 @@ public sealed class AnimationContacts
     private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip,
         bool includeWithoutContact = false)
     {
-        if (string.IsNullOrEmpty(skillClip) || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (string.IsNullOrEmpty(skillClip) || !_byAo.TryGetValue(animatedObject, out var actor)) return null;
         var anims = includeWithoutContact ? actor.AllClips : actor.Clips;
         // GemAttackContactDelay returns the clip whose first contact drives this use. Accept that exact name so a second
         // strike reads the same weapon-combination variant (for example doublestrike_sword_claw), not merely the main-hand
@@ -174,7 +174,7 @@ public sealed class AnimationContacts
     /// </summary>
     public CastAnimationClip? CastClip(string animatedObject, WeaponProfile weapon, CastAnimationKind kind)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         if (kind == CastAnimationKind.Attack)
             return AttackClip(animatedObject, weapon) is { } found && found.Clip.Index != uint.MaxValue
                 ? new(found.Name, found.Clip.Index, found.Clip.Length) : null;
@@ -215,7 +215,7 @@ public sealed class AnimationContacts
 
     private (string Name, AnimationClip Clip)? AttackClip(string animatedObject, WeaponProfile weapon)
     {
-        if (!_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
+        if (!_byAo.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
         string? main = weapon.Unarmed ? "unarmed" : weapon.Bow ? "bow" : weapon.Staff ? "staff"
             : weapon.Sword && weapon.TwoHandMelee ? "2hsword" : weapon.Mace ? "maul"
@@ -256,7 +256,7 @@ public sealed class AnimationContacts
         out DefaultAttackClip selection)
     {
         selection = default;
-        if (StanceFor(weapon) is not { } stance || !_byAo.Value.TryGetValue(animatedObject, out var actor)
+        if (StanceFor(weapon) is not { } stance || !_byAo.TryGetValue(animatedObject, out var actor)
             || !actor.AttackPools.TryGetValue(stance, out var pool)) return false;
         selection = pool.Any(a => a.Pair)
             ? pool.MaxBy(a => a.ContactSeconds(attackSeconds))
@@ -270,7 +270,7 @@ public sealed class AnimationContacts
         string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds)
     {
         if (!TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var latest)) return null;
-        var pool = _byAo.Value[animatedObject].AttackPools[StanceFor(weapon)!];
+        var pool = _byAo[animatedObject].AttackPools[StanceFor(weapon)!];
         double earliest = pool.Any(a => a.Pair)
             ? pool.Min(a => a.ContactSeconds(attackSeconds))
             : latest.ContactSeconds(attackSeconds);

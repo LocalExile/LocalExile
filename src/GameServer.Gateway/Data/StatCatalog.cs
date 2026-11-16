@@ -3,15 +3,22 @@ using GameServer.Core;
 
 /// <summary>
 /// Stat names and the client's stat keys: key = Stats.dat row + 1 (Agents/docs/protocol/11-skills.md §5). Reads
-/// the Stats client table (loaded on first use); without it only numeric keys work.
+/// the Stats client table (read when the catalog is made); without it only numeric keys work.
 /// </summary>
 public sealed class StatCatalog
 {
-    private readonly Lazy<List<string>> _names = new(() =>
+    public StatCatalog()
+    {
+        _names = LoadNames();
+    }
+
+    private readonly List<string> _names;
+
+    List<string> LoadNames()
     {
         if (!ClientTables.Has("Stats")) return [];
         return [.. ClientTables.Table("Stats").Select(r => r.Text("Id") ?? "")];
-    });
+    }
 
     // Name -> key, built once; also caches names that are absent (null), because DamageStats asks for ~100 names per
     // hit and a repeated scan of 23 000 names would be wasteful.
@@ -20,7 +27,7 @@ public sealed class StatCatalog
 
     /// <summary>A key from a name ("attack_speed_+%"), a decimal key or a 0x hex key.</summary>
     /// <summary>Every stat's name, by client key − 1.</summary>
-    public IReadOnlyList<string> Names => _names.Value;
+    public IReadOnlyList<string> Names => _names;
 
     public uint? Key(string text)
     {
@@ -32,7 +39,7 @@ public sealed class StatCatalog
             lock (_keys)
                 if (!_keysBuilt)
                 {
-                    for (int i = 0; i < _names.Value.Count; i++) _keys.TryAdd(_names.Value[i], (uint)i + 1);
+                    for (int i = 0; i < _names.Count; i++) _keys.TryAdd(_names[i], (uint)i + 1);
                     _keysBuilt = true;
                 }
         if (_keys.TryGetValue(text, out found)) return found;
@@ -40,7 +47,7 @@ public sealed class StatCatalog
         return null;
     }
 
-    public string Name(uint key) => key >= 1 && key <= _names.Value.Count ? _names.Value[(int)key - 1] : $"0x{key:x}";
+    public string Name(uint key) => key >= 1 && key <= _names.Count ? _names[(int)key - 1] : $"0x{key:x}";
 
     /// <summary>Whether this build has a stat by this name. Uses the same name cache as <see cref="Key(string)"/>, so a
     /// repeated question costs a dictionary lookup; a name that is absent stays cached as a miss.</summary>

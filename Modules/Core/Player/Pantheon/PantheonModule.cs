@@ -32,7 +32,7 @@ public sealed class PantheonModule : IModule
         GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) => commands
             .Add("pantheon", "/pantheon [<god> ...] (dev: list the Pantheon gods, or choose them as C→S 0x1ee does: an Id, name or panel row, e.g. /pantheon TheBrineKing Tukohama)", async args =>
             {
-                var catalog = PantheonCatalog.Default.Value;
+                var catalog = PantheonCatalog.Default;
                 foreach (string arg in args)
                 {
                     var god = int.TryParse(arg, out int row) && row >= 0 && row < catalog.Gods.Count ? catalog.Gods[row]
@@ -66,7 +66,7 @@ static class PantheonRules
     /// and the place allows it; the client hears the choice back either way (a refusal shows the gods it had).</summary>
     internal static async Task ChooseGod(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte wire)
     {
-        var god = PantheonCatalog.Default.Value.ByWire(wire);
+        var god = PantheonCatalog.Default.ByWire(wire);
         if (god is null || !PantheonCatalog.Unlocked(god, f => ClientHasQuestFlag(conn, f)))
         {
             Console.WriteLine($"[gateway] {remote} <= 0x01ee pantheon {wire}: {(god is null ? "no such row" : $"{god.Id} is not unlocked ({god.UnlockFlag})")}");
@@ -93,7 +93,7 @@ static class PantheonRules
 
     static async Task SendGods(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
-        var catalog = PantheonCatalog.Default.Value;
+        var catalog = PantheonCatalog.Default;
         byte major, minor;
         lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
@@ -104,7 +104,7 @@ static class PantheonRules
     /// unlock flag the character lost grants nothing, the souls' upgrades count once EndGameAvailable is earned.</summary>
     internal static Dictionary<uint, int> WithGods(ClientState conn, Dictionary<uint, int> sources)
     {
-        foreach (var (key, value) in PantheonCatalog.Default.Value.ChosenStats(conn, f => ClientHasQuestFlag(conn, f)))
+        foreach (var (key, value) in PantheonCatalog.Default.ChosenStats(conn, f => ClientHasQuestFlag(conn, f)))
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return sources;
     }
@@ -114,7 +114,7 @@ static class PantheonRules
     internal static JsonObject Json(ClientState conn)
     {
         bool Has(string f) => ClientHasQuestFlag(conn, f);
-        var unlocked = PantheonCatalog.Default.Value.Gods.Where(g => PantheonCatalog.Unlocked(g, Has)).OrderBy(g => !g.Major).ThenBy(g => g.Row);
+        var unlocked = PantheonCatalog.Default.Gods.Where(g => PantheonCatalog.Unlocked(g, Has)).OrderBy(g => !g.Major).ThenBy(g => g.Row);
         return new()
         {
             ["major"] = conn.PantheonMajor,

@@ -15,7 +15,7 @@ static class PortalsFeature
     {
         var origin = MapReturnOrigin(conn);
         var hideout = HomeHideout(conn);
-        if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
+        if (origin is null && (!MapDevices.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         // The player's own portal in this instance stands instead (SpawnTownPortals): one portal per player.
         if (MapTownPortals.TryGetValue(CharacterName(conn), out var own) && own.Area == conn.Layout.Hash
             && own.Instance == conn.InstanceNumber) return;
@@ -97,7 +97,7 @@ static class PortalsFeature
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id,
             }
             : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
-        var opening = MapDevices.Value.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
+        var opening = MapDevices.Check(checkedSlots, CharacterName(conn), Items.Mods, out string why, campaign: device.Value.Campaign);
         var request = new MapOpening(conn, checkedSlots, device.Value.Campaign, opening, why) { Target = activate.Target };
         GameEvents.ResolveMapOpening(request);
         opening = request.Opening;
@@ -273,7 +273,7 @@ static class PortalsFeature
     // Whether a town portal can open here: not in a town or a hideout, and not where the area's own mods forbid portals.
     internal static bool PortalAllowed(ClientState conn) =>
         WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { IsTown: true } && HideoutCatalog.Hideouts.All(h => h.AreaHash16 != conn.Layout.Hash)
-        && !AreaMods.Value.DisablesPortals(conn.Layout.Id);
+        && !AreaMods.DisablesPortals(conn.Layout.Id);
 
     // A town portal (Portal Scroll, the Portal skill) beside (px, py): from a map to the hideout, anywhere else to the
     // character's last town. It replaces the one there was, and the character's town / hideout gets a portal back to it
@@ -284,7 +284,7 @@ static class PortalsFeature
         ushort here = conn.Layout.Hash;
         var home = HomeHideout(conn);
         var mapOrigin = MapReturnOrigin(conn);
-        bool toHideout = mapOrigin is not null || MapDevices.Value.IsMapArea(here) && home is not null;
+        bool toHideout = mapOrigin is not null || MapDevices.IsMapArea(here) && home is not null;
         ushort town = conn.LastTown != 0 ? conn.LastTown : AreaLayouts.LioneyesWatch;
         // One portal per player: the old one closes (0x8f with area 0) and goes.
         if (conn.ReturnPortal is { } old)
@@ -318,10 +318,10 @@ static class PortalsFeature
     // what the next generic map key opens.
     internal static async Task SelectAtlasMap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (ushort Area, byte Mode) picked)
     {
-        var layout = MapDevices.Value.Atlas?.ByHash16(picked.Area);
+        var layout = MapDevices.Atlas?.ByHash16(picked.Area);
         if (layout is not null && CharacterName(conn) is { } character)
         {
-            MapDevices.Value.Atlas!.Select(character, layout);
+            MapDevices.Atlas!.Select(character, layout);
             CharacterSaves.SetAtlasLayout(character, layout.Id);
             Console.WriteLine($"[gateway] {remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} selected: {layout.Name} ({layout.Id}), mode 0x{picked.Mode:x2}");
         }

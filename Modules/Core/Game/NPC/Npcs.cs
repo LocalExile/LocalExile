@@ -29,7 +29,7 @@ public static partial class Game
             placements = [.. placements, new("Metadata/NPC/League/Delve/DelveMiner", 352, 618, 280 * MathF.PI / 180)];
         foreach (var note in notes) Console.WriteLine($"[gateway] {remote} npcs: {note}");
         if (placements.Count == 0 || Environment.GetEnvironmentVariable("Game_NPCS") == "0") return;
-        if (Npcs.Value.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
+        if (Npcs.Error is { } error) { Console.WriteLine($"[gateway] {remote} npcs: {error}"); return; }
         if (StashCatalog.FromArrival(conn.Layout.Hash))
             placements = [.. placements.Select(p => p with { X = conn.Layout.SpawnX + p.X, Y = conn.Layout.SpawnY + p.Y })];
         var quests = QuestsOf(conn);
@@ -37,7 +37,7 @@ public static partial class Game
         {
             // A town NPC a quest stages (DiallaTown / DiallaTownWithered …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
             if (quests.ManagesNpc(conn.Layout.Id, p.Id)) continue;
-            if (Npcs.Value.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
+            if (Npcs.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {remote} npc {p.Id}: unknown or unsupported components"); continue; }
             if (!p.FromRoom && conn.Layout.Walkable is { } w && !w(p.X, p.Y)) Console.WriteLine($"[gateway] {remote} npc {npc.Name}: ({p.X}, {p.Y}) is not walkable");
             await SpawnNpc(remote, stream, ciphers, conn, npc, p.X, p.Y, p.Rotation);
         }
@@ -78,7 +78,7 @@ public static partial class Game
         // was picked from the list: Nessa's Sell Items, Purchase Items and Identify Items, Faustus' Currency Exchange.
         // A talk the NPC still has for the player came first, above. An NPC without that shortcut, or an option nothing
         // answers (a league without its module), lists the options as a plain click does.
-        if (Npcs.Value.ShortcutOf(npc.Npc, NpcCatalog.ShortcutFor(use.Ctrl, use.Alt), Quests.Names(PlayerQuestFlags(conn))) is { } shortcut)
+        if (Npcs.ShortcutOf(npc.Npc, NpcCatalog.ShortcutFor(use.Ctrl, use.Alt), Quests.Names(PlayerQuestFlags(conn))) is { } shortcut)
         {
             Console.WriteLine($"[gateway] {remote} npc {npc.Npc.Name} {(use.Ctrl ? "Ctrl + " : "")}{(use.Alt ? "Alt + " : "")}click: NPCTalk row {shortcut.Row} \"{shortcut.Option}\" ({shortcut.Category})");
             if (await RunNpcOption(remote, stream, ciphers, conn, id, npc, shortcut, onClick: true)) return;
@@ -134,7 +134,7 @@ public static partial class Game
         SpawnedNpc? npc;
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
         if (npc is null || conn.TalkingTo != id) return false;
-        var next = Npcs.Value.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
+        var next = Npcs.NextConversationOf(npc.Npc, Quests.Names(PlayerQuestFlags(conn)), conn.AutomaticNpcTalkRows);
         if (next is null) return false;
         conn.AutomaticNpcTalkRows.Add(next.Row);
         await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, next);
@@ -149,7 +149,7 @@ public static partial class Game
         lock (conn.Npcs) npc = conn.Npcs.GetValueOrDefault(id);
         if (npc is null) { Console.WriteLine($"[gateway] {remote} <= 0x0082 npc option {index}: no NPC dialogue open"); return; }
         if (npc.Npc.Id == TutorialObjects.Exile) return;
-        var talk = Npcs.Value.TalkOf(npc.Npc, index);
+        var talk = Npcs.TalkOf(npc.Npc, index);
         Console.WriteLine($"[gateway] {remote} <= 0x0082 npc {npc.Npc.Name} option {index}: " +
             (talk is null ? "no NPCTalk row" : $"NPCTalk row {talk.Row} \"{talk.Option}\" ({talk.Category}), text audio [{string.Join(", ", talk.TextAudio)}]"));
         if (talk is null) return;

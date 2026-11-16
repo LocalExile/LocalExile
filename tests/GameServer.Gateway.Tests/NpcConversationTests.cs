@@ -106,7 +106,7 @@ public sealed class NpcConversationTests
     [Fact]
     public async Task A_shortcut_click_runs_its_option_and_lists_the_options_when_nothing_answers()
     {
-        var kirac = Game.Npcs.Value.Find("Metadata/NPC/Epilogue/Kirac")!;
+        var kirac = Game.Npcs.Find("Metadata/NPC/Epilogue/Kirac")!;
         var seen = new List<string>();
         bool answers = true;
         using var subscription = GameEvents.NpcOption.Add("Game", option => { seen.Add(option.Category); return Task.FromResult(answers); });
@@ -136,7 +136,7 @@ public sealed class NpcConversationTests
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag));
         // So does a row whose script would only end a talk that never began: Einhar's View Bestiary names a screen of a
         // system the server does not have.
-        var einhar = Game.Npcs.Value.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
+        var einhar = Game.Npcs.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag, einhar));
     }
 

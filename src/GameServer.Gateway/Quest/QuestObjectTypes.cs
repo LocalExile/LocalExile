@@ -12,6 +12,12 @@ using GameServer.Core;
 /// </summary>
 public static class QuestObjectTypes
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Catalog = Load();
+    }
+
     /// <summary>A quest object type: its deserialized components in order, Transitionable's last state (2 when the .ot
     /// does not say), its Positioned size (object_size − 1, at least 1), whether it blocks, and the model when the type
     /// has no Animated model of its own (a Chests.dat row's AOFiles).</summary>
@@ -31,14 +37,14 @@ public static class QuestObjectTypes
         || type.StartsWith("Metadata/Monsters/Doedre/DoedreSewer/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
-    public static Info? Find(string type) => Catalog.Value.GetValueOrDefault(type);
+    public static Info? Find(string type) => Catalog.GetValueOrDefault(type);
 
     /// <summary>Quest doors that open in place (0x2bc Transitionable plays their .ot's on_transition, 0x1c6 lifts their
     /// TriggerableBlockage) instead of being created again open: the Aspirants' Plaza's door, whose opening the user
     /// missed (live 2026-11-03).</summary>
     public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";
 
-    static readonly Lazy<Dictionary<string, Info>> Catalog = new(Load);
+    static Dictionary<string, Info> Catalog = default!;
 
     public static Dictionary<string, Info> Load()
     {

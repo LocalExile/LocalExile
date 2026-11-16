@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    public static readonly SummonCatalog SummonData = new();
+    public static SummonCatalog SummonData = null!;
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 

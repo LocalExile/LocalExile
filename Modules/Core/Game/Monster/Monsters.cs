@@ -192,7 +192,7 @@ public static partial class Game
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && variety.BossHealthBar && MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        bool mapBoss = rarity == MonsterRarity.Unique && variety.BossHealthBar && MapDevices.IsMapArea(conn.Layout.Hash);
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
@@ -377,8 +377,8 @@ public static partial class Game
                 $"0x01c1 monster 0x{id:x} buff {MonsterRarityBuffs.Id(glow)} (BuffDefinitions row {glow})");
         }
         if (auras.Rows is { Count: > 0 }) await MonsterSkills.ShowAuras(conn, id, auras.Rows, log);
-        if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Value.Describe(mods)}" +
-            (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.Value.NameOf(mods.NameWords)}" : ""));
+        if (log && mods.Affixes.Any()) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} mods: {MonsterModRolls.Describe(mods)}" +
+            (mods.NameWords.Count > 0 ? $", named {MonsterModRolls.NameOf(mods.NameWords)}" : ""));
         if (log && attack.Projectile is { } shot)
             Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ranged attack projectile {shot.Metadata} ({shot.Speed} units/s{(shot.Lobbed ? ", mortar" : "")})");
         if (owned is null)
@@ -494,7 +494,7 @@ public static partial class Game
                     [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], AreaPopulation.TransitionClearance))
                 .Select(p =>
                 {
-                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.Value.IsMapArea(layout.Hash), Packs.Find);
+                    var (rule, packs) = ShrineGuards.Resolve(p.Shrine, MapDevices.IsMapArea(layout.Hash), Packs.Find);
                     return (Shrine: p.Shrine.Id, Rule: rule, Packs: packs, X: p.X, Y: p.Y);
                 }).ToList()
             : [];
@@ -541,7 +541,7 @@ public static partial class Game
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
+            unassignedAtArrival: MapDevices.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();

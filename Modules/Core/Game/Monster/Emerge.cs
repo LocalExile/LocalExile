@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     // Monsters that rise from the ground (MonsterEmerge.cs); loaded with the first monster spawned.
-    public static readonly MonsterEmerge Emerges = new();
+    public static MonsterEmerge Emerges = null!;
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.

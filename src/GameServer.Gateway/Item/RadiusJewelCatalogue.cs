@@ -11,6 +11,13 @@ using GameServer.Core;
 /// </summary>
 public static class RadiusJewelCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        MeleeToBow = LoadMeleeToBow();
+        NameWords = LoadNameWords("data");
+    }
+
     // Item mods kept pre-3.16 radii; PSG coordinates and effect circles were enlarged by 20%.
     public static int EffectRadius(int nativeRadius) => checked(nativeRadius * 6 / 5);
     public sealed record Variant(string Name, string ModId, int? Value = null);
@@ -335,7 +342,7 @@ public static class RadiusJewelCatalogue
                         AddMove(moves, "maximum_energy_shield_+%", "physical_damage_reduction_rating_+%", 2);
                         break;
                     case "local_unique_jewel_melee_applies_to_bow":
-                        if (mod.Values[i] != 0) moves.AddRange(MeleeToBow.Value);
+                        if (mod.Values[i] != 0) moves.AddRange(MeleeToBow);
                         break;
                 }
             }
@@ -388,7 +395,9 @@ public static class RadiusJewelCatalogue
 
     // These families encode their weapon applicability in the stat ID itself. Only move a stat if both
     // rows exist in this client. An unrelated stat on the same passive retains its exact original key.
-    static readonly Lazy<List<Move>> MeleeToBow = new(() =>
+    static List<Move> MeleeToBow = default!;
+
+    static List<Move> LoadMeleeToBow()
     {
         var result = new List<Move>();
         foreach (string weapon in new[] { "claw", "dagger", "sword", "axe", "mace", "staff" })
@@ -426,7 +435,7 @@ public static class RadiusJewelCatalogue
         AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
         AddMove(result, "staff_block_%", "with_bow_additional_block_%");
         return result;
-    });
+    }
 
     static void AddMove(List<Move> moves, string from, string to, int factor = 1)
     {
@@ -585,10 +594,10 @@ public static class RadiusJewelCatalogue
         };
     }
 
-    static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
+    static Dictionary<string, uint> NameWords = default!;
 
     public static uint? WordHash(string name, string folder) =>
-        folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
+        folder == "data" ? NameWords.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)
     {

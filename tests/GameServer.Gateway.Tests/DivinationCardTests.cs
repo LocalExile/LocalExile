@@ -266,13 +266,13 @@ public sealed class DivinationCardTests
                 new InstanceItems.PickUpItem(1, card.Id, 0, 0, 0));
             Assert.Equal(cardType.Hash, Assert.Single(items.Items(PlayerInventories.Cursor)).Item.TypeHash);
             Assert.Null(DivinationFeature.TurnIn(conn));
-            var tasuni = Game.Npcs.Value.Find("Metadata/NPC/Act4/Tasuni")!;
-            var lilly = Game.Npcs.Value.Find("Metadata/NPC/Epilogue/LillyHideout")!;
-            Assert.Contains(Game.Npcs.Value.TalksOf(tasuni), t => t.Category == "TradeDivinationCards");
-            Assert.Contains(Game.Npcs.Value.TalksOf(lilly), t => t.Category == "TradeDivinationCards");
+            var tasuni = Game.Npcs.Find("Metadata/NPC/Act4/Tasuni")!;
+            var lilly = Game.Npcs.Find("Metadata/NPC/Epilogue/LillyHideout")!;
+            Assert.Contains(Game.Npcs.TalksOf(tasuni), t => t.Category == "TradeDivinationCards");
+            Assert.Contains(Game.Npcs.TalksOf(lilly), t => t.Category == "TradeDivinationCards");
             conn.TalkingTo = 499;
             conn.Npcs[499] = new(tasuni, 10, 10);
-            byte option = (byte)Game.Npcs.Value.TalksOf(tasuni).Single(t => t.Category == "TradeDivinationCards").Index;
+            byte option = (byte)Game.Npcs.TalksOf(tasuni).Single(t => t.Category == "TradeDivinationCards").Index;
             await Game.ChooseNpcOption("cards", wire.Stream, wire.Ciphers, conn, option);
             Assert.True(DivinationFeature.Current(conn));
             Assert.Equal(2, InstanceProtocol.KnownClientLength(0x19a));
@@ -366,7 +366,7 @@ public sealed class DivinationCardTests
             Assert.DoesNotContain(items.Items(0), i => i.Item.TypeHash == retained.Item.TypeHash);
             items.CancelOffers();
             // Ordinary vendors have no exchange capability.
-            conn.Npcs[499] = new(Game.Npcs.Value.Find("Metadata/NPC/Act1/Nessa")!, 10, 10);
+            conn.Npcs[499] = new(Game.Npcs.Find("Metadata/NPC/Act1/Nessa")!, 10, 10);
             await DivinationFeature.Open(conn);
             Assert.False(DivinationFeature.Current(conn));
             Assert.Empty(DivinationFeature.Move(conn, new(blocked.Id, false, true)));

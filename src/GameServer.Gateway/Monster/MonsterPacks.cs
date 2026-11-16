@@ -12,8 +12,17 @@ using GameServer.Core;
 /// area (Maps.dat Regular_WorldAreasKey) also gets the map's own packs (Maps.dat MonsterPacksKeys: Beach → atlas-crab1),
 /// which no MonsterPacks row lists by area. Agents/docs/protocol/14-monster-packs.md.
 /// </summary>
-public sealed class PackCatalog(string folder = "data")
+public sealed class PackCatalog
 {
+    readonly string folder;
+
+    public PackCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        _data = Load(folder);
+        VarietyRows = LoadVarietyRows();
+    }
+
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
         IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
     {
@@ -42,11 +51,11 @@ public sealed class PackCatalog(string folder = "data")
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
     public const int MapPackWeight = 100;
 
-    private readonly Lazy<(List<Pack> Packs, List<(string Id, int Level, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks)?> _data = new(() => Load(folder));
+    private readonly (List<Pack> Packs, List<(string Id, int Level, int[] Bosses)> Areas, Dictionary<int, List<int>> MapPacks)? _data;
 
     public AreaPacks? For(string areaId)
     {
-        if (_data.Value is not { } d) return null;
+        if (_data is not { } d) return null;
         int row = d.Areas.FindIndex(a => a.Id == areaId);
         if (row < 0) return null;
         var scattered = new List<(Pack, int)>();
@@ -65,7 +74,7 @@ public sealed class PackCatalog(string folder = "data")
         if (scattered.Count == 0 && LabyrinthTrials.RoomSetPacks(areaId) is { Count: > 0 } labyrinth)
         {
             density = LabyrinthTrials.PackDensity;
-            int Row(string id) => VarietyRows.Value.GetValueOrDefault(id, -1);
+            int Row(string id) => VarietyRows.GetValueOrDefault(id, -1);
             for (int i = 0; i < labyrinth.Count; i++)
             {
                 var p = labyrinth[i];
@@ -79,10 +88,12 @@ public sealed class PackCatalog(string folder = "data")
         return new AreaPacks(areaId, d.Areas[row].Level, scattered, named, d.Areas[row].Bosses) { Density = density };
     }
 
-    public Pack? Find(string id) => _data.Value?.Packs.FirstOrDefault(p => p.Id == id);
+    public Pack? Find(string id) => _data?.Packs.FirstOrDefault(p => p.Id == id);
 
     // MonsterVarieties rows by Id, for the Labyrinth's packs.
-    readonly Lazy<Dictionary<string, int>> VarietyRows = new(() =>
+    readonly Dictionary<string, int> VarietyRows;
+
+    Dictionary<string, int> LoadVarietyRows()
     {
         var rows = new Dictionary<string, int>(StringComparer.Ordinal);
         if (!ClientTables.Has("MonsterVarieties")) return rows;
@@ -90,7 +101,7 @@ public sealed class PackCatalog(string folder = "data")
         int row = 0;
         foreach (var v in doc) { if (v.Text("Id") is { } id) rows.TryAdd(id, row); row++; }
         return rows;
-    });
+    }
 
     private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
     {
@@ -141,6 +152,12 @@ public sealed class PackCatalog(string folder = "data")
 /// </summary>
 public static class AreaPopulation
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        RoomFits = LoadRoomIndex();
+    }
+
     // Local population seed derivation. HashCode.Combine has a process-random salt and cannot reproduce instances.
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
         FormattableString.Invariant($"population:{areaHash:x4}:{areaSeed:x8}")));
@@ -774,7 +791,7 @@ public static class AreaPopulation
     {
         string walkability = Path.Combine(folder, "walkability");
         string capture = Path.Combine(walkability, $"{areaId}_seed{seed}.doodads.json");
-        if (RoomFits.Value is not { } rooms) { notes.Add("no room_point_* tables in client.db (scripts/re/atlas room-points, then client-sql.ps1 diff)"); return ([], [], []); }
+        if (RoomFits is not { } rooms) { notes.Add("no room_point_* tables in client.db (scripts/re/atlas room-points, then client-sql.ps1 diff)"); return ([], [], []); }
         if (!rooms.Areas.TryGetValue(areaId, out var candidates)) return ([], [], []);
         // Without a capture, an area the Gateway generates itself has the same doodads from the port (ServerLevels).
         var level = folder == "data" && (generated || !File.Exists(capture)) ? ServerLevels.For(areaId, seed) : null;
@@ -941,7 +958,7 @@ public static class AreaPopulation
 
     // client.db's room_point_areas, room_point_rooms, room_points and room_doodads (data/room-points.json from
     // scripts/re/atlas room-points): the rooms with monster or start points per area.
-    static readonly Lazy<RoomIndex?> RoomFits = new(LoadRoomIndex);
+    static RoomIndex? RoomFits = default!;
 
     static RoomIndex? LoadRoomIndex()
     {

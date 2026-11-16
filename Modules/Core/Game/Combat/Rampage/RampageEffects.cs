@@ -9,7 +9,7 @@ public static partial class Game
     public sealed record RampageStunToken(uint Id, SpawnedMonster Target, int Stun, int Action,
         int IncomingEpoch, int ProjectileEpoch, long OwnedEpoch, double Until);
 
-    public static readonly RampageCatalog RampageData = new();
+    public static RampageCatalog RampageData = null!;
 
     static bool RampageEffectCurrent(ClientState conn, long epoch) => CurrentRampageWork
         && conn.OwnedCombatState is RampageWorld world && world.Current(epoch)

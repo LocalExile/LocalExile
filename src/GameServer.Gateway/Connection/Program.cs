@@ -71,6 +71,9 @@ if (args is ["commands"] or ["values", _])
     // The modules give the commands and the values: their load lines would break the JSON.
     var stdout = Console.Out;
     Console.SetOut(TextWriter.Null);
+    // The modules build their game data in their load, from the Gateway's (WorldLoader).
+    ClientTables.LoadAll();
+    WorldLoader.Load();
     StartMods();
     Console.SetOut(stdout);
 }
@@ -87,6 +90,19 @@ if (args is ["values", var kind])
 }
 
 ServerLog.Install("gateway");
+
+// Every client table into memory before anything reads one, then the database closes: no game action reads SQLite
+// (ClientTables; Agents/docs/dev/performance.md, "Game data in memory").
+try
+{
+    var loaded = ClientTables.LoadAll();
+    Console.WriteLine($"[gateway] client tables: {loaded.Tables} tables, {loaded.Rows:N0} rows in memory in {loaded.Elapsed.TotalMilliseconds:0} ms");
+}
+catch (Exception e) when (e is IOException or AggregateException or Microsoft.Data.Sqlite.SqliteException)
+{
+    Console.Error.WriteLine($"[gateway] {ClientTables.DefaultPath} can't be read: {e.Message}");
+    return 1;
+}
 
 int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
@@ -117,6 +133,9 @@ catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteExcept
     Console.Error.WriteLine($"[gateway] the databases can't be opened: {e.Message}");
     return 1;
 }
+
+// The game data, built once in a fixed order before the modules load and the first player connects (WorldLoader).
+WorldLoader.Load(Console.WriteLine);
 
 // Every item sent carries its level requirement (13-items.md §2d): the client shows and checks the byte it receives.
 // Gems have their own (GrantedEffectsPerLevel), which the client reads from the SkillGem component instead. Maps have
@@ -189,21 +208,21 @@ public sealed partial class Program
 
     /// <summary>Tickets whose connection arrives at a given cell (back through a town portal).</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int X, int Y)> SpotArrivals = new();
-    // The skills granted to players (the default attack); loaded with the first player.
-    public static readonly SkillCatalog Skills = new();
+    // The game data the rules read, built at startup by WorldLoader before the Gateway listens.
+    // The skills granted to players (the default attack).
+    public static SkillCatalog Skills = null!;
     // Stat names ↔ client keys (Stats.dat row + 1).
-    public static readonly StatCatalog Stats = new();
-    // Item types (BaseItemTypes + data/item-types.json); loaded with the first player.
-    public static readonly ItemCatalog Items = new();
-    // What dying monsters drop (ItemDrops.cs).
+    public static StatCatalog Stats = null!;
+    // Item types (BaseItemTypes + data/item-types.json).
+    public static ItemCatalog Items = null!;
     // Magic and rare items (ItemRolls.cs).
-    public static readonly ItemRolls Rolls = new(Items);
-    public static readonly BenchCrafting Bench = new(Items, Rolls);
+    public static ItemRolls Rolls = null!;
+    public static BenchCrafting Bench = null!;
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
     public static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
-    public static readonly PassiveTree Passives = new();
+    public static PassiveTree Passives = null!;
 
     public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> SendGates = new();
 

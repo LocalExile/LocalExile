@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public static class TattooCatalogue
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadTattooCatalogueData()
+    {
+        Entries = Load();
+    }
+
     /// <summary>One tattoo per client limit group (Loyalty, Attribute Notable, Ancestral, Keystone, Ascendancy),
     /// apart from the global 50 cap. The same group on the same node is a replacement and is allowed.</summary>
     public static string? TattooLimitRefusal(IReadOnlyDictionary<ushort, string> tattoos, ushort node,
@@ -70,9 +76,9 @@ public static class TattooCatalogue
         public bool GrantsSkill => Effect >= 0;
     }
 
-    static readonly Lazy<List<Entry>> Entries = new(Load);
+    static List<Entry> Entries = default!;
 
-    public static IReadOnlyList<Entry> All => Entries.Value;
+    public static IReadOnlyList<Entry> All => Entries;
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 

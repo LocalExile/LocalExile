@@ -2,25 +2,44 @@ using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>Player summon identities, independent of the golem limit and golem revival policy.</summary>
-public sealed class SummonCatalog(string folder = "data")
+public sealed class SummonCatalog
 {
+    readonly string folder;
+
+    public SummonCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        all = Load(folder);
+        byEffect = LoadByEffect(all);
+    }
+
     public sealed record Definition(string Id, string Family, string Variety, string LimitStat,
         string CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true);
-    readonly Lazy<IReadOnlyDictionary<string, Definition>> all = new(() => Load(folder));
-    public IReadOnlyCollection<Definition> All => all.Value.Values.ToArray();
-    public Definition? Find(string? effect) => effect is null ? null : all.Value.GetValueOrDefault(effect);
+    readonly IReadOnlyDictionary<string, Definition> all;
+    public IReadOnlyCollection<Definition> All => all.Values.ToArray();
+    public Definition? Find(string? effect) => effect is null ? null : all.GetValueOrDefault(effect);
 
     /// <summary>The definition of the player skill a GrantedEffects row shares its ActiveSkills row with (a monster's
     /// ExileSummonSkeletons is ActiveSkill summon_skeletons, as the gem's SummonSkeletons is): the base gem's, not an
     /// AltX/AltY's, whose minion is a choice of the gem's. Null for a skill no player summon uses.</summary>
-    public Definition? ForActiveSkill(int effectRow)
+    public Definition? ForActiveSkill(int effectRow) => byEffect.GetValueOrDefault(effectRow);
+
+    readonly Dictionary<int, Definition> byEffect;
+
+    /// <summary>Every GrantedEffects row whose ActiveSkills row a base player summon has, to that summon (the first in
+    /// row order).</summary>
+    static Dictionary<int, Definition> LoadByEffect(IReadOnlyDictionary<string, Definition> all)
     {
-        var effects = ClientTables.TableOrNull("GrantedEffects");
-        if (effects?.Row(effectRow)?.IntOrNull("ActiveSkill") is not int skill) return null;
+        var result = new Dictionary<int, Definition>();
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects) return result;
+        var bySkill = new Dictionary<int, Definition>();
         foreach (var e in effects)
-            if (e.IntOrNull("ActiveSkill") == skill && e.Text("Id") is { } id && all.Value.TryGetValue(id, out var d)
-                && !id.EndsWith("AltX", StringComparison.Ordinal) && !id.EndsWith("AltY", StringComparison.Ordinal)) return d;
-        return null;
+            if (e.IntOrNull("ActiveSkill") is int skill && e.Text("Id") is { } id && all.TryGetValue(id, out var d)
+                && !id.EndsWith("AltX", StringComparison.Ordinal) && !id.EndsWith("AltY", StringComparison.Ordinal))
+                bySkill.TryAdd(skill, d);
+        foreach (var e in effects)
+            if (e.IntOrNull("ActiveSkill") is int skill && bySkill.TryGetValue(skill, out var d)) result[e.Index] = d;
+        return result;
     }
 
     static IReadOnlyDictionary<string, Definition> Load(string folder)

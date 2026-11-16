@@ -51,7 +51,7 @@ static class QuestObjectsFeature
         var objects = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, []);
         var exile = objects.FirstOrDefault(o => o.Type == TutorialObjects.Exile);
         conn.TutorialZombiePlacement = objects.FirstOrDefault(o => o.Type == TutorialObjects.Spawner);
-        if (exile is not null && Npcs.Value.Find(TutorialObjects.Exile) is { Supported: true } npc)
+        if (exile is not null && Npcs.Find(TutorialObjects.Exile) is { Supported: true } npc)
             await SpawnNpc(remote, stream, ciphers, conn, npc with { TransitionState = (byte)(tutorial.Talked ? 2 : 1) }, exile.X, exile.Y, exile.Angle);
         if (conn.TutorialZombiePlacement is { } spawn)
         {

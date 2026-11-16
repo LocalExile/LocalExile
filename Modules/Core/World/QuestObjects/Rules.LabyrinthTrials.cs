@@ -109,7 +109,7 @@ static partial class QuestobjectsRules
         Console.WriteLine($"[gateway] {remote} {what}: {glyphs.Count} monograph(s) in its rooms");
         foreach (var glyph in glyphs)
         {
-            if (Npcs.Value.Place(new NpcCatalog.Placement(glyph.Type, glyph.X, glyph.Y, glyph.Angle, glyph.Model)) is { Supported: true } npc)
+            if (Npcs.Place(new NpcCatalog.Placement(glyph.Type, glyph.X, glyph.Y, glyph.Angle, glyph.Model)) is { Supported: true } npc)
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }

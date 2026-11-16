@@ -4,13 +4,22 @@ using GameServer.Core;
 /// <summary>Native OT footprints for NPCs and functional scenery. Loot and waypoints stay nonblocking.</summary>
 public static class StationaryCollision
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadStationaryCollisionData()
+    {
+        Types = LoadTypes();
+        Radii = LoadRadii();
+    }
+
     public sealed record Profile(int Size, bool Blocking, bool Static, string? Model)
     {
         public string? BlockingLeagueFlag { get; init; }
         public int BlockerSize(double? hull) => Blocking ? Math.Max(0, Size - 1) : hull > 0 ? 0 : -1;
     }
 
-    static readonly Lazy<Dictionary<string, Profile>> Types = new(() =>
+    static Dictionary<string, Profile> Types = default!;
+
+    static Dictionary<string, Profile> LoadTypes()
     {
         var types = Load();
         // NPCs.dat registers Id aliases on Metadata's OT (e.g. later-act versions of a town NPC).
@@ -19,21 +28,23 @@ public static class StationaryCollision
                 && npc.TextOrNull("Metadata") is { } metadata
                 && types.TryGetValue(metadata, out var shape)) types[id] = shape;
         return types;
-    });
-    static readonly Lazy<Dictionary<string, double>> Radii = new(() =>
+    }
+    static Dictionary<string, double> Radii = default!;
+
+    static Dictionary<string, double> LoadRadii()
     {
         var radii = new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (var r in ClientTables.TableOrEmpty("hideout_collision_radii")) radii.TryAdd(r.Text("model")!, r.Real("radius"));
         return radii;
-    });
+    }
 
-    public static Profile For(string type) => Types.Value.GetValueOrDefault(type)
+    public static Profile For(string type) => Types.GetValueOrDefault(type)
         ?? throw new InvalidOperationException($"Missing collision metadata for {type}; run scripts/dev/extract-data.ps1");
 
     public static (int Size, double? Hull) Resolve(string type, string? model = null)
     {
         var p = For(type);
-        double? hull = p.Static && Radii.Value.TryGetValue(model ?? p.Model ?? "", out double r) && r > 0 ? r : null;
+        double? hull = p.Static && Radii.TryGetValue(model ?? p.Model ?? "", out double r) && r > 0 ? r : null;
         return (p.BlockerSize(hull), hull);
     }
 

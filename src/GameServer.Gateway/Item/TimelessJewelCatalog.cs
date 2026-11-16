@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public static class TimelessJewelCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        NameWords = LoadNameWords("data");
+    }
+
     public const string BaseId = "Metadata/Items/Jewels/JewelTimeless";
 
     public sealed record Conqueror(string Name, int Index, int Version);
@@ -148,10 +154,10 @@ public static class TimelessJewelCatalog
         _ => null,
     };
 
-    static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
+    static Dictionary<string, uint> NameWords = default!;
 
     static uint? WordHash(string name, string folder) =>
-        folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
+        folder == "data" ? NameWords.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)
     {

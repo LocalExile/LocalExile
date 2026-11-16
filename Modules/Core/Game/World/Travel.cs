@@ -326,7 +326,7 @@ public static partial class Game
         var own = conn.QuestFlagsSnapshot();
         string[] endgame;
         lock (conn.Monsters) endgame = [.. Quests.EndgameOnly.Where(conn.UnearnedQuestFlags.Contains)];
-        if (endgame.Length > 0 && (inHideout || MapDevices.Value.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);
+        if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(conn.Layout.Hash))) own.UnionWith(endgame);
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))

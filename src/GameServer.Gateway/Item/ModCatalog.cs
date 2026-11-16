@@ -3,13 +3,26 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
 /// <summary>
-/// Mods.dat (the Mods client table, loaded on first use): what the server needs to put mods on items
+/// Mods.dat (the Mods client table, read when the catalog is made): what the server needs to put mods on items
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-public sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+public sealed class ModCatalog
 {
-    public ModRangeProvider Ranges { get; } = ranges ?? ModRangeProvider.Default;
+    readonly string folder;
+    readonly bool hardMode;
+    readonly ModRangeProvider? ranges;
+
+    public ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+    {
+        this.folder = folder;
+        this.hardMode = hardMode;
+        this.ranges = ranges;
+        Ranges = ranges ?? ModRangeProvider.Default;
+        _mods = Load(folder, hardMode, ranges ?? ModRangeProvider.Default);
+    }
+
+    public ModRangeProvider Ranges { get; }
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
@@ -93,24 +106,23 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
         public override string ToString() => $"{Id} (row {Row})";
     }
 
-    private readonly Lazy<(List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById)> _mods =
-        new(() => Load(folder, hardMode, ranges ?? ModRangeProvider.Default));
+    private readonly (List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById) _mods;
 
-    public bool Loaded => _mods.Value.Rows.Count > 0;
+    public bool Loaded => _mods.Rows.Count > 0;
 
-    public Mod? Row(int row) => row >= 0 && row < _mods.Value.Rows.Count ? _mods.Value.Rows[row] : null;
+    public Mod? Row(int row) => row >= 0 && row < _mods.Rows.Count ? _mods.Rows[row] : null;
 
-    public Mod? ByHash(ushort hash) => _mods.Value.ByHash.GetValueOrDefault(hash);
+    public Mod? ByHash(ushort hash) => _mods.ByHash.GetValueOrDefault(hash);
 
-    public Mod? ById(string id) => _mods.Value.ById.GetValueOrDefault(id);
+    public Mod? ById(string id) => _mods.ById.GetValueOrDefault(id);
 
-    public IReadOnlyList<Mod> All => _mods.Value.Rows;
+    public IReadOnlyList<Mod> All => _mods.Rows;
 
     /// <summary>A mod by row number, exact Id (any case), then the first Id that contains the text.</summary>
     public Mod? Find(string query)
     {
         if (int.TryParse(query, out int row)) return Row(row);
-        return ById(query) ?? _mods.Value.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
+        return ById(query) ?? _mods.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>"SpellDamageOnWeaponImplicitWand1 implicit: spell_damage_+% 10" for logs and /item_mods.</summary>

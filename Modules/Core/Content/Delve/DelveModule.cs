@@ -11,6 +11,12 @@ namespace GameServer.Modules.Delve;
 /// upgrades, account checkpoints and route trips. Darkness and biome-specific encounter scripts remain partial.</summary>
 public sealed partial class DelveModule : IModule
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadDelveModuleData()
+    {
+        StatIds = LoadStatIds();
+    }
+
     /// <summary>The Azurite Mine Encampment (<c>WorldAreas</c> Delve_Hub).</summary>
     public const ushort Hub = 0x8b9b;
     const string HubId = "Delve_Hub";
@@ -49,12 +55,14 @@ public sealed partial class DelveModule : IModule
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
-    static readonly Lazy<string?[]> StatIds = new(() =>
+    static string?[] StatIds = default!;
+
+    static string?[] LoadStatIds()
     {
         if (!ClientTables.Has("Stats")) return [];
         var doc = ClientTables.Table("Stats");
         return [.. doc.Select(r => r.Text("Id"))];
-    });
+    }
 
     /// <summary>The account's equipment, in the league.</summary>
     public static DelveProgress Equipment(ISavedData account) =>
@@ -76,9 +84,19 @@ public sealed partial class DelveModule : IModule
             (short)Math.Clamp(current.X, short.MinValue, short.MaxValue), (ushort)Math.Clamp(current.Y, 0, ushort.MaxValue));
     }
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        LoadDelveModuleData();
+        LoadDelveRoutesData();
+        DelveEquipment.LoadDelveProgressData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         DelveRailRoute.Warmup();
         module.Lifetime.Own(DelveRailRoute.ForgetOnUnload());
         RegisterSulphite(module);
@@ -100,7 +118,7 @@ public sealed partial class DelveModule : IModule
         GameEvents.Stats.Add(module.Manifest.Id, sheet =>
         {
             foreach (var (key, value) in DelveEquipment.Stats(Equipment(WorldOf(sheet.Player).AccountData)))
-                if (key >= 1 && key <= StatIds.Value.Length && StatIds.Value[key - 1] is { } id
+                if (key >= 1 && key <= StatIds.Length && StatIds[key - 1] is { } id
                     && (id == "delve_sulphite_capacity" || sheet.Player.AreaId.StartsWith("Delve", StringComparison.Ordinal))) sheet.Add(id, value);
         });
         GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>

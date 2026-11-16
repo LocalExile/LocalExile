@@ -112,7 +112,7 @@ static class VendorsFeature
         var offered = items.Offered().OrderBy(i => i.Id).ToList();
         sale.QuoteError = null;
         VendorRecipes.Quote quote;
-        try { quote = VendorSales.Value.Evaluate(offered,
+        try { quote = VendorSales.Evaluate(offered,
             basicSaleMultiplier: LeagueFor(conn).Rules.VendorRewardMultiplier); }
         catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException)
         {
@@ -273,14 +273,14 @@ static class VendorsFeature
         var catalog = ItemsFor(conn);
         var league = LeagueFor(conn);
         var gems = GemVendorStock.Sells(npc.Npc.Id)
-            ? GemVendorStock.For(catalog,Npcs.Value,SkillsFor(conn),league.HardMode,league.Rules.SupportGemRewards) : null;
+            ? GemVendorStock.For(catalog,Npcs,SkillsFor(conn),league.HardMode,league.Rules.SupportGemRewards) : null;
         var stock = gems is not null
             ? gems.Stock(npc.Npc.Id,conn.ClassRow,conn.QuestFlagsSnapshot(),league.HardMode,conn.Pools.Level,league.Rules) : [];
         if (league.Rules.FullGemStock && npc.Npc.Id == "Metadata/NPC/Act1/Nessa")
             return new(NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemStock:stock,
                 gemPrice:gems!.Price,fullGemStock:true,hardMode:league.HardMode,rules:league.Rules),"",[]);
         var window = VendorStock.Open(CharacterName(conn),conn.League ?? "Standard",npc.Npc.Id,conn.Pools.Level,
-            catalog,SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
+            catalog,RollsFor(conn),SkillsFor(conn),stock,ItemsOf(conn).NewItemId,league.Rules,league.HardMode,notes,refresh,account:PersonalStashOf(conn));
         if (!league.Rules.DevelopmentShopTabs || npc.Npc.Id != "Metadata/NPC/Act1/Nessa") return window;
         var development = NpcShops.Tabs(npc.Npc.Id,catalog,ItemsOf(conn).NewItemId,notes,gemPrice:gems is null ? null : gems.Price,
             hardMode:league.HardMode,rules:league.Rules,developmentOnly:true);

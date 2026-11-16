@@ -10,6 +10,12 @@ using GameServer.Core.Protocol.Login;
 /// </summary>
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMonsterMinionsData()
+    {
+        TotemSkins = LoadTotemSkins();
+    }
+
     /// <summary>What a monster's skill summons at a level, or null for a skill that brings none the server can name.
     /// <para>A player minion skill's monster version brings the player's minion only when its stats name no
     /// <c>alternate_minion</c>: ExileSummonSkeletons' stat set has none, as the gem's has none. Its monster versions that
@@ -38,13 +44,15 @@ public static partial class Game
     public const int MonsterTotemsAllowed = 1;
 
     // SkillTotemVariations: (SkillTotemsKey, TotemSkinId) → MonsterVarieties row.
-    static readonly Lazy<Dictionary<(int Key, int Skin), int>> TotemSkins = new(() =>
+    static Dictionary<(int Key, int Skin), int> TotemSkins = default!;
+
+    static Dictionary<(int Key, int Skin), int> LoadTotemSkins()
     {
         var result = new Dictionary<(int, int), int>();
         foreach (var v in ClientTables.TableOrEmpty("SkillTotemVariations"))
             if (v.IntOrNull("MonsterVarietiesKey") is int row) result.TryAdd((v.Int("SkillTotemsKey"), v.Int("TotemSkinId")), row);
         return result;
-    });
+    }
 
     /// <summary>A monster's totem skill (stats is_totem, or the SummonsTotem type: Siege Ballista) as a summon of its
     /// body, which then uses the skill (MonsterSummonInfo.Effect).
@@ -62,8 +70,8 @@ public static partial class Game
         int? skillKey = ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("ActiveSkill") is int active
             ? ClientTables.TableOrNull("ActiveSkills")?.Row(active)?.IntOrNull("SkillTotemId") : null;
         int skin = Get("totem_art_variation");
-        int key = skillKey is int k && TotemSkins.Value.ContainsKey((k, skin)) ? k : catalog.IsSpell(effect) ? 3 : -1;
-        if (!TotemSkins.Value.TryGetValue((key, skin), out int body) || Monsters.Find(body.ToString()) is not { Supported: true }) return null;
+        int key = skillKey is int k && TotemSkins.ContainsKey((k, skin)) ? k : catalog.IsSpell(effect) ? 3 : -1;
+        if (!TotemSkins.TryGetValue((key, skin), out int body) || Monsters.Find(body.ToString()) is not { Supported: true }) return null;
         double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
         return new(body, Math.Max(1, Get("number_of_totems_summoned_in_formation")), 0, true, catalog.CastTimeMs(effect) / 1000.0,
             catalog.CooldownMs(effect, catalog.MaxLevelAt(effect, level)) / 1000.0)

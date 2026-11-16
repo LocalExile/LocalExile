@@ -12,6 +12,12 @@ namespace GameServer.Modules.CurrencyExchange;
 /// reads the prices from <c>data/</c>, and never connects to anything itself.</summary>
 public sealed class CurrencyExchangeModule : IModule
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadCurrencyExchangeModuleData()
+    {
+        FaustusLine = LoadFaustusLine();
+    }
+
     const string SaveKey = "currency-exchange", Window = "currency-exchange", RatesFile = ExchangeRateStore.File;
     const double SettleEverySeconds = 30;
 
@@ -27,9 +33,18 @@ public sealed class CurrencyExchangeModule : IModule
     DateTime _ratesWritten;
     IModuleContext _module = null!;
 
+    /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
+    /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
+    public static void LoadData()
+    {
+        LoadCurrencyExchangeModuleData();
+        ExchangeItems.LoadExchangeMarketData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LoadData();
         _module = module;
         GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
@@ -209,18 +224,20 @@ public sealed class CurrencyExchangeModule : IModule
         }
         if (!completed) return;
         await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
-        if (speak && Options.FaustusSpeaks && FaustusLine.Value is var (npc, line))
+        if (speak && Options.FaustusSpeaks && FaustusLine is var (npc, line))
             await player.Send(InstanceNpcs.TextAudio(0, npc, line), "0x01c7 Faustus: an order is filled");
     }
 
     /// <summary>What he says of a filled order, from anywhere (S→C 0x1c7, object 0): the client picks among the row's group. Nothing in the client asks for it.</summary>
-    static readonly Lazy<(ushort Npc, ushort Line)?> FaustusLine = new(() =>
+    static (ushort Npc, ushort Line)? FaustusLine = default!;
+
+    static (ushort Npc, ushort Line)? LoadFaustusLine()
     {
-        if (Npcs.Value.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
+        if (Npcs.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
         foreach (var line in ClientTables.Table("NPCTextAudio"))
             if (line.TextOrNull("Id") == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)line.Index);
         return null;
-    });
+    }
 
     /// <summary>The player's X on an order: what is left of it can be claimed. The gold stays paid, as the window warns.</summary>
     async Task Close(IPlayer player, uint id)

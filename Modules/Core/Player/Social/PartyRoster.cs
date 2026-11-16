@@ -311,7 +311,7 @@ public static class PartyRoster
     {
         // Personal homes use their owner, and a map can only be entered through its finite portal pool.
         // Explicit party travel already pins its destination; ordinary travel must not redirect to these members.
-        if (HideoutCatalog.ByArea(transfer.Area) is not null || MapDevices.Value.IsMapArea(transfer.Area)) return 0;
+        if (HideoutCatalog.ByArea(transfer.Area) is not null || MapDevices.IsMapArea(transfer.Area)) return 0;
         ClientState[] members;
         lock (Gate) members = Humans.TryGetValue(Find(c), out var list) ? [.. list] : [];
         foreach (var member in members)

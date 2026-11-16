@@ -32,6 +32,12 @@ using GameServer.Core;
 /// </summary>
 public static partial class Quests
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        TableRows = LoadTableRows();
+    }
+
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
     public abstract record Rule;
@@ -697,15 +703,17 @@ public static partial class Quests
         return rows;
     }
 
-    static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
+    static Dictionary<string, int> TableRows = default!;
+
+    static Dictionary<string, int> LoadTableRows()
     {
         try { return FlagRows(ClientTables.TableOrNull("QuestFlags")); }
         catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException) { Console.WriteLine($"[gateway] QuestFlags: {ex.Message}"); return []; }
-    });
+    }
 
     /// <summary>The QuestFlags rows of these flag Ids, ascending; unknown Ids are skipped.</summary>
     public static IReadOnlyList<int> Rows(IEnumerable<string> ids, IReadOnlyDictionary<string, int>? rows = null) =>
-        [.. ids.Select(id => (rows ?? TableRows.Value).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
+        [.. ids.Select(id => (rows ?? TableRows).TryGetValue(id, out int r) ? r : -1).Where(r => r >= 0).Order()];
 
     /// <summary>Whether the client has a quest flag: the character's own, or among the rows the client gets (the
     /// player's flag set also carries the World panel's access flags: an activated waypoint's area, 16-waypoints.md §4).
@@ -721,6 +729,6 @@ public static partial class Quests
     public static IReadOnlySet<string> Names(IEnumerable<int> rows)
     {
         var wanted = rows.ToHashSet();
-        return TableRows.Value.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
+        return TableRows.Where(kv => wanted.Contains(kv.Value)).Select(kv => kv.Key).ToHashSet();
     }
 }

@@ -7,17 +7,48 @@ using GameServer.Core;
 /// <summary>
 /// Skills the server grants: a GrantedEffects Id at a level becomes the GrantedEffectsPerLevel row and the
 /// GrantedEffectStatSetsPerLevel row (of the effect's StatSet1 at that gem level) the Actor skill list refers to
-/// (Agents/docs/protocol/11-skills.md). Reads the client tables (client.db, loaded on first use). Without the tables it
+/// (Agents/docs/protocol/11-skills.md). Reads the client tables (client.db, in memory). Without the tables it
 /// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3b).
 /// </summary>
-public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
+public sealed class SkillCatalog
 {
+    readonly string folder;
+    readonly bool hardMode;
+
+    public SkillCatalog(string folder = "data", bool hardMode = false)
+    {
+        this.folder = folder;
+        this.hardMode = hardMode;
+        _tables = Tables.Load(folder);
+        _skillTypes = new(folder);
+        _modeEffects = LoadModeEffects();
+        _extraSets = LoadExtraSets();
+        _actionIds = LoadActionIds();
+        _attackTimes = LoadAttackTimes();
+        _artVariations = LoadArtVariations();
+        _skillIds = LoadSkillIds();
+        _effectActions = LoadEffectActions();
+        _actions = LoadActions();
+        _families = new(folder);
+        _weaponRestrictions = LoadWeaponRestrictions();
+        _weaponTypes = LoadWeaponTypes();
+        _skillArt = LoadSkillArt();
+        _activeSkillOfEffect = LoadActiveSkillOfEffect();
+        _projectileContacts = LoadProjectileContacts();
+        _projectiles = LoadProjectiles();
+        _projectileAos = LoadProjectileAos();
+        _projectileClips = LoadProjectileClips();
+        _monsterContacts = LoadMonsterContacts();
+        _summonedMonsters = LoadSummonedMonsters();
+        _monsterProjectiles = LoadMonsterProjectiles();
+    }
+
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
     /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b or 3.29.3c.</summary>
     public const ushort FirstSkillId = 0x0102;
 
-    private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
+    private readonly Tables? _tables;
     private readonly StatCatalog _stats = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
 
@@ -27,7 +58,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
-    private readonly Lazy<Dictionary<int, int>> _modeEffects = new(() =>
+    private readonly Dictionary<int, int> _modeEffects;
+
+    Dictionary<int, int> LoadModeEffects()
     {
         var result = new Dictionary<int, int>();
         if (!hardMode || !ClientTables.Has("GemEffects")) return result;
@@ -38,10 +71,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     && regular >= 0 && alternate >= 0)
                     result.TryAdd(regular, alternate);
         return result;
-    });
+    }
 
     /// <summary>Each GrantedEffects row's additional stat sets (StatSet2), when it has any.</summary>
-    private readonly Lazy<Dictionary<int, int[]>> _extraSets = new(() =>
+    private readonly Dictionary<int, int[]> _extraSets;
+
+    Dictionary<int, int[]> LoadExtraSets()
     {
         var result = new Dictionary<int, int[]>();
         if (!ClientTables.Has("GrantedEffects")) return result;
@@ -54,7 +89,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             row++;
         }
         return result;
-    });
+    }
 
     /// <summary>A skill with its effect's additional stat sets: each set's per-level row at this level (the closest one
     /// otherwise) and its stats (implicit 1s, constants, then the level's stats). Null when a set has no row at all: a
@@ -63,7 +98,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         // Both Find paths use catalog identity and raw stored uses, never effective cost or current souls.
         skill = skill with { VaalResourcesEnabled = VaalBudget(effectRow, level) is not null };
-        if (!_extraSets.Value.TryGetValue(effectRow, out var sets)) return skill;
+        if (!_extraSets.TryGetValue(effectRow, out var sets)) return skill;
         var extra = new List<(uint, IReadOnlyList<(uint, int)>)>();
         foreach (int set in sets)
         {
@@ -86,21 +121,23 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// the default attack would replace one.</summary>
     public IEnumerable<ushort> SkillIds()
     {
-        var taken = _actionIds.Value;
+        var taken = _actionIds;
         for (int id = FirstSkillId; id <= 0x3fff; id++)
             if (!taken.Contains((ushort)id)) yield return (ushort)id;
     }
 
     /// <summary>Whether an id is one of the gem skills' (<see cref="SkillIds"/> after the default attack, the first 64), not a
     /// basic action such as Move.</summary>
-    public bool IsGemSkill(ushort id) => id > FirstSkillId && id < FirstSkillId + 64 && !_actionIds.Value.Contains(id);
+    public bool IsGemSkill(ushort id) => id > FirstSkillId && id < FirstSkillId + 64 && !_actionIds.Contains(id);
 
-    private readonly Lazy<HashSet<ushort>> _actionIds = new(() =>
+    private readonly HashSet<ushort> _actionIds;
+
+    HashSet<ushort> LoadActionIds()
     {
         if (!ClientTables.Has("ActionTypes")) return [0x0101, 0x0106, 0x010a, 0x0114];
         var d = ClientTables.Table("ActionTypes");
         return [.. d.Select(r => (ushort)(r.Int("HASH16") & 0x3fff))];
-    });
+    }
 
     /// <summary>
     /// A gem skill's own stats at a level (client keys = Stats.dat row + 1): the effect's stat set (GrantedEffectStatSets
@@ -113,7 +150,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// </summary>
     public IReadOnlyList<(uint, int)> EffectStats(int effectRow, int level, int quality = 0)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.Effects.Count) return [];
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.Effects.Count) return [];
         var e = t.Effects[effectRow];
         var stats = new Dictionary<uint, int>();
         var constant = new HashSet<uint>();
@@ -157,7 +194,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("skill_is_instant", 1);
         }
         if (IsAura(effectRow)) stats[OwnAuraRestriction.BaseAura] = 1;
-        if (_curseEffects.Value.Contains(effectRow)) stats[OwnAuraRestriction.Curse] = 1;
+        if (_curseEffects.Contains(effectRow)) stats[OwnAuraRestriction.Curse] = 1;
         if (OwnAuraRestriction.IsAura(stats)) stats[OwnAuraRestriction.Aura] = 1;
         // CharacterPanelStats gates spell rows on this final flag and hides the weapon rows while it is set.
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
@@ -233,7 +270,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// gem), 40 when the skill has none.</summary>
     public int MaxLevelAt(int effectRow, int charLevel)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 40;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 40;
         int statSet = t.StatSets[effectRow];
         int max = 0;
         foreach (var (level, req) in t.LevelReqsOf(statSet))
@@ -245,7 +282,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// lowest (Izaro's Leap Slam: levels 1, 2, 3 at 33, 68, 75; his Spikes: 30 levels, 22-33 damage at 32).</summary>
     public int MonsterEffectLevel(int effectRow, int monsterLevel)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 1;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 1;
         var levels = t.LevelReqsOf(t.StatSets[effectRow]);
         int met = levels.Where(l => l.PlayerLevelReq <= monsterLevel).Select(l => l.GemLevel).DefaultIfEmpty(0).Max();
         return met > 0 ? met : levels.Select(l => l.GemLevel).DefaultIfEmpty(1).Min();
@@ -255,7 +292,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// highest requirement of its levels at or below it, 0 when the skill has none.</summary>
     public int PlayerLevelReq(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
         int statSet = t.StatSets[effectRow], req = 0;
         foreach (var (lvl, r) in t.LevelReqsOf(statSet))
             if (lvl <= level && r > req) req = r;
@@ -269,7 +306,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// </summary>
     public int DamageEffectiveness(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 0;
         int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
         return row >= 0 && row < t.Effectiveness.Count ? Math.Max(0, t.Effectiveness[row]) : 0;
     }
@@ -278,7 +315,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// an explicit -10000 offset resolves to zero, not the missing-data fallback.</summary>
     public (int Base, int Added) DamageCoefficients(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return (10000, 10000);
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return (10000, 10000);
         int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
         return row >= 0 && row < t.DamageCoefficients.Count ? t.DamageCoefficients[row] : (10000, 10000);
     }
@@ -286,17 +323,19 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The inherent weapon attack-rate multiplier at the selected GEPL level, in percent.
     /// It multiplies weapon rate separately from player increased speed; absent data keeps ordinary weapon timing.</summary>
     public int AttackSpeedMultiplier(int effectRow, int level) =>
-        effectRow >= 0 && level > 0 && _tables.Value is { } t
+        effectRow >= 0 && level > 0 && _tables is { } t
             && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.AttackSpeedMultipliers[row] : 0;
 
     /// <summary>The gem's own base attack time at a GEPL level (GrantedEffectsPerLevel AttackTime, ms; Shield Charge
     /// 500), or 0 where the skill uses its weapon's.</summary>
     public int AttackTimeMs(int effectRow, int level) =>
-        effectRow >= 0 && level > 0 && _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
-            && row < _attackTimes.Value.Count ? _attackTimes.Value[row] : 0;
+        effectRow >= 0 && level > 0 && _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
+            && row < _attackTimes.Count ? _attackTimes[row] : 0;
 
     // GrantedEffectsPerLevel AttackTime by row, in the order Tables.PerLevel reads them.
-    private readonly Lazy<List<int>> _attackTimes = new(() =>
+    private readonly List<int> _attackTimes;
+
+    List<int> LoadAttackTimes()
     {
         var times = new List<int>();
         if (!ClientTables.Has("GrantedEffectsPerLevel")) return times;
@@ -304,13 +343,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         foreach (var r in doc)
             times.Add(r.IntOrNull("AttackTime") is int ms ? Math.Max(0, ms) : 0);
         return times;
-    });
+    }
 
     /// <summary>The effect's primary stat set's base spell critical chance at this gem level, in permyriad.
     /// Null means missing/invalid data, distinct from a known zero (a spell with no inherent critical chance).</summary>
     public int? SpellCritChance(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || level < 1) return null;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || level < 1) return null;
         int set = t.StatSets[effectRow];
         if (set < 0) return null;
         int row = PickLevel(t.StatSetsPerLevel, set, level);
@@ -331,10 +370,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>The ActionTypes Id of a basic action's skill id (HASH16 &amp; 0x3fff: Move 0x2909), or null.</summary>
-    public string? ActionName(ushort skillId) => _actions.Value.FirstOrDefault(a => a.Id == skillId).Name;
+    public string? ActionName(ushort skillId) => _actions.FirstOrDefault(a => a.Id == skillId).Name;
 
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
-    public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
+    public ushort? ActionHash(int effectRow) => _effectActions.TryGetValue(effectRow, out ushort hash) ? hash : null;
 
     /// <summary>The ActionTypes Id of a GrantedEffects row's action class (ActiveSkills.ActionType), or null.</summary>
     public static string? ActionTypeId(int effectRow)
@@ -352,14 +391,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// row has no GeometryChannel: the King in the Mists' GSVoodooKingRitual (SkillID 1116) then crashed the client in
     /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
     /// </summary>
-    public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+    public int BehaviourVariation(int effectRow) => _skillIds.GetValueOrDefault(effectRow);
 
     /// <summary>The effect's art (GrantedEffects <c>__col23</c>), the number the client takes as <c>skill_art_variation</c>:
     /// SkillArtVariations' Variants of its skill (Izaro's Leap Slam 5 LabyrinthBoss, his Upheaval 5 Ornaments). Sent only on
     /// the records that ask for it: without it the Upheaval drew Glacial Cascade's ice (live, Izaro).</summary>
-    public int ArtVariation(int effectRow) => _artVariations.Value.GetValueOrDefault(effectRow);
+    public int ArtVariation(int effectRow) => _artVariations.GetValueOrDefault(effectRow);
 
-    private readonly Lazy<Dictionary<int, int>> _artVariations = new(() =>
+    private readonly Dictionary<int, int> _artVariations;
+
+    Dictionary<int, int> LoadArtVariations()
     {
         var result = new Dictionary<int, int>();
         if (!ClientTables.Has("GrantedEffects")) return result;
@@ -370,9 +411,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (effect.IntOrNull("__col23") is int value && value > 0) result[index] = value;
         }
         return result;
-    });
+    }
 
-    private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
+    private readonly Dictionary<int, int> _skillIds;
+
+    Dictionary<int, int> LoadSkillIds()
     {
         var result = new Dictionary<int, int>();
         if (!ClientTables.Has("GrantedEffects")) return result;
@@ -385,9 +428,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 result[index] = value;
         }
         return result;
-    });
+    }
 
-    private readonly Lazy<Dictionary<int, ushort>> _effectActions = new(() =>
+    private readonly Dictionary<int, ushort> _effectActions;
+
+    Dictionary<int, ushort> LoadEffectActions()
     {
         if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("ActionTypes")) return [];
         var effects = ClientTables.Table("GrantedEffects");
@@ -406,30 +451,32 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             result[index] = (ushort)actions[t].Int("HASH16");
         }
         return result;
-    });
+    }
 
     /// <summary>A basic action's skill id by ActionTypes Id ("Move" → 0x2909), or null.</summary>
-    public ushort? ActionSkillId(string name) => _actions.Value.FirstOrDefault(a => a.Name == name) is { Name: not null } a ? a.Id : null;
+    public ushort? ActionSkillId(string name) => _actions.FirstOrDefault(a => a.Name == name) is { Name: not null } a ? a.Id : null;
 
-    private readonly Lazy<List<(ushort Id, string Name)>> _actions = new(() =>
+    private readonly List<(ushort Id, string Name)> _actions;
+
+    List<(ushort Id, string Name)> LoadActions()
     {
         if (!ClientTables.Has("ActionTypes")) return [(0x2909, "Move")];
         var d = ClientTables.Table("ActionTypes");
         return [.. d.Select(r => ((ushort)(r.Int("HASH16") & 0x3fff), r.Text("Id") ?? ""))];
-    });
+    }
 
     /// <summary>A GrantedEffects row's Id, or null.</summary>
     public string? EffectId(int effectRow) =>
-        _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
+        _tables?.EffectIds.GetValueOrDefault(effectRow);
 
     /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
     public (int Effect, int Level)? EffectsPerLevel(int row) =>
-        _tables.Value is { } t && row >= 0 && row < t.PerLevel.Count ? t.PerLevel[row] : null;
+        _tables is { } t && row >= 0 && row < t.PerLevel.Count ? t.PerLevel[row] : null;
 
     /// <summary>A GrantedEffects row by its Id, or -1.</summary>
     public int EffectRow(string effectId) =>
-        _tables.Value is { } t && t.EffectRows.TryGetValue(effectId, out var effect)
-            ? _modeEffects.Value.GetValueOrDefault(effect.Row, effect.Row) : -1;
+        _tables is { } t && t.EffectRows.TryGetValue(effectId, out var effect)
+            ? _modeEffects.GetValueOrDefault(effect.Row, effect.Row) : -1;
 
     /// <summary>
     /// The mana a skill reserves at a level: GrantedEffectsPerLevel ManaReservationFlat (a flat amount) and
@@ -437,7 +484,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// </summary>
     public (int Flat, int Percent)? Reservation(int effectRow, int level)
     {
-        if (_tables.Value is not { } t) return null;
+        if (_tables is not { } t) return null;
         int row = PickLevel(t.PerLevel, effectRow, level);
         if (row < 0 || row >= t.Reservations.Count) return null;
         var r = t.Reservations[row];
@@ -446,21 +493,21 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             : (r.ManaFlat, r.ManaPercent);
     }
 
-    public bool LifeReservation(int effectRow, int level) => _tables.Value is { } t
+    public bool LifeReservation(int effectRow, int level) => _tables is { } t
         && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0
         && (t.Reservations[row].LifeFlat != 0 || t.Reservations[row].LifePercent != 0);
 
     /// <summary>The Vaal souls a use of a skill needs at a level (GrantedEffectsPerLevel VaalSouls; 0 for skills that are
     /// not Vaal skills).</summary>
     public int VaalSouls(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? Math.Max(0, t.VaalSouls[row]) : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? Math.Max(0, t.VaalSouls[row]) : 0;
 
     public readonly record struct VaalDefinition(uint ActiveSkillsRow, int BaseCost, int StoredUses);
 
     /// <summary>Null for non-Vaal skills or missing/invalid catalog references. Never substitutes GE/GEPL identity.</summary>
     public VaalDefinition? VaalBudget(int effectRow, int level)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.ActiveSkills.Count
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.ActiveSkills.Count
             || t.ActiveSkills[effectRow] is not int active || active < 0) return null;
         int row = PickLevel(t.PerLevel, effectRow, level);
         return row >= 0 && t.VaalSouls[row] >= 0 && t.VaalStoredUses[row] > 0
@@ -468,10 +515,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     public int SoulGainPreventionMs(int effect, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.SoulPrevention[row] : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.SoulPrevention[row] : 0;
 
     public int BaseRageCost(int effect, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.RageCost[row] : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effect, level) is int row and >= 0 ? t.RageCost[row] : 0;
 
     /// <summary>The mana a GrantedEffects Id reserves at a level, or null.</summary>
     public (int Flat, int Percent)? Reservation(string effectId, int level) =>
@@ -479,68 +526,70 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A GrantedEffects row's CastTime in ms (0 when unknown).</summary>
     public int CastMs(int effectRow) =>
-        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].CastTime : 0;
+        _tables is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].CastTime : 0;
 
     /// <summary>A GrantedEffects row's cooldown at a level in ms (GEPL Cooldown: Haste 1200, Righteous Fire 300), 0 when
     /// it has none.</summary>
     public int CooldownMs(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int gepl and >= 0 ? t.Cooldowns[gepl].Ms : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int gepl and >= 0 ? t.Cooldowns[gepl].Ms : 0;
 
     public int CooldownUses(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
 
     /// <summary>A GrantedEffects row's GEPL CooldownBypassType at a level (<see cref="CooldownBypass"/>), 0 when none.</summary>
     public int CooldownBypassType(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
+        _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
 
     public int CooldownGroup(int effectRow, int level) =>
-        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Group : 36;
+        _tables is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Group : 36;
 
     public bool CooldownPausesWhileActive(int effectRow) =>
-        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
+        _tables is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
 
     /// <summary>Whether a GrantedEffects row's skill is instant: its ActiveSkills row has the ActiveSkillType Instant (Haste,
     /// Righteous Fire). An instant skill is used while moving, without an action of its own.</summary>
-    public bool IsInstant(int effectRow) => _instantEffects.Value.Contains(effectRow);
+    public bool IsInstant(int effectRow) => _instantEffects.Contains(effectRow);
 
     /// <summary>A movement skill (ActiveSkillType Movement: Leap Slam, Whirling Blades, Flame Dash …): the player ends
     /// where it was aimed.</summary>
-    public bool IsMovement(int effectRow) => _movementEffects.Value.Contains(effectRow);
-    public bool IsChannelled(int effectRow) => _skillTypes.Channel.Value.Contains(effectRow);
-    public bool IsTravel(int effectRow) => _skillTypes.Travel.Value.Contains(effectRow);
-    public bool IsGuard(int effectRow) => _skillTypes.Guard.Value.Contains(effectRow);
+    public bool IsMovement(int effectRow) => _movementEffects.Contains(effectRow);
+    public bool IsChannelled(int effectRow) => _skillTypes.Channel.Contains(effectRow);
+    public bool IsTravel(int effectRow) => _skillTypes.Travel.Contains(effectRow);
+    public bool IsGuard(int effectRow) => _skillTypes.Guard.Contains(effectRow);
     /// <summary>A skill that needs a shield (ActiveSkillType RequiresShield: Shield Charge, Shield Crush …).</summary>
-    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Value.Contains(effectRow);
+    public bool RequiresShield(int effectRow) => _skillTypes.RequiresShield.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill is an attack (ActiveSkillType Attack: the default attack, Holy
     /// Strike, Flicker Strike …): it swings with the weapon's attack time and its use is paced like the default
     /// attack's, unlike a spell, which the client paces by its cast time.</summary>
-    public bool IsAttack(int effectRow) => _attackEffects.Value.Contains(effectRow);
+    public bool IsAttack(int effectRow) => _attackEffects.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's skill classifies Melee (the ActiveSkillType). Decides whether an attack
     /// gem's hit takes melee_damage_+% (the default attack does by its weapon profile instead).</summary>
-    public bool IsMelee(int effectRow) => _meleeEffects.Value.Contains(effectRow);
+    public bool IsMelee(int effectRow) => _meleeEffects.Contains(effectRow);
 
-    public bool IsSpell(int effectRow) => _spellEffects.Value.Contains(effectRow);
-    public bool IsProjectile(int effectRow) => _projectileEffects.Value.Contains(effectRow);
+    public bool IsSpell(int effectRow) => _spellEffects.Contains(effectRow);
+    public bool IsProjectile(int effectRow) => _projectileEffects.Contains(effectRow);
     // Generic monster Melee also carries Projectile. Actual melee classification takes precedence.
     public bool IsRangedAttack(int effectRow) => IsAttack(effectRow) && IsProjectile(effectRow) && !IsMelee(effectRow);
 
     /// <summary>Classify the gem's base-item row from GemTags/SkillGems metadata, not its display name.</summary>
     public bool FamilyStatRaises(string stat, int gemRow) =>
-        _stats.Key(stat) is uint key && _families.Value.Raises((int)key - 1, gemRow);
+        _stats.Key(stat) is uint key && _families.Raises((int)key - 1, gemRow);
 
-    public bool IsExceptional(int gemRow) => _families.Value.IsExceptional(gemRow);
+    public bool IsExceptional(int gemRow) => _families.IsExceptional(gemRow);
 
-    readonly Lazy<SkillGemFamilies> _families = new(() => new(folder));
+    readonly SkillGemFamilies _families;
 
     /// <summary>The ItemClasses rows a GrantedEffects row's skill can be used with (its ActiveSkill's
     /// WeaponRestriction_ItemClassesKeys: Burning Arrow 13, Bow); empty for a skill any hands can use. The client greys
     /// out a skill when neither hand fits (11-skills.md §10a).</summary>
     public IReadOnlySet<int> WeaponRestrictions(int effectRow) =>
-        _weaponRestrictions.Value.TryGetValue(effectRow, out var rows) ? rows : FrozenSet<int>.Empty;
+        _weaponRestrictions.TryGetValue(effectRow, out var rows) ? rows : FrozenSet<int>.Empty;
 
-    private readonly Lazy<Dictionary<int, IReadOnlySet<int>>> _weaponRestrictions = new(() =>
+    private readonly Dictionary<int, IReadOnlySet<int>> _weaponRestrictions;
+
+    Dictionary<int, IReadOnlySet<int>> LoadWeaponRestrictions()
     {
         if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")) return [];
         var active = ClientTables.Table("ActiveSkills");
@@ -552,34 +601,34 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (r.IntOrNull("ActiveSkill") is int row && row >= 0 && row < restricted.Count && restricted[row].Count > 0)
                 result[i] = restricted[row];
         return result;
-    });
+    }
 
     /// <summary>Whether a GrantedEffects row's ActiveSkill has the Warcry type.</summary>
-    public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
+    public bool IsWarcry(int effectRow) => _warcryEffects.Contains(effectRow);
 
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
     /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
-    public bool IsStrike(int effectRow) => _strikeEffects.Value.Contains(effectRow);
+    public bool IsStrike(int effectRow) => _strikeEffects.Contains(effectRow);
 
     /// <summary>ActiveSkillType Vaal (FlagStat <c>skill_is_vaal_skill</c>).</summary>
-    public bool IsVaal(int effectRow) => _vaalEffects.Value.Contains(effectRow);
+    public bool IsVaal(int effectRow) => _vaalEffects.Contains(effectRow);
 
     /// <summary>A Nova skill (ActiveSkillType Nova: Ice Nova, Discharge, Shock Nova, but also Shockwave Totem and
     /// Stormblast Mine).</summary>
-    public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
+    public bool IsNova(int effectRow) => _novaEffects.Contains(effectRow);
 
     /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
     /// the client centres on the caster (FUN_1419439e0). Totems, mines and traps are left out: their effect goes off at
     /// the object they place.</summary>
-    public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
+    public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Contains(effectRow);
 
     /// <summary>Aura metadata, including only supports already accepted by GemSupports.Resolve.</summary>
     public bool IsAura(int effectRow, IEnumerable<int>? acceptedSupports = null) =>
-        _auraEffects.Value.Contains(effectRow)
-        || acceptedSupports?.Any(row => _addedAuraEffects.Value.Contains(row)) == true;
+        _auraEffects.Contains(effectRow)
+        || acceptedSupports?.Any(row => _addedAuraEffects.Contains(row)) == true;
     /// <summary>The native Brand skill type, independently of display name or gem tags.</summary>
-    public bool IsBrand(int effectRow) => _brandEffects.Value.Contains(effectRow);
+    public bool IsBrand(int effectRow) => _brandEffects.Contains(effectRow);
 
     /// <summary>Whether a GrantedEffects row's ActiveSkill has an ActiveSkillType by its data Id (Trap, Mine, Totem,
     /// Channel, ...): the named helpers cover the common ones, this reads any type a caller names.</summary>
@@ -591,117 +640,94 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     // The effects of one ActiveSkillType each: ActiveSkillType, ActiveSkills and GrantedEffects are parsed once for all
     // of them (each set used to parse the three tables again: ~100 MB of JSON per catalogue at the first spawn).
-    private readonly SkillTypeSets _skillTypes = new(folder);
-    private Lazy<HashSet<int>> _instantEffects => _skillTypes.Instant;
-    private Lazy<HashSet<int>> _movementEffects => _skillTypes.Movement;
-    private Lazy<HashSet<int>> _attackEffects => _skillTypes.Attack;
-    private Lazy<HashSet<int>> _meleeEffects => _skillTypes.Melee;
-    private Lazy<HashSet<int>> _spellEffects => _skillTypes.Spell;
-    private Lazy<HashSet<int>> _projectileEffects => _skillTypes.Projectile;
-    private Lazy<HashSet<int>> _warcryEffects => _skillTypes.Warcry;
-    private Lazy<HashSet<int>> _strikeEffects => _skillTypes.Strike;
-    private Lazy<HashSet<int>> _vaalEffects => _skillTypes.Vaal;
-    private Lazy<HashSet<int>> _novaEffects => _skillTypes.Nova;
-    private Lazy<HashSet<int>> _selfTargetedEffects => _skillTypes.SelfTargeted;
-    private Lazy<HashSet<int>> _auraEffects => _skillTypes.Aura;
-    private Lazy<HashSet<int>> _curseEffects => _skillTypes.Curse;
-    private Lazy<HashSet<int>> _addedAuraEffects => _skillTypes.AddedAura;
-    private Lazy<HashSet<int>> _brandEffects => _skillTypes.Brand;
+    private readonly SkillTypeSets _skillTypes;
+    private HashSet<int> _instantEffects => _skillTypes.Instant;
+    private HashSet<int> _movementEffects => _skillTypes.Movement;
+    private HashSet<int> _attackEffects => _skillTypes.Attack;
+    private HashSet<int> _meleeEffects => _skillTypes.Melee;
+    private HashSet<int> _spellEffects => _skillTypes.Spell;
+    private HashSet<int> _projectileEffects => _skillTypes.Projectile;
+    private HashSet<int> _warcryEffects => _skillTypes.Warcry;
+    private HashSet<int> _strikeEffects => _skillTypes.Strike;
+    private HashSet<int> _vaalEffects => _skillTypes.Vaal;
+    private HashSet<int> _novaEffects => _skillTypes.Nova;
+    private HashSet<int> _selfTargetedEffects => _skillTypes.SelfTargeted;
+    private HashSet<int> _auraEffects => _skillTypes.Aura;
+    private HashSet<int> _curseEffects => _skillTypes.Curse;
+    private HashSet<int> _addedAuraEffects => _skillTypes.AddedAura;
+    private HashSet<int> _brandEffects => _skillTypes.Brand;
 
-    /// <summary>The GrantedEffects rows whose active skill has an ActiveSkillType (or, <c>added</c>, that add the type to
-    /// the skill they support), from one read of the three tables. Each set is computed on first use.</summary>
+    /// <summary>The GrantedEffects rows of each ActiveSkillType (and, added, of the supports that add the type to the skill
+    /// they support), built in one pass over the three tables when the catalog is made.</summary>
     sealed class SkillTypeSets
     {
-        sealed record Rows(string?[] TypeIds, int[][] ActiveSkillTypes, int?[] EffectSkills, int[][] AddedTypes);
-
-        readonly Lazy<Rows?> _rows;
+        readonly Dictionary<string, int> _typeIndex = new(StringComparer.Ordinal);
+        readonly HashSet<int>[] _byType = [];
+        readonly HashSet<int>[] _addedByType = [];
+        readonly string[][] _addedTypes = [];
+        static readonly HashSet<int> None = [];
 
         public SkillTypeSets(string folder)
         {
-            _rows = new(() => Load(folder));
+            if (ClientTables.Has("GrantedEffects") && ClientTables.Has("ActiveSkills") && ClientTables.Has("ActiveSkillType"))
+            {
+                var typeIds = ClientTables.Table("ActiveSkillType").Select(r => r.TextOrNull("Id")).ToArray();
+                for (int i = 0; i < typeIds.Length; i++)
+                    if (typeIds[i] is { } id) _typeIndex.TryAdd(id, i);
+                _byType = [.. typeIds.Select(_ => new HashSet<int>())];
+                _addedByType = [.. typeIds.Select(_ => new HashSet<int>())];
+                var activeTypes = ClientTables.Table("ActiveSkills").Select(r => r.Ints("ActiveSkillTypes")).ToArray();
+                var effects = ClientTables.Table("GrantedEffects");
+                _addedTypes = new string[effects.Count][];
+                int row = 0;
+                foreach (var effect in effects)
+                {
+                    if (effect.IntOrNull("ActiveSkill") is int skill && skill >= 0 && skill < activeTypes.Length)
+                        foreach (int type in activeTypes[skill])
+                            if (type >= 0 && type < _byType.Length) _byType[type].Add(row);
+                    var added = effect.Ints("AddedActiveSkillTypes");
+                    foreach (int type in added)
+                        if (type >= 0 && type < _addedByType.Length) _addedByType[type].Add(row);
+                    _addedTypes[row] = [.. added.Select(i => i >= 0 && i < typeIds.Length ? typeIds[i] ?? "" : "").Where(id => id.Length > 0)];
+                    row++;
+                }
+            }
             Instant = Of("Instant"); Movement = Of("Movement"); Attack = Of("Attack"); Melee = Of("Melee");
             Spell = Of("Spell"); Projectile = Of("Projectile"); Warcry = Of("Warcry"); Aura = Of("Aura");
             Curse = Of("AppliesCurse"); AddedAura = Of("Aura", added: true); Brand = Of("Brand");
             Travel = Of("Travel"); Guard = Of("Guard"); Channel = Of("Channel");
             Strike = Of("MeleeSingleTarget"); Vaal = Of("Vaal"); Nova = Of("Nova"); RequiresShield = Of("RequiresShield");
-            SelfTargeted = new(() =>
-            {
-                var self = EffectsOfTargetType(folder, 4, 10);
-                foreach (string placed in new[] { "SummonsTotem", "RemoteMined", "Trapped" }) self.ExceptWith(Effects(_rows.Value, placed, false));
-                return self;
-            });
+            SelfTargeted = EffectsOfTargetType(folder, 4, 10);
+            foreach (string placed in new[] { "SummonsTotem", "RemoteMined", "Trapped" }) SelfTargeted.ExceptWith(Of(placed));
         }
 
-        public Lazy<HashSet<int>> Instant { get; }
-        public Lazy<HashSet<int>> Movement { get; }
-        public Lazy<HashSet<int>> Attack { get; }
-        public Lazy<HashSet<int>> Melee { get; }
-        public Lazy<HashSet<int>> Spell { get; }
-        public Lazy<HashSet<int>> Projectile { get; }
-        public Lazy<HashSet<int>> Warcry { get; }
-        public Lazy<HashSet<int>> Aura { get; }
-        public Lazy<HashSet<int>> Curse { get; }
-        public Lazy<HashSet<int>> AddedAura { get; }
-        public Lazy<HashSet<int>> Brand { get; }
-        public Lazy<HashSet<int>> Travel { get; }
-        public Lazy<HashSet<int>> Channel { get; }
-        public Lazy<HashSet<int>> Guard { get; }
-        public Lazy<HashSet<int>> Strike { get; }
-        public Lazy<HashSet<int>> Vaal { get; }
-        public Lazy<HashSet<int>> Nova { get; }
-        public Lazy<HashSet<int>> RequiresShield { get; }
-        public Lazy<HashSet<int>> SelfTargeted { get; }
+        public HashSet<int> Instant { get; }
+        public HashSet<int> Movement { get; }
+        public HashSet<int> Attack { get; }
+        public HashSet<int> Melee { get; }
+        public HashSet<int> Spell { get; }
+        public HashSet<int> Projectile { get; }
+        public HashSet<int> Warcry { get; }
+        public HashSet<int> Aura { get; }
+        public HashSet<int> Curse { get; }
+        public HashSet<int> AddedAura { get; }
+        public HashSet<int> Brand { get; }
+        public HashSet<int> Travel { get; }
+        public HashSet<int> Channel { get; }
+        public HashSet<int> Guard { get; }
+        public HashSet<int> Strike { get; }
+        public HashSet<int> Vaal { get; }
+        public HashSet<int> Nova { get; }
+        public HashSet<int> RequiresShield { get; }
+        public HashSet<int> SelfTargeted { get; }
 
-        Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
+        HashSet<int> Of(string typeId, bool added = false) =>
+            _typeIndex.TryGetValue(typeId, out int type) ? (added ? _addedByType : _byType)[type] : None;
 
-        // Any named type a caller asks for (Trap, Mine, Totem, ...): resolved once and reused, like the fixed sets.
-        readonly Dictionary<string, Lazy<HashSet<int>>> _byId = new(StringComparer.Ordinal);
+        public bool HasType(int effectRow, string typeId) => Of(typeId).Contains(effectRow);
 
-        public bool HasType(int effectRow, string typeId)
-        {
-            lock (_byId)
-            {
-                if (!_byId.TryGetValue(typeId, out var effects)) _byId[typeId] = effects = Of(typeId);
-                return effects.Value.Contains(effectRow);
-            }
-        }
-
-        public IReadOnlyList<string> AddedTypes(int effectRow)
-        {
-            var rows = _rows.Value;
-            if (rows is null || effectRow < 0 || effectRow >= rows.AddedTypes.Length) return [];
-            return [.. rows.AddedTypes[effectRow]
-                .Select(i => i >= 0 && i < rows.TypeIds.Length ? rows.TypeIds[i] ?? "" : "")
-                .Where(id => id.Length > 0)];
-        }
-
-        static HashSet<int> Effects(Rows? rows, string typeId, bool added)
-        {
-            if (rows is null) return [];
-            int type = Array.IndexOf(rows.TypeIds, typeId);
-            if (type < 0) return [];
-            if (added)
-                return [.. Enumerable.Range(0, rows.AddedTypes.Length).Where(i => rows.AddedTypes[i].Contains(type))];
-            var skills = Enumerable.Range(0, rows.ActiveSkillTypes.Length).Where(i => rows.ActiveSkillTypes[i].Contains(type)).ToHashSet();
-            return [.. Enumerable.Range(0, rows.EffectSkills.Length).Where(i => rows.EffectSkills[i] is int skill && skills.Contains(skill))];
-        }
-
-        static Rows? Load(string folder)
-        {
-            if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("ActiveSkillType")) return null;
-            static int[] Ints(ClientRow row, string name) => row.Ints(name);
-            string?[] typeIds;
-            var types = ClientTables.Table("ActiveSkillType");
-            typeIds = [.. types.Select(r => r.Text("Id"))];
-            int[][] activeTypes;
-            var active = ClientTables.Table("ActiveSkills");
-            activeTypes = [.. active.Select(r => Ints(r, "ActiveSkillTypes"))];
-            var effects = ClientTables.Table("GrantedEffects");
-            return new(typeIds, activeTypes,
-                [.. effects.Select(r =>
-                    r.IntOrNull("ActiveSkill"))],
-                [.. effects.Select(r => Ints(r, "AddedActiveSkillTypes"))]);
-        }
+        public IReadOnlyList<string> AddedTypes(int effectRow) =>
+            effectRow >= 0 && effectRow < _addedTypes.Length ? _addedTypes[effectRow] : [];
     }
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has one of these ActiveSkillTargetTypes.</summary>
@@ -719,9 +745,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>A weapon base's WeaponTypes row by its BaseItemTypes row: attack time (ms), physical damage, range.</summary>
-    public (int AttackMs, int Min, int Max, int Range)? WeaponBase(int baseRow) => _weaponTypes.Value.TryGetValue(baseRow, out var w) ? w : null;
+    public (int AttackMs, int Min, int Max, int Range)? WeaponBase(int baseRow) => _weaponTypes.TryGetValue(baseRow, out var w) ? w : null;
 
-    private readonly Lazy<Dictionary<int, (int, int, int, int)>> _weaponTypes = new(() =>
+    private readonly Dictionary<int, (int, int, int, int)> _weaponTypes;
+
+    Dictionary<int, (int, int, int, int)> LoadWeaponTypes()
     {
         var result = new Dictionary<int, (int, int, int, int)>();
         if (!ClientTables.Has("WeaponTypes")) return result;
@@ -730,7 +758,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             result.TryAdd(r.Int("BaseItemTypesKey"), (r.Int("Speed"), r.Int("DamageMin"),
                 r.Int("DamageMax"), r.Int("RangeMax")));
         return result;
-    });
+    }
 
     /// <summary>A projectile type for an effect: the Projectiles.dat row whose Id is Metadata/Projectiles/(GrantedEffects
     /// Id), e.g. Fireball → Metadata/Projectiles/Fireball at speed 1040, or null. The real link between a skill and its
@@ -745,9 +773,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// candidate has one: the client then flies nothing from this path.</summary>
     public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int variant = 0)
     {
-        var art = _skillArt.Value;
+        var art = _skillArt;
         IEnumerable<int> candidates = art.ByEffect.GetValueOrDefault(effectRow, []);
-        if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
+        if (_activeSkillOfEffect.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
             candidates = candidates.Concat(art.ByActive.GetValueOrDefault(active, []));
         foreach (int row in candidates)
         {
@@ -782,15 +810,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public IEnumerable<int> SameActionEffects(int effectRow)
     {
         yield return effectRow;
-        if (_activeSkillOfEffect.Value.GetValueOrDefault(effectRow, -1) is not (>= 0 and var active)) yield break;
-        foreach (var (row, skill) in _activeSkillOfEffect.Value.OrderBy(p => p.Key))
+        if (_activeSkillOfEffect.GetValueOrDefault(effectRow, -1) is not (>= 0 and var active)) yield break;
+        foreach (var (row, skill) in _activeSkillOfEffect.OrderBy(p => p.Key))
             if (skill == active && row != effectRow) yield return row;
     }
 
     sealed record SkillArt(Dictionary<int, List<int>> ByEffect, Dictionary<int, List<int>> ByActive, List<IReadOnlyList<int>> ProjectileArt,
         Dictionary<int, string> ArtIds, Dictionary<(string Id, int Variant), List<(string Id, int Speed, int CollisionRadius)>> Directory);
 
-    private readonly Lazy<SkillArt> _skillArt = new(() =>
+    private readonly SkillArt _skillArt;
+
+    SkillArt LoadSkillArt()
     {
         Dictionary<int, List<int>> byEffect = [], byActive = [];
         List<IReadOnlyList<int>> projectileArt = [];
@@ -818,9 +848,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 [.. r.Ints("Projectiles").Where(p => p >= 0 && p < projectiles.Count).Select(p => projectiles[p])]);
         }
         return new(byEffect, byActive, projectileArt, artIds, directory);
-    });
+    }
 
-    private readonly Lazy<Dictionary<int, int>> _activeSkillOfEffect = new(() =>
+    private readonly Dictionary<int, int> _activeSkillOfEffect;
+
+    Dictionary<int, int> LoadActiveSkillOfEffect()
     {
         Dictionary<int, int> result = [];
         if (!ClientTables.Has("GrantedEffects")) return result;
@@ -831,15 +863,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             row++;
         }
         return result;
-    });
+    }
 
     public (string Id, int Speed)? ProjectileFor(int effectRow)
     {
-        if (_tables.Value is not { } t) return null;
+        if (_tables is not { } t) return null;
         string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
-            if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
+            if (_projectiles.TryGetValue(id, out int speed)) return (id, speed);
         return null;
     }
 
@@ -930,13 +962,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
     public (string Id, int Speed)? Projectile(string id) =>
-        _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
+        _projectiles.TryGetValue(id, out int speed) ? (id, speed) : null;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
     /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
-    public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
+    public int? ProjectileContactCells(string id) => _projectileContacts.TryGetValue(id, out int cells) ? cells : null;
 
-    private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
+    private readonly Dictionary<string, int> _projectileContacts;
+
+    Dictionary<string, int> LoadProjectileContacts()
     {
         var result = new Dictionary<string, int>();
         if (ClientTables.TableOrNull("Projectiles") is not { } d) return result;
@@ -945,9 +979,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (r.Text("Id") is { } id)
                 result.TryAdd(id, Math.Max(Cells(r, "CollisionRadius"), Cells(r, "CollisionCandidateRadius")));
         return result;
-    });
+    }
 
-    private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
+    private readonly Dictionary<string, int> _projectiles;
+
+    Dictionary<string, int> LoadProjectiles()
     {
         var result = new Dictionary<string, int>();
         if (!ClientTables.Has("Projectiles")) return result;
@@ -956,14 +992,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (r.Text("Id") is { } id)
                 result.TryAdd(id, r.IntOrNull("ProjectileSpeed") is int v ? v : 0);
         return result;
-    });
+    }
 
     /// <summary>A Projectiles.dat row's first AOFiles entry: the art the client plays for that projectile object
     /// (SplitArrowDefault's split_arrow.ao, which Arrow Nova attaches to its rain rig).</summary>
     public string? ProjectileAo(string id) =>
-        _projectileAos.Value.TryGetValue(id, out var ao) ? ao : null;
+        _projectileAos.TryGetValue(id, out var ao) ? ao : null;
 
-    private readonly Lazy<Dictionary<string, string>> _projectileAos = new(() =>
+    private readonly Dictionary<string, string> _projectileAos;
+
+    Dictionary<string, string> LoadProjectileAos()
     {
         var result = new Dictionary<string, string>();
         if (!ClientTables.Has("Projectiles")) return result;
@@ -972,7 +1010,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (r.Text("Id") is { } id && r.Texts("AOFiles") is [var ao, ..])
                 result.TryAdd(id, ao);
         return result;
-    });
+    }
 
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
     /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
@@ -990,9 +1028,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public sealed record ProjectileClips(string? DefaultAnimation, ProjectileClip? Flight, ProjectileClip? Impact);
 
     public ProjectileClips? Clips(string projectileId) =>
-        _projectileClips.Value.TryGetValue(projectileId, out var clips) ? clips : null;
+        _projectileClips.TryGetValue(projectileId, out var clips) ? clips : null;
 
-    private readonly Lazy<Dictionary<string, ProjectileClips>> _projectileClips = new(() =>
+    private readonly Dictionary<string, ProjectileClips> _projectileClips;
+
+    Dictionary<string, ProjectileClips> LoadProjectileClips()
     {
         var result = new Dictionary<string, ProjectileClips>();
         foreach (var r in ClientTables.TableOrEmpty("projectile_clips"))
@@ -1004,7 +1044,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
-    });
+    }
 
     /// <summary>A monster skill's projectile (Projectiles.dat Id, speed in world units per second, whether it is lobbed at
     /// the aim, collision radius in cells). Speed is the row's ProjectileSpeed; <c>Lobbed</c> flights land where they were
@@ -1058,7 +1098,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// by the action's sequence (AnimationVariantSelector). Null without data for the variety or key.</summary>
     public MonsterClipContact? MonsterContact(string varietyId, string animationKey, ushort sequence)
     {
-        if (!_monsterContacts.Value.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)
+        if (!_monsterContacts.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)
             || pool.Length == 0) return null;
         // Equal weights for every clip; the pool's size comes from a data file, so only a small one lives on the stack.
         Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
@@ -1068,9 +1108,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
     public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
-        _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+        _monsterContacts.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
 
-    private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
+    private readonly Dictionary<string, Dictionary<string, MonsterClipContact[]>> _monsterContacts;
+
+    Dictionary<string, Dictionary<string, MonsterClipContact[]>> LoadMonsterContacts()
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
@@ -1090,7 +1132,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
-    });
+    }
 
     /// <summary>The projectile of a monster's granted effect: for a mortar skill (ActiveSkills Id <c>monster_mortar*</c>)
     /// the GrantedEffects row's SkillID is the MonsterMortar row that names it (every Sand Spitter variant: SkillID 183 →
@@ -1101,7 +1143,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <c>number_of_additional_projectiles</c> (the side-area Spitter's 3, the Elder Guardian's strafe 5).</summary>
     public MonsterProjectileInfo? MonsterProjectile(int effectRow)
     {
-        if (!_monsterProjectiles.Value.TryGetValue(effectRow, out var projectile)) return null;
+        if (!_monsterProjectiles.TryGetValue(effectRow, out var projectile)) return null;
         // Constants of the skill's stat set, so level 1 reads them.
         var stats = EffectStats(effectRow, 1);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
@@ -1148,13 +1190,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (ActionTypeId(effectRow)?.StartsWith("SummonSpecificMonsters", StringComparison.Ordinal) != true) return null;
         var stats = EffectStats(effectRow, level);
         int Get(string name) => _stats.Key(name) is uint key ? stats.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
-        if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.Value.TryGetValue(minion, out int variety)) return null;
+        if (Get("alternate_minion") is not (> 0 and var minion) || !_summonedMonsters.TryGetValue(minion, out int variety)) return null;
         return new(variety, Math.Max(1, Get("number_of_monsters_to_summon")), Get("summon_specific_monsters_in_front_offset"),
             Get("summoned_monsters_no_drops_or_experience") != 0, CastMs(effectRow) / 1000.0, CooldownMs(effectRow, level) / 1000.0);
     }
 
     // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
-    private readonly Lazy<Dictionary<int, int>> _summonedMonsters = new(() =>
+    private readonly Dictionary<int, int> _summonedMonsters;
+
+    Dictionary<int, int> LoadSummonedMonsters()
     {
         var result = new Dictionary<int, int>();
         if (!ClientTables.Has("SummonedSpecificMonsters")) return result;
@@ -1163,9 +1207,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             if (r.IntOrNull("Id") is int id && r.IntOrNull("MonsterVarietiesKey") is int v)
                 result.TryAdd(id, v);
         return result;
-    });
+    }
 
-    private readonly Lazy<Dictionary<int, MonsterProjectileInfo>> _monsterProjectiles = new(() =>
+    private readonly Dictionary<int, MonsterProjectileInfo> _monsterProjectiles;
+
+    Dictionary<int, MonsterProjectileInfo> LoadMonsterProjectiles()
     {
         var result = new Dictionary<int, MonsterProjectileInfo>();
         if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")
@@ -1215,7 +1261,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k : 0 };
         }
         return result;
-    });
+    }
 
     // The highest level at or below `level` among rows with this key, else the lowest; -1 when none.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<List<(int Key, int Level)>, Dictionary<int, int[]>> RowsByKey = new();
@@ -1243,11 +1289,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>A GrantedEffects row's cast time in ms (CastTime; 0 unknown).</summary>
     public int CastTimeMs(int effectRow) =>
-        _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].CastTime : 0;
+        _tables is { } t && effectRow >= 0 && effectRow < t.Effects.Count ? t.Effects[effectRow].CastTime : 0;
 
     public GrantedSkill? Find(ushort id, string effect, int level, IReadOnlyList<(uint, int)>? stats = null)
     {
-        if (_tables.Value is not { } t)
+        if (_tables is not { } t)
             return effect == "PlayerMelee" && level == 1 ? new GrantedSkill(id, 4474, 4430, stats) : null;
         int effectRow = EffectRow(effect);
         if (effectRow < 0 || effectRow >= t.StatSets.Count) return null;
@@ -1264,7 +1310,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// </summary>
     public GrantedSkill? FindByRow(ushort id, int effectRow, int level, IReadOnlyList<(uint, int)>? stats = null)
     {
-        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
+        if (_tables is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
         int statSet = t.StatSets[effectRow];
         int gepl = PickLevel(t.PerLevel, effectRow, level), gesspl = PickLevel(t.StatSetsPerLevel, statSet, level);
         return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
@@ -1493,11 +1539,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
         // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
         // table before.
-        Dictionary<int, (int GemLevel, int PlayerLevelReq)[]>? _levelReqsBySet;
-        public (int GemLevel, int PlayerLevelReq)[] LevelReqsOf(int statSet) =>
-            LazyInitializer.EnsureInitialized(ref _levelReqsBySet, () => GemLevelReqs.GroupBy(r => r.StatSet)
-                .ToDictionary(g => g.Key, g => g.Select(r => (r.GemLevel, r.PlayerLevelReq)).ToArray()))
-                .GetValueOrDefault(statSet, []);
+        readonly Dictionary<int, (int GemLevel, int PlayerLevelReq)[]> _levelReqsBySet = GemLevelReqs.GroupBy(r => r.StatSet)
+            .ToDictionary(g => g.Key, g => g.Select(r => (r.GemLevel, r.PlayerLevelReq)).ToArray());
+        public (int GemLevel, int PlayerLevelReq)[] LevelReqsOf(int statSet) => _levelReqsBySet.GetValueOrDefault(statSet, []);
 
         public static Tables? Load(string folder)
         {

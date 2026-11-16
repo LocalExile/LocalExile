@@ -10,6 +10,12 @@ using GameServer.Core;
 /// </summary>
 public sealed class QuestStates
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Default = Load();
+    }
+
     public sealed record State(int Order, IReadOnlyList<string> Present, IReadOnlyList<string> Missing, string Text, string Message)
     {
         public bool Matches(Func<string, bool> has) => Present.All(has) && !Missing.Any(has);
@@ -44,7 +50,7 @@ public sealed class QuestStates
         || Current(quest, has) is { } shown && Of(quest).Any(s => s.Order == 0 && (s.Present.Order().SequenceEqual(shown.Present.Order())
             || s.Text == shown.Text && shown.Present.All(s.Present.Contains)));
 
-    public static readonly Lazy<QuestStates> Default = new(() => Load());
+    public static QuestStates Default = default!;
 
     public static QuestStates Load(string folder = "data")
     {

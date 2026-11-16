@@ -18,10 +18,38 @@ using GameServer.Core;
 /// 5. In a map, the kill also rolls a base card and scarab chance; the card and scarab picks follow the published
 ///    weights (<c>drop_item_weights</c>, poedata MLE) when they cover the monster's level, and are uniform otherwise.
 /// </summary>
-public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool hardMode = false, AtlasCatalog? maps = null,
-    UniqueCatalog? uniques = null, UniqueWeightProvider? uniqueWeights = null, LeagueRules? league = null)
+public sealed class ItemDrops
 {
-    readonly UniqueWeightProvider _uniqueWeightProvider = uniqueWeights ?? UniqueWeightProvider.Default;
+    readonly ItemCatalog catalog;
+    readonly ItemRolls? rolls;
+    readonly string folder;
+    readonly bool hardMode;
+    readonly AtlasCatalog? maps;
+    readonly UniqueCatalog? uniques;
+    readonly UniqueWeightProvider? uniqueWeights;
+    readonly LeagueRules? league;
+
+    public ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool hardMode = false, AtlasCatalog? maps = null,
+    UniqueCatalog? uniques = null, UniqueWeightProvider? uniqueWeights = null, LeagueRules? league = null)
+    {
+        this.catalog = catalog;
+        this.rolls = rolls;
+        this.folder = folder;
+        this.hardMode = hardMode;
+        this.maps = maps;
+        this.uniques = uniques;
+        this.uniqueWeights = uniqueWeights;
+        this.league = league;
+        _uniqueWeightProvider = uniqueWeights ?? UniqueWeightProvider.Default;
+        _pools = Build(catalog, folder, hardMode, league);
+        _cards = LoadCards();
+        _cardWeights = PublishedWeights("card");
+        _scarabWeights = PublishedWeights("scarab");
+        _scarabs = LoadScarabs(catalog, folder);
+        _uniqueWeightsFile = LoadUniqueWeights(folder, hardMode);
+    }
+
+    readonly UniqueWeightProvider _uniqueWeightProvider;
 
     /// <summary>A dropped piece of equipment's chances by the monster's rarity, each of what the earlier ones left: first
     /// unique, then rare, then magic.</summary>
@@ -95,7 +123,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     sealed record Pools(List<(ItemCatalog.BaseType Type, double Weight)> Currency,
         Dictionary<string, List<ItemCatalog.BaseType>> Equipment, List<ItemCatalog.BaseType> Flasks, List<ItemCatalog.BaseType> Gems);
 
-    private readonly Lazy<Pools> _pools = new(() => Build(catalog, folder, hardMode, league));
+    private readonly Pools _pools;
 
     // The uniques by base type Id, for the catalogue they were built from (the database may replace it while running).
     sealed record UniqueIndex(IReadOnlyList<UniqueCatalog.Definition> From, Dictionary<string, List<UniqueCatalog.Definition>> ByBase);
@@ -103,25 +131,27 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
 
-    readonly Lazy<List<ItemCatalog.BaseType>> _cards = new(() =>
+    readonly List<ItemCatalog.BaseType> _cards;
+
+    List<ItemCatalog.BaseType> LoadCards()
     {
         var list = new List<ItemCatalog.BaseType>();
         for (int row = 0; catalog.Row(row) is { } t; row++)
             if (t.Class == "DivinationCard" && t.Supported && !string.IsNullOrEmpty(t.Name)) list.Add(t);
         return list;
-    });
+    }
 
     // The published weights (poedata MLE, the drop_item_weights table); empty until the database is seeded.
-    readonly Lazy<Dictionary<string, double>> _cardWeights = new(() => PublishedWeights("card"));
-    readonly Lazy<Dictionary<string, double>> _scarabWeights = new(() => PublishedWeights("scarab"));
+    readonly Dictionary<string, double> _cardWeights;
+    readonly Dictionary<string, double> _scarabWeights;
 
     /// <summary>A random divination card. When the published card weights cover cards at this level, the pick follows
     /// them; otherwise it is uniform among the client's cards. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Card(Random rng, int level = 0)
     {
-        if (PickPublished(_cards.Value, "card", level, rng) is { } weighted)
+        if (PickPublished(_cards, "card", level, rng) is { } weighted)
             return new Drop(ItemCatalog.Create(weighted) with { StackSize = 1 }, weighted);
-        var cards = Droppable(_cards.Value, level);
+        var cards = Droppable(_cards, level);
         if (cards.Count == 0) return null;
         var type = cards[rng.Next(cards.Count)];
         return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
@@ -137,7 +167,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// no published weight covers one, so the caller keeps its uniform fallback.</summary>
     ItemCatalog.BaseType? PickPublished(List<ItemCatalog.BaseType> types, string category, int level, Random rng)
     {
-        var weights = category == "card" ? _cardWeights.Value : _scarabWeights.Value;
+        var weights = category == "card" ? _cardWeights : _scarabWeights;
         if (weights.Count == 0) return null;
         var weighted = types.Where(t => weights.ContainsKey(t.Id) && Allowed(t, level))
             .Select(t => (Value: t, Weight: weights[t.Id])).ToList();
@@ -149,7 +179,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     static List<ItemCatalog.BaseType> Droppable(List<ItemCatalog.BaseType> types, int level) =>
         level <= 0 ? types : types.Where(t => Allowed(t, level)).ToList();
 
-    readonly Lazy<List<ItemCatalog.BaseType>> _scarabs = new(() => LoadScarabs(catalog, folder));
+    readonly List<ItemCatalog.BaseType> _scarabs;
 
     static List<ItemCatalog.BaseType> LoadScarabs(ItemCatalog catalog, string folder)
     {
@@ -177,9 +207,9 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// otherwise it is uniform among the client's scarabs. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
     public Drop? Scarab(Random rng, int level = 0)
     {
-        if (PickPublished(_scarabs.Value, "scarab", level, rng) is { } weighted)
+        if (PickPublished(_scarabs, "scarab", level, rng) is { } weighted)
             return new Drop(ItemCatalog.Create(weighted) with { StackSize = 1 }, weighted);
-        var scarabs = Droppable(_scarabs.Value, level);
+        var scarabs = Droppable(_scarabs, level);
         if (scarabs.Count == 0) return null;
         var type = scarabs[rng.Next(scarabs.Count)];
         return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
@@ -196,7 +226,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && Scarab(rng, monsterLevel) is { } scarab)
             yield return scarab;
         if (mods.CurrencyDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CurrencyDropChance, 0, 80)
-            && Pick(_pools.Value.Currency.Where(c => c.Type.DropLevel <= monsterLevel).ToList(), rng) is { } currency)
+            && Pick(_pools.Currency.Where(c => c.Type.DropLevel <= monsterLevel).ToList(), rng) is { } currency)
             yield return new Drop(ItemCatalog.Create(currency) with { StackSize = 1 }, currency);
     }
 
@@ -387,7 +417,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     // One item: its kind, for equipment its slot and base, then its rarity (the class summary's stages 2 to 4).
     Drop? RollOne(int level, int itemLevel, Chances chances, Random rng)
     {
-        var pools = _pools.Value;
+        var pools = _pools;
         double currencyWeight = 0.35 * SystemSettings.Default.DropMultiplier("currency");
         double gemWeight = 0.04 * SystemSettings.Default.DropMultiplier("gems");
         double flaskWeight = 0.08 * SystemSettings.Default.DropMultiplier("flasks");
@@ -494,9 +524,9 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     public double UniqueWeight(string name) =>
         _uniqueWeightProvider.HasTable
             ? _uniqueWeightProvider.Weight(name, hardMode)
-            : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(UniqueCatalog.NameKey(name)) : 1;
+            : _uniqueWeightsFile is { Count: > 0 } weights ? weights.GetValueOrDefault(UniqueCatalog.NameKey(name)) : 1;
 
-    private readonly Lazy<Dictionary<string, double>> _uniqueWeightsFile = new(() => LoadUniqueWeights(folder, hardMode));
+    private readonly Dictionary<string, double> _uniqueWeightsFile;
 
     static Dictionary<string, double> LoadUniqueWeights(string folder, bool hardMode)
     {

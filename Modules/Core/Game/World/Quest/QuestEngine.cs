@@ -14,6 +14,12 @@ using GameServer.Core;
 // 0xbf revisions keep their order.
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadQuestEngineData()
+    {
+        ChestModels = LoadChestModels();
+    }
+
     // Ids of the server's walk blockers that mirror the client's own quest blockers (Quests.BlockerRule): blockers only,
     // never created on the client (it spawns those objects itself from the room).
     public const uint QuestBlockerFirstId = 0xfe000000;
@@ -169,11 +175,11 @@ public static partial class Game
             flags.Add(type.Remove!);
         }
         flags.AddRange(QuestItems.HandInsOfRow(talk, carriedTypes));
-        if (Npcs.Value.Find(npcId) is { } speaker)
+        if (Npcs.Find(npcId) is { } speaker)
         {
             var all = new HashSet<string>(Quests.Names(PlayerQuestFlags(conn)));
             all.UnionWith(conn.QuestFlagsSnapshot());
-            flags.AddRange(QuestItems.SiblingHandIns(talk, Npcs.Value.TalksOf(speaker), all, carriedTypes));
+            flags.AddRange(QuestItems.SiblingHandIns(talk, Npcs.TalksOf(speaker), all, carriedTypes));
         }
         flags = [.. flags.Where(f => !Has(f)).Distinct()];
         if (flags.Count > 0) await ConsumeQuestItemsAndSet(remote, stream, ciphers, conn, flags, $"{talk.Option} (NPCTalk {talk.Row})");
@@ -208,7 +214,7 @@ public static partial class Game
     // ---- static rewards (QuestStaticRewards) ----
 
     // The passive skill points the character's quest flags give (a1q6/a1q7/a1q9 books …): part of 0x33's extra_skill_points.
-    public static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.Value.PassivePoints(conn.QuestFlagsSnapshot());
+    public static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.PassivePoints(conn.QuestFlagsSnapshot());
 
     // QuestStaticRewards' permanent stats as stat sources, as a passive's would be: the bandit lords' help rewards (a2q1: 8%
     // movement speed, a2q2: +15% to all elemental resistances, a2q3: +40 life). Kitava's two penalties are
@@ -222,7 +228,7 @@ public static partial class Game
             if (slot.Flags is null || !slot.Flags.SetEquals(conn.QuestFlags))
             {
                 slot.Flags = [.. conn.QuestFlags];
-                slot.Stats = QuestStaticRewards.Default.Value.Stats(slot.Flags.Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
+                slot.Stats = QuestStaticRewards.Default.Stats(slot.Flags.Except(ResistancePenaltyAct5).Except(ResistancePenaltyAct10));
             }
             rewards = slot.Stats;
         }
@@ -242,11 +248,11 @@ public static partial class Game
 
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
     public static bool ChangesQuestStats(IEnumerable<string> changed) =>
-        changed.Any(f => !ResistancePenaltyAct5.Contains(f) && !ResistancePenaltyAct10.Contains(f) && QuestStaticRewards.Default.Value.Find(f) is { Stats.Count: > 0 });
+        changed.Any(f => !ResistancePenaltyAct5.Contains(f) && !ResistancePenaltyAct10.Contains(f) && QuestStaticRewards.Default.Find(f) is { Stats.Count: > 0 });
 
     // Whether a flag change moves what QuestStaticRewards gives (the tree must be sent again).
     public static bool ChangesStaticRewards(IEnumerable<string> changed) =>
-        changed.Any(f => QuestStaticRewards.Default.Value.Find(f) is { PassivePoints: > 0 } or { RefundPoints: > 0 } or { AscendancyPoints: > 0 });
+        changed.Any(f => QuestStaticRewards.Default.Find(f) is { PassivePoints: > 0 } or { RefundPoints: > 0 } or { AscendancyPoints: > 0 });
 
     // ---- kills ----
 
@@ -647,7 +653,9 @@ public static partial class Game
     // ---- quest chests (Quests.ChestRule) ----
 
     // Chests.dat AOFiles: a chest's model by its Id.
-    public static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
+    public static Dictionary<string, string> ChestModels = default!;
+
+    static Dictionary<string, string> LoadChestModels()
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!ClientTables.Has("Chests")) return models;
@@ -656,9 +664,9 @@ public static partial class Game
             if (r.Text("Id") is { Length: > 0 } id && r.Texts("AOFiles").FirstOrDefault() is { Length: > 0 } model)
                 models.TryAdd(id, model);
         return models;
-    });
+    }
 
-    public static string? QuestChestModel(string type) => ChestModels.Value.GetValueOrDefault(type);
+    public static string? QuestChestModel(string type) => ChestModels.GetValueOrDefault(type);
 
     // A quest chest's Positioned size (Chest.ot object_size 2, blocking).
     public const int QuestChestSize = 1;

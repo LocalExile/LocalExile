@@ -4,24 +4,35 @@ using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadLeagueModesData()
+    {
+        HardModeItems = new("data", hardMode: true);
+        HardModeSkills = new("data", hardMode: true);
+        HardModePassives = new("data", hardMode: true);
+        HardModeRolls = new(HardModeItems);
+        HardModeUniques = new(HardModeItems);
+        HardModeEssences = new(HardModeItems, HardModeRolls);
+    }
+
     // The game files' two sets of data; a league picks one (league.json "dataSet").
-    public static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
-    public static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
-    public static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
-    public static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
-    public static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
-    public static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
+    public static ItemCatalog HardModeItems = default!;
+    public static SkillCatalog HardModeSkills = default!;
+    public static PassiveTree HardModePassives = default!;
+    public static ItemRolls HardModeRolls = default!;
+    public static UniqueCatalog HardModeUniques = default!;
+    public static EssenceCrafting HardModeEssences = default!;
     // Drops read the league's gem rules when they are built, so each HardMode league has its own.
     public static readonly ConcurrentDictionary<string, Lazy<ItemDrops>> HardModeDrops = new();
 
-    public static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems.Value : Items;
-    public static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills.Value : Skills;
-    public static PassiveTree PassivesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModePassives.Value : Passives;
-    public static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls.Value : Rolls;
-    public static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques.Value : Uniques;
-    public static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences.Value : Essences;
+    public static ItemCatalog ItemsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeItems : Items;
+    public static SkillCatalog SkillsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeSkills : Skills;
+    public static PassiveTree PassivesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModePassives : Passives;
+    public static ItemRolls RollsFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeRolls : Rolls;
+    public static UniqueCatalog UniquesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeUniques : Uniques;
+    public static EssenceCrafting EssencesFor(ClientState conn) => LeagueFor(conn).HardMode ? HardModeEssences : Essences;
     public static ItemDrops DropsFor(ClientState conn) => LeagueFor(conn) is { HardMode: true } league
-        ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems.Value, HardModeRolls.Value, hardMode: true, uniques: HardModeUniques.Value, league: league.Rules))).Value : Drops;
+        ? HardModeDrops.GetOrAdd(league.Id, _ => new(() => new(HardModeItems, HardModeRolls, hardMode: true, uniques: HardModeUniques, league: league.Rules))).Value : Drops;
 
     public sealed class VitalsAdmission
     {

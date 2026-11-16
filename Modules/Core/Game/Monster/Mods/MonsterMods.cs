@@ -9,8 +9,14 @@ using DamageTypes = GameServer.Core.World.DamageTypes;
 
 public static partial class Game
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadMonsterModsData()
+    {
+        MonsterModRolls = new MonsterModCatalog(Items.Mods);
+    }
+
     // Monster-domain Mods.dat rows, their names and effects; loaded with the first magic or rare monster.
-    public static readonly Lazy<MonsterModCatalog> MonsterModRolls = new(() => new MonsterModCatalog(Items.Mods));
+    public static MonsterModCatalog MonsterModRolls = default!;
 
     // Per instance, the mods its magic monsters share: "all monsters in an instance that are the same or very similar
     // will have the same magic monster modifier" (3.19.0 patch notes). Very similar: the same name (The Coast's
@@ -24,7 +30,7 @@ public static partial class Game
         MonsterModSet? kept, bool alone)
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
-        var rolls = MonsterModRolls.Value;
+        var rolls = MonsterModRolls;
         if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
         var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
         lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);

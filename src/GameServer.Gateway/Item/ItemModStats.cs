@@ -186,14 +186,14 @@ public static class ItemModStats
         public readonly LocalItems Default = new();
         public readonly System.Runtime.CompilerServices.ConditionalWeakTable<IGameLogic, LocalItems> Games = new();
     }
-    static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules>? LocalCatalogs;
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules> LocalCatalogs = new();
 
     public static Dictionary<string, int> Local(Item item, ModCatalog mods)
     {
         // A replacement game supplies a new rule generation. Weak keys let its old load context be collected.
         // Return a copy: callers merge their own values into these dictionaries.
         var game = Program.GameLogicOrNull;
-        var rules = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods);
+        var rules = LocalCatalogs.GetOrCreateValue(mods);
         var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
         return new(cache.GetValue(item, current => new(SumValues(
             Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats);

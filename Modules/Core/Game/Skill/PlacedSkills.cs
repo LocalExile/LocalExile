@@ -6,14 +6,22 @@ using GameServer.Core;
 
 public static partial class Game
 {
-    static readonly Lazy<IReadOnlyDictionary<int, string>> TrapVisuals = new(() =>
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadPlacedSkillsData()
+    {
+        TrapVisuals = LoadTrapVisuals();
+    }
+
+    static IReadOnlyDictionary<int, string> TrapVisuals = default!;
+
+    static IReadOnlyDictionary<int, string> LoadTrapVisuals()
     {
         return ClientTables.Table("SkillTrapVariations").ToDictionary(r => r.Int("Id"), r => r.Text("Metadata")!);
-    });
+    }
     /// <summary>A trap's or mine's object type: Metadata/MiscellaneousObjects/RemoteMine, or the SkillTrapVariations row
     /// its trap_variation names (the Rogue Exiles' 12: TrapVisible), LightningTrap without one.</summary>
     public static string PlacedObjectPath(bool mine, Func<string, int> get) => mine ? "Metadata/MiscellaneousObjects/RemoteMine"
-        : TrapVisuals.Value.GetValueOrDefault(get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
+        : TrapVisuals.GetValueOrDefault(get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
 
     /// <summary>How long a thrown trap or a placed mine flies before it lands (trap_throw_arm_time_override, else .975 s
     /// for a trap, .6 s for a mine), and the half second after landing it arms in.</summary>

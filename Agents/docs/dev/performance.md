@@ -190,11 +190,36 @@ allocation, not JIT code quality).
 - **One Oodle decoder per machine** was not done: worktrees may run different code and tables, so a shared decoder would
   have to be stateless and version-agnostic. The per-stack worker now runs only around generations instead.
 
+## Game data in memory (2026-11-16)
+
+Measured before the change, with a fresh Gateway and the profiler on: entering The Coast took about 15 s, and 86 % of
+that was summon lookups that opened client.db for each call (`ClientTables.Has`: open, PRAGMA, query, close, 11 ms a
+call). Putting the first item in the sell window took 3.6 s, because the vendor recipes were built lazily. Nessa's first
+purchase tab took 0.9 s. The first cast, hit and loot paid the same kind of cost. Each first time was a catalog built
+lazily, under a lock, on the connection's thread.
+
+Now the Gateway keeps its data the way a game server does (TrinityCore loads its stores, then calls
+`World::SetInitialWorldSettings`):
+
+- **Client tables.** `ClientTables.LoadAll` reads all 992 tables (1.02 M rows) into a columnar store, then closes the
+  database. Each table is read through raw SQLite statements on 8 threads, largest first, and each list column is
+  parsed once. It takes 1.5 s and uses 177 MB of heap; the old row reader took 4.2 s and 444 MB. A cell costs 72 ns
+  against 5.1 µs over an open connection, `Has` costs 20 ns, and `By(column)` is an index kept with the table.
+  Processes that do not load everything (Auth, tools, tests) read each table on its first use, over one connection
+  they keep open.
+- **Catalogs.** `WorldLoader.Load` builds every Gateway catalog in a fixed order, one log line per step, before the
+  modules load. Each module's `LoadData` builds its own catalogs in its module load, so the whole world is built before
+  `listening`. The fields are plain fields, with no `Lazy`, no `??=` and no static constructors. If a catalog reads
+  another one before that one is built, it throws a null reference at startup. `GameDataLoadingTests` fails when a
+  `Lazy` comes back outside its allow-list.
+- **Cost.** A Debug Gateway listens about 10 s after it starts: tables 1.5 s, world 1.8 s, the Game module's data
+  2.1 s. Its private memory after startup is about 580 MB, because both data sets (the normal one and the hard-mode
+  one) are built up front instead of on first use.
+
 ## Where the remaining cost is
 
-- **Generated tables.** The client tables and the generated ones (object types, room points, ...) are read as columnar
-  rows (`ClientTable`, straight from client.db, cached per version of the database); no generated file is parsed as JSON
-  at run time any more.
+- **Memoized lookups.** A few per-key memos stay: cast-on-death, blood charges, the item roll pools, and the drops of
+  each hard-mode league, which need every module's league rules. Each one is a hash of a small computation, not a load.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot
@@ -202,5 +227,4 @@ allocation, not JIT code quality).
   every 16 ms recovery step (~25 % of the CPU and half the allocation, measured by leaving it out); the recovery loop
   builds it three times every 250 ms (life rate, mana rate, recovery stats). The snapshot configures leech and
   fortification as it goes, so reusing one needs an invalidation scheme for every stat source, not a cache.
-- **The Gateway's idle heap** (~71 MB) is mostly the mod and item catalogues `GameData.Open` loads at startup (a player
-  needs them anyway); Patch is a bare ASP.NET host (18 MB).
+- **The Gateway's memory** is now mostly game data ("Game data in memory" above); Patch is a bare ASP.NET host (18 MB).

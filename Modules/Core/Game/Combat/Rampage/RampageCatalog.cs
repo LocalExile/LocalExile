@@ -7,8 +7,16 @@ using GameServer.Core;
 /// granted effect, GEPL and stat-set level rows. Animated weapons retain their own variety/mod/skill records.
 /// Production data always defaults to the repository's data/; a fixture may supply a different folder explicitly.
 /// </summary>
-public sealed class RampageCatalog(string folder = "data")
+public sealed class RampageCatalog
 {
+    readonly string folder;
+
+    public RampageCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        data = Load(folder);
+    }
+
     public const ushort BuffDefinitionRow = 328;
     // Native Game.exe: HUD constructor 0x14024b810, row328 observer 0x14024c6c0 (ID 0x149),
     // count/threshold selector 0x14024d3f0 (Buff+0x40), HUD update 0x14024cb00 (duration +0x1c/+0x18).
@@ -50,12 +58,12 @@ public sealed class RampageCatalog(string folder = "data")
 
     sealed record Data(string? Error, IReadOnlyList<Tier> Tiers, IReadOnlyList<AnimatedWeapon> Weapons,
         IReadOnlyDictionary<string, uint> StatKeys);
-    readonly Lazy<Data> data = new(() => Load(folder));
-    public string? Error => data.Value.Error;
-    public IReadOnlyList<Tier> Tiers => data.Value.Tiers;
-    public IReadOnlyList<AnimatedWeapon> AnimatedWeapons => data.Value.Weapons;
+    readonly Data data;
+    public string? Error => data.Error;
+    public IReadOnlyList<Tier> Tiers => data.Tiers;
+    public IReadOnlyList<AnimatedWeapon> AnimatedWeapons => data.Weapons;
     public IReadOnlyList<int> Thresholds => Array.AsReadOnly(Tiers.Select(t => t.Threshold).ToArray());
-    public uint? StatKey(string name) => data.Value.StatKeys.TryGetValue(name, out uint key) ? key : null;
+    public uint? StatKey(string name) => data.StatKeys.TryGetValue(name, out uint key) ? key : null;
 
     static readonly (int Threshold, int Variety, int Effect, string Id, Kind Kind)[] Expected =
     [

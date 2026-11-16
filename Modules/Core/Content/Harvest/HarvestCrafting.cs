@@ -12,8 +12,18 @@ namespace GameServer.Modules.Harvest;
 /// in HarvestCraftingItem, and refuses the recipes for systems it does not model (influences, exchanges, enchants, gems).
 /// Costs are the exact lifeforce types and amounts from the table.
 /// </summary>
-public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
+public sealed class HarvestCrafting
 {
+    readonly IItemCrafting items;
+    readonly string folder;
+
+    public HarvestCrafting(IItemCrafting items, string folder = "data")
+    {
+        this.items = items;
+        this.folder = folder;
+        _all = Load(items, folder);
+    }
+
     public enum Operation { Unsupported, ReforgeTag, ReforgeAffinity, AugmentTag, Convert }
 
     public sealed record Recipe(ushort Hash, string Id, Operation Operation, string? Tag, int Affinity,
@@ -34,8 +44,8 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
         "item_generation_cannot_roll_attack_affixes", "item_generation_cannot_roll_caster_affixes",
     ];
 
-    readonly Lazy<IReadOnlyList<Recipe>> _all = new(() => Load(items, folder));
-    public IReadOnlyList<Recipe> All => _all.Value;
+    readonly IReadOnlyList<Recipe> _all;
+    public IReadOnlyList<Recipe> All => _all;
     public Recipe? ByHash(ushort hash) => All.FirstOrDefault(r => r.Hash == hash);
 
     /// <summary>The crafted item and its exact cost, or null when the recipe is unknown, unsupported or does not fit

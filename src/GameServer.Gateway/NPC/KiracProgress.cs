@@ -3,16 +3,25 @@ using GameServer.Core;
 
 public static class KiracProgress
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Levels = LoadLevels();
+    }
+
     public sealed record Level(int MapAreaLevelOffered, int MapCompletion, int ShopRerollCost)
     {
         public int Tier => Math.Clamp(MapAreaLevelOffered - 67,1,16);
     }
-    static readonly Lazy<Level[]> Levels = new(() => [.. ClientTables.Table("KiracLevels")
-        .Select(r => new Level(r.Int("MapAreaLevelOffered"), r.Int("MapCompletion"), r.Int("ShopRerollCost")))]);
+    static Level[] Levels = default!;
+
+    static Level[] LoadLevels() =>
+        [.. ClientTables.Table("KiracLevels")
+        .Select(r => new Level(r.Int("MapAreaLevelOffered"), r.Int("MapCompletion"), r.Int("ShopRerollCost")))];
     public static Level For(AccountStash? account)
     {
         int count = Completed(account).Count;
-        return Levels.Value.Where(r => r.MapCompletion <= count).OrderByDescending(r => r.MapCompletion).First();
+        return Levels.Where(r => r.MapCompletion <= count).OrderByDescending(r => r.MapCompletion).First();
     }
     public static HashSet<string> Completed(AccountStash? account) =>
         JsonSerializer.Deserialize<HashSet<string>>(account?.ModuleData("vendors.completedMaps") ?? "[]")!;

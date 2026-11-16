@@ -8,10 +8,23 @@ using GameServer.Core;
 /// deserialized components from data/object-types.json (`python -I scripts/re/ot_components.py --all --json
 /// data/object-types.json`). Without that file every variety is assumed to have the base Monster list, which is wrong
 /// for about half of them (StateMachine, DiesAfterTime …) and then the client shows "Buffer Underflow".
-/// Both files are game data: they stay in data/ and are loaded on first use.
+/// Both files are game data: they stay in data/ and are read when the catalog is made.
 /// </summary>
-public sealed class MonsterCatalog(string folder = "data")
+public sealed class MonsterCatalog
 {
+    readonly string folder;
+
+    public MonsterCatalog(string folder = "data")
+    {
+        this.folder = folder;
+        _resistance = new(folder);
+        _rows = Load(folder);
+        _life = LifeTables.Load(folder);
+        _mapBoss = MapBossScalingTable.Load(folder);
+        _takeHit = LoadTakeHit();
+        _corpse = LoadCorpse();
+    }
+
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,
         int MovementSpeed = 30, int ObjectSize = 3, int AggroRange = 60, IReadOnlyList<int>? GrantedEffects = null,
@@ -49,13 +62,13 @@ public sealed class MonsterCatalog(string folder = "data")
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
-    private readonly Lazy<(List<Variety> Rows, string? Error)> _rows = new(() => Load(folder));
-    private readonly Lazy<LifeTables?> _life = new(() => LifeTables.Load(folder));
-    private readonly Lazy<MapBossScalingTable?> _mapBoss = new(() => MapBossScalingTable.Load(folder));
-    private readonly MonsterResistanceCatalog _resistance = new(folder);
-    private readonly Lazy<Dictionary<string, HitAnimation[]>> _takeHit = new(LoadTakeHit);
+    private readonly (List<Variety> Rows, string? Error) _rows;
+    private readonly LifeTables? _life;
+    private readonly MapBossScalingTable? _mapBoss;
+    private readonly MonsterResistanceCatalog _resistance;
+    private readonly Dictionary<string, HitAnimation[]> _takeHit;
 
-    public string? Error => _rows.Value.Error;
+    public string? Error => _rows.Error;
 
     /// <summary>The variety's elemental/chaos base resistance at this level, before spawned monster modifiers.</summary>
     public int? BaseResistance(Variety variety, int level, GameServer.Core.World.DamageType type) =>
@@ -71,16 +84,16 @@ public sealed class MonsterCatalog(string folder = "data")
     /// row (the monster then just does not flinch). A clip without a length (a file from before "lengths") has 0 s, so
     /// the 0.4 s minimum applies.
     /// </summary>
-    public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
+    public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.GetValueOrDefault(id) ?? [];
 
     /// <summary>
     /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
     /// remove_collidability event; client.db's monster_takehit death_unblock), null when it has none: the client then
     /// clears the body with the death itself. 150 without the table (most varieties' value).
     /// </summary>
-    public int? CorpseUnblockMs(string id) => _corpse.Value is { } known ? known.GetValueOrDefault(id) : 150;
+    public int? CorpseUnblockMs(string id) => _corpse is { } known ? known.GetValueOrDefault(id) : 150;
 
-    private readonly Lazy<Dictionary<string, int?>?> _corpse = new(LoadCorpse);
+    private readonly Dictionary<string, int?>? _corpse;
 
     static Dictionary<string, int?>? LoadCorpse()
     {
@@ -115,7 +128,7 @@ public sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public int? BaseLife(Variety v, byte level)
     {
-        if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
         var row = t.Levels[level - 1];
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
         int column = type.AltLife1 ? row.AltLife1 : type.AltLife2 ? row.AltLife2 : type.Minion ? row.MinionLife : row.MonsterLife;
@@ -147,7 +160,7 @@ public sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public (int Min, int Max)? BaseDamage(Variety v, byte level)
     {
-        if (_life.Value is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
         var row = t.Levels[level - 1];
         double d = (type.Minion ? row.MinionDamage : row.Damage) * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
@@ -175,26 +188,26 @@ public sealed class MonsterCatalog(string folder = "data")
     /// level penalty (Progression.MonsterExperience): DefaultMonsterStats row level − 1 `Experience`. Null when the
     /// tables are missing.</summary>
     public int? BaseExperience(Variety v, byte level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Experience : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Experience : null;
 
     /// <summary>A normal monster's damage at this level, before a variety's multiplier: DefaultMonsterStats `Damage`.
     /// Used by the defence probe; the actual hit spread is in <see cref="BaseDamage(Variety, byte)"/>.</summary>
     public int? BaseDamage(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? (int)Math.Round(t.Levels[level - 1].Damage) : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? (int)Math.Round(t.Levels[level - 1].Damage) : null;
 
     /// <summary>A monster's accuracy at this level: DefaultMonsterStats `Accuracy`.</summary>
     public int? BaseAccuracy(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;
 
     /// <summary>A monster's evasion rating at this level: DefaultMonsterStats `Evasion` (the same table PoB uses for
     /// <c>monsterEvasionTable</c>). Null when the tables are missing.</summary>
     public int? BaseEvasion(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
 
     /// <summary>The evasion of an evasive (high-dexterity) monster at this level: DefaultMonsterStats `EvasiveEvasion`.
     /// The character panel's "Chance to Hit Evasive Monsters" row uses it.</summary>
     public int? BaseEvasiveEvasion(int level) =>
-        _life.Value is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
+        _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
 
     /// <summary>
     /// The life and damage a unique map boss has more than its base life and hit at this map level: MonsterMapBossDifficulty
@@ -203,7 +216,7 @@ public sealed class MonsterCatalog(string folder = "data")
     /// life). Poedb's level-83 King in the Mists life (45,614,731) is this multiplier over 15,319 x 18 x 7.98.
     /// </summary>
     public (double Life, double Damage) MapBossScaling(int level) =>
-        _mapBoss.Value is { } s && level >= 1 && level < s.BossLife.Length
+        _mapBoss is { } s && level >= 1 && level < s.BossLife.Length
             ? (1 + (s.BossLife[level] + s.MapLife[level]) / 100.0,
                1 + (s.BossDamage[level] + s.MapDamage[level]) / 100.0)
             : (1, 1);
@@ -253,11 +266,11 @@ public sealed class MonsterCatalog(string folder = "data")
     /// <summary>A MonsterVarieties row by number, or by Id: exact, then the last path segment, then any part of it,
     /// then the display name. Several matches: the first one the blob writer supports.</summary>
     /// <summary>Every MonsterVarieties row (the launcher's suggestions).</summary>
-    public IReadOnlyList<Variety> All => _rows.Value.Rows;
+    public IReadOnlyList<Variety> All => _rows.Rows;
 
     public Variety? Find(string query)
     {
-        var rows = _rows.Value.Rows;
+        var rows = _rows.Rows;
         if (int.TryParse(query, out int row)) return row >= 0 && row < rows.Count ? rows[row] : null;
         foreach (Func<Variety, bool> match in new Func<Variety, bool>[]
         {

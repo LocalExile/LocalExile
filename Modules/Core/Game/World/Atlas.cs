@@ -45,7 +45,7 @@ public static partial class Game
         Dictionary<string, int> stats = [];
         if (MapModsOf(conn) is { } mods)
             foreach (var (name, value) in mods.Stats) stats[name] = stats.GetValueOrDefault(name) + value;
-        if (MapDevices.Value.IsMapArea(conn.Layout.Hash))
+        if (MapDevices.IsMapArea(conn.Layout.Hash))
             foreach (var (name, value) in AtlasStats(conn)) stats[name] = stats.GetValueOrDefault(name) + value;
         return stats;
     }

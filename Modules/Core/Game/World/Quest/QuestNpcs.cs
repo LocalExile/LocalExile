@@ -14,11 +14,11 @@ public static partial class Game
     {
         string area = conn.Layout.Id;
         var found = new List<QuestNpc>();
-        if (Npcs.Value.Error is not null) return found;
+        if (Npcs.Error is not null) return found;
         if (TownNpcs.Of(conn.Layout.Hash) is not null)
         {
             foreach (var p in NpcCatalog.In(conn.Layout.Hash, conn.Seed))
-                if (QuestsOf(conn).ManagesNpc(area, p.Id) && Npcs.Value.Place(p) is { Supported: true } npc)
+                if (QuestsOf(conn).ManagesNpc(area, p.Id) && Npcs.Place(p) is { Supported: true } npc)
                     found.Add(new(npc, p.X, p.Y, p.Rotation, area, p.Id, null, roomState: false));
             return found;
         }
@@ -32,7 +32,7 @@ public static partial class Game
                 if (QuestsOf(conn).Npcs(area).Any(r => r.NpcType == type)) Console.WriteLine($"[gateway] {remote} {type}: no room places {(where == type ? "it" : where)}");
                 continue;
             }
-            if (Npcs.Value.Find(type) is not { Supported: true } npc || npc.Id != type)
+            if (Npcs.Find(type) is not { Supported: true } npc || npc.Id != type)
             {
                 Console.WriteLine($"[gateway] {remote} {type}: unknown or unsupported NPC");
                 continue;
@@ -54,7 +54,7 @@ public static partial class Game
         {
             if (!QuestsOf(conn).OnMonsterKilled(area, rule.Variety).Any(f => ClientHasQuestFlag(conn, f))) continue;
             if (conn.Instance.RememberedPosition(NpcAppearanceKey(rule.Variety)) is not { } at
-                || Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
+                || Npcs.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType) continue;
             var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near(at) : at;
             if (npc.Components?.Contains("Transitionable") == true)
                 npc = npc with { TransitionState = NpcTransitionStates(npc) };
@@ -132,7 +132,7 @@ public static partial class Game
             string area = viewer.Layout.Id;
             foreach (var rule in QuestsOf(viewer).AppearOnKill(area, variety.Id))
             {
-                if (Npcs.Value.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType)
+                if (Npcs.Find(rule.NpcType) is not { Supported: true } npc || npc.Id != rule.NpcType)
                 {
                     Console.WriteLine($"[gateway] {address} {rule.NpcType}: unknown or unsupported NPC");
                     continue;
