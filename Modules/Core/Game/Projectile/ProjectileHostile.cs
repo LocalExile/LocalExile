@@ -138,8 +138,8 @@ public static partial class Game
         var conn = session.Conn;
         if (OwnedFighter(conn, contact.Target.Id) is { } golem)
         {
-            bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack,
-                Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: shot.Attack.Projectile?.Lobbed == true);
+            bool landed = GolemTakeHitLocked(conn, golem, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier * shot.MinionDamageFactor) },
+                Math.Max(AreaTime(conn), contact.At / (double)ProjectileRuntime.QuantaPerSecond), area: contact.IsArea || shot.Attack.Projectile?.Lobbed == true);
             session.Enqueue(() => PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn));
             return landed ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
         }
@@ -161,7 +161,7 @@ public static partial class Game
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
         var here = conn.Walk.Position(now);
         var from = ((int)Math.Round(contact.Position.X), (int)Math.Round(contact.Position.Y));
-        return CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack, now, here, from,
+        return CommitMonsterHitLocked(session.remote, conn, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) }, now, here, from,
             checkRange: false, sequence: shot.Sequence);
     }
 }
@@ -171,6 +171,7 @@ public static partial class Game
 /// the flight reaches the player, or, for a mortar, when it lands on them.</summary>
 public sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
 {
+    public double MinionDamageFactor { get; init; } = 1;
     /// <summary>The action that released this shot, retained for the client's hit lookup (0x141e977f0).</summary>
     public ushort Sequence { get; init; } = Game.MonsterActionSequence;
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
