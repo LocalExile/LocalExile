@@ -278,6 +278,15 @@ All eight have `IsLocal=0` and `IsWeaponLocal=0`; their stat descriptions restri
 The `AbyssAdded*DamageWithWandsJewel` modifiers supply these ranges through equipped jewels.
 They enter added damage for the attacking wand before its skill's added effectiveness, not the local weapon base.
 Other weapon families and spells do not receive them; their native panel and hit presentation remain unverified.
+
+Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
+`minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).
+Native stat description 9405 applies the range per 1% light radius **above base**. The modifier's 2-5 therefore gives
+40-100 added fire at 20% increased, before the skill's added effectiveness. Zero or negative `light_radius_+%` gives no grant.
+[PoB's LightRadiusInc](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcDefence.lua#L1655)
+corroborates the nonnegative sum of increases/reductions; current Life/ES light presentation is separate.
+Native panel/hit parity and conditional light-radius sources remain unverified.
+
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`

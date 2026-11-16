@@ -100,7 +100,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Percentage attributes, attribute-scaled pools and defences, and inherent-bonus prohibitions.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
-- Weapon-local damage and timing, and wand-only added attack ranges. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
+- Weapon-local damage and timing, wand-only ranges and light-radius-derived attack fire. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers.
   New skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.

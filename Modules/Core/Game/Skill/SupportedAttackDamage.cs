@@ -44,6 +44,10 @@ public static class SupportedAttackDamage
         var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
             new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        double lightRadiusIncrease = Math.Max(0, get("light_radius_+%"));
+        added = added.Add(DamageType.Fire, new(
+            lightRadiusIncrease * get("minimum_added_fire_damage_to_attacks_per_1%_light_radius"),
+            lightRadiusIncrease * get("maximum_added_fire_damage_to_attacks_per_1%_light_radius")));
         long dexterityGroups = Math.Max(0, get("dexterity")) / 10;
         if (weapon.LocalSources is { } source && dexterityGroups > 0)
             added = added.Add(DamageType.Cold, new(

@@ -4,20 +4,20 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class WandAddedDamageTests : IDisposable
+public sealed class AttackAddedInputTests : IDisposable
 {
-    readonly string save = Path.Combine(Path.GetTempPath(), $"wand-added-{Guid.NewGuid():N}.db");
+    readonly string save = Path.Combine(Path.GetTempPath(), $"attack-added-{Guid.NewGuid():N}.db");
     readonly IGameLogic? previous = Program.GameLogicOrNull;
     readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;
     readonly ModuleLifetime lifetime = new("Game");
     readonly ClientState conn;
 
-    public WandAddedDamageTests()
+    public AttackAddedInputTests()
     {
         Saves.Open(save);
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
-        conn = SpellTotemExecutionTests.Connection("WandAdded" + Guid.NewGuid().ToString("N"));
+        conn = SpellTotemExecutionTests.Connection("AttackAdded" + Guid.NewGuid().ToString("N"));
         conn.Clock.Stop();
         conn.Walk.Teleport(100, 100, 0);
         Set("gain_no_inherent_bonus_from_strength", 1);
@@ -44,8 +44,16 @@ public sealed class WandAddedDamageTests : IDisposable
         Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [minimum, maximum])],
     };
 
+    static Item Solaris()
+    {
+        var catalogue = new UniqueCatalog(Program.Items);
+        var definition = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Eclipse Solaris"));
+        return Assert.IsType<Item>(catalogue.Create(definition with
+        { Ranges = [new("LightRadiusUnique__1", 0, 20, 20)] }, new Random(17)));
+    }
+
     [Fact]
-    public void Wand_item_ranges_reach_attacks_once_with_added_effectiveness_and_exclude_other_weapons_and_spells()
+    public void Equipped_wand_and_light_radius_inputs_preserve_attack_scope_and_added_effectiveness()
     {
         var items = Game.ItemsOf(conn);
         items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"));
@@ -105,16 +113,54 @@ public sealed class WandAddedDamageTests : IDisposable
         Assert.Equal(9, Game.CharacterPlayerStats(conn)[Key("main_hand_maximum_cold_damage")]);
         items.Remove(PlayerInventories.Belt, belt.Id);
         Assert.Equal(0, Game.CharacterPlayerStats(conn).GetValueOrDefault(Key("main_hand_maximum_cold_damage")));
+
+        items.Remove(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id);
+        items.Add(PlayerInventories.Weapon1, 0, 0, Solaris());
+        var solaris = Game.WeaponFor(conn);
+        var equipped = Game.CharacterPlayerStats(conn);
+        const string light = "light_radius_+%", minimumFire = "minimum_added_fire_damage_to_attacks_per_1%_light_radius",
+            maximumFire = "maximum_added_fire_damage_to_attacks_per_1%_light_radius";
+        Assert.Equal(20, equipped[Key(light)]);
+        Assert.Equal(2, equipped[Key(minimumFire)]);
+        Assert.Equal(5, equipped[Key(maximumFire)]);
+        Assert.All(Program.Items.Mods.ById("AddedFireDamageFromLightRadiusUnique__1")!.Stats, s => Assert.False(s.Local));
+        Assert.Equal(new DamageRange(40, 100), Game.AttackHit(solaris, equipped, melee: false)[DamageType.Fire]);
+        Assert.Equal(0, solaris.LocalDamage![DamageType.Fire].Max);
+
+        foreach (var (radius, expected) in new[]
+        {
+            (-25, new DamageRange(0, 0)), (0, new DamageRange(0, 0)),
+            (1, new DamageRange(2, 5)), (20, new DamageRange(40, 100)), (50, new DamageRange(100, 250)),
+        })
+        {
+            Set(light, radius);
+            var character = Game.CharacterPlayerStats(conn);
+            int Get(string name) => Program.Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris, Get)[DamageType.Fire]);
+            Assert.Equal(new DamageRange(expected.Min * 1.5, expected.Max * 1.5),
+                SupportedAttackDamage.Raw(solaris, Get, 20_000, 15_000)[DamageType.Fire]);
+            Assert.Equal(expected, Game.AttackHit(solaris, character, melee: false)[DamageType.Fire]);
+            Assert.Equal((int)expected.Min, character.GetValueOrDefault(Key("main_hand_minimum_fire_damage")));
+            Assert.Equal((int)expected.Max, character.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
+            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris with { WieldingWand = false }, Get)[DamageType.Fire]);
+            Assert.Equal(0, DamageStats.RawAdded(DamagePacket.Empty, Get, spell: true)[DamageType.Fire].Max);
+        }
+        conn.PlayerStats.Remove(Key(light));
+        items.SwapWeaponSets();
+        Assert.True(Game.WeaponFor(conn).Bow);
+        var inactive = Game.CharacterPlayerStats(conn);
+        Assert.Equal(0, inactive.GetValueOrDefault(Key(maximumFire)));
+        Assert.Equal(0, inactive.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
     }
 
     [Fact]
-    public async Task Wand_gem_panel_and_projectile_keep_the_equipped_jewel_at_release()
+    public async Task Wand_projectiles_capture_jewel_and_light_radius_inputs_at_release()
     {
         var items = Game.ItemsOf(conn);
         var attackType = Program.Items.FindGem("Kinetic Blast")!.Value.Type;
         var attack = ItemCatalog.Create(attackType) with
         { GemExperience = Program.Items.Gem(attackType)!.ExperienceFor(2) };
-        items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand") with
+        items.Add(PlayerInventories.Weapon1, 0, 0, Solaris() with
         { Sockets = [new(SocketColour.White, attack), new(SocketColour.White, Make("Fireball"))], Links = [1, 1] });
         items.Add(PlayerInventories.Belt, 0, 0, Make("Stygian Vise") with
         { Sockets = [new(SocketColour.Abyss, Eye("AbyssAddedLightningDamageWithWandsJewel1_", 1, 19))] });
@@ -131,10 +177,17 @@ public sealed class WandAddedDamageTests : IDisposable
         // Native level-two Kinetic Blast has 140.8% base and 141% added damage.
         Assert.Equal(new DamageRange(1.41, 26.79), Game.SupportedHitInputsFor(conn, gem.Id)!.Raw[DamageType.Lightning]);
         Assert.Equal(new DamageRange(2.82, 53.58), Game.SupportedProjectileHit(conn, gem.Id, area: false)[DamageType.Lightning]);
+        Assert.Equal(new DamageRange(56.4, 141), Game.SupportedHitInputsFor(conn, gem.Id)!.Raw[DamageType.Fire]);
         Assert.Equal(0, Game.SupportedHit(conn, spell.Id)[DamageType.Lightning].Max);
+        var spellFire = Game.SupportedHit(conn, spell.Id)[DamageType.Fire];
+        Set("light_radius_+%", 0);
+        Assert.Equal(spellFire, Game.SupportedHit(conn, spell.Id)[DamageType.Fire]);
+        Set("light_radius_+%", 20);
         var panel = Game.PlayerSkills(conn).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
         Assert.Equal(2, panel[Key("main_hand_minimum_lightning_damage")]);
         Assert.Equal(53, panel[Key("main_hand_maximum_lightning_damage")]);
+        Assert.Equal(56, panel[Key("main_hand_minimum_fire_damage")]);
+        Assert.Equal(141, panel[Key("main_hand_maximum_fire_damage")]);
 
         using var wire = new SpellTotemExecutionTests.Wire();
         var session = new Game.ProjectileSession("wand-added", wire.Stream, wire.Ciphers, conn);
@@ -148,14 +201,18 @@ public sealed class WandAddedDamageTests : IDisposable
             var use = Game.CaptureGemProjectile(conn, session, gem.Id, gem, (120, 100), new(0));
             var shot = Assert.IsType<ProjectileOffense>(use.Payload);
             Assert.Equal(new DamageRange(2.82, 53.58), shot.Hit[DamageType.Lightning]);
+            Assert.Equal(new DamageRange(56.4, 141), shot.Hit[DamageType.Fire]);
             Assert.Equal(1, use.Profile.Count);
             session.Runtime.Release(use);
             items.Remove(PlayerInventories.Belt, belt.Id);
+            Set("light_radius_+%", 0);
             Assert.Equal(0, Game.SupportedHit(conn, gem.Id)[DamageType.Lightning].Max);
+            Assert.Equal(0, Game.SupportedHit(conn, gem.Id)[DamageType.Fire].Max);
             session.AdvanceTo(ProjectileRuntime.Time(1));
-            Assert.InRange(enemy.MaxLife - enemy.Life, 2u, 53u);
+            Assert.InRange(enemy.MaxLife - enemy.Life, 58u, 194u);
             Assert.Equal(ally.MaxLife, ally.Life);
             Assert.Equal(new DamageRange(2.82, 53.58), shot.Hit[DamageType.Lightning]);
+            Assert.Equal(new DamageRange(56.4, 141), shot.Hit[DamageType.Fire]);
         }
         finally
         {
