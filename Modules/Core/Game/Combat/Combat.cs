@@ -899,7 +899,8 @@ public static partial class Game
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
         if (gem.Name is not null && IsLinkSkill(conn, gem.Effect))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
-        if (gem.Name is not null && ToggledReservation(conn, skillId) is { } reservation)
+        // A Vaal use (a Vaal aura) is never a reservation toggle.
+        if (gem.Name is not null && !vaalCast && ToggledReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
             if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
@@ -1011,6 +1012,8 @@ public static partial class Game
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
+        if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+            return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
