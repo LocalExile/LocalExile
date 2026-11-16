@@ -3,10 +3,10 @@ using GameServer.Core.World;
 
 /// <summary>A hit's stun inputs: its stunning damage (<see cref="HitReaction.StunningDamage"/>), the attacker's stun
 /// threshold reduction and stun duration increases, whether it is melee (the duration), the player whose "when you
-/// stun" gains it feeds, and the melee hit's raw fortification damage plus whether that same hit already fortified.
-/// Minions, explosions and /kill pass their plain damage and no owner.</summary>
+/// stun" gains it feeds, the melee hit's raw fortification damage plus whether that same hit already fortified, and
+/// whether a qualifying hit guarantees a stun. Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
-    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false);
+    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false);
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -32,6 +32,7 @@ public static class HitReaction
     public static double Chance(StunHit hit, double maxLife)
     {
         if (hit.Damage <= 0) return 0;
+        if (hit.Guaranteed) return 100;
         double reduction = hit.ThresholdReductionPct;
         if (reduction > 75) reduction = 75 + 25 * (reduction - 75) / (reduction - 50);
         double chance = 200 * hit.Damage / (maxLife * (1 - reduction / 100));
@@ -85,9 +86,13 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;
         var taken = MonsterTakenComponents(m, mitigated, spell);
         double total = taken.MaxTotal;
-        double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) ? 0
+        double stunning = total <= 0 || (critical && taken[DamageType.Cold].Max > 0) || Get("cannot_stun") > 0 ? 0
             : HitReaction.StunningDamage(damage, taken[DamageType.Physical].Max / total, melee);
         int local = spell ? 0 : MainHandLocalSources(conn)?.GetValueOrDefault("local_stun_threshold_reduction_+%") ?? 0;
-        return new(stunning, Get("base_stun_threshold_reduction_+%") + local, Get("base_stun_duration_+%"), melee, conn);
+        // Sample before the caller applies this hit: a damaging hit can leave its previously full-life target injured.
+        bool fullLife = m.Life > 0 && m.Life == m.MaxLife;
+        int duration = Get("base_stun_duration_+%") + (fullLife ? Get("stun_duration_+%_vs_enemies_that_are_on_full_life") : 0);
+        bool guaranteed = stunning > 0 && fullLife && Get("always_stun_enemies_that_are_on_full_life") > 0;
+        return new(stunning, Get("base_stun_threshold_reduction_+%") + local, duration, melee, conn, Guaranteed: guaranteed);
     }
 }

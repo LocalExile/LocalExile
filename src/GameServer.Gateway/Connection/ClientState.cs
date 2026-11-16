@@ -176,6 +176,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
+    /// <summary>Kept in the instance but absent from client views during a scripted disappearance.</summary>
+    public bool WorldHidden;
     /// <summary>The action it takes now. A boss with a kit of its own swaps this for the chosen skill of that kit each
     /// AI pass (BossKits.Choose); everything downstream — the walk-up, the swing's clip, its hit — reads this one.</summary>
     public MonsterAttack? Attack { get; set; }

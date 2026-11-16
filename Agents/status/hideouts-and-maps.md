@@ -95,7 +95,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live player and waypoint records used the same saved cell.
 
 - Hideout editing moves and rotates installed furniture, the waypoint and NPCs through native C→S 0x5b.
-  Placements persist per character/template; runtime interactions and path blockers follow the moved objects.
+  Selection, placements and Monster Statues persist per account/template; legacy homes migrate from the first
+  character with a selected hideout (an explicit migration source can be configured). Cross-character client verification pending.
+  Runtime interactions and path blockers follow the moved objects.
   Every template of the selected hideout is editable: one without a captured walk map leaves cell checks to the client.
   Furniture moves send 0x161 to rebuild native hideout model collision without changing object ids.
   Server blockers are registered again at saved positions on entry.
@@ -237,6 +239,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
+  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+  the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart
   ([21](../docs/protocol/21-hideouts.md) §5, "Open").
