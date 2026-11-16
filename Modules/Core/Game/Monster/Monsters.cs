@@ -486,12 +486,13 @@ public static partial class Game
         if (MapRunOf(conn) is { Area.Level: > 0 } run)
             areaLevel = run.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
-        foreach (var s in spawns)
-        {
-            var variety = Monsters.Find(s.Variety.ToString())!;
-            bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
-            await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);
-        }
+        // A lockstep client's create waits for the frame that carries it (WorldOutput.AwaitBirths): one after another, the
+        // packs took a frame each (292 monsters in 9.6 s in The Coast), so they go out together and share frames. Each
+        // starts in order, so the ids and rolls are taken in order before its first wait.
+        Task<uint> Spawn(AreaPopulation.Spawn s) => SpawnMonster(remote, stream, ciphers, conn, Monsters.Find(s.Variety.ToString())!, level,
+            s.Rarity, s.X, s.Y, log: s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare, alone: false);
+        if (conn.LockstepClient) await Task.WhenAll(spawns.Select(Spawn).ToList());
+        else foreach (var s in spawns) await Spawn(s);
         int extra = 0;
         if (MapRunOf(conn) is { ItemRow: > 0 } opening)
         {
@@ -673,7 +674,8 @@ public static partial class Game
                 // Frozen: it does nothing until the freeze ends. On a predictive client it stands where it is: a chase order
                 // stays open on the client even when the estimate has stopped (the action goes on after the player until
                 // something replaces it), so a Move onto its own cell stops it.
-                double action = MonsterActionFactor(m, now);
+                // Pinned by a trap's spikes (Pins.cs): held as a frozen monster is.
+                double action = Pinned(m, now) ? 0 : MonsterActionFactor(m, now);
                 if (action == 0)
                 {
                     if (now < m.Walk.ArrivesAt || m.LastTarget is not null)
@@ -728,8 +730,10 @@ public static partial class Game
                     // its attack aimed at the target instead. A melee (pathing) attack walks up on the client
                     // (0x141e9afc0), as a melee leg that short does (PlaceLockstepLeg), and swings in the frame it gets
                     // there (07 §6): the estimate walks the same walk-up and times the swing from its end. An in-place
-                    // one (skill_is_non_pathing) plays where the minion stands, and its walk is left as it is.
+                    // one (skill_is_non_pathing) plays where the minion stands, once its walk has ended.
                     bool walkUp = !target.InReach && !double.IsNaN(plan.FrameStart) && !LockstepTakesMove((mx, my), target.Approach);
+                    // Stand, then act, as a hostile monster does (below): an in-place action waits for the walk's end.
+                    if ((target.InReach || walkUp) && StandsToAct(ma) && m.Walk.Moving(now)) continue;
                     if (target.InReach || walkUp)
                     {
                         double begins = now;
@@ -795,25 +799,20 @@ public static partial class Game
                 // A summon is no shot: a summoner whose attack row also flies a projectile still summons, as before.
                 bool blockedShot = m.Hostile && m.Attack is { Projectile.Lobbed: false, Summon: null } shot && d <= shot.Range
                     && conn.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
-                if (!blockedShot && m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
-                    && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
+                // Stand, then act: an action played where the monster stands (an in-place skill, a summon) is ordered only
+                // once its walk has ended. The client's in-place action leaves a Move's pathing running (07 §6, "A walk
+                // under an in-place action"), so a shot ordered mid-walk flew while the monster walked on, and the next
+                // order's from cell put it back. A lockstep client takes no Move near its own cell, so nothing can cut
+                // the walk short: a monster in reach of such an action gets no new walk and acts when this one ends.
+                bool inReach = !blockedShot && m.Hostile && m.Attack is { } r
+                    && d <= (r.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? r.Range : r.Range - MovingReachMargin);
+                if (inReach && m.Attack is { } standing && StandsToAct(standing) && m.Walk.Moving(now)) continue;
+                if (inReach && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && SummonReadyLocked(conn, id, m, a, now))
                 {
                     m.BusyUntil = now + MonsterSwingSeconds(conn, m, now) / action + conn.LockstepActionTail;
-                    if (ServerTrace.Ai && conn.LockstepClient && a.InPlace && m.Walk.Moving(now))
-                    {
-                        var frame = conn.LockstepFrame;
-                        var inFrame = frame is { } f ? m.Walk.Steps(f.Start, f.End) : [];
-                        var next = m.Walk.Steps(now, now + 1);
-                        Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) shoots while walking from ({mx}, {my}): frame {(frame is { } fr ? $"{fr.Start:0.000}-{fr.End:0.000}" : "none")}, "
-                            + $"steps in frame {inFrame.Count}{(inFrame.Count > 0 ? $" (first {inFrame[0].At:0.000} to {inFrame[0].Cell})" : "")}, "
-                            + $"next step {(next.Count > 0 ? $"{next[0].At:0.000} to {next[0].Cell}" : "none")}, walk ends {m.Walk.ArrivesAt:0.000} at {m.Walk.Destination} (t={now:0.000})");
-                    }
-                    // A melee swing starts at the end of its walk-up. An attack during a Move ends that with
-                    // 0x141e96fe0(…, 0), which does not stop the pathing: the monster swings while it walks on to the
-                    // Move's end, on a lockstep client too (live 2026-11-03, 377 Sand Spitter shots ordered mid-Move: the
-                    // clip starts on the order's frame and the walk goes on to the Move's target, 1.4 cells left at the
-                    // median, 4.2 at the 90th percentile), so the estimate keeps its walk.
+                    // A melee swing starts at the end of its walk-up: the estimate's walk ends where the monster stands.
+                    // An in-place action comes only once the walk has ended (above).
                     if (!a.InPlace && m.LastTarget is not null) m.Walk.Order(mx, my, now);
                     m.LastTarget = null;
                     m.SwingGeneration = ++m.ActionGeneration;
@@ -955,6 +954,10 @@ public static partial class Game
         var (into, step) = m.Walk.StepPhase(plan.FrameStart);
         return step == 0 || into < FrameMs / 1000d + 1e-6 || cadence.ChaseOverdue(m, now, 2 * step);
     }
+
+    // An action the client plays where the actor stands, not at the end of a walk-up of its own: it must not be ordered
+    // while the actor walks (PlanMonsterAi, "Stand, then act").
+    static bool StandsToAct(MonsterAttack a) => a.InPlace || a.Summon is not null;
 
     // The action generation of an order the plan makes, or of a lockstep give-up or freeze, which sends nothing: any
     // older order still at the gate is dropped. A chase walk-up the client runs (WalkUpOpen) is carried to the new

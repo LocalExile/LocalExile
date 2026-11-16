@@ -102,6 +102,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
   live 2026-10-29: Spitters came in close). A straight projectile shooter inside range approaches instead when the
   projectile grid blocks its shot. `MinimumAttackDistance` is not read yet.
+  Stand, then act: an in-place action or a summon (a shot, a cast) is ordered only once the actor's walk has ended,
+  for every hostile monster, minion and Rampage weapon chase; in reach it gets no new walk (`StandsToAct`). Before, a
+  Brittle Poacher shot while it walked and teleported back at each order. Checked live 2026-11-16.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).

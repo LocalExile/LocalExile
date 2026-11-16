@@ -23,6 +23,8 @@ public static partial class Game
         if (distance >= playerDistance) return false;
         if (monster.Attack is { } attack && distance <= attack.Range)
         {
+            // Stand, then act (PlanMonsterAi): an in-place action waits for the walk's end.
+            if (StandsToAct(attack) && monster.Walk.Moving(now)) return true;
             monster.BusyUntil = now + attack.Seconds;
             monster.LastTarget = null;
             monster.Walk.Order(from.X, from.Y, now);
