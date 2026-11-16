@@ -11,7 +11,10 @@ public sealed class PlayerElementalAilments
     /// <summary>The source skill's native ailment stats. Critical strikes and native chances share one application
     /// per kind, so the defender's avoidance is rolled once even when both would inflict the same ailment.</summary>
     public readonly record struct HitSettings(int IgniteChance, int FreezeChance, int ShockChance,
-        int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct);
+        int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
+    {
+        public bool NeverFreeze { get; init; }
+    }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
@@ -111,7 +114,7 @@ public sealed class PlayerElementalAilments
                 * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)
                 * Math.Max(0, 1 + settings.ChillEffectFinalPct / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
-            if (critical || RandomRolls.Chance(settings.FreezeChance, 100, random))
+            if (!settings.NeverFreeze && (critical || RandomRolls.Chance(settings.FreezeChance, 100, random)))
                 Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
                 * Math.Max(0, 1 + EffectOnSelfPct(Kind.Shock, get) / 100.0)));

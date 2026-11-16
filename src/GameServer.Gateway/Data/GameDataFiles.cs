@@ -46,7 +46,7 @@ public static class GameDataFiles
     ];
 
     /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features
-    /// turn off without, by one table of each file.</summary>
+    /// turn off without, by their required tables.</summary>
     public static readonly (string Table, string Feature)[] Generated =
     [
         ("vendor_shops", "ordinary vendor roles and quest/class gem membership"),
@@ -60,6 +60,7 @@ public static class GameDataFiles
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
         ("hideout_layouts", "hideouts and native stationary model collision radii"),
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
+        ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),
         ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several (monster-contacts v5), and boss stage contacts"),
         ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
@@ -86,7 +87,7 @@ public static class GameDataFiles
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
+        ("animation-contacts", 9, "class rig animation indices, spell cancellation events, every contact frame and all named event times, with lengths even for clips without a contact keyframe"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),

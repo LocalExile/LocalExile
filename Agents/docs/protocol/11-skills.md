@@ -1716,11 +1716,36 @@ Its hammers deal no damage: the client draws them, but the server has no hammerf
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
-**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
-it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
-(§10k).
+**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
+when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
+(live 2026-10-23). A resync follows at the end of the action ([07](07-latency-visibility-movement.md) §5).
+Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+
+**Leap Slam** (ActionTypes `LeapSlam` 0x9779) resolves its range independently of its damage radius.
+`0x1412fafd0` gives range 60, or 30 for `skill_behaviour_variation` 2 (Groundbreaking, from GrantedEffects.SkillID).
+`0x1419fe630` scales the aim delta by `range / max(length - 1, 0)` when beyond range, rounding components with
+`floor(x + 0.5)`; the integer endpoint is not a strict radius-60/30 circle.
+`0x141a01520` searches from that candidate back toward the start for walking clearance and a clear layer-1 ray,
+so a gap need not be walkable along the whole flight.
+The server binds that landing to the use and resolves its area there, rather than applying an in-place melee reach test.
+
+The native `leave_ground` and `hit_ground` events time the flight (`0x1419fd8e0`); its speed is distance divided by
+that flight time (`0x1419fdaf0`). The named events and clip lengths are in `animation_clip_events` and `animation_clips`.
+For total base duration B, final hand speed S and action speed A, the clip duration is
+`B / 1000 / (1 + S/100) / (1 + A/100)`; `0x14270bce0` adds the skill's extra base milliseconds after the weapon's
+local speed, before final speed (ordinary Leap Slam adds 550, Groundbreaking adds none).
+The native startup skip seeks to `leave_ground - 0.01` animation seconds (`0x141944380`), not immediately to impact.
+It requires behaviour other than 2, the character's skipping flag, and no active `instant_movement_skill_delay`
+buff belonging to another action (`0x1419fda80`, `0x141944d40`). The server does not create that buff yet; its official
+refresh/expiry policy is unknown, so current eligible uses skip startup without claiming the official recovery cadence.
+
+Landing occupancy is separate from a successful hit: `0x1419fe0f0` pushes overlapping enemy centers apart by
+source size + target size + 2, even without a hit roll. The server uses that geometry with its existing walkability,
+knockback-immunity guards and queued position update; native displacement speed is not reproduced.
+The `leap_slam_always_knockback_within_range` inner-circle argument reaches an empty default-client callback
+(`0x1419fdce0`, vtable +0x530), so it does not establish the server's complete forced-knockback policy.
+Named movement-blocking regions and the native special-field landing gate also remain outside the server model.
+
 
 **Flicker Strike** (ActionTypes `FlickerStrike` 0x6352, base class `0x141a5f640`) does not move the player on the
 client: in 17 started Flicker actions with a target, nothing set the player's position (Frida, live 2026-11-09).
