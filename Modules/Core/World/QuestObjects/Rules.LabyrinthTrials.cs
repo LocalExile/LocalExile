@@ -96,6 +96,7 @@ static partial class QuestobjectsRules
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
                 LabyrinthTrials.RailBlob(rail.X, rail.Y, rail.Angle, rail.Model)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            BarStaticHull(remote, conn, id, rail.Type, rail.Model, rail.X, rail.Y, rail.Angle, 1);
         }
         await SpawnRoombas(remote, stream, ciphers, conn,
             [.. all.Where(o => o.Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba or LabyrinthTrials.Spinner || LabyrinthTrials.IsSawblade(o.Type))],
@@ -155,6 +156,9 @@ static partial class QuestobjectsRules
                         LabyrinthTrials.IsHotPlate(o.Type) || LabyrinthTrials.AtTileHeight(o.Type) ? o.Height : null)),
                 $"0x02bb trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            // The blob's Animated names the room line's .ao, else the client takes the .ot's own.
+            if (LabyrinthTrials.SentStatic(o.Type))
+                BarStaticHull(remote, conn, id, o.Type, o.Model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? o.Model : null, o.X, o.Y, o.Angle, o.Scale);
             if (o.Type == LabyrinthTrials.OpenDoor)
             {
                 if (open) BarCage(conn, id, o, true);
@@ -814,6 +818,27 @@ static partial class QuestobjectsRules
         }
     }
 
+    // An object of a static type sent with its static position (flags1 without 0x20) has its model's Hull stamped into
+    // the client's walk grid when it is created (0x141d8bd20: a static position stamps whatever a TriggerableBlockage
+    // says; a lever traced live 2026-11-16), and keeps it: the levers, switches and cranks, the plaque, the dart turrets,
+    // the visible rails. The server's walk estimate keeps out of the same cells (ServerLevels.ModelWalkCells: the Hull at
+    // the angle and scale the blob sends, which has no mirroring, and the ring under the player's 2), or a walk went
+    // through it on the server and round it on the client, and the player jumped about. model: the one the blob names,
+    // null for the .ot's own.
+    static void BarStaticHull(string remote, ClientState conn, uint id, string type, string? model, int x, int y, float angle, float scale)
+    {
+        if (QuestObjectTypes.Find(type) is not { Static: true } info || (model ?? info.AnimatedModel) is not { } stamped
+            || conn.Layout.Walkable is not { } walkable
+            || ServerLevels.ModelWalkCells(stamped, x, y, angle, scale) is not { Count: > 0 } hull) return;
+        lock (conn.Monsters)
+        {
+            conn.DoorBarriers[id] = hull.Where(c => walkable(c.X, c.Y)).ToHashSet();
+            conn.UpdateBarrier();
+        }
+        Console.WriteLine($"[gateway] {remote} trial object 0x{id:x} {type}: {stamped}'s Hull closes {hull.Count} cell(s) on the server, " +
+            $"from {hull.Min()} to {hull.Max()}");
+    }
+
     // A shut cage (Door_Open) closes its own walk Hull on the server's walk estimate, as its TriggerableBlockage does on
     // the client's.
     static void BarCage(ClientState conn, uint id, AreaPopulation.RoomObject cage, bool shut)
@@ -891,9 +916,18 @@ static partial class QuestobjectsRules
         // When its last clip started (Clock seconds), and whether that clip has hit.
         public double Fired = double.NegativeInfinity;
         public bool HasHit;
+        // The monsters this clip has hit (each once, as the player).
+        public readonly HashSet<uint> MonstersHit = [];
         public bool Up(double now) => now >= Fired + LabyrinthTrials.SpikeHitWindow.From && now < Fired + LabyrinthTrials.SpikeHitWindow.To;
         public bool Holds((int X, int Y) at) =>
             Math.Abs(at.X - Trap.X) <= LabyrinthTrials.SpikeHalf && Math.Abs(at.Y - Trap.Y) <= LabyrinthTrials.SpikeHalf;
+        // What the risen spikes close to the player: the Hull of the model its .ot animates (spiketrap_prison.ao and the
+        // others: two proj_tri of ±11.27 cells, which the walk grid takes too), stamped at the angle the blob sends (0),
+        // with the ring the stamp leaves under the player's 2. 25 cells wide, so two risen squares 23 apart that meet at a
+        // corner leave no way between them, on the client as here.
+        public HashSet<(int X, int Y)> Wall => _wall ??= ServerLevels.ModelWalkCells(
+            QuestObjectTypes.Find(Trap.Type)?.AnimatedModel ?? Trap.Model, Trap.X, Trap.Y, 0);
+        HashSet<(int X, int Y)>? _wall;
         public bool Near((int X, int Y) at) =>
             Math.Abs(at.X - Trap.X) <= LabyrinthTrials.SpikeHalf * 5 && Math.Abs(at.Y - Trap.Y) <= LabyrinthTrials.SpikeHalf * 5;
     }
@@ -914,6 +948,7 @@ static partial class QuestobjectsRules
         async Task Fire(SpikeTrap t, double at)
         {
             (t.Fired, t.HasHit, t.Stepped) = (at, false, false);
+            t.MonstersHit.Clear();
             (int X, int Y) player;
             lock (conn.Monsters) player = conn.Walk.Position(at);
             // Logged only near the player (about two tiles), to line a hit up with the spikes the client shows.
@@ -961,11 +996,14 @@ static partial class QuestobjectsRules
                     Console.WriteLine($"[gateway] {remote} pressure spike trap 0x{t.Id:x} at ({t.Trap.X}, {t.Trap.Y}) stepped on: fires in {LabyrinthTrials.PressureSpikeDelaySeconds} s");
                 }
                 foreach (var t in traps)
+                {
                     if (!t.HasHit && t.Up(now) && t.Holds(here))
                     {
                         t.HasHit = true;
                         await SpikeTrapHit(remote, stream, ciphers, conn, t);
                     }
+                    if (t.Up(now)) await SpikeTrapHitMonsters(remote, stream, ciphers, conn, t, now);
+                }
                 await Task.Delay(SpikeTickMilliseconds);
             }
         }
@@ -1258,23 +1296,37 @@ static partial class QuestobjectsRules
     static async Task BlockSpikeTrap(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap t,
         bool blocked)
     {
-        lock (conn.Monsters)
+        // The client stamps the square under a player on it too: its walker stops at its next step (0x141e35a50) and its
+        // search, from a closed cell, takes only open neighbours. The walk estimate does the same on these cells, and the
+        // collision escape leaves a player on them where they stand (PushOutOfCollision).
+        void Apply()
         {
             if (!blocked) conn.DoorBarriers.Remove(t.Id);
-            // A player already on the tile when the spikes rise stays there: closing its cells under them made the
-            // collision escape throw them off the tile (live 2026-10-31); the wall only keeps others out.
-            else if (t.Holds(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds))) { }
-            else if (conn.Layout.Walkable is { } walkable)
-            {
-                var cells = new HashSet<(int X, int Y)>();
-                for (int y = t.Trap.Y - LabyrinthTrials.SpikeHalf; y <= t.Trap.Y + LabyrinthTrials.SpikeHalf; y++)
-                    for (int x = t.Trap.X - LabyrinthTrials.SpikeHalf; x <= t.Trap.X + LabyrinthTrials.SpikeHalf; x++)
-                        if (walkable(x, y)) cells.Add((x, y));
-                conn.DoorBarriers[t.Id] = cells;
-            }
+            else if (conn.Layout.Walkable is { } walkable) conn.DoorBarriers[t.Id] = t.Wall.Where(c => walkable(c.X, c.Y)).ToHashSet();
             conn.UpdateBarrier();
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, InstanceEntities.BlockageUpdate(t.Id, blocked), null);
+        var update = InstanceEntities.BlockageUpdate(t.Id, blocked);
+        if (!conn.LockstepClient)
+        {
+            lock (conn.Monsters) Apply();
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, update, null);
+            return;
+        }
+        // A lockstep client applies the 0x1c6 at the start of the frame it goes out in, and its walkers take that frame's
+        // steps on the new grid; the frames before it were walked on the old one. So the walls change in the walk
+        // estimate at that gate, after the steps up to that frame's start (StepWalkers), as an attack's walk-up is placed
+        // (LockstepAttackAtGate): changed at once, the frames already sent and not yet stepped were replayed against walls
+        // the client did not have yet (or lacked ones it still had), the estimate stopped a cell or two off the client's
+        // walk, and the next order put the player there (a shake while walking over the spikes).
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, t.Id, [], null, atGate: () =>
+        {
+            using (global::Game.ProjectileMutation(conn, phase: "send"))
+            {
+                global::Game.StepWalkers(conn, conn.LockstepFrame?.Start ?? global::Game.ProjectileWorldTime(conn));
+                Apply();
+            }
+            return update;
+        });
     }
 
     // How often the spike traps' timers and the player's steps are looked at (our own number).
@@ -1294,9 +1346,33 @@ static partial class QuestobjectsRules
                 || LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt
                 || TrapHitLocked(conn, dealt, now) is not uint left) return;
             (damage, life) = (dealt, left);
+            // The risen spikes hold the player until they are down (BuffDefinitions trap_pinned, "Spike Pinned").
+            if (left > 0) global::Game.PinPlayer(conn, spike.Fired + LabyrinthTrials.SpikeWallWindow.To);
         }
         if (await PresentTrapHit(remote, stream, ciphers, conn, id, $"trial spike trap 0x{id:x} at ({trap.X}, {trap.Y})", damage, life))
             await SpikeBleed(remote, stream, ciphers, conn, damage);
+    }
+
+    // The monsters in a spike trap's square while its spikes are up: each is hit once for the trap's share of its life
+    // (LabyrinthTrials.SpikeDamageToMonster) and held there until the spikes are down, as the player is. Not the player's
+    // own minions, nor a monster not yet in the world.
+    static async Task SpikeTrapHitMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpikeTrap spike, double now)
+    {
+        List<(uint Id, SpawnedMonster M, int Damage)> hits = [];
+        lock (conn.Monsters)
+            foreach (var (id, m) in conn.Monsters)
+            {
+                if (m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden || spike.MonstersHit.Contains(id)
+                    || !spike.Holds(m.Walk.Position(now))) continue;
+                spike.MonstersHit.Add(id);
+                global::Game.PinMonster(m, spike.Fired + LabyrinthTrials.SpikeWallWindow.To);
+                if (LabyrinthTrials.SpikeDamageToMonster(m.MaxLife) is > 0 and int damage) hits.Add((id, m, damage));
+            }
+        // The hit always bleeds, as the player's does (LabyrinthTrials.SpikeBleedPerSecond of the hit a second).
+        foreach (var (id, m, damage) in hits)
+            if (await global::Game.HitMonster(remote, stream, ciphers, conn, id, m, damage, $"trial spike trap 0x{spike.Id:x} at ({spike.Trap.X}, {spike.Trap.Y})"))
+                await global::Game.BleedMonsterFor(remote, stream, ciphers, conn, id, m, damage * LabyrinthTrials.SpikeBleedPerSecond,
+                    LabyrinthTrials.SpikeBleedSeconds);
     }
 
     // Under conn.Monsters: a trap's hit of so much physical damage on the player, energy shield first, which may kill them.
@@ -1435,13 +1511,11 @@ static partial class QuestobjectsRules
                 LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             placed.Add((id, trap));
-            // Its Hull, as the client stamps it: a wall to the darts and to the player's walk estimate.
+            // Its Hull, as the client stamps it: a wall to the darts, and to the player's walk estimate (its .ot is static,
+            // and the blob names the room line's model).
             lock (conn.Monsters)
-            {
                 conn.ProjectileWalls.UnionWith(LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapProjectileHalf, LabyrinthTrials.ArrowTrapProjectileHalf));
-                conn.DoorBarriers[id] = LabyrinthTrials.HullCells(trap.X, trap.Y, trap.Angle, LabyrinthTrials.ArrowTrapWalkHalf, LabyrinthTrials.ArrowTrapWalkHalf).ToHashSet();
-                conn.UpdateBarrier();
-            }
+            BarStaticHull(remote, conn, id, trap.Type, trap.Model, trap.X, trap.Y, trap.Angle, 1);
         }
         Console.WriteLine($"[gateway] {remote} trial dart traps: {placed.Count} placed");
         _ = RunArrowTraps(remote, stream, ciphers, conn, placed);

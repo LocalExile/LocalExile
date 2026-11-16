@@ -109,7 +109,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
-- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
+- Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each
+  area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes
+  tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client but a server-controlled one is
+  served in lockstep. The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
   in the observer's own frames) follow the client's frame rules, and world messages go out as explicit records in the
@@ -280,8 +283,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   What an instance opened stays open; an opened trial Locked Door (bars) is removed, a room's gate stays open.
   Verified with the real client in The Lower Prison (2026-10-31).
   Its spike traps cascade round their ring from the lever towards the door (the plaque room's as a checkerboard), rise
-  over a stretched Emerge animation (0x1d1), hit a player on their tile for LbRetractableTrap's share of life and energy
-  shield, bleed for a second and wall their tile while they show; matched by eye against the original game.
+  over a stretched Emerge animation (0x1d1), hit a player or monster on their tile for LbRetractableTrap's share of life
+  and energy shield, bleed and pin them for a second and wall their tile while they show, with the Hull's ring as the
+  client closes it; matched by eye against the original game. The trial's static objects (levers, switches, the
+  plaque, the turrets, the rails) close their Hull and its ring on the server, as the client stamps them. Objects whose
+  type does not block (the trial's return portal, waypoints, area transitions) are no longer sent as client bodies, which
+  made a player walking over them drift (`BlobWriter.Positioned`, [04](../docs/protocol/04-player-entity.md)).
   The Imperial Gardens' 14 dart turrets fire together every 1.5 s, four poison darts each a quarter turn apart, through
   the projectile world, stopping at walls and at the turrets' Hull; a dart hits for LbArrowTrap's share and adds a 2 s
   poison stack reckoned from the hit's life share, less armour, and slows movement by 60% for 2 s. Being checked live.

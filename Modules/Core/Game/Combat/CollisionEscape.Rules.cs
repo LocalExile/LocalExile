@@ -18,6 +18,10 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(conn);
             from = conn.Walk.Position(now);
+            // A wall that rose round the player (a closed door, risen spikes) leaves them where they stand: the client
+            // stamps it under them and never moves its player out of it (its search, from a closed cell, steps only to
+            // open neighbours; 0x141e50f90), so moving the estimate put a lockstep player elsewhere on its next order.
+            if (conn.Barrier.Contains(from) && conn.Layout.Walkable?.Invoke(from.X, from.Y) != false) return;
             bool Walkable(int x, int y) => conn.Layout.Walkable?.Invoke(x, y) != false && !conn.Barrier.Contains((x, y));
             if (CollisionEscape.Find(from, conn.Layout.GridW, conn.Layout.GridH, Walkable,
                 living ? conn.CorrectionBlockers()

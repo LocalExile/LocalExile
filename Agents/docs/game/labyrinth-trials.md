@@ -128,6 +128,10 @@ the unblock adds that difference back (nibbles, clamped at 5). Both do nothing w
 → +0x111, not identified) is set, and keep no cells in a hideout (the area's WorldAreas row, world +0xb0, byte +0x14e
 IsHideout).
 
+A stamp closes more than its Hull to the player: `0x141d8b430` gives the cells within 4 of a stamped cell their
+Chebyshev distance, and a mover stands only on a value ≥ its size + 1 (the player: 2), so the ring of cells next to the
+Hull is closed too (a spike tile's ±11 cells close ±12).
+
 An object with a **static position** (the type's +0x158 → +0x19 set and Positioned +0x1e7 bit 1 clear; "Has Static
 Position" in the info dump `0x141e36650`) has its Hull stamped by the client's object pass `0x141d8bd20` (and the
 placement paths `0x141d87bb0`, `0x141d87640`) whatever its TriggerableBlockage says; for any other object the pass

@@ -27,6 +27,9 @@ public static class QuestObjectTypes
         /// line's (the Aspirants' Plaza's LabyrinthAirlockPortal, LabyrinthAirlockPortal.ao in airlock.arm).</summary>
         public bool OwnModel { get; init; } = true;
         public string? AnimatedModel { get; init; }
+        /// <summary>The .ot's Positioned <c>static</c>: unless the object is sent with no static position (flags1 0x20),
+        /// the client stamps its model's Hull into the walk grid when it creates it (0x141d8bd20).</summary>
+        public bool Static { get; init; }
     }
 
     /// <summary>Tile objects the quest engine may create: quest objects, quest chests, the Dark Altar and the quest
@@ -59,6 +62,7 @@ public static class QuestObjectTypes
             {
                 AnimatedModel = t.TextOrNull("animated_object"),
                 OwnModel = !components.Contains("Animated") || t.TextOrNull("animated_object") is not null,
+                Static = ObjectTypes.Flag(t, "positioned_static") == true,
             };
         }
         // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.

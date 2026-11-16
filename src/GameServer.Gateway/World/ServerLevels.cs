@@ -365,6 +365,16 @@ public static class ServerLevels
     // Opened on the first generation and kept.
     static TerrainCache Files() => _files ??= new TerrainCache(Read);
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DoodadHull?> ModelHulls = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The cells a model's Hull (its .ao, or the .ao it extends) closes to the player where the object stands, as
+    /// the client stamps it (a static object's at its creation, a TriggerableBlockage's when it blocks): the stamped cells
+    /// and the ring a stamp gives a value under the player's 2 (<see cref="Walkability.ClosedTo"/>); empty when the model
+    /// has none.</summary>
+    public static HashSet<(int X, int Y)> ModelWalkCells(string model, int x, int y, float angle, float scale = 1, bool mirrored = false) =>
+        ModelHulls.GetOrAdd(model, m => DoodadHull.Load(Files().Text, m)) is { IsEmpty: false } hull
+            ? Walkability.ClosedTo(Walkability.WalkCells(hull, new PlacedDoodad(model, x, y, angle, scale, mirrored))) : [];
+
     static byte[]? Read(string path) => GamePack.Default.TryRead(path);
 
     static Dictionary<string, int> Levels = default!;

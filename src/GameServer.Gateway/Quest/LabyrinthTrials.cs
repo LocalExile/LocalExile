@@ -247,7 +247,7 @@ public static class LabyrinthTrials
     public static byte[] RoombaBlob(string type, int x, int y, float angle, string model, byte state = Closed)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.Positioned(x, y, angle, team: 14);                                // Positioned: the .ot's team 14
         w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
         w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
         w.U16(0);                                                           // Buffs
@@ -266,7 +266,7 @@ public static class LabyrinthTrials
     public static byte[] SpinnerBlob(int x, int y, float angle, string model)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1);    // Positioned: the .ot's team 14
+        w.Positioned(x, y, angle, team: 14);                                // Positioned: the .ot's team 14
         w.U8(1).WStr32(model);                                              // Animated (BaseEvents reads nothing)
         w.Stats(null).U32(0).U32(0).U8(0);                                  // Stats
         w.U8(0).I32(x).I32(y).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0);      // Movement
@@ -280,7 +280,7 @@ public static class LabyrinthTrials
     public static byte[] RailBlob(int x, int y, float angle, string model)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(0).U8(0).U8(0x02).U8(0).U8(1);      // Positioned
+        w.Positioned(x, y, angle);                                          // Positioned
         w.U8(1).WStr32(model);                                              // Animated
         return w.U8(0).ToArray();                                           // tasks
     }
@@ -1048,6 +1048,10 @@ public static class LabyrinthTrials
     /// resistances are not applied (our reading: the trap deals a share of the pools).</summary>
     public static int? SpikeDamage(uint maxLife, uint maxEnergyShield) => TrapDamage(SpikeStats, maxLife, maxEnergyShield);
 
+    /// <summary>A spike trap's hit on a monster: the same shares of its pools, without the trap's damage_+%_vs_players.</summary>
+    public static int? SpikeDamageToMonster(uint maxLife) =>
+        SpikeStats is { } s ? (int)Math.Min(int.MaxValue, (long)maxLife * s.Life / 100) : null;
+
     static (int Life, int EnergyShield, int VsPlayers)? SpikeStats = default!;
 
     static int? TrapDamage((int Life, int EnergyShield, int VsPlayers)? stats, uint maxLife, uint maxEnergyShield) =>
@@ -1092,13 +1096,12 @@ public static class LabyrinthTrials
     {
         var w = new BlobWriter().U8(0).U8(0);
         bool pressure = type is not null && IsPressureSpikeTrap(type);
-        // A pressure trap's object_size 11 made it a wall round its tile (live 2026-11-01): flags1 0x08 with its u8, blocks
-        // no walker (the doors' too, Blob).
+        // flags1 0x08 with its u8: blocks no walker (+0x1e6 bit 0x40, which the client's body test 0x141e65ae0 skips; the
+        // doors' too, Blob). Without it the trap is a body at its tile's middle: a pressure trap's object_size 11 made it a
+        // wall round its tile (live 2026-11-01), and a cascade trap's 2 bent the client's walks round its middle while the
+        // server's went straight over the lowered spikes (live 2026-11-16).
         // f0 0x04: a fixed height (a doorway roller's tile line), as Blob sends the plates'.
-        w.I32(x).I32(y).F32(angle).U16(14).U8((byte)(height is null ? 0 : 0x04)).U8((byte)(pressure ? 0x0a : 0x02));
-        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-        w.U8(0).U8(1);                                                  // Positioned
-        if (pressure) w.U8(1);
+        w.Positioned(x, y, angle, team: 14, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null, blocksNoWalker: true);
         w.U8(0);                                                        // Animated: the .ot's
         if (pressure) w.U8(1).U8(0);                                    // Transitionable, TriggerableBlockage: unblocked
         else w.U8(0).U8(1);                                             // TriggerableBlockage: unblocked, Transitionable
@@ -1216,7 +1219,7 @@ public static class LabyrinthTrials
     public static byte[] EdgeBladeBlob(int x, int y, float angle)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x0a).U8(0).U8(1).U8(1); // Positioned
+        w.Positioned(x, y, angle, team: 14, blocksNoWalker: true);      // Positioned
         w.U8(0);                                                        // Animated: the .ot's
         w.U8(0);                                                        // TriggerableBlockage: unblocked
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
@@ -1294,11 +1297,11 @@ public static class LabyrinthTrials
 
     public static double ArrowForwardCells => 50 / WorldUnits.PerCell;
 
-    /// <summary>A turret's Hull (<c>statueturret_circleclean.ao</c>, as every turret model but <c>_noblock</c>): squares
-    /// of ±3.25 cells for walking and ±2.26 for projectiles, turned with the turret. The client stamps it, so a dart stops
-    /// at another turret and a player walks round one (live 2026-10-31: the darts vanished at the turrets while the
-    /// server's flew on).</summary>
-    public const double ArrowTrapWalkHalf = 3.25, ArrowTrapProjectileHalf = 2.26;
+    /// <summary>A turret's projectile Hull (<c>statueturret_circleclean.ao</c>, as every turret model but <c>_noblock</c>):
+    /// a square of ±2.26 cells, turned with the turret. The client stamps it, so a dart stops at another turret (live
+    /// 2026-10-31: the darts vanished at the turrets while the server's flew on). Its walk Hull is the model's own
+    /// (ServerLevels.ModelWalkCells).</summary>
+    public const double ArrowTrapProjectileHalf = 2.26;
 
     /// <summary>The cells whose centres lie in an object's Hull rectangle of these half sizes (cells, its model's
     /// walk_tri / proj_tri), turned by its angle.</summary>
@@ -1376,7 +1379,7 @@ public static class LabyrinthTrials
     public static byte[] ArrowTrapBlob(int x, int y, float angle, string model, string? type = null)
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(x).I32(y).F32(angle).U16(14).U8(0).U8(0x02).U8(0).U8(1); // Positioned
+        w.Positioned(x, y, angle, team: 14);                           // Positioned
         if (type == TriggeredArrowTrap) w.U8(1).WStr32(model).U8(1);    // Animated: the room line's, Transitionable
         else w.U8(1).U8(1).WStr32(model);                               // Transitionable, Animated: the room line's
         w.Stats(null).U32(0).U32(0).U8(0);                              // Stats
@@ -1551,8 +1554,12 @@ public static class LabyrinthTrials
     /// checked live on the terrain, keep standing on it. TriggerableBlockage (0x141e47880) is blocked with no
     /// sections while closed.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, float scale, byte state, float? height = null) =>
-        Blob(Components[Kind(type)], model, x, y, angle, scale, state, height,
-            blockage: Components[Kind(type)].Contains("TriggerableBlockage") && type != SmashableWall, blocked: Blocks(type, state));
+        Blob(Components[Kind(type)], model, x, y, angle, scale, state, height, blockage: !SentStatic(type), blocked: Blocks(type, state));
+
+    /// <summary>Whether <see cref="Blob(string, string, int, int, float, float, byte, float?)"/> sends the object with its
+    /// static position (flags1 0x02): all but those with a TriggerableBlockage, a smashable wall excepted.</summary>
+    public static bool SentStatic(string type) =>
+        !Components[Kind(type)].Contains("TriggerableBlockage") || type == SmashableWall;
 
     /// <summary>The blob of an object with these components (in the client's order), as <see cref="Blob(string, string,
     /// int, int, float, float, byte, float?)"/> writes a trial object's: <paramref name="blockage"/> gives Positioned a
@@ -1564,8 +1571,8 @@ public static class LabyrinthTrials
         foreach (string c in components)
             switch (c)
             {
-                // x, y, rotation, u16, flags0 (0x20: uniform scale, then the x / y stretches), flags1 0x02 (shown). A door
-                // also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d8bd20)
+                // x, y, rotation, u16, the room line's scale and height; blocking is the type's own (BlobWriter.Positioned).
+                // A door also has flags1 0x20 (+0x1e7 bit 1: no static position), or the client's object pass (0x141d8bd20)
                 // stamps its Hull whatever its TriggerableBlockage says and an opened door stays closed to walking, and
                 // 0x08 with 1 (+0x1e6 bit 0x40: blocks no walker), so only the blockage closes its cells.
                 // f0 0x04: the fixed height, i32 whole steps of 7.8125 and the f32 z the client uses (as an area
@@ -1573,12 +1580,8 @@ public static class LabyrinthTrials
                 case "Positioned":
                     // A smashable wall keeps its static position: the client stamps its Hull (walking and projectiles) and
                     // its transition removes it (RemoveCollidability).
-                    bool scaled = scale != 1;
-                    w.I32(x).I32(y).F32(angle).U16(0).U8((byte)((scaled ? 0x20 : 0) | (height is null ? 0 : 0x04))).U8((byte)(blockage ? 0x2a : 0x02));
-                    if (scaled) w.F32(scale).F32(1).F32(1);
-                    if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-                    w.U8(0).U8(1);
-                    if (blockage) w.U8(1);
+                    w.Positioned(x, y, angle, scale: scale, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null,
+                        dynamic: blockage, blocksNoWalker: blockage);
                     break;
                 case "Animated": if (model.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)) w.U8(1).WStr32(model); else w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;

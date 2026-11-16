@@ -113,6 +113,23 @@ public static partial class Game
         return [.. PresentRupturesLocked(conn, id, target, now), .. ShowDotBuffLocked(conn, id, target.Bleeds, row, now)];
     }
 
+    /// <summary>A sure bleed of so much physical damage a second for so long, from no skill (a trap's hit that always
+    /// bleeds: the Labyrinth's spikes), as an attack hit's bleed lands: the target's avoidance and immunity still apply.</summary>
+    public static async Task BleedMonsterFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, SpawnedMonster m, double perSecond, double seconds)
+    {
+        List<byte[]>? packets;
+        string log;
+        using (ProjectileMutation(conn))
+        {
+            double now = ProjectileWorldTime(conn);
+            if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) return;
+            packets = BleedOnHitLocked(conn, id, m, new(100, perSecond, perSecond, perSecond, perSecond, seconds, 100), false, now);
+            log = BleedingLog(id, m, false, now);
+        }
+        await SendDotBuff(remote, stream, ciphers, packets, log);
+    }
+
     public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
         $"monster 0x{id:x} ({target.Label}) bleeding{(critical ? " from a critical hit" : "")} for {target.Bleeds.Until - now:0.##} s";
 
