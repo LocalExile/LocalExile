@@ -79,6 +79,12 @@ public static class ItemModStats
     static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local,
         StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
+        bool sourceBound = subject.ItemValue is not null;
+        if (subject.ItemValue is { } itemValue)
+        {
+            var characterValue = subject.Value;
+            subject = subject with { Value = key => itemValue(item, key) ?? characterValue?.Invoke(key), ItemValue = null };
+        }
         var effect = Effect(item, mods);
         var rule = game?.ItemModifierValues(item, mods);
         foreach (var mod in item.Mods)
@@ -90,19 +96,26 @@ public static class ItemModStats
                 if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
                 long percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    if (row.Stats[s].Local == local)
+                    if (row.Stats[s].Local == local
+                        || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Id))
                     {
                         string id = row.Stats[s].Id;
                         var state = StatConditions.Of(id, subject);
+                        // Unknown source relationships retain the local view instead of leaking into a global one.
+                        if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
                         if (!StatConditions.Counts(state)) continue;
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
-                        if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.Fold(id, statExists) is { } plain)
-                            id = plain;
                         int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
-                        yield return (id, value);
+                        if (state is StatConditions.State.Holds) value = StatConditions.ApplyRecentAmount(row.Stats[s].Id, value, subject);
+                        if (state is StatConditions.State.Holds && statExists is not null
+                            && StatConditions.FoldAll(id, statExists, subject) is { Count: > 0 } targets)
+                        {
+                            value = StatConditions.ValueForFold(id, value);
+                            foreach (string target in targets) yield return (target, value);
+                        }
+                        else yield return (id, value);
                     }
             }
     }
@@ -145,10 +158,11 @@ public static class ItemModStats
         : (int)Math.Clamp(Math.Floor((decimal)value * (100 + percent) / 100), int.MinValue, int.MaxValue);
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
-    public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)
+    public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
         var raw = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods, false, default, null, Program.GameLogicOrNull))
+        foreach (var (id, value) in Values(items, mods, false, subject, statExists, Program.GameLogicOrNull))
             if (AttributeModifiers.IsInput(id)) raw[id] = raw.GetValueOrDefault(id) + value;
         return raw;
     }
@@ -198,6 +212,10 @@ public static class ItemModStats
         return new(cache.GetValue(item, current => new(SumValues(
             Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats);
     }
+
+    /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>
+    public static Dictionary<string, int> Local(Item item, ModCatalog mods, StatConditions.Subject subject,
+        Func<string, bool> statExists) => Sum([item], mods, local: true, subject: subject, statExists: statExists);
 
     /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
     /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
