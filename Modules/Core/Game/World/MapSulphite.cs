@@ -50,9 +50,8 @@ public static class MapSulphite
     public static byte[] Blob(int x, int y, float? height, bool mined, bool fumes)
     {
         var w = new BlobWriter();
-        w.U8(0).U8(0).I32(x).I32(y).F32(0).U16(0).U8((byte)(height is null ? 0 : 4)).U8(2);
-        if (height is float z) w.I32((int)MathF.Round(z / 7.8125f)).F32(z);
-        w.U8(0).U8(1).U8(0).U8(0).U8((byte)(mined ? 6 : 0));
+        w.U8(0).U8(0).Positioned(x, y, fixedHeight: height is float z ? BlobWriter.FixedHeight(z) : null);
+        w.U8(0).U8(0).U8((byte)(mined ? 6 : 0));
         States(mined, fumes).Write(w);
         return w.U8(0).ToArray();
     }

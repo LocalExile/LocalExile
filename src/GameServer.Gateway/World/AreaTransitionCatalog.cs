@@ -603,9 +603,7 @@ public sealed record TransitionEffect(string Type, string Model, int X, int Y, f
     public byte[] Blob()
     {
         var w = new BlobWriter().U8(0).U8(0);
-        w.I32(X).I32(Y).F32(Rotation).U16(0).U8((byte)(Z is null ? 0 : 0x04)).U8(2);
-        if (Z is float h) w.I32((int)MathF.Round(h / 7.8125f)).F32(h);
-        w.U8(0).U8(1);
+        w.Positioned(X, Y, Rotation, fixedHeight: Z is float h ? BlobWriter.FixedHeight(h) : null);
         w.U8(1).WStr32(Model);
         return w.U8(State).U8(0).ToArray();
     }

@@ -11,7 +11,7 @@ public sealed record TrapMineObject(int X, int Y, bool Mine, IReadOnlyList<Grant
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);
-        w.I32(X).I32(Y).F32(0).U16(Team).U8(0).U8(2).U8(0).U8(1);
+        w.Positioned(X, Y, team: Team);
         w.U8(0);
         w.Stats(Stats).U32(0).U32(0).U8(0);
         w.U16(0);
