@@ -1341,10 +1341,18 @@ public static partial class Game
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
         // client draws each effect half a radius toward the caster, so the hit centre is the aim +- one radius).
         var cascadeAreas = new List<(int X, int Y)>();
+        double cascadeAreaDelay = 0;
         {
             var cascadeStats = SupportedSkill(conn, skillId).Stats;
             int Cascade(string name) => Stats.Key(name) is uint key ? cascadeStats.GetValueOrDefault(key) : 0;
             int sides = spell ? Cascade("support_spell_cascade_number_of_cascades_per_side") : 0;
+            int cascadeDelayPct = Cascade("support_spell_cascade_area_delay_+%");
+            if (cascadeDelayPct > 0 && spell)
+            {
+                int? castMs = CastMs(conn, gem.Effect, skillId);
+                if (castMs is int cms && cms > 0)
+                    cascadeAreaDelay = cms / 1000.0 * cascadeDelayPct / 100.0;
+            }
             double dx = to.X - from.X, dy = to.Y - from.Y;
             double length = Math.Sqrt(dx * dx + dy * dy);
             if (sides > 0 && length > 0)
@@ -1391,13 +1399,18 @@ public static partial class Game
                 jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
                 continue;
             }
-            void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
+            void Hit((int X, int Y) centre, double extraDelay = 0) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
-                repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
+                repeatDelay: repeat * repeatInterval + sealDelay + extraDelay, radiusMore: fistRadius, sacrifice: sacrifice,
                 damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
             Hit(to);
-            foreach (var area in cascadeAreas) Hit(area);
+            int cascadeIndex = 0;
+            foreach (var area in cascadeAreas)
+            {
+                Hit(area, cascadeIndex * cascadeAreaDelay);
+                cascadeIndex++;
+            }
         }
         return Task.WhenAll(jobs);
     }
