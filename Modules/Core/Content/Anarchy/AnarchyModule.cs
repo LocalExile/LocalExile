@@ -205,7 +205,35 @@ public sealed class AnarchyModule : IModule
         // Rogue Trader's special reward and the Exceptional exile's (what they are is not in the tables): richer drops.
         if (exile.Special) roll.Rarity *= 2;
         if (exile.Exceptional) { roll.Quantity *= 2; roll.Rarity *= 2; }
+        // The Anarchy scarabs' and leaguestones' rewards: additional jewels, rolled as the exile's own drops are.
+        var jewels = JewelBases(conn);
+        for (int i = S("map_rogue_exiles_drop_x_additional_jewels"); i > 0 && jewels.Count > 0; i--)
+            roll.RolledItems.Add(jewels[rng.Next(jewels.Count)]);
+        // What the exile's items drop as: fully linked, fractured, corrupted, then duplicated (a mirrored copy as well).
+        if (S("map_rogue_exiles_dropped_items_are_fully_linked") > 0) roll.Changes.Add((d, _) => [FullyLinked(d)]);
+        int fractured = S("map_rogue_exiles_dropped_items_are_fractured_chance_%");
+        if (fractured > 0) roll.Changes.Add((d, r) => [r.Next(100) < fractured ? Fractured(d) : d]);
+        if (S("map_rogue_exiles_dropped_items_are_corrupted") > 0) roll.Changes.Add((d, _) => [Modifiable(d) ? d with { Item = d.Item with { Corrupted = true } } : d]);
+        if (S("map_rogue_exiles_dropped_items_are_duplicated") > 0)
+            roll.Changes.Add((d, _) => Modifiable(d) ? [d, d with { Item = d.Item with { Mirrored = true } }] : [d]);
     }
+
+    // An item a currency could change: not a stack (currency, fragments, gold), not already mirrored.
+    static bool Modifiable(ItemDrops.Drop d) => !d.Type.Stackable && d.Type.Class != ItemDrops.GoldClass && !d.Item.Mirrored;
+
+    static ItemDrops.Drop FullyLinked(ItemDrops.Drop d) =>
+        Modifiable(d) && d.Item.Sockets.Count > 1 ? d with { Item = d.Item with { Links = [(byte)d.Item.Sockets.Count] } } : d;
+
+    // A Fracturing Orb's outcome: the first explicit mod fractured, on an item with more than one (a unique's are fixed).
+    static ItemDrops.Drop Fractured(ItemDrops.Drop d) =>
+        Modifiable(d) && d.Item.Rarity is ItemRarity.Magic or ItemRarity.Rare && d.Item.FracturedCount == 0
+            && d.Item.Mods.Count(m => m.Section == ModSection.Explicit) > 1
+            ? d with { Item = d.Item with { FracturedCount = 1 } } : d;
+
+    // The jewel bases a kill can drop: the general drop table's rule (ItemDrops.Droppable) for the Jewel and Abyss Jewel classes.
+    static readonly ConditionalWeakTable<ItemCatalog, List<string>> Jewels = [];
+    static List<string> JewelBases(ClientState conn) => Jewels.GetValue(global::Game.ItemsFor(conn), catalog =>
+        [.. catalog.All.Where(t => t.Class is "Jewel" or "AbyssJewel" && ItemDrops.Droppable(t)).Select(t => t.Id)]);
 
     static string AnarchyScarab(Random rng) => $"Metadata/Items/Scarabs/ScarabAnarchy{1 + rng.Next(4)}";
 
