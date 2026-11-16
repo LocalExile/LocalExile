@@ -458,13 +458,13 @@ public partial class ConditionalItemStatsTests
                     [
                         "GrantsSummonBeastUrsaUnique__1",
                         "AddedPhysicalDamageToAttacksBeastialMinionUnique__1",
-                        "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
+                        "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
                     ]),
                     ("Rhoa",
                     [
                         "GrantsSummonBeastRhoaUnique__1",
                         "AttackAndMovementSpeedBeastialMinionUnique__1",
-                        "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
+                        "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
                     ]),
                     ("Snake",
                     [
@@ -515,8 +515,9 @@ public partial class ConditionalItemStatsTests
                     var ordinary = uniques.Create(canonicalDefinition!, new FixedRandom(pick))!;
                     var actualProfile = ordinary.Mods.Where(mod => profileOnly.Contains(ModId(mod)))
                         .Select(ModId).ToArray();
-                    Assert.Equal(profiles[pick].Mods.Length, actualProfile.Length);
-                    Assert.All(profiles[pick].Mods, id => Assert.Contains(id, actualProfile));
+                    var expected = Assert.Single(profiles, profile => actualProfile.Contains(profile.Mods[0]));
+                    Assert.Equal(expected.Mods.Length, actualProfile.Length);
+                    Assert.All(expected.Mods, id => Assert.Contains(id, actualProfile));
                 }
 
                 var snake = uniques.Create(uniques.Find("Yriel's Fostering (Snake)")!, new Random(504))!;
@@ -1411,6 +1412,44 @@ public partial class ConditionalItemStatsTests
 
             // The same worn-source owner creates the actual Rhoa variety. It is a real friendly, fighting, indefinitely
             // owned entity with the grant's level/life stats, not a dummy boolean or an Ursa substitution.
+            foreach (var (rhoa, snake) in new[] { (false, false), (true, false), (false, true) })
+            {
+                (int Damage, int Mana, int More) SummonDamage(bool withSupport)
+                {
+                    var owner = NewConnection("BeastSupport" + Guid.NewGuid().ToString("N"));
+                    var body = EquipYriel(owner, rhoa, snake);
+                    if (withSupport)
+                    {
+                        var support = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SupportGemMinionDamage")!);
+                        Game.ItemsOf(owner).Change(PlayerInventories.BodyArmour, body.Id, item => item with
+                            { Sockets = [new(SocketColour.White, support)], Links = [1] });
+                        Game.EquipmentStatSources(owner, Game.ItemsOf(owner).EquipmentSnapshot());
+                    }
+                    Ready(owner);
+                    var skill = Assert.Single(Game.GemSkillEffects(owner), g => Game.BeastKindFor(Program.Skills.EffectId(g.Effect)) is not null);
+                    var supported = Game.SupportedSkill(owner, skill.Id);
+                    int mana = supported.Stats[Program.Stats.Key("mana_cost")!.Value];
+                    int more = supported.Stats.GetValueOrDefault(Program.Stats.Key("support_minion_damage_+%_final")!.Value);
+                    Assert.True(Cast(owner, skill.Id));
+                    Game.PlayerMinionsTick("test", wire.Stream, wire.Ciphers, owner, owner.Clock.Elapsed.TotalSeconds).GetAwaiter().GetResult();
+                    var beast = Assert.IsType<BeastCompanions.ActiveBeast>(owner.Beasts.Active);
+                    var at = beast.Monster.Walk.Position(owner.Clock.Elapsed.TotalSeconds);
+                    var enemy = new SpawnedMonster("supported beast target", new(at.X, at.Y, 0), 0, 0, 1000000)
+                        { Hostile = true, Life = 1000000, NoRewards = true };
+                    owner.Monsters[0xb001] = enemy;
+                    var hit = Game.MinionHitLocked(owner, beast.Id, beast.Monster,
+                        new(0xb001, enemy, at, true, at), owner.Clock.Elapsed.TotalSeconds, new PhasingRoll(0));
+                    Assert.NotNull(hit);
+                    return (hit!.Value.Damage, mana, more);
+                }
+                var plain = SummonDamage(false);
+                var enhanced = SummonDamage(true);
+                Assert.True(enhanced.Mana > plain.Mana);
+                Assert.True(enhanced.More > 0);
+                Assert.InRange(enhanced.Damage / (double)plain.Damage,
+                    1 + enhanced.More / 100d - .03, 1 + enhanced.More / 100d + .03);
+            }
+
             var rhoaConn = NewConnection(character + "Rhoa");
             EquipYriel(rhoaConn, rhoa: true);
             var rhoaGrant = Assert.Single(global::Game.AllWornGrantedSkillsOf(rhoaConn),
@@ -3500,6 +3539,8 @@ public partial class ConditionalItemStatsTests
             Assert.Equal(lifeBeforePayment - lifeCost, lifeConn.PlayerLife);
             Assert.True(lifeConn.PlayerLife <= global::Game.LifeCap(lifeConn));
 
+            foreach (var (reservedLife, expectedEs) in new[] { (0, 0), (99, 0), (100, 30), (199, 30), (200, 60) })
+                Assert.Equal(expectedEs, LifeReservation.EnergyShield(reservedLife, 30));
             // Ivory Tower's real +30 ES per 100 reserved Life is in the actual maximum ES pool.
             var ivoryKey = Program.Stats.Key(LifeReservation.EnergyShieldPerReservedStat)!.Value;
             var withIvory = lifeConn.Pools.EnergyShield;
@@ -4140,7 +4181,8 @@ public partial class ConditionalItemStatsTests
         for (int reentry = 0; reentry < 5; reentry++)
             Assert.Same(explicitMods, Game.MonsterModsFor(hostile, sawbones, 20, MonsterRarity.Normal, explicitMods, alone: true));
 
-        static void Contact(ClientState conn, MonsterModEffects effects, DamagePacket hit, bool attack)
+        static void Contact(ClientState conn, MonsterModEffects effects, DamagePacket hit, bool attack,
+            IReadOnlyDictionary<uint, int>? prepared = null)
         {
             var monster = new SpawnedMonster("source", new PlayerWalk(10, 10, 0), 0, 0, 100)
             {
@@ -4148,8 +4190,57 @@ public partial class ConditionalItemStatsTests
             };
             lock (conn.Monsters)
                 Game.ApplyMonsterDamagingAilmentsLocked(conn, 77, monster, hit, false,
-                    conn.Clock.Elapsed.TotalSeconds, attack);
+                    conn.Clock.Elapsed.TotalSeconds, attack, prepared: prepared);
         }
+
+        var proxyOwner = Fresh();
+        var onslaught = Game.KillOnslaughtOf(proxyOwner);
+        onslaught.HitMs = 4000;
+        double proxyAt = proxyOwner.Clock.Elapsed.TotalSeconds;
+        var shockTarget = new SpawnedMonster("proxy shock target", new(0, 0, 0), 0, 0, 10000) { Hostile = true };
+        var proxyStats = new Dictionary<uint, int>
+        {
+            [Program.Stats.Key("gain_arcane_surge_on_hit_%_chance")!.Value] = 100,
+            [Program.Stats.Key("always_shock")!.Value] = 1,
+        };
+        var proxyHit = DamagePacket.Of(DamageType.Lightning, 1000, 1000);
+        Game.AilmentsOnHitLocked(proxyOwner, 77, shockTarget, proxyHit, true, false, 100,
+            proxyStats, null, proxyAt, new PhasingRoll(0), playerHit: false);
+        Assert.True(shockTarget.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, proxyAt) > 0);
+        Assert.True(onslaught.Until < proxyAt);
+        Assert.False(proxyOwner.SupportGems.ArcaneSurgeActiveAt(proxyAt));
+        Game.AilmentsOnHitLocked(proxyOwner, 77, shockTarget, proxyHit, true, false, 100,
+            proxyStats, null, proxyAt, new PhasingRoll(0));
+        Assert.True(onslaught.Until > proxyAt);
+        Assert.True(proxyOwner.SupportGems.ArcaneSurgeActiveAt(proxyAt));
+
+        var bothAilments = new MonsterModEffects(new Dictionary<string, int>
+        {
+            ["global_bleed_on_hit"] = 1, ["global_poison_on_hit"] = 1,
+        });
+        var fixedPhysical = DamagePacket.Of(DamageType.Physical, 100, 100);
+        foreach (int avoidance in new[] { 0, 20, 100 })
+        foreach (int roll in new[] { 19, 20, 99 })
+        {
+            var victim = Fresh();
+            victim.IncomingHitRandom = new PhasingRoll(roll);
+            var finalStats = new Dictionary<uint, int>
+            {
+                [Program.Stats.Key("avoid_bleed_%")!.Value] = avoidance,
+                [Program.Stats.Key("avoid_poison_%")!.Value] = avoidance,
+            };
+            Contact(victim, bothAilments, fixedPhysical, true, finalStats);
+            Assert.Equal(roll >= avoidance, victim.IncomingAilments.Bleeding(victim.Clock.Elapsed.TotalSeconds));
+            Assert.Equal(roll >= avoidance ? 1 : 0, victim.IncomingAilments.PoisonStacks(victim.Clock.Elapsed.TotalSeconds));
+        }
+        var rangedAilments = Fresh();
+        rangedAilments.IncomingHitRandom = new PhasingRoll(200);
+        Contact(rangedAilments, bothAilments,
+            DamagePacket.Of(DamageType.Physical, 100, 200).Add(DamageType.Chaos, new(40, 80)), true,
+            new Dictionary<uint, int>());
+        double rangedAt = rangedAilments.Clock.Elapsed.TotalSeconds;
+        Assert.Equal(140, rangedAilments.IncomingAilments.BleedPerSecond(rangedAt));
+        Assert.Equal(84, rangedAilments.IncomingAilments.PoisonPerSecond(rangedAt));
 
         var bleedChance = Fresh();
         bleedChance.IncomingHitRandom = new Random(7);
