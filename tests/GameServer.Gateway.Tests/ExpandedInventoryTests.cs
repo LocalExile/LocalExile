@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 namespace GameServer.Gateway.Tests;
 
 public sealed class ExpandedInventoryTests
@@ -31,6 +32,36 @@ public sealed class ExpandedInventoryTests
         items.Add(PlayerInventories.Cursor, 0, 0, chaos);
         Assert.True(items.MergeOnto(PlayerInventories.ExpandedInventory, stack.Placed.Id, Game.ShapeOf, out _, expandedAllowed: true)!.Merged);
         Assert.Equal(2, items.Items(PlayerInventories.ExpandedInventory).Single(i => i.Id == stack.Placed.Id).Item.StackSize);
+
+        uint grant = Program.Stats.Key(Game.ExpandedInventoryStat)!.Value;
+        f.Conn.PlayerStats[grant] = 1;
+        var drop = new WorldItemObject(100, 100, chaos with { StackSize = 5 });
+        uint id = f.Conn.Instance.Ground.Add(drop, f.Conn);
+        Assert.NotNull(Game.TakeGroundStack(f.Conn, id, drop));
+        Assert.Equal(7, items.Items(PlayerInventories.ExpandedInventory).Single(i => i.Id == stack.Placed.Id).Item.StackSize);
+        Assert.Empty(items.Items(PlayerInventories.MainInventory));
+        Assert.Null(f.Conn.Instance.Ground.Get(id));
+        f.Conn.PlayerStats[grant] = 0;
+        id = f.Conn.Instance.Ground.Add(drop, f.Conn);
+        Assert.NotNull(Game.TakeGroundStack(f.Conn, id, drop));
+        Assert.Equal(5, Assert.Single(items.Items(PlayerInventories.MainInventory)).Item.StackSize);
+        Assert.Equal(7, items.Items(PlayerInventories.ExpandedInventory).Single(i => i.Id == stack.Placed.Id).Item.StackSize);
+
+        var allflame = ItemCatalog.Create(Program.Items.Find("Metadata/Items/QuestItems/AllFlameLantern1")!);
+        string taken = "backpack-test-reward";
+        Assert.Null(QuestRewardCatalog.Claim(f.Conn.Character!, taken, null, items, allflame, Game.ShapeOf,
+            PlayerInventories.ExpandedInventory));
+        Assert.DoesNotContain(taken, CharacterSaves.Load(f.Conn.Character!)!.QuestFlags ?? []);
+        Assert.NotNull(QuestRewardCatalog.Claim(f.Conn.Character!, taken, null, items, allflame, Game.ShapeOf,
+            PlayerInventories.ExpandedInventory, expandedAllowed: true));
+        Assert.Null(QuestRewardCatalog.Claim(f.Conn.Character!, taken, null, items, allflame, Game.ShapeOf,
+            PlayerInventories.ExpandedInventory, expandedAllowed: true));
+        var flags = Game.QuestFlagsOf(f.Conn, allflame)!;
+        Assert.Contains(QuestItems.Carried(items), p => p.Row == PlayerInventories.ExpandedInventory && p.Item.Item.TypeHash == allflame.TypeHash);
+        var carried = QuestItems.Carried(items).Select(p => Game.QuestFlagsOf(f.Conn, p.Item.Item)).OfType<QuestItemFlags>().ToHashSet();
+        Assert.Contains(flags.Grant!, QuestItems.Sync([flags], carried, _ => false).Set);
+        Assert.Contains(QuestItems.Consume(f.Conn.Character!, items, item => Game.QuestFlagsOf(f.Conn, item), [flags.Remove!])!.Removed,
+            p => p.Row == PlayerInventories.ExpandedInventory);
     }
 
     [Fact]
@@ -74,7 +105,7 @@ public sealed class ExpandedInventoryTests
         readonly ModuleLifetime rules = new("Game");
         readonly string path = Path.Combine(Path.GetTempPath(), $"backpack-{Guid.NewGuid():N}.db");
         internal readonly ClientState Conn = new(new(1, "backpack", 300, 300, 100, 100, null, []), 1, 1)
-        { Character = "Backpack" + Guid.NewGuid().ToString("N"), PlayerLife = 300, PlayerMana = 100 };
+        { Instance = new(), Character = "Backpack" + Guid.NewGuid().ToString("N"), PlayerLife = 300, PlayerMana = 100 };
         internal Fixture()
         {
             Saves.Open(path);

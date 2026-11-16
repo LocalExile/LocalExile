@@ -6,7 +6,8 @@ static partial class VendorsRules
 {
     internal static readonly Lazy<VendorRecipes> VendorSales = new(() => new(Items));
 
-    internal static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId)
+    internal static async Task ClaimNpcReward(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint itemId,
+        byte row = PlayerInventories.MainInventory)
     {
         if (conn.NpcRewardOffer is not int offer || !conn.NpcRewardItems.TryGetValue(itemId, out var reward)) return;
         SpawnedNpc? npc;
@@ -16,10 +17,11 @@ static partial class VendorsRules
         if (catalog.Find(offer) is not { } data) return;
         var items = ItemsOf(conn);
         var quest = ItemsFor(conn).ByHash(reward.TypeHash)?.Quest;
-        var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, quest, items, reward, ShapeOf);
+        var claimed = QuestRewardCatalog.Claim(CharacterName(conn), data.TakenFlag, quest, items, reward, ShapeOf, row,
+            expandedAllowed: ExpandedInventoryGranted(conn));
         if (claimed is null) return;
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-            items.NextRevision(PlayerInventories.MainInventory), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
+            items.NextRevision(row), claimed.RemovedIds, claimed.AddedItems), "0x00bf claimed quest reward");
         // Empty the offer inventory so the native reward window finishes its pending purchase and closes.
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(0x600, 1, [.. conn.NpcRewardItems.Keys], [], NpcShops.Manager),
             $"0x00bf quest reward offer {offer}: all choices removed");

@@ -101,16 +101,18 @@ public sealed class QuestRewardCatalog
         takenFlag is not null ? has(takenFlag)
         : quest?.Grant is not { } grant || has(grant) || quest.Remove is { } remove && has(remove);
 
-    /// <summary>Puts the reward into the main inventory and records the offer as taken (its taken flag, or the quest item's
+    /// <summary>Puts the reward into an admitted carried grid and records the offer as taken (its taken flag, or the quest item's
     /// pickup flags: an Act 1 book's a1q7-HaveRewardBook), in one save transaction. Null (nothing changes) when it is taken
     /// already or does not fit.</summary>
     public static PlayerInventories.Stacking? Claim(string character, string? takenFlag, QuestItemFlags? quest, PlayerInventories inventory,
-        Item reward, Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically(() =>
+        Item reward, Func<Item, PlayerInventories.Shape?> shapeOf, byte row = PlayerInventories.MainInventory,
+        bool expandedAllowed = false) => Saves.Atomically(() =>
     {
+        if (row != PlayerInventories.MainInventory && (row != PlayerInventories.ExpandedInventory || !expandedAllowed)) return null;
         // Read the durable flags again inside the transaction: a retry or another connection cannot duplicate a reward.
         var saved = (CharacterSaves.Load(character)?.QuestFlags ?? []).ToHashSet();
-        if (Taken(takenFlag, quest, saved.Contains) || !inventory.Fits(PlayerInventories.MainInventory, reward, shapeOf)) return null;
-        var added = inventory.AddStacked(PlayerInventories.MainInventory, reward, shapeOf);
+        if (Taken(takenFlag, quest, saved.Contains) || !inventory.Fits(row, reward, shapeOf)) return null;
+        var added = inventory.AddStacked(row, reward, shapeOf);
         if (added.Left != 0) throw new InvalidOperationException("A quest reward did not fit after its capacity check");
         var flags = new List<string>();
         if (takenFlag is not null) flags.Add(takenFlag);
