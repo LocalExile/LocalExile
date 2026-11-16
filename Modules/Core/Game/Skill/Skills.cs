@@ -563,7 +563,12 @@ public static partial class Game
                     stats[group] = cooldown.SharedGroup ?? 36;
                 if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
             }
+            int additionalAttackMs = SkillsFor(conn).IsAttack(effect) ? SkillAttackTiming.AdditionalMilliseconds(stats) : 0;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
+            // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
+            // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
+            if (IsLeapSlam(conn, effect))
+                stats[StatKeys.SkillBehaviourVariation] = SkillsFor(conn).BehaviourVariation(effect);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.
             if (Stats.Key("base_skill_effect_duration") is uint baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
@@ -723,7 +728,10 @@ public static partial class Game
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(((shieldWeapon ?? WeaponFor(conn)).AttackMs / (seconds * 1000) - 1) * 100);
+                    // Additional base time belongs in the duration row, not in an equivalent attack-speed penalty.
+                    int attackBaseMs = (shieldWeapon ?? WeaponFor(conn)).AttackMs;
+                    if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
+                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
                     stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {
@@ -742,8 +750,15 @@ public static partial class Game
                         offInputs = SupportedHitInputsFor(conn, id, weapon: offWeapon);
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
+                        double offSeconds = SupportedOffHandAttackSeconds(conn, id, offWeapon);
+                        if (additionalAttackMs != 0)
+                        {
+                            int offBaseMs = SkillAttackTiming.BaseMilliseconds(offWeapon.AttackMs, additionalAttackMs);
+                            int offSpeed = (int)Math.Round((offBaseMs / (offSeconds * 1000) - 1) * 100);
+                            offHand[offHand.FindIndex(row => row.Stat == "off_hand_attack_speed_+%")] = ("off_hand_attack_speed_+%", offSpeed);
+                        }
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
-                            SupportedOffHandAttackSeconds(conn, id, offWeapon), damageFactor,
+                            offSeconds, damageFactor,
                             OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)

@@ -17,17 +17,27 @@ public static partial class Game
         }
     }
 
+    /// <summary>The attack deadline after a replacement cancels only the repeats that have not started.</summary>
+    public static double MeleeRepeatAttackDeadline(ClientState conn, double at)
+    {
+        lock (conn.Monsters)
+        {
+            if (!MeleeRepeatUses.TryGetValue(conn, out var use) || conn.NextAttackAt != use.End)
+                return conn.NextAttackAt;
+            int swings = Math.Clamp((int)Math.Floor(Math.Max(0, at - use.Start) / use.Seconds) + 1, 1, use.Repeats + 1);
+            return use.Start + swings * use.Seconds;
+        }
+    }
+
     // Native 0x1419e6460 lets Multistrike use each swing's cancellation gate. A replacement ends the unstarted
     // repeats, but the swing already in progress keeps its attack-time cost (0x141942b50).
     public static void CancelMeleeRepeats(ClientState conn, double at)
     {
         lock (conn.Monsters)
         {
-            if (!MeleeRepeatUses.TryGetValue(conn, out var use)) return;
+            double deadline = MeleeRepeatAttackDeadline(conn, at);
             MeleeRepeatUses.Remove(conn);
-            if (conn.NextAttackAt != use.End) return;
-            int swings = Math.Clamp((int)Math.Floor(Math.Max(0, at - use.Start) / use.Seconds) + 1, 1, use.Repeats + 1);
-            conn.NextAttackAt = use.Start + swings * use.Seconds;
+            conn.NextAttackAt = deadline;
         }
     }
 
