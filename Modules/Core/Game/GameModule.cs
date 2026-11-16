@@ -30,6 +30,8 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        if (module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter is { Length: > 0 } source)
+            Rules.InitializeAccountHideout(source);
         module.Lifetime.Own(Rules.InstallMirror());
         string id = module.Manifest.Id;
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));

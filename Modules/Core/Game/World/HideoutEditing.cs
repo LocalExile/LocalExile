@@ -5,10 +5,13 @@ using GameServer.Core.Protocol.Login;
 public static partial class Game
 {
     public static bool OwnHideout(ClientState conn) => HideoutCatalog.ByArea(conn.Layout.Hash) is not null
-        && (conn.InstanceOwner is null || string.Equals(conn.InstanceOwner, CharacterName(conn), StringComparison.OrdinalIgnoreCase));
+        && (conn.InstanceOwner is null || string.Equals(conn.InstanceOwner, CharacterName(conn), StringComparison.OrdinalIgnoreCase)
+            || conn.Account is not null && string.Equals(HideoutAccount(conn, true), conn.Account, StringComparison.OrdinalIgnoreCase));
 
     public static IReadOnlyDictionary<string, HideoutPlacement>? SavedHideoutPlacements(ClientState conn) =>
-        CharacterSaves.Load(conn.InstanceOwner ?? CharacterName(conn))?.HideoutPlacements?.GetValueOrDefault(conn.Layout.Id);
+        SharedHideout(conn, instanceOwner: true) is { } shared
+            ? shared.Placements.GetValueOrDefault(conn.Layout.Id)
+            : CharacterSaves.Load(conn.InstanceOwner ?? CharacterName(conn))?.HideoutPlacements?.GetValueOrDefault(conn.Layout.Id);
 
     public static void PrepareHideoutWaypoint(ClientState conn)
     {
