@@ -39,7 +39,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, ClientState
     async Task All(uint id, byte[] bytes, string label)
     {
         foreach (var p in Present.ToArray())
-        { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, bytes, label); }
+        { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [.. bytes], label); }
     }
     async Task<uint> Spawn(ClientState c, string type, (int X, int Y) at, IReadOnlyList<GrantedSkill>? skills = null)
     {

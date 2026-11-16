@@ -12,7 +12,7 @@ public sealed class ArakaaliPhaseTests
     [Fact]
     public async Task Yugul_pools_chill_without_damage_and_owned_fear_actors_leave_no_reload_duplicates()
     {
-        using var runtime = new Runtime(); using var wire = new Wire();
+        using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
         var c = new ClientState(new(1, Yugul.Area, 4000, 4000, 1908, 1639, (_, _) => true, []), 1, 1)
             { Character = "YugulGroundRegression", Instance = new(), PlayerSent = true, PlayerLife = 10000,
                 Pools = new(60, 10000, 200, 1, 0), Wire = ("yugul-ground", wire.Stream, wire.Ciphers) };
@@ -20,8 +20,23 @@ public sealed class ArakaaliPhaseTests
         uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c, Game.Monsters.Find(Yugul.Boss)!,
             58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
         var boss = c.Monsters[id]; boss.Aggro = true;
-        var hazards = new YugulHazards(id, boss, c); await hazards.Bind(c);
-        await hazards.Step(c, 100); await hazards.Step(c, 100.3);
+        var observer = new ClientState(c.Layout, 2, 1) { Instance = c.Instance, PlayerSent = true, PlayerLife = 10000,
+            Wire = ("yugul-observer", observerWire.Stream, observerWire.Ciphers) };
+        runtime.Observers.Add(observer); observer.Walk.Teleport(2100, 1800, 0);
+        var hazards = new YugulHazards(id, boss, c); await hazards.Bind(c); await hazards.Bind(observer);
+        var sent = new List<(ConnectionCiphers Cipher, byte[] Bytes)>();
+        var previousOutgoing = Program.Outgoing;
+        try
+        {
+            Program.Outgoing = (cipher, bytes) => sent.Add((cipher, bytes.ToArray()));
+            await hazards.Step(c, 100);
+        }
+        finally { Program.Outgoing = previousOutgoing; }
+        uint turret = Assert.Single(c.Monsters, p => p.Value.Variety?.Id.EndsWith("SilverPoolTurret") == true).Key;
+        var emergence = InstanceProtocol.AnimationUpdate(turret, 0, 2, 1);
+        Assert.Contains(sent, s => ReferenceEquals(s.Cipher, wire.Ciphers) && s.Bytes.SequenceEqual(emergence));
+        Assert.Contains(sent, s => ReferenceEquals(s.Cipher, observerWire.Ciphers) && s.Bytes.SequenceEqual(emergence));
+        await hazards.Step(c, 100.3);
         Assert.Equal(10000u, c.PlayerLife);
         Assert.True(c.ElementalAilments.Snapshot(100.3).Chill > 0);
         var ailments = new PlayerElementalAilments(); var cold = DamagePacket.Of(DamageType.Cold, 100, 100);
