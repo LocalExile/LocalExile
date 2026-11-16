@@ -5,8 +5,11 @@ using GameServer.Core.Projectiles;
 public static class GatewayProjectileSkillProfiles
 {
     // User-tuned feel values, not official timings or frame measurements. Keep fractional milliseconds.
+    // Client cluster timer (3.29.3c 0x141ac99c0): first area on the first update, then 0.1 s per area.
     public const double ClusterDelaySeconds = 0;
-    public const double ClusterIntervalSeconds = 1d / 30;
+    public const double ClusterIntervalSeconds = 0.1;
+    // Client placement (3.29.3c 0x141ac9630): three candidate angles per sector before it is omitted.
+    public const int ClusterPlacementAttempts = 3;
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
@@ -52,7 +55,9 @@ public static class GatewayProjectileSkillProfiles
                 ContactArea = new("kinetic-blast", 0, count, Multiplier: Math.Max(0, multiplier))
                     { SectorPlacement = true, RespectTerrain = true, ExcludeContactTarget = true,
                         Delay = ProjectileRuntime.Time(ClusterDelaySeconds),
-                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds) },
+                        Interval = ProjectileRuntime.Time(ClusterIntervalSeconds),
+                        UpdateTimer = true, PlacementAttempts = ClusterPlacementAttempts,
+                        ExtraCountChancePercent = get("kinetic_blast_%_chance_for_additional_blast") },
                 EndAreaReasons = NonContactStops, EndAreaOnReturnTurnaround = true
             };
         }

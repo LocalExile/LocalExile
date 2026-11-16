@@ -37,6 +37,7 @@ public static partial class Game
         if (m.Life > 0 && result.Life == 0)
         {
             CaptureMadnessExplosionLocked(conn, m);
+            m.Poisons.RememberDeath(ProjectileWorldTime(conn));
             RampageOnKillLocked(conn, m, rampageSource, player);
         }
         return result;

@@ -127,6 +127,8 @@ public sealed partial class ClientState
     public readonly HashSet<uint> SeenGround = [];
     /// <summary>The instance's monsters as this client was last shown them (SharedMonsters.cs SyncInstanceMonsters).</summary>
     public readonly Dictionary<uint, MonsterView> MonsterViews = [];
+    /// <summary>Instance scene snapshots already created on this connection, guarded by Monsters.</summary>
+    public readonly HashSet<uint> SceneViews = [];
     /// <summary>The instance's monsters out of this client's wake zone (it was sent 0x1aa for them: Resync.KeepWakeZone).
     /// A monster is asleep (SpawnedMonster.Asleep: no AI, its walk stopped) only when it is out of every client's.</summary>
     public readonly HashSet<uint> AsleepMonsters = [];

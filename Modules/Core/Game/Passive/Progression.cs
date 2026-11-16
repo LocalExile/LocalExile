@@ -172,6 +172,7 @@ public static partial class Game
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
+        sources = WithSpreadPoisonRegeneration(conn, sources);
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;

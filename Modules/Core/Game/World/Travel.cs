@@ -371,7 +371,7 @@ public static partial class Game
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
-        HideoutCatalog.Selected(CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
+        HideoutCatalog.Selected(SharedHideout(conn)?.Area ?? CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
     public static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
@@ -382,7 +382,7 @@ public static partial class Game
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
-        CharacterSaves.SetSelectedHideout(CharacterName(conn), hideout.AreaId);
+        SelectAccountHideout(conn, hideout.AreaId);
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");

@@ -73,7 +73,7 @@ public static partial class Game
     // on a monster waits for the walk into reach, and CastGemSkill reserves it when the swing starts.
     public static double SkillAttackSeconds(ClientState conn, int effect, int level) =>
         Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
-            CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
+            CharacterPlayerStats(conn), actionSpeed: PlayerActionFactor(conn)));
 
     public static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
     {
@@ -750,6 +750,7 @@ public static partial class Game
                 actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
             return;
         }
+        bool leapSkill = gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
         bool immediateAttack = gem.Name is not null && !IsTotemSkill(conn, use.SkillId)
             && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect);
         if (immediateAttack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds))
@@ -800,28 +801,38 @@ public static partial class Game
             noFlickerTarget = flickerTo is null;
             return !noFlickerTarget;
         }
-        if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-            gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
-            () =>
+        LeapSlam.Use? leap = null;
+        void StartCast()
+        {
+            castAt = leap?.At ?? ProjectileWorldTime(conn);
+            castAction = Interlocked.Increment(ref conn.ActionCount);
+            aim = m.Walk.Position(castAt);
+            stand = conn.Walk.Position(castAt);
+            conn.Walk.Order(stand.X, stand.Y, castAt);
+            // A movement skill aimed at a monster travels as one aimed at the ground does.
+            if (leap is not null) CommitLeapSlam(conn, leap);
+            else if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
+            else if (flicker && flickerTo is { } to)
             {
-                castAt = ProjectileWorldTime(conn);
-                castAction = Interlocked.Increment(ref conn.ActionCount);
-                aim = m.Walk.Position(castAt);
-                stand = conn.Walk.Position(castAt);
-                conn.Walk.Order(stand.X, stand.Y, castAt);
-                // A movement skill aimed at a monster travels as one aimed at the ground does.
-                if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
-                else if (flicker && flickerTo is { } to)
-                {
-                    (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
-                    conn.Walk.Teleport(landing.X, landing.Y, castAt);
-                }
-                else if (moves && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
-                {
-                    landing = MovementLanding(conn, gem.Effect, stand, aim, use.SkillId, use.Flags);
-                    conn.Walk.Teleport(landing.X, landing.Y, castAt);
-                }
-            }, out var spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null))
+                (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
+                conn.Walk.Teleport(landing.X, landing.Y, castAt);
+            }
+            else if (moves)
+            {
+                landing = MovementLanding(conn, gem.Effect, stand, aim, use.SkillId, use.Flags);
+                conn.Walk.Teleport(landing.X, landing.Y, castAt);
+            }
+        }
+        CooldownUseTicket? spellUse;
+        bool admitted;
+        if (leapSkill)
+            admitted = TryBeginAttackUse(conn, use.SkillId, gem.Effect, requestedAt,
+                _ => StartCast(), out spellUse,
+                at => (leap = PlanLeapSlam(conn, use.SkillId, gem.Effect, m.Walk.Position(at), at)) is not null);
+        else admitted = TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
+            gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
+            StartCast, out spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null);
+        if (!admitted)
         {
             if (noFlickerTarget) await FlickerRefused(remote, stream, ciphers, conn, gem.Name!);
             return;
@@ -829,10 +840,11 @@ public static partial class Game
         if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
             use.SkillId, use.Sequence, spellUse?.ActionToken ?? castAction, spellUse);
         bool spellAcknowledged = false;
-        bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
-        double? immediateSwingAt = immediateAttack ? castAt : null;
+        bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect) || leapSkill;
+        double? immediateSwingAt = leap?.At ?? (immediateAttack ? castAt : null);
         Task<bool>? spellTask = spellProjectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
-            use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt) : null;
+            use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse,
+            swingAt: immediateSwingAt, leap: leap) : null;
         if (spellTask is { IsCompletedSuccessfully: true, Result: false }) return;
         byte[][] ActionRecords() => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y,
             use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
@@ -853,7 +865,11 @@ public static partial class Game
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
         if (spellAcknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
-        if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
+        if (leap is { } jump)
+            ResyncAfter(remote, stream, ciphers, conn,
+                Math.Max(0, jump.At + jump.Timing.End - conn.Clock.Elapsed.TotalSeconds), gem.Name!);
+        else if (moves) ResyncAfter(remote, stream, ciphers, conn,
+            MovementSeconds(conn, gem.Effect, gem.Level, use.SkillId), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
             sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse, swingAt: immediateSwingAt);
@@ -1014,7 +1030,7 @@ public static partial class Game
     public static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
-        DashUseReceipt? dashReceipt = null, double? swingAt = null)
+        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null)
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
@@ -1090,7 +1106,7 @@ public static partial class Game
             if (!cooldownUse.TryExecute(conn, gem.Effect)) return false;
             if (!cooldownUse.Instant)
             {
-                if (UsesProjectileRuntime(gem.Effect)) ProjectilesFor(remote, stream, ciphers, conn)
+                if (UsesProjectileRuntime(gem.Effect) || leap is not null) ProjectilesFor(remote, stream, ciphers, conn)
                     .Enqueue(() => SendNativeCooldownRefresh(remote, stream, ciphers, conn));
                 else await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
             }
@@ -1131,7 +1147,10 @@ public static partial class Game
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
         // two attacks cannot start at once either.
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
-        if (vaalUse is null && gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
+        if (cooldownUse?.Attack is { } admittedAttack
+            && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
+        if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
+            && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
@@ -1233,8 +1252,8 @@ public static partial class Game
             }
             if (cost > 0 || lifeCost > 0)
             {
-                if (UsesProjectileRuntime(gem.Effect)) ProjectilesFor(remote, stream, ciphers, conn)
-                    .Enqueue(() => SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"projectile cost paid: {gem.Name}"));
+                if (UsesProjectileRuntime(gem.Effect) || leap is not null) ProjectilesFor(remote, stream, ciphers, conn)
+                    .Enqueue(() => SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"skill cost paid: {gem.Name}"));
                 else await SendSkillCost(remote, stream, ciphers, conn, lifeCost,
                     $"0x01b1 player cost {conn.PlayerMana} mana, {conn.PlayerLife} life (-{cost} mana, -{lifeCost} life for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             }
@@ -1303,11 +1322,9 @@ public static partial class Game
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
-        {
-            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId,
-                sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
-                channelGeneration: channelGeneration, swingAt: swingAt);
-        }
+            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
+                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
+                swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap);
         return true;
     }
 
@@ -1615,7 +1632,7 @@ public static partial class Game
     public static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null, double? swingAt = null)
+        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -1702,6 +1719,9 @@ public static partial class Game
                 }
             }
         }
+        if (leap is not null && IsLeapSlam(conn, gem.Effect))
+            return ScheduleLeapSlam(remote, stream, ciphers, conn, skillId, gem, leap, criticalRoll,
+                sequence, fistMore, Math.Sqrt(Math.Max(0, fistRadius)));
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
@@ -2394,6 +2414,7 @@ public static partial class Game
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
                             Random.Shared, reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(player, skillStats),
+                            hitOrigin: IsLeapSlam(conn, gem.Effect) ? centre : null,
                             attackGains: AttackAilmentGains.Capture(player, SkillsFor(conn).IsAttack(gem.Effect)));
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
@@ -2433,14 +2454,16 @@ public static partial class Game
                 {
                     using (ProjectileMutation(conn, advance: false))
                     {
-                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: true);
+                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0);
                         if (reflected.Count > 0 && player is not null)
                             ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
-                        CommitLightningStrikeMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence);
+                        CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
+                            settleKill: singleStrikeTarget is not null);
+                        if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, bled, bleedLog));
-                    return;
+                    continue;
                 }
                 if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
                 if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
@@ -2459,7 +2482,10 @@ public static partial class Game
         }
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn, advance: scheduledSession is null)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
-        foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
+        foreach (var (deadId, dead) in deaths)
+            if (scheduledSession is { } scheduled)
+                CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, Random.Shared);
+            else await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
         // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
         // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the
         // client's animation.
@@ -2485,7 +2511,12 @@ public static partial class Game
         {
             bool changed;
             lock (conn.Monsters) changed = conn.PlayerLife > 0 && SettleBloodChargesLocked(conn, player, deaths.Count, landed - deaths.Count);
-            if (changed) await SendBloodCharges(remote, stream, ciphers, conn, $"{gem.Name}: {landed} hit, {deaths.Count} killed");
+            if (changed)
+            {
+                if (scheduledSession is { } scheduled)
+                    scheduled.Enqueue(() => SendBloodCharges(remote, stream, ciphers, conn, $"{gem.Name}: {landed} hit, {deaths.Count} killed"));
+                else await SendBloodCharges(remote, stream, ciphers, conn, $"{gem.Name}: {landed} hit, {deaths.Count} killed");
+            }
         }
         if (strikeIndex == 0 && strikes > 1)
         {

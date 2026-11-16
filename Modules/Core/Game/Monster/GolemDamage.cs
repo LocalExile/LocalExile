@@ -142,7 +142,7 @@ public static partial class Game
         PublishEnergyShieldLocked(conn, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
-            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => source.Effects[n], n => effects[n], random);
+            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == "never_freeze" && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell, now);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
             flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m, WorldId: attacker));

@@ -6,11 +6,11 @@ using static Program;
 
 static class HideoutEditingFeature
 {
-    /// <summary>Creates the Monster Statue decorations saved for this character's hideout.</summary>
+    /// <summary>Creates the Monster Statue decorations saved for this account's hideout.</summary>
     internal static async Task SpawnMonsterStatues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash || CharacterName(conn) is not { } character) return;
-        foreach (var s in CharacterSaves.MonsterStatues(character, conn.Layout.Id))
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
+        foreach (var s in global::Game.AccountMonsterStatues(conn))
         {
             uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
@@ -58,7 +58,7 @@ static class HideoutEditingFeature
             $"0x02bd remove the monster 0x{create.Target:x} turned into a statue");
         lock (conn.Monsters) conn.Monsters.Remove(create.Target);
         if (CharacterName(conn) is { } character)
-            CharacterSaves.AddMonsterStatue(character, conn.Layout.Id,
+            global::Game.AddAccountMonsterStatue(conn,
                 new CharacterSaves.SavedMonsterStatue(x, y, 0, variety.Hash16));
     }
 
@@ -66,13 +66,13 @@ static class HideoutEditingFeature
         ClientState conn, InstanceHideoutEditing.Move move)
     {
         if (!conn.PlayerSent || conn.PendingTransfer is not null) return;
-        if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
+        if (!OwnHideout(conn) || HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash)
         {
             Console.WriteLine($"[gateway] {remote} refused hideout move 0x{move.ObjectId:x}: {conn.Layout.Id} is not the character's selected hideout");
             return;
         }
         if (!conn.HideoutEditor.TryMove(move, HideoutEditing.Cells(conn.Layout),
-            (key, p) => CharacterSaves.SetHideoutPlacement(CharacterName(conn), conn.Layout.Id, key, p), out var entry))
+            (key, p) => global::Game.SetAccountHideoutPlacement(conn, conn.Layout.Id, key, p), out var entry))
         {
             Console.WriteLine($"[gateway] {remote} refused hideout move 0x{move.ObjectId:x} to ({move.X},{move.Y})");
             return;

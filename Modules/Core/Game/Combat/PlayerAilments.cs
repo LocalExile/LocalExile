@@ -10,7 +10,7 @@ public static partial class Game
         get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
         get("always_shock") != 0 ? 100 : get("base_chance_to_shock_%"),
         get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
-        get("active_skill_ignite_damage_+%_final"));
+        get("active_skill_ignite_damage_+%_final")) { NeverFreeze = get("never_freeze") != 0 };
 
     public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
