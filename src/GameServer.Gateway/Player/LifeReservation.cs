@@ -54,7 +54,7 @@ public static class LifeReservation
 
     public static int EnergyShield(int reserved, int perHundred)
     {
-        return perHundred == 0 ? 0 : (int)Math.Clamp((long)reserved * perHundred / 100, int.MinValue, int.MaxValue);
+        return perHundred == 0 ? 0 : (int)Math.Clamp((long)(reserved / 100) * perHundred, int.MinValue, int.MaxValue);
     }
 
     public static uint Clamp(uint current, Value value) =>

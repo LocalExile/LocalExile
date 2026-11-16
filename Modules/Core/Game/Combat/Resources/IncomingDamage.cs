@@ -30,11 +30,12 @@ public static partial class Game
         // Apply it before every resource pool so it is not repeated between mitigation and allocation.
         physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
         chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
-        (physical, other, chaos) = TriggeredGuardHit(conn, physical, other, chaos, at);
-        RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
+        (physical, other, chaos) = MitigateTriggeredGuardHit(conn, physical, other, chaos, at);
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(conn, physical, at);
+        (physical, other, chaos) = AbsorbTriggeredGuardHit(conn, physical, other, chaos, at);
+        RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         CrabPhysicalHitLocked(conn, physical, at, player);
         bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;

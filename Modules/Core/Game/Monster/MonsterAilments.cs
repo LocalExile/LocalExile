@@ -169,24 +169,24 @@ public static partial class Game
     public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null) =>
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true) =>
         AilmentsOnHitLocked(conn, targetId, m, mitigated, spell, critical, criticalMultiplier, player, skill,
-            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin);
+            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind, hitOrigin, playerHit);
 
     public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null, bool playerHit = true)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
-        OnslaughtOnHitLocked(conn, now);
-        if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
+        if (playerHit) OnslaughtOnHitLocked(conn, now);
+        if (playerHit && spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
-        if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
-        if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
+        if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
+        if (playerHit && !spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, targetId, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -199,7 +199,7 @@ public static partial class Game
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
         foreach (var effect in added)
-            if (effect.Kind == Kind.Freeze)
+            if (playerHit && effect.Kind == Kind.Freeze)
             {
                 conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
                 if (m.Hostile) GainFromAttackAilmentLocked(conn, attackGains.FreezeEndurance,
@@ -225,7 +225,7 @@ public static partial class Game
         int poisonStacksBefore = m.Poisons.Stacks(now);
         if (TryPoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random,
                 out double poisonDps, out double poisonSeconds)
-            && Player("poison_reflected_to_self") != 0 && Player("cannot_be_poisoned") == 0
+            && playerHit && Player("poison_reflected_to_self") != 0 && Player("cannot_be_poisoned") == 0
             && Player("immune_to_poison") == 0
             // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
             && conn.IncomingAilments.PoisonStacks(now) < 100)

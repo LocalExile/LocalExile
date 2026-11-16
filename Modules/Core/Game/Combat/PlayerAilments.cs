@@ -122,8 +122,6 @@ public static partial class Game
     {
         if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
         var effects = m.Mods.Effects;
-        double physical = hit[DamageType.Physical].Min;
-        double chaos = hit[DamageType.Chaos].Min;
         var playerStats = prepared ?? CharacterPlayerStats(conn);
         int Player(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
         int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
@@ -133,14 +131,20 @@ public static partial class Game
             effects["base_chance_to_poison_on_hit_%"]);
         if (attack) poisonChance = Math.Max(poisonChance,
             effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
+        if (bleedChance <= 0 && poisonChance <= 0) return;
+        // Damaging ailments roll their base independently of the hit's roll, before victim mitigation.
+        var rolled = hit.Roll(conn.IncomingHitRandom);
+        double physical = rolled[DamageType.Physical].Min;
+        double chaos = rolled[DamageType.Chaos].Min;
         bool poisonable = effects["all_damage_can_poison"] != 0
-            ? hit.Components.Any(c => c.Range.Min > 0)
+            ? rolled.Components.Any(c => c.Range.Min > 0)
             : physical + chaos > 0;
-        double poisonBase = effects["all_damage_can_poison"] != 0 ? hit.MinTotal : physical + chaos;
+        double poisonBase = effects["all_damage_can_poison"] != 0 ? rolled.MinTotal : physical + chaos;
         if (bleedChance > 0 && physical > 0 && Player("cannot_gain_bleeding") == 0
             && Player("base_cannot_gain_bleeding") == 0
             && Player("virtual_immune_to_bleeding") == 0 && Player("immune_to_bleeding") == 0
-            && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, conn.IncomingHitRandom))
+            && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, conn.IncomingHitRandom)
+            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_bleed_%"), 100, conn.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects["bleeding_damage_+%"] / 100.0);
             double seconds = Ailments.BleedDurationSeconds
@@ -151,7 +155,8 @@ public static partial class Game
         }
         if (poisonChance > 0 && poisonable && Player("cannot_be_poisoned") == 0
             && Player("immune_to_poison") == 0
-            && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, conn.IncomingHitRandom))
+            && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, conn.IncomingHitRandom)
+            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_poison_%"), 100, conn.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0);
             double seconds = Ailments.PoisonDurationSeconds
