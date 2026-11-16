@@ -70,6 +70,7 @@ public static partial class Game
     public static ReservationState.PausedCatCycle? CaptureCatCycle(ClientState conn, double now)
     {
         var state = conn.Reservations;
+        if (state.CatTransferLoading || conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) now = 0;
         if (state.Cat == ReservationState.CatPhase.None) return state.PausedCat;
         var phase = SettleCatPhase(state.Cat, state.CatPhaseStartedAt, state.CatPhaseDeadline,
             now, state.CatStealthSeconds, state.CatAgilitySeconds);
@@ -153,6 +154,8 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? rawSources = null)
     {
         var state = conn.Reservations;
+        if (state.CatOwner is null && state.PausedCat is null) PrimeCatTransfer(conn);
+        if (state.CatTransferLoading || conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) now = 0;
         var root = CatAspectRootLocked(conn);
         if (root is null || conn.PlayerLife == 0)
         {

@@ -10,6 +10,7 @@ public sealed class ReservationState
     public enum AvianPhase { None, Might, Flight }
     public sealed record PausedCatCycle(CatPhase Phase, double Elapsed, double StealthSeconds, double AgilitySeconds);
     public PausedCatCycle? PausedCat;
+    public bool CatTransferLoading;
     public double CatStealthSeconds = 4, CatAgilitySeconds = 6;
     public CatAspectOwner? AvianOwner;
     public AvianPhase Avian;

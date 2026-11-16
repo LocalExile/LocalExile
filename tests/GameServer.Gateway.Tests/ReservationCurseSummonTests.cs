@@ -2464,11 +2464,31 @@ public sealed partial class ReservationCurseSummonTests
                     restoredConn.Pools = Game.PoolsFor(restoredConn, 100);
                     restoredConn.PlayerLife = restoredConn.Pools.Life;
                     restoredConn.PlayerMana = restoredConn.Pools.Mana;
+                    // Area preparation restores remembered auras before SpawnPlayer consumes the resource ticket.
+                    // Prime the retained Agility cycle there, without an intermediate Stealth/charge grant.
+                    var transferSource = new ClientState(conn.Layout, 0xC472, 1)
+                    {
+                        Character = character, ClassRow = witchRow, Instance = new(), PlayerLife = restoredConn.Pools.Life,
+                        PlayerMana = restoredConn.Pools.Mana, Pools = restoredConn.Pools,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                    };
+                    transferSource.Reservations.PausedCat = new(ReservationState.CatPhase.Agility, 1, 4, 6);
+                    _ = Game.ResourceEffectsOf(transferSource);
+                    Game.CarryResourceEffects(transferSource, restoredConn.Ticket);
                     var restoredCat = Game.RestoreRememberedAuras(restoredConn, savedCatIntent);
                     Assert.Contains(restoredCat, aura => aura.EffectId == "AspectOfTheCat");
                     Game.EnsureOwnAuraPools(restoredConn);
                     Assert.True(Game.CatAspectRootActiveLocked(restoredConn));
-                    Assert.Equal(ReservationState.CatPhase.Stealth, restoredConn.Reservations.Cat);
+                    Assert.Equal(ReservationState.CatPhase.Agility, restoredConn.Reservations.Cat);
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Power));
+                    Game.RestoreResourceEffects(restoredConn);
+                    Game.ActivateResourceEffects(restoredConn, schedule.At);
+                    Game.EnsureOwnAuraPools(restoredConn);
+                    Assert.Equal(ReservationState.CatPhase.Agility, restoredConn.Reservations.Cat);
+                    Assert.Equal(5, restoredConn.Reservations.CatPhaseDeadline - schedule.At, 3);
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Power));
                     Assert.Contains("AspectOfTheCat", CharacterSaves.Load(character)!.ActiveAuras ?? []);
 
                     var town = new ClientState(AreaLayouts.For(AreaLayouts.LioneyesWatch, 1), 2, 1)

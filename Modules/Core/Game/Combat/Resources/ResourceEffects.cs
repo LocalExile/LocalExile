@@ -208,10 +208,26 @@ public static partial class Game
             state.Restore(entry.State, 0); state.Loading = true;
         }
     }
+    static void PrimeCatTransfer(ClientState conn)
+    {
+        if (!CarriedResourceEffects.TryGetValue(conn.Ticket, out var entry)
+            || entry.Character != CharacterName(conn) || entry.State.Cat is not { } cat
+            || !ReferenceEquals(entry.Rules, CombatLifetime) || !entry.Rules.IsActive
+            || !ReferenceEquals(entry.Source, AscendancyPolicies.SourceOwner(conn))
+            || entry.Source is { IsActive: false } || DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) return;
+        // Saved aura restoration can build pools before SpawnPlayer restores the full resource snapshot.
+        conn.Reservations.PausedCat = cat;
+        conn.Reservations.CatTransferLoading = true;
+    }
+
     public static void ActivateResourceEffects(ClientState conn, double at)
     {
         lock (conn.Monsters)
             if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true } state && ResourceEffectsCurrent(conn, state))
-            { state.Restore(state.Capture(0), at); state.Loading = false; }
+            {
+                state.Restore(state.Capture(0), at);
+                state.Loading = false;
+                conn.Reservations.CatTransferLoading = false;
+            }
     }
 }
