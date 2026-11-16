@@ -65,12 +65,12 @@ public static partial class Game
         return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
     }
 
-    static SpawnedMonster? SummonCorpse(ClientState conn, (int X, int Y) aim, uint target)
+    static SpawnedMonster? SummonCorpse(ClientState conn, (int X, int Y) aim, uint target, double radius = 15)
     {
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
             && m.Variety?.LifeData.IsUsableAsCorpse(m.Life) == true && m.Rarity != MonsterRarity.Unique;
         if (target != 0 && conn.Monsters.GetValueOrDefault(target) is { } selected && Allowed(selected)) return selected;
-        return conn.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(conn)), aim) <= 15)
+        return conn.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(conn)), aim) <= radius)
             .MinBy(m => Dist(m.Walk.Position(AreaTime(conn)), aim));
     }
 
