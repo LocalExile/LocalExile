@@ -2,10 +2,9 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public class ConditionalOperatorCoreTests
+static class ConditionalOperatorCoreCases
 {
-    [Fact]
-    public void Compound_operators_fold_only_supplied_live_subjects_and_keep_source_local_values()
+    public static void Compound_operators_fold_only_supplied_live_subjects_and_keep_source_local_values()
     {
         var values = new Dictionary<string, int> { ["strength"] = 100, ["dexterity"] = 99,
             ["life"] = 1000, ["mana"] = 950, ["equipped_corrupted"] = 2, ["equipped_total"] = 2 };
@@ -40,8 +39,7 @@ public class ConditionalOperatorCoreTests
         Assert.Equal(0, absent.GetValueOrDefault("spell_damage_+%"));
     }
 
-    [Fact]
-    public void Event_amounts_use_exact_independent_windows_and_saturating_coefficients()
+    public static void Event_amounts_use_exact_independent_windows_and_saturating_coefficients()
     {
         var events = new RecentEvents();
         events.RecordAmount(StatConditions.KilledEnemy, 10, 2);

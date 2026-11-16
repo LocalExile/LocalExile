@@ -2,10 +2,9 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public class SkillSourceLifetimeTests
+static class SkillSourceLifetimeCases
 {
-    [Fact]
-    public void Shared_physical_markers_retire_old_leases_and_transfer_one_activation_writer()
+    public static void Shared_physical_markers_retire_old_leases_and_transfer_one_activation_writer()
     {
         var store = new GemSourceLifetimes.SourceStore();
         var key = new GemSkillIds.Gem(100, 0, 42);
@@ -36,8 +35,7 @@ public class SkillSourceLifetimeTests
         Assert.Null(store.Capture(key));
     }
 
-    [Fact]
-    public void Accepted_socket_edits_retire_the_source_and_skill_ids_separate_source_kinds()
+    public static void Accepted_socket_edits_retire_the_source_and_skill_ids_separate_source_kinds()
     {
         var items = new PlayerInventories();
         var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
