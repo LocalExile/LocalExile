@@ -903,6 +903,11 @@ public static partial class Game
         string log = $"gold 0x{id:x} {how} (+{ground.Item.StackSize})";
         if (conn.LockstepClient)
         {
+            // Only a pile whose create was admitted (SeenGround is set at that gate): asking for the removal of one not yet
+            // sent marked its id as published, and its create, still to come in the kill's output, then failed and closed
+            // the connection (live 2026-11-16). The next tick takes it.
+            lock (conn.Monsters)
+                if (!conn.SeenGround.Contains(id)) return;
             await SendWorldRemoval(remote, stream, ciphers, conn, id, log, atGate: () =>
             {
                 if (Take() is not { } bytes) return null;
