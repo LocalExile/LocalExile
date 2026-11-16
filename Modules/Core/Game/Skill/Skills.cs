@@ -877,29 +877,34 @@ public static partial class Game
     // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
-    public static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(conn));
+
+    // A bind received while an earlier refresh waits for the send gate must win over that refresh.
+    internal static byte[]? SkillBarRecord(ClientState conn)
     {
-        FillSkillBar(conn);
-        var save = CharacterSaves.Load(CharacterName(conn));
-        var saved = save?.SkillBar;
-        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return;
-        var ids = new ushort[InstanceProtocol.SkillBarSlots];
-        var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
-            .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
-            .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
-        if (saved is { Count: > 0 })
-            foreach (var (slot, entry) in saved)
-            {
-                if (slot < 0 || slot >= ids.Length) continue;
-                if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
-                else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
-            }
-        if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
-        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
-        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
-            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
-            $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
+        lock (conn.Monsters)
+        {
+            FillSkillBar(conn);
+            var save = CharacterSaves.Load(CharacterName(conn));
+            var saved = save?.SkillBar;
+            if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return null;
+            var ids = new ushort[InstanceProtocol.SkillBarSlots];
+            var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
+                .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
+                .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
+            if (saved is { Count: > 0 })
+                foreach (var (slot, entry) in saved)
+                {
+                    if (slot < 0 || slot >= ids.Length) continue;
+                    if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
+                    else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
+                }
+            if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+            foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
+            ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
+            return InstanceProtocol.SkillBar(ids, attackInPlace, mask52);
+        }
     }
 
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as

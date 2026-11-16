@@ -89,7 +89,7 @@ public sealed class SpellTotemExecutionTests
     }
 
     [Fact]
-    public void Native_spell_totem_admits_fireball_and_rejects_unimplemented_payloads()
+    public async Task Native_spell_totem_admits_projectiles_and_raging_spirits_and_rejects_unimplemented_payloads()
     {
         string path = Path.Combine(Path.GetTempPath(), $"spell-totem-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
@@ -119,6 +119,29 @@ public sealed class SpellTotemExecutionTests
             Assert.NotNull(Game.TotemVariety(conn, Game.SupportedSkill(conn, skill).Effect));
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
             Assert.Equal(1000u, conn.PlayerMana);
+            skill = Equip(conn, "SkillGemSummonRagingSpirit", "SupportGemSpellTotem");
+            var spirit = Game.GemSkillEffects(conn).Single();
+            var spiritSource = Game.SupportedSkill(conn, skill);
+            Assert.NotNull(Game.TotemVariety(conn, spirit.Effect));
+            Assert.True(Game.TotemPathAvailable(conn, skill, spirit.Effect));
+            using (var spiritWire = new Wire())
+            {
+                var spiritSession = Game.ProjectilesFor("spirit-totem", spiritWire.Stream, spiritWire.Ciphers, conn);
+                var spiritTotem = new TotemState.Totem(778, skill, (100, 100), 100, 100, null)
+                { Effect = spirit.Effect, SourceGem = spirit.Gem, SourceHost = spiritSource.Host, SourceItem = spiritSource.SourceGem };
+                conn.Totems.Place(spiritTotem, 1, 0);
+                conn.Monsters[901] = new("spirit-target", new(110, 100, 0), 0, 0, 10000) { Hostile = true };
+                Game.TickSpellTotemsLocked("spirit-totem", spiritWire.Stream, spiritWire.Ciphers, conn, new List<byte>());
+                spiritSession.AdvanceTo(ProjectileRuntime.Time(spiritTotem.NextCast));
+                var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                spiritSession.Enqueue(() => { released.SetResult(); return Task.CompletedTask; });
+                await released.Task;
+                Assert.Single(conn.Summons.Fighters);
+                Assert.Equal(1000u, conn.PlayerMana);
+                spiritSession.Invalidate();
+            }
+            foreach (var t in conn.Totems.All) t.DiedAt = 0;
+            conn.Monsters.Clear();
             skill = Equip(conn, "SkillGemSpark", "SupportGemSpellTotem");
             conn.Clock.Start();
             using var wire = new Wire();
