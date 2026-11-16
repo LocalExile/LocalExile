@@ -15,7 +15,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         PhysicalAegisState.Carried? Aegis, Game.CarriedSiphoning? Siphoning, Game.CarriedAvatar? Avatar = null,
         Game.CarriedHerEmbrace? HerEmbrace = null, Game.CarriedElusive? Elusive = null,
         Game.CarriedChargeDegeneration? ChargeDegeneration = null,
-        Game.CarriedRecentHitLifeLoss? RecentHitLifeLoss = null);
+        Game.CarriedRecentHitLifeLoss? RecentHitLifeLoss = null, ReservationState.PausedCatCycle? Cat = null);
     public Snapshot? TransferCheckpoint;
     public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -32,7 +32,8 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         connection is null ? null : Game.CaptureHerEmbrace(connection, at),
         connection is null ? null : Game.CaptureElusive(connection, at),
         connection is null ? null : Game.CaptureChargeDegeneration(connection, at),
-        connection is null ? null : Game.CaptureRecentHitLifeLoss(connection, at));
+        connection is null ? null : Game.CaptureRecentHitLifeLoss(connection, at),
+        connection is null ? null : Game.CaptureCatCycle(connection, at));
     public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -62,6 +63,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         if (connection is not null && TransferCheckpoint?.ChargeDegeneration is { } degeneration)
             Game.RestoreChargeDegeneration(connection, degeneration, at);
         if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, TransferCheckpoint?.RecentHitLifeLoss, at);
+        if (connection is not null) Game.RestoreCatCycle(connection, TransferCheckpoint?.Cat);
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     public void Restore(Snapshot value, double at)
@@ -74,6 +76,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         if (connection is not null && value.Elusive is { } elusive) Game.RestoreElusive(connection, elusive, at);
         if (connection is not null && value.ChargeDegeneration is { } degeneration) Game.RestoreChargeDegeneration(connection, degeneration, at);
         if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, value.RecentHitLifeLoss, at);
+        if (connection is not null) Game.RestoreCatCycle(connection, value.Cat);
     }
     public void Clear()
     {

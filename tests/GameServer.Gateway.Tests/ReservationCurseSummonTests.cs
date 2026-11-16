@@ -2192,12 +2192,31 @@ public sealed partial class ReservationCurseSummonTests
                         Assert.Equal(primedFinal, restoredScope.Final);
                     }
                     AssertPublished(chargedInitial, ("has_cat_aspect", 1), ("has_cats_stealth", 1),
-                        ("has_cats_agility", 0), ("current_frenzy_charges", 4), ("current_power_charges", 3),
+                        ("has_cats_agility", 0), ("current_frenzy_charges", 0), ("current_power_charges", 0),
                         ("phase_through_objects", 1), ("virtual_phase_through_objects", 1));
                     Assert.Equal(123u, catConn.PlayerMana);
                     Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
                     Assert.Equal(6, catState.CatPhaseDeadline - catState.CatPhaseStartedAt, 3);
                     Assert.Equal(1036, catConn.PresentedAuras[catSource.Id].BuffRow);
+                    // Resuming the existing Stealth is not a new phase entry, even after equipping Fur.
+                    for (int toggle = 0; toggle < 3; toggle++)
+                    {
+                        double remaining = catState.CatPhaseDeadline - schedule.At;
+                        Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn,
+                            catSource.Id, catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                        schedule.At += .25;
+                        Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn,
+                            catSource.Id, catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                        Assert.Equal(remaining, catState.CatPhaseDeadline - schedule.At, 6);
+                        Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                        Assert.Equal(0, chargeSession.Effective(ChargeType.Power));
+                    }
+                    schedule.At = catState.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    schedule.At = catState.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
                     int maxFrenzy = chargeSession.Limits(ChargeType.Frenzy).Maximum;
                     int maxPower = chargeSession.Limits(ChargeType.Power).Maximum;
                     Assert.Equal(4, maxFrenzy);
@@ -2264,7 +2283,7 @@ public sealed partial class ReservationCurseSummonTests
                     Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
                         catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
                     Assert.Equal(schedule.At, catState.CatPhaseStartedAt, 3);
-                    Assert.Equal(maxFrenzy, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.State.Held(ChargeType.Frenzy)); // Re-enabling resumes the phase; it grants no charges.
                     Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
 
                     catConn.Phasing = true;
@@ -2383,7 +2402,7 @@ public sealed partial class ReservationCurseSummonTests
                     schedule.At = 1135.5;
                     await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
                     Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
-                    Assert.Equal(1125, catState.CatLastStealthStartedAt, 3);
+                    Assert.Equal(1124.75, catState.CatLastStealthStartedAt, 3);
                     Assert.Equal(1, chargeSession.State.Held(ChargeType.Frenzy));
                     Assert.Equal(laterExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
                     Assert.Equal(0, chargeSession.State.Held(ChargeType.Power));
@@ -2391,12 +2410,12 @@ public sealed partial class ReservationCurseSummonTests
                     schedule.At = 1137;
                     await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
                     Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
-                    Assert.Equal(1137, catState.CatLastStealthStartedAt, 3);
+                    Assert.Equal(1136.75, catState.CatLastStealthStartedAt, 3);
                     Assert.Equal(maxFrenzy, chargeSession.State.Held(ChargeType.Frenzy));
                     Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
-                    Assert.Equal(1137 + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                    Assert.Equal(1136.75 + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
                         chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
-                    Assert.Equal(1137 + chargeSession.Limits(ChargeType.Power).DurationMs / 1000.0,
+                    Assert.Equal(1136.75 + chargeSession.Limits(ChargeType.Power).DurationMs / 1000.0,
                         chargeSession.State.ExpiresAt(ChargeType.Power), 3);
 
                     inventory.Remove(PlayerInventories.BodyArmour, furPlacement.Id);
@@ -6558,10 +6577,16 @@ public sealed partial class ReservationCurseSummonTests
                     inventory.Remove(PlayerInventories.BodyArmour, replicaPlacement.Id);
                     Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
                         catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
-                    Assert.Equal(4, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(6, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
                     Assert.False(Game.HasOnslaught(catConn));
                     Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
                     Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+
+                    schedule.At = state.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, state.Cat);
+                    Assert.Equal(4, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
 
                     schedule.At = state.CatPhaseDeadline;
                     await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);

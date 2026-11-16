@@ -8,6 +8,9 @@ public sealed class ReservationState
     public enum CatPhase { None, Stealth, Agility }
     public readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
     public enum AvianPhase { None, Might, Flight }
+    public sealed record PausedCatCycle(CatPhase Phase, double Elapsed, double StealthSeconds, double AgilitySeconds);
+    public PausedCatCycle? PausedCat;
+    public double CatStealthSeconds = 4, CatAgilitySeconds = 6;
     public CatAspectOwner? AvianOwner;
     public AvianPhase Avian;
     public double AvianStartedAt, AvianDeadline;

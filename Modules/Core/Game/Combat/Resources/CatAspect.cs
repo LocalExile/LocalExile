@@ -67,13 +67,30 @@ public static partial class Game
         conn.AuraStatsDirty = true;
     }
 
+    public static ReservationState.PausedCatCycle? CaptureCatCycle(ClientState conn, double now)
+    {
+        var state = conn.Reservations;
+        if (state.Cat == ReservationState.CatPhase.None) return state.PausedCat;
+        var phase = SettleCatPhase(state.Cat, state.CatPhaseStartedAt, state.CatPhaseDeadline,
+            now, state.CatStealthSeconds, state.CatAgilitySeconds);
+        return new(phase.Phase, Math.Max(0, now - phase.Started), state.CatStealthSeconds, state.CatAgilitySeconds);
+    }
+
+    public static void RestoreCatCycle(ClientState conn, ReservationState.PausedCatCycle? cycle)
+    {
+        ClearCatRuntimeLocked(conn);
+        conn.Reservations.PausedCat = cycle;
+    }
+
     public static void EndCatAspectRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
         if (conn.Reservations.CatOwner is not { } owner
             || owner.Skill != aura.SkillId || owner.RootBuff != aura.Buff) return;
         if (conn.Reservations.Cat == ReservationState.CatPhase.Stealth)
             QueueCatStealthLossLocked(conn, AreaTime(conn), AreaTime(conn));
+        var paused = CaptureCatCycle(conn, AreaTime(conn));
         ClearCatRuntimeLocked(conn);
+        conn.Reservations.PausedCat = paused;
     }
 
     static (double Stealth, double Agility) CatAspectDurationsLocked(ClientState conn, AuraCatalog.Aura root,
@@ -144,7 +161,9 @@ public static partial class Game
                 || state.CatPhaseBuff != 0 || state.CatPhasing
                 || state.CatStealthGrantQualified || state.CatAgilityGrantQualified
                 || state.CatOnslaughtQualified;
+            var paused = conn.PlayerLife > 0 ? CaptureCatCycle(conn, now) : null;
             ClearCatRuntimeLocked(conn);
+            state.PausedCat = paused;
             return wasActive;
         }
         rawSources ??= CharacterStatSources(conn).Stats;
@@ -156,6 +175,7 @@ public static partial class Game
         bool ownerStarted = false;
         if (state.CatOwner != owner || state.Cat == ReservationState.CatPhase.None)
         {
+            state.PausedCat ??= state.Cat == ReservationState.CatPhase.None ? null : CaptureCatCycle(conn, now);
             ownerStarted = true;
             state.CatOwner = owner;
             state.Cat = ReservationState.CatPhase.Stealth;
@@ -169,9 +189,21 @@ public static partial class Game
             state.CatOnslaughtQualified = state.CatPhasing = false;
             state.CatPhaseBuff = 0;
             state.CatOnslaughtBuff = 0;
+            if (state.PausedCat is { } paused)
+            {
+                state.Cat = paused.Phase;
+                state.CatPhaseStartedAt = now - paused.Elapsed;
+                state.CatLastStealthStartedAt = state.CatObservedStealthEntryAt =
+                    paused.Phase == ReservationState.CatPhase.Stealth ? state.CatPhaseStartedAt : double.NegativeInfinity;
+                state.CatLastAgilityStartedAt = state.CatObservedAgilityEntryAt =
+                    paused.Phase == ReservationState.CatPhase.Agility ? state.CatPhaseStartedAt : double.NegativeInfinity;
+                state.PausedCat = null;
+            }
             changed = true;
         }
         var (stealth, agility) = CatAspectDurationsLocked(conn, root, rawSources);
+        state.CatStealthSeconds = stealth;
+        state.CatAgilitySeconds = agility;
         double currentDuration = CatPhaseDuration(state.Cat, stealth, agility);
         double expectedDeadline = state.CatPhaseStartedAt + currentDuration;
         if (Math.Abs(expectedDeadline - state.CatPhaseDeadline) > 1e-9)
