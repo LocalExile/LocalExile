@@ -144,6 +144,12 @@ public static partial class Game
         SpawnedMonster? victim, (int X, int Y) aim, double now)
     {
         var m = g.Monster;
+        if (ability.Effect == 306)
+        {
+            var elements = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning };
+            ability = GolemAbilities(conn, m.Variety!, m.Level, g, g.Player, elements[Random.Shared.Next(elements.Length)])
+                .Single(a => a.Effect == 306);
+        }
         int generation = ++m.ActionGeneration;
         g.Pending = new(ability, target, victim, aim, now + ability.Attack.Seconds * ability.Contact, generation);
         m.BusyUntil = double.PositiveInfinity;
@@ -235,6 +241,21 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), orb.Blob()), "lightning golem orb", WorldId: obj, CreatesObject: true));
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
             g.Hazards.Add(new(a.Effect, action.Aim, now + 8, 40, 0, DamageType.Lightning) { LastAt = now, Object = obj }); return;
+        }
+        if (a.Effect == 9511)
+        {
+            int count = Math.Clamp(1 + GolemStat(a.Stats, "number_of_additional_arrows")
+                + GolemStat(g.Own, "number_of_additional_arrows") + GolemStat(g.Own, "number_of_additional_projectiles"), 1, 256);
+            var enemies = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0)
+                .Select(m => ProjectileSession.Vector(m.Walk.Position(now))).ToArray();
+            double spread = 24 * a.Radius / 10;
+            var landings = RainLandings("RainOfArrows", ProjectileSession.Vector(action.Aim), count, spread, enemies, Random.Shared);
+            for (int i = 0; i < landings.Count; i++)
+            {
+                var p = landings[i]; double when = now + .35 + i * .04;
+                g.Pulses.Add(new(a, ((int)Math.Round(p.X), (int)Math.Round(p.Y)), when, 1, Once: true) { Next = when });
+            }
+            return;
         }
         if (a.Projectile is not null)
         { GolemLaunch(remote, stream, ciphers, conn, g, a, action.Aim, now, nova: a.Effect == 5026); return; }
