@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -37,4 +38,47 @@ public sealed class AreaSeedsTests
         }.For(map));
         Assert.Equal(1u, new AreaSeeds { Hideouts = new HashSet<ushort> { map }, Fixed = 99 }.For(map));
     }
+
+    [Fact]
+    public void Map_seed_selection_preserves_only_usable_captures_and_the_gateway_reads_the_same_grid()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), $"map-seed-captures-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        try
+        {
+            var world = ClientTables.Table("WorldAreas");
+            var maps = ClientTables.Table("Maps");
+            var uncaptured = WorldAreaMaps.Load(world, maps, folder);
+            Assert.NotEmpty(uncaptured);
+            var area = world.First(row => uncaptured.Contains((ushort)row.Int("HASH16")));
+            string id = area.Text("Id")!;
+            ushort hash = (ushort)area.Int("HASH16");
+            string bin = Path.Combine(folder, $"{id}_seed1.bin");
+            string meta = Path.ChangeExtension(bin, ".json");
+            File.WriteAllText(meta, "{\"w\":2,\"h\":2}");
+            File.WriteAllBytes(bin, [2, 3, 4, 5]);
+            Assert.DoesNotContain(hash, WorldAreaMaps.Load(world, maps, folder));
+            Assert.Equal(new byte[] { 2, 3, 4, 5 }, WalkMapCapture.Load(id, 1, out int width, out int height, folder));
+            Assert.Equal((2, 2), (width, height));
+            Assert.Equal(1u, new AreaSeeds { Maps = WorldAreaMaps.Load(world, maps, folder), Next = () => 99 }.For(hash));
+            Assert.Equal(99u, new AreaSeeds
+            {
+                Maps = WorldAreaMaps.Load(world, maps, folder), Random = new HashSet<ushort> { hash }, Next = () => 99,
+            }.For(hash));
+            // Incomplete captures cannot pin an otherwise unknown layout.
+            File.WriteAllBytes(bin, [2]);
+            Assert.Contains(hash, WorldAreaMaps.Load(world, maps, folder));
+            Assert.Null(WalkMapCapture.Load(id, 1, out _, out _, folder));
+            File.WriteAllText(meta, "{\"w\":-1,\"h\":-1}");
+            Assert.Contains(hash, WorldAreaMaps.Load(world, maps, folder));
+            File.Delete(meta);
+            Assert.Contains(hash, WorldAreaMaps.Load(world, maps, folder));
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(folder)) File.Delete(file);
+            Directory.Delete(folder);
+        }
+    }
+
 }

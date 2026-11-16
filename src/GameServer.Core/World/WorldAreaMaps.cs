@@ -9,16 +9,17 @@ namespace GameServer.Core.World;
 /// </summary>
 public static class WorldAreaMaps
 {
-    /// <summary>These map areas' HASH16s; empty without either table.</summary>
-    public static HashSet<ushort> Load(ClientTable? worldAreas, ClientTable? maps)
+    /// <summary>Map areas without a usable seed-1 walk grid; empty without either table.</summary>
+    public static HashSet<ushort> Load(ClientTable? worldAreas, ClientTable? maps, string captureFolder = WalkMapCapture.Folder)
     {
         var result = new HashSet<ushort>();
         if (worldAreas is null || maps is null) return result;
-        var hashes = worldAreas.Select(r => (ushort)r.Int("HASH16")).ToArray();
+        var areas = worldAreas.Select(r => (Hash: (ushort)r.Int("HASH16"), Id: r.Text("Id"))).ToArray();
         foreach (var row in maps)
             foreach (string column in new[] { "Regular_WorldAreasKey", "Unique_WorldAreasKey" })
-                if (row.IntOrNull(column) is int index and >= 0 && index < hashes.Length)
-                    result.Add(hashes[index]);
+                if (row.IntOrNull(column) is int index and >= 0 && index < areas.Length
+                    && areas[index].Id is { } id && !WalkMapCapture.Available(id, 1, captureFolder))
+                    result.Add(areas[index].Hash);
         return result;
     }
 }

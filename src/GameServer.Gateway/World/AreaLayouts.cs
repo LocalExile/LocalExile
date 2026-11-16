@@ -254,24 +254,8 @@ public static class AreaLayouts
         return null;
     }
 
-    // data/walkability/<id>_seed<seed>.bin (1 byte per cell) + .json {"w":..,"h":..}, written by scripts/walkmaps.
-    static byte[]? LoadCells(string id, uint seed, out int w, out int h)
-    {
-        (w, h) = (0, 0);
-        string bin = $"{Folder}/{id}_seed{seed}.bin", meta = Path.ChangeExtension(bin, ".json");
-        if (!File.Exists(bin) || !File.Exists(meta)) return null;
-        try
-        {
-            var m = JsonDocument.Parse(File.ReadAllText(meta)).RootElement;
-            (w, h) = (m.GetProperty("w").GetInt32(), m.GetProperty("h").GetInt32());
-            byte[] cells = File.ReadAllBytes(bin);
-            return cells.Length == w * h ? cells : null;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
+    static byte[]? LoadCells(string id, uint seed, out int w, out int h) =>
+        GameServer.Core.World.WalkMapCapture.Load(id, seed, out w, out h);
 
     /// <summary>The capture's projectile grid beside its walk map (scripts/walkmaps: <c>&lt;id&gt;_seed&lt;seed&gt;.projectile.bin</c>,
     /// one byte per cell, sized by the walk map's .json), or null without one.</summary>

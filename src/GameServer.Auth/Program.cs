@@ -141,7 +141,8 @@ static async Task Serve(LoginServerKeys keys)
     // A new instance of an area the Gateway generates itself (world.db's server_level_areas, generated = 1) gets a random
     // seed; every other area keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it
     // cannot build seed 1 (server_level_areas.seed_in_place_of_one). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
-    // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
+    // generation off) pins supported/captured areas that way; uncaptured maps still need random seeds.
+    // Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
     var worldAreas = ClientTables.TableOrNull("WorldAreas");
     // world.db is the Gateway's too: the updater applies each file once, whichever server opens it first.
     IReadOnlyList<GameDataStore.ServerLevelAreaRow> levelAreas;
