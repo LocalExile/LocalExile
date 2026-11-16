@@ -5,6 +5,8 @@
 /// </summary>
 public sealed class InstanceWorld
 {
+    /// <summary>Module-owned static scene snapshots that survive rule reloads, keyed by their owner and placement.</summary>
+    public readonly Dictionary<string, (uint Id, string Type, GameServer.Core.Protocol.Instance.QuestObject Object)> SceneObjects = new(StringComparer.Ordinal);
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 

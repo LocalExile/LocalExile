@@ -140,7 +140,8 @@ public static partial class Game
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         if (!elementalImmune)
         {
-            m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => source.Effects[n], n => effects[n], Random.Shared);
+            m.Ailments.Inflict(rolled, critical, m.MaxLife, now,
+                n => n == "never_freeze" && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], Random.Shared);
             double fire = rolled[DamageType.Fire].Min / (critical ? 1.3 : 1);
             int IgniteStat(string n) => n == "critical_ailment_dot_multiplier_+" ? 50
                 : IgniteIncreases.Contains(n) ? 0 : source.Effects[n];

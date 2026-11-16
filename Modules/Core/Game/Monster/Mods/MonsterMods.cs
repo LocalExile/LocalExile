@@ -257,6 +257,7 @@ public static partial class Game
         var changed = new List<(uint, uint)>();
         foreach (var (id, m) in monsters)
         {
+            double spreadRecovery = SpreadPoisonRecovery(m, now);
             if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; continue; }
             double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
             if (onHitPct != 0 && seconds > 0)
@@ -264,8 +265,8 @@ public static partial class Game
                 double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
                 perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
             }
-            if (perSecond <= 0) continue;
-            double total = m.Regen + perSecond * seconds;
+            if (perSecond <= 0 && spreadRecovery <= 0) continue;
+            double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
             uint whole = (uint)Math.Truncate(total);
             m.Regen = total - whole;
             if (whole == 0) continue;

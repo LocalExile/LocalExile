@@ -150,10 +150,10 @@ public static partial class Game
     public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
-        KnockbackOnHitLocked(conn, m, player, skill, now, random);
+        KnockbackOnHitLocked(conn, m, player, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         OnslaughtOnHitLocked(conn, now);

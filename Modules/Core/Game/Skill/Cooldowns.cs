@@ -90,11 +90,24 @@ public static partial class Game
         TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, skillId, admit);
 
-    public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
-        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null)
+    /// <summary>Accepts an attack before its movement and action echo, with one time for readiness and the swing.</summary>
+    public static bool TryBeginAttackUse(ClientState conn, ushort skillId, int effect, double requestedAt,
+        Action<double> sideEffects, out CooldownUseTicket? ticket, Func<double, bool>? admit = null)
     {
         using (ProjectileMutation(conn))
+        {
+            double at = Math.Max(requestedAt, ProjectileWorldTime(conn));
+            return TryBeginCooldownUseCore(conn, effect, CooldownForSkill(conn, skillId), false,
+                () => sideEffects(at), out ticket, null, true, at, skillId,
+                admit is null ? null : () => admit(at), reserveAttack: true);
+        }
+    }
+
+    public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
+        Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false)
+    {
+        using (ProjectileMutation(conn, advance: !reserveAttack))
         {
             using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
@@ -123,6 +136,16 @@ public static partial class Game
                         return false;
                     vaal.WorkGeneration = generation;
                 }
+            }
+            (ushort Skill, double At, double Seconds)? attack = null;
+            if (reserveAttack)
+            {
+                if (!reserve || skillId is not ushort attacking || !SkillsFor(conn).IsAttack(effect)
+                    || IsTotemSkill(conn, attacking) || vaal is not null) return false;
+                double at = requestedAt ?? ProjectileWorldTime(conn);
+                double seconds = SupportedAttackSeconds(conn, attacking);
+                if (!AttackTiming.Ready(at, MeleeRepeatAttackDeadline(conn, at), seconds)) return false;
+                attack = (attacking, at, seconds);
             }
             if (admit is not null && !admit()) return false;
             bool bypassed = false;
@@ -167,17 +190,20 @@ public static partial class Game
             // the use: a later failure (mana spent in between, a cast stopped before its effect) cannot leave the use spent
             // and unpaid, and an accepted use is never refunded. The check above ran under the same lock, so this succeeds.
             (uint Mana, uint Life)? paid = null;
-            if (payer is ushort accepted && plan is not null)
+            if (payer is ushort accepted && (plan is not null || attack is not null))
             {
                 if (!PayMana(conn, accepted, out uint mana, out uint life)) return false;
                 paid = (mana, life);
             }
             if (!instant) CancelMeleeRepeats(conn, requestedAt ?? ProjectileWorldTime(conn));
+            if (attack is { } swing)
+                conn.NextAttackAt = AttackTiming.After(swing.At, conn.NextAttackAt, swing.Seconds);
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             // A bypassed use spends no cooldown use, so its ticket follows none.
-            if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                bypassed ? null : state, bypassed ? 0 : state!.UseVersion) { SharedUses = sharedUses, Paid = paid };
+            if (plan is not null || attack is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
+                bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0)
+                { SharedUses = sharedUses, Paid = paid, Attack = attack };
             return true;
         }
     }

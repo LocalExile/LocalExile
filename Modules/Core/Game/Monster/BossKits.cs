@@ -15,7 +15,9 @@ public static class BossKits
     /// than one effect the client can play. A boss with an encounter controller never asks (PlanMonsterAi skips it
     /// before this).</summary>
     public static bool IsKitBoss(SkillCatalog catalog, MonsterCatalog.Variety? variety) =>
-        variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety)) && Effects(catalog, variety).Count > 1;
+        variety is not null && (variety.BossHealthBar || IsCampaignBoss(variety) || variety.Id == Yugul.Image
+            || SolarisLunaris.IsCelestial(variety))
+            && Effects(catalog, variety).Count > 1;
 
     /// <summary>Whether the campaign places this monster as a boss: an area with a town to return to names it in
     /// WorldAreas <c>Bosses_MonsterVarietiesKeys</c> (which index MonsterVarieties). That is every named monster of the
@@ -52,6 +54,7 @@ public static class BossKits
         List<int> usable = [];
         foreach (int effect in effects)
         {
+            if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
             if (effect < 0 || catalog.IsMovement(effect) || catalog.CastsOnDeath(effect)) continue;
             string? id = catalog.EffectId(effect);
             if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
