@@ -462,7 +462,7 @@ public static partial class Game
         var conn = session.Conn;
         // The flight's own damage multiplier (an ice spear's second form, a burst's or a bounce's) scales the attack's hit,
         // and a fire mortar's hop hits by fire_mortar_second_hit_damage_+%_final (0x141a10f00).
-        double multiplier = contact.Multiplier;
+        double multiplier = 1; // Contact scaling belongs to the shared player/minion hit commit below.
         if (contact.Projectile.GroundBounces > 0 && shot.Attack.Projectile is { } fired)
             multiplier *= Math.Max(0, 1 + MonsterShots.Stat(fired, "fire_mortar_second_hit_damage_+%_final") / 100.0);
         if (multiplier != 1) shot = shot with { Attack = shot.Attack with { Damage = shot.Attack.Damage.Scale(multiplier) } };

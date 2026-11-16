@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 using static Game;
 
 /// <summary>One source's degeneration on the player while they stand in it (RunResourceRecovery deals
-/// ClientState.TrapDegenPerSecond) and its buff shown on them: a Labyrinth trap, or a monster's ground (MonsterGrounds).
+/// ClientState.TrapDegenPerSecond) and its buff shown on them: a Labyrinth trap.
 /// Each source keeps its own share, so one ending does not cancel another's.</summary>
 public sealed class TrapDegen
 {

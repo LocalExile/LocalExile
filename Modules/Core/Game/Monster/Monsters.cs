@@ -1845,7 +1845,7 @@ public static partial class Game
                 if (InGracePeriod(conn)) return null;
                 double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
                 var here = conn.Walk.Position(now);
-                var reach = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Where(g => !g.Monster.Dead)
+                var reach = conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).Concat(conn.Summons.Fighters.Values).Where(g => !g.Monster.Dead)
                     .Select(g => (g.Id, At: g.Monster.Walk.Position(now), Golem: (GolemState.Golem?)g))
                     .Prepend((PlayerId, here, null)).Where(c => Dist(c.At, centre) <= radius).ToArray();
                 if (reach.Length == 0) { last = null; return null; }

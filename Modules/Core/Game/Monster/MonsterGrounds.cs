@@ -1,12 +1,13 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
+using GameServer.Core.Protocol.Instance;
 using static Game;
 
 /// <summary>
 /// The ground a monster's shot leaves where it lands, which hurts the player standing in it for the skill's duration:
 /// Lunaris's dark orb and the Shaper-influence frost bolt leave a vortex (GroundEffectTypes Maelstorm), a caustic or
 /// Malachai mortar a degenerating patch. The damage is the skill's per-minute degeneration (AtlasBosses.DamageOverTime,
-/// and a caustic cloud's own stat), through each ground type's share of ClientState.TrapDegenPerSecond (TrapDegen):
+/// and a caustic cloud's own stat), through the shared typed ArenaHazards ground delivery:
 /// grounds of one type do not stack, the strongest counts; grounds of different types add up.
 /// </summary>
 public static class MonsterGrounds
@@ -19,7 +20,8 @@ public static class MonsterGrounds
     sealed class State
     {
         public readonly List<Ground> Grounds = [];
-        public readonly Dictionary<string, TrapDegen> Degens = [];
+        public readonly Dictionary<string, (ushort Instance, ushort Row)> Buffs = [];
+        public readonly ArenaHazards.Exposure Exposure = new();
         public double Next;
     }
     static readonly RuleTable<ClientState, State> States = new();
@@ -76,7 +78,10 @@ public static class MonsterGrounds
         if (shot.Attack.Projectile is not { } fired || Of(fired, scaled) is not { } kind) return;
         kind = kind with { PerSecond = kind.PerSecond.Scale(1 + shot.Monster.Mods.Effects["monster_rarity_damage_+%_final"] / 100.0) };
         var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
-        States.GetValue(conn, _ => new()).Grounds.Add(new(kind, cell, conn.Clock.Elapsed.TotalSeconds + kind.Seconds));
+        var state = States.GetValue(conn, _ => new());
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (state.Grounds.Count == 0) state.Exposure.Last = now;
+        state.Grounds.Add(new(kind, cell, now + kind.Seconds));
         // The server draws the ground (GGG sends Lunaris's darkness as its own object too, fading 0.96 s after its end).
         if (kind.Art is { } art)
             session.Effect(cell.Item1, cell.Item2, art.Ao, ProjectileRuntime.Time(kind.Seconds + (fired.Recipe == "Maelstrom" ? .96 : 0)), kind.Radius);
@@ -84,38 +89,56 @@ public static class MonsterGrounds
 
     /// <summary>Every player tick: each ground type's degeneration on the player for the grounds they stand in, every
     /// 0.25 s.</summary>
-    public static async Task Tick(ClientState conn)
+    public static Task Tick(ClientState conn) => Step(conn, conn.Clock.Elapsed.TotalSeconds);
+
+    internal static async Task Step(ClientState conn, double now)
     {
         if (!States.TryGetValue(conn, out var state)) return;
-        List<(TrapDegen Degen, double PerSecond, ushort? Buff, string Type)> changes = [];
+        Dictionary<string, ushort> buffs;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
             if (now < state.Next || conn.Closed || conn.LeavingArea) return;
             state.Next = now + .25;
             state.Grounds.RemoveAll(g => g.Until <= now);
             var here = conn.Walk.Position(now);
-            bool exposed = conn.PlayerLife > 0 && !conn.Paused && !InGracePeriod(conn);
             var immune = PlayerImmunities(conn);
-            foreach (var type in state.Grounds.Select(g => g.Kind.Type).Union(state.Degens.Keys).ToArray())
-            {
-                var strongest = state.Grounds.Where(g => exposed && g.Kind.Type == type && Distance(g.At, here) <= g.Kind.Radius)
-                    .Select(g => (Ground: (Ground?)g, PerSecond: Mitigated(conn, g.Kind.PerSecond, immune)))
-                    .DefaultIfEmpty().MaxBy(g => g.PerSecond);
-                if (!state.Degens.TryGetValue(type, out var degen)) state.Degens[type] = degen = new();
-                changes.Add((degen, strongest.PerSecond, strongest.Ground?.Kind.Buff, type));
-            }
+            buffs = conn.PlayerLife == 0 || conn.Paused || InGracePeriod(conn) ? [] : state.Grounds
+                .Where(g => Distance(g.At, here) <= g.Kind.Radius)
+                .GroupBy(g => g.Kind.Type)
+                .Select(group => group.MaxBy(g => Mitigated(conn, g.Kind.PerSecond, immune))!)
+                .Where(g => g.Kind.Buff.HasValue)
+                .ToDictionary(g => g.Kind.Type, g => g.Kind.Buff!.Value);
         }
-        var (remote, stream, ciphers) = conn.Wire;
-        foreach (var (degen, perSecond, buff, type) in changes)
-            await degen.Set(remote, stream, ciphers, conn, perSecond, buff, $"in a monster's {type} ground");
-        lock (conn.Monsters)
+        await ArenaHazards.Ground(conn, state.Exposure, now, (position, minion) =>
         {
-            // A type whose last ground ended has taken its share and buff away above.
-            foreach (var (_, perSecond, _, type) in changes)
-                if (perSecond <= 0 && state.Grounds.All(g => g.Kind.Type != type)) state.Degens.Remove(type);
-            if (state.Grounds.Count == 0 && state.Degens.Count == 0) States.Remove(conn);
-        }
+            var result = DamagePacket.Empty;
+            foreach (var group in state.Grounds.Where(g => Distance(g.At, position) <= g.Kind.Radius).GroupBy(g => g.Kind.Type))
+            {
+                var strongest = group.MaxBy(g => g.Kind.PerSecond.AverageTotal)!;
+                // Ground degeneration is deterministic; retain its type and average through mitigation.
+                foreach (var part in strongest.Kind.PerSecond.Components)
+                    result = result.Add(part.Type, new(part.Range.Average, part.Range.Average));
+            }
+            return result;
+        }, () => States.TryGetValue(conn, out var current) && ReferenceEquals(current, state));
+        var (remote, stream, ciphers) = conn.Wire;
+        foreach (var (type, shown) in state.Buffs.ToArray())
+            if (!buffs.TryGetValue(type, out var row) || row != shown.Row)
+            {
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceEntities.RemoveBuff(PlayerId, shown.Instance), null);
+                state.Buffs.Remove(type);
+            }
+        foreach (var (type, row) in buffs)
+            if (!state.Buffs.ContainsKey(type))
+            {
+                ushort instance = conn.NextBuff++;
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceEntities.AddBuff(PlayerId, instance, row), null);
+                state.Buffs[type] = (instance, row);
+            }
+        lock (conn.Monsters)
+            if (state.Grounds.Count == 0 && state.Buffs.Count == 0) States.Remove(conn);
     }
 
     // The ground's damage a second after the player's resistances (degeneration ignores armour), none of an immune type.
@@ -130,7 +153,6 @@ public static class MonsterGrounds
     {
         if (States.TryGetValue(conn, out var state))
         {
-            foreach (var degen in state.Degens.Values) degen.Clear(conn);
             States.Remove(conn);
         }
         return Task.CompletedTask;

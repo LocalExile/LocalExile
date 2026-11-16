@@ -71,6 +71,10 @@ public sealed class ArakaaliPhaseTests
         c.PlayerLife = 10000;
         Assert.NotNull(Game.CommitHostilePlayerHitLocked(flights, contact with { Multiplier = 2 }, shot));
         Assert.Equal(2 * direct, 10000 - c.PlayerLife);
+        c.PlayerLife = 10000;
+        Assert.Equal(GameServer.Core.Projectiles.ProjectileHitResult.Hit,
+            Game.HostileHit(flights, contact with { Multiplier = 2 }, shot));
+        Assert.Equal(2 * direct, 10000 - c.PlayerLife);
         c.PlayerLife = afterFear;
         hazards.Stop();
         Assert.DoesNotContain(c.Monsters.Values, m => m.SummonerId == id);
@@ -92,6 +96,39 @@ public sealed class ArakaaliPhaseTests
         runtime.Player = c; c.Walk.Teleport(1000, 1000, 0);
         uint id = await Game.SpawnMonster(c.Wire.Remote, wire.Stream, wire.Ciphers, c,
             Game.Monsters.Find(SolarisLunaris.Moon + "CelestialForm")!, 60, MonsterRarity.Normal, 1000, 1000, scripted: true, unrisen: false);
+        // Projectile grounds use the same typed delivery as arena hazards: chaos bypasses ordinary ES.
+        var catalog = new SkillCatalog();
+        var caustic = MonsterShots.Resolve(catalog, null, catalog.EffectRow("BestiarySpiderPlagueMortarElementalClone"), 60)!;
+        var groundSession = new Game.ProjectileSession(c.Wire.Remote, wire.Stream, wire.Ciphers, c);
+        var groundCaster = new SpawnedMonster("caustic", new(1000, 1000, 0), 60, 2, 100);
+        var groundAttack = new MonsterAttack(0x4000, 1, 60, DamagePacket.Empty) { Projectile = caustic };
+        c.PlayerStats[Program.Stats.Key("base_maximum_energy_shield")!.Value] = 2000;
+        Game.CharacterPlayerStats(c);
+        c.Pools = c.Pools with { EnergyShield = 2000 };
+        c.EnergyShield.SetMaximum(2000, refill: true);
+        double groundAt = c.Clock.Elapsed.TotalSeconds;
+        MonsterGrounds.Landed(groundSession, new(0x8000040, groundCaster, groundAttack, 0, "caustic"), new(1000, 1000));
+        Assert.NotNull(MonsterGrounds.Of(caustic));
+        Assert.True(MonsterGrounds.Of(caustic)!.PerSecond.AverageTotal > 4);
+        Assert.False(Game.InGracePeriod(c));
+        await MonsterGrounds.Step(c, groundAt + .25);
+        Assert.True(c.PlayerLife < 10000);
+        Assert.Equal(2000u, c.EnergyShield.Current);
+        Assert.Equal(0, c.TrapDegenPerSecond);
+        uint groundedLife = c.PlayerLife;
+        c.PlayerStats[Program.Stats.Key("chaos_damage_does_not_bypass_energy_shield")!.Value] = 1;
+        await MonsterGrounds.Step(c, groundAt + .5);
+        Assert.Equal(groundedLife, c.PlayerLife);
+        Assert.True(c.EnergyShield.Current < 2000);
+        c.PlayerStats.Remove(Program.Stats.Key("chaos_damage_does_not_bypass_energy_shield")!.Value);
+        await MonsterGrounds.Leaving(c);
+        await MonsterGrounds.Step(c, groundAt + .75);
+        Assert.Equal(groundedLife, c.PlayerLife);
+        groundSession.Invalidate(); await groundSession.OutputCompleted;
+        c.PlayerStats.Remove(Program.Stats.Key("base_maximum_energy_shield")!.Value);
+        c.EnergyShield.SetMaximum(0); c.PlayerLife = 10000;
+
+
         var caster = c.Monsters[id]; bool active = true;
         var hazards = new CelestialHazards(id, caster, c, () => active); await hazards.Bind(c);
         await hazards.Step(c, 100); await hazards.Step(c, 100.8);
