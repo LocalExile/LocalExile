@@ -141,6 +141,26 @@ public sealed class CooldownAdmissionTests
         Assert.Same(state, f.Conn.SingleUseCooldowns[original.Effect]); Assert.Equal(3, state.SpentUses);
     }
 
+    [Fact]
+    public void Frostblink_crosses_unwalkable_gaps_but_keeps_endpoint_and_quest_barrier_checks()
+    {
+        using var f = new Fixture();
+        var c = f.Conn;
+        c.PlayerSent = true;
+        c.Use(new(1, "blink-ledge", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && (x < 115 || x > 135), [])
+        { CellHeights = Enumerable.Range(0, 40000).Select(i => (short)(i % 200 >= 130 ? 32 : 0)).ToArray() });
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
+        Assert.Equal((140, 100), to);
+        c.Barrier = new HashSet<(int, int)> { (120, 100) };
+        Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out _));
+        c.Barrier = new HashSet<(int, int)>();
+        Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (120, 100), false, _ => 0, out _, out _));
+        Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), true, _ => 0, out _, out _));
+        Assert.True(InstantLocationSkill.TryCommit(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out to));
+        Assert.Equal((140, 100), c.Walk.Position(Game.ProjectileWorldTime(c)));
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"cooldown-admission-{Guid.NewGuid():N}.db");
