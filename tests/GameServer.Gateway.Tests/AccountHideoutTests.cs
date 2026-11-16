@@ -83,6 +83,17 @@ public sealed class AccountHideoutTests : IDisposable
         var position = new HideoutPlacement(12, 34, 56);
         CharacterSaves.SetHideoutPlacement(preferred.Character!, home.AreaId, "waypoint", position);
         CharacterSaves.SetHideoutPlacement(older.Character!, HideoutCatalog.DefaultArea, "stash", position);
+        // A failed legacy mirror write must not commit the new account profile on its own.
+        AccountStash.For(account.Name, Program.Items);
+        string? beforeMigration = Saves.Get(SaveDatabase.Table.Stashes, account.Name);
+        try
+        {
+            Saves.FailWrite = name => name == older.Character;
+            Assert.Throws<IOException>(() => Game.InitializeAccountHideout(preferred.Character!));
+        }
+        finally { Saves.FailWrite = null; }
+        Assert.Equal(beforeMigration, Saves.Get(SaveDatabase.Table.Stashes, account.Name));
+        Assert.Equal(HideoutCatalog.DefaultArea, CharacterHome.SelectedHideout(Saves.Db, older.Character!));
         Game.InitializeAccountHideout(preferred.Character!);
         Assert.Equal(home.AreaId, Game.HomeHideout(older)!.AreaId);
         Assert.True(Game.OwnHideout(Visit(older, preferred)));
@@ -90,6 +101,17 @@ public sealed class AccountHideoutTests : IDisposable
         Assert.False(Game.OwnHideout(visitor));
         Assert.Equal(position, Game.SavedHideoutPlacements(visitor)!["waypoint"]);
 
+        // Selection and every Auth compatibility field are one save, even if a later character write fails.
+        string? beforeSelection = Saves.Get(SaveDatabase.Table.Stashes, account.Name);
+        try
+        {
+            Saves.FailWrite = name => name == preferred.Character;
+            Assert.Throws<IOException>(() => Game.SelectAccountHideout(older, HideoutCatalog.DefaultArea));
+        }
+        finally { Saves.FailWrite = null; }
+        Assert.Equal(beforeSelection, Saves.Get(SaveDatabase.Table.Stashes, account.Name));
+        Assert.Equal(home.AreaId, CharacterHome.SelectedHideout(Saves.Db, older.Character!));
+        Assert.Equal(home.AreaId, Game.HomeHideout(preferred)!.AreaId);
         Game.SelectAccountHideout(older, HideoutCatalog.DefaultArea);
         Game.InitializeAccountHideout(preferred.Character!);
         Assert.Equal(HideoutCatalog.DefaultArea, Game.HomeHideout(preferred)!.AreaId);

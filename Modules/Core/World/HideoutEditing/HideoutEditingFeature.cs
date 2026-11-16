@@ -9,7 +9,7 @@ static class HideoutEditingFeature
     /// <summary>Creates the Monster Statue decorations saved for this account's hideout.</summary>
     internal static async Task SpawnMonsterStatues(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash || CharacterName(conn) is not { } character) return;
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
         foreach (var s in global::Game.AccountMonsterStatues(conn))
         {
             uint id = conn.TakeObjectId();

@@ -13,7 +13,8 @@ public static partial class Game
         public string? LegacySourceCharacter { get; set; }
     }
 
-    public static void InitializeAccountHideout(string character)
+    // The shared profile and Auth compatibility fields must commit or roll back together.
+    public static void InitializeAccountHideout(string character) => Saves.Atomically(() =>
     {
         var store = new SqliteAccountStore(Saves.Db);
         if (store.FindCharacter(character) is not { } owner || store.GetAccount(owner.AccountId) is not { } account
@@ -23,7 +24,7 @@ public static partial class Game
         stash.ChangeModuleData(AccountHideoutKey, prior => prior ?? JsonSerializer.Serialize(FromLegacyHideout(owner.Name, save)));
         SynchronizeHomeSelection(account.Name, save.SelectedHideout);
         Console.WriteLine($"[hideout] initialized shared account home from {owner.Name}: {save.SelectedHideout}");
-    }
+    });
 
     static string? HideoutAccount(ClientState conn, bool instanceOwner)
     {
@@ -38,7 +39,7 @@ public static partial class Game
             save.HideoutPlacements is null ? [] : new(save.HideoutPlacements),
             save.MonsterStatues is null ? [] : new(save.MonsterStatues));
 
-    static AccountHideoutProfile? SharedHideout(ClientState conn, bool instanceOwner = false, bool create = false)
+    static AccountHideoutProfile? SharedHideout(ClientState conn, bool instanceOwner = false, bool create = false) => Saves.Atomically<AccountHideoutProfile?>(() =>
     {
         if (HideoutAccount(conn, instanceOwner) is not { } account) return null;
         var stash = AccountStash.For(account, ItemsFor(conn));
@@ -63,7 +64,7 @@ public static partial class Game
         if (!instanceOwner && CharacterSaves.Load(CharacterName(conn))?.SelectedHideout != profile.Area)
             CharacterSaves.SetSelectedHideout(CharacterName(conn), profile.Area);
         return profile;
-    }
+    });
 
     static void SynchronizeHomeSelection(string account, string area)
     {
@@ -77,7 +78,7 @@ public static partial class Game
             player.Furniture = null;
     }
 
-    static void ChangeSharedHideout(ClientState conn, Func<AccountHideoutProfile, AccountHideoutProfile> change)
+    static void ChangeSharedHideout(ClientState conn, Func<AccountHideoutProfile, AccountHideoutProfile> change) => Saves.Atomically(() =>
     {
         var profile = SharedHideout(conn, create: true);
         if (profile is null || conn.Account is not { } account) return;
@@ -85,14 +86,14 @@ public static partial class Game
             JsonSerializer.Serialize(change(text is null ? profile : JsonSerializer.Deserialize<AccountHideoutProfile>(text)!)));
         foreach (var player in InGame.Keys.Where(c => string.Equals(c.Account, account, StringComparison.OrdinalIgnoreCase)))
             player.Furniture = null;
-    }
+    });
 
-    public static void SelectAccountHideout(ClientState conn, string area)
+    public static void SelectAccountHideout(ClientState conn, string area) => Saves.Atomically(() =>
     {
         if (conn.Account is null) { CharacterSaves.SetSelectedHideout(CharacterName(conn), area); return; }
         ChangeSharedHideout(conn, p => p with { Area = area });
         SynchronizeHomeSelection(conn.Account, area);
-    }
+    });
 
     public static void SetAccountHideoutPlacement(ClientState conn, string area, string key, HideoutPlacement position)
     {
