@@ -15,8 +15,8 @@ public static partial class Game
     {
         ["VaalDiscipline"] = new(160, 329, "energy_shield_recharge_not_delayed_by_damage"),
     };
-    sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
-    static readonly RuleTable<ClientState, VaalAuraState> VaalAuraStates = new();
+    internal sealed class VaalAuraState { public int Token; public ushort Buff, Source; public double Until; public string? Stat; }
+    internal static readonly RuleTable<ClientState, VaalAuraState> VaalAuraStates = new();
 
     static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))
@@ -53,7 +53,7 @@ public static partial class Game
                     double now = conn.Clock.Elapsed.TotalSeconds;
                     var bytes = new List<byte>();
                     // A use while the last one still runs replaces it.
-                    if (aura.Until > now)
+                    if (aura.Buff != 0 || aura.Source != 0)
                     {
                         if (aura.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
                         if (aura.Source != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
@@ -72,24 +72,37 @@ public static partial class Game
                     return [.. bytes];
                 }
             });
-        SendAfter(seconds, async () =>
-        {
-            using var ended = new PlayerStatScope(conn, fresh: true);
-            await Send(remote, stream, ciphers, [], $"0x01c2 {name} ends", atGate: () =>
-            {
-                lock (conn.Monsters)
-                {
-                    if (conn.Closed || conn.LeavingArea || conn.RageRetired || aura.Token != token || aura.Buff == 0) return null;
-                    var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
-                    bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
-                    aura.Buff = aura.Source = 0;
-                    aura.Until = 0;
-                    aura.Stat = null;
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    return [.. bytes];
-                }
-            });
-        });
         return true;
+    }
+
+    internal static byte[]? ExpireVaalAura(ClientState conn, double now)
+    {
+        lock (conn.Monsters)
+        {
+            if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0
+                || conn.Paused || conn.PlayerLife > 0 && now < aura.Until) return null;
+            var bytes = new List<byte>(InstanceEntities.RemoveBuff(PlayerId, aura.Buff));
+            if (aura.Source != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, aura.Source));
+            aura.Buff = aura.Source = 0;
+            aura.Until = 0;
+            aura.Stat = null;
+            ++aura.Token;
+            return [.. bytes];
+        }
+    }
+
+    static async Task SendVaalAuraExpiry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (!VaalAuraStates.TryGetValue(conn, out var aura) || aura.Buff == 0) return;
+        using var fresh = new PlayerStatScope(conn, fresh: true);
+        await Send(remote, stream, ciphers, [], "Vaal aura expired", atGate: () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired
+                    || ExpireVaalAura(conn, AreaTime(conn)) is not { } bytes) return null;
+                return [.. bytes, .. PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn))];
+            }
+        });
     }
 }
