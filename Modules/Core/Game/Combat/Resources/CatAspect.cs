@@ -154,6 +154,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? rawSources = null)
     {
         var state = conn.Reservations;
+        if (state.CatOwner is null && state.PausedCat is null) PrimeCatTransfer(conn);
         if (state.CatTransferLoading || conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) now = 0;
         var root = CatAspectRootLocked(conn);
         if (root is null || conn.PlayerLife == 0)

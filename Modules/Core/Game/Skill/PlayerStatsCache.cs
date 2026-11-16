@@ -16,7 +16,10 @@ public static partial class Game
         public long NextBuff, Life, Mana;
         public long Golems;
         public long AspectRevision;
+        public long MadnessRevision;
+        public long SiphoningRevision;
         public (int Endurance, int Frenzy, int Power) HeldCharges;
+        public int IntimidatingCryMovement;
         public long Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
@@ -43,10 +46,13 @@ public static partial class Game
     {
         int overrides;
         StatSourcesResult? statSources;
+        long siphoningRevision;
         (int Endurance, int Frenzy, int Power) heldCharges;
         lock (conn.Monsters)
         {
             overrides = conn.PlayerStats.Count;
+            // Reconcile source-owned charges before capturing the source identity or held standard charges.
+            siphoningRevision = Game.SiphoningRevision(conn);
             statSources = conn.StatSourcesCache;
             var charges = ChargesOf(conn).State;
             heldCharges = (charges.Held(ChargeType.Endurance), charges.Held(ChargeType.Frenzy), charges.Held(ChargeType.Power));
@@ -56,7 +62,11 @@ public static partial class Game
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
             GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
-            HeldCharges = heldCharges, AspectRevision = conn.Reservations.AspectRevision,
+            AspectRevision = conn.Reservations.AspectRevision,
+            MadnessRevision = conn.Madness.Revision,
+            SiphoningRevision = siphoningRevision,
+            HeldCharges = heldCharges,
+            IntimidatingCryMovement = Game.IntimidatingCryMovement(conn),
             Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
@@ -68,7 +78,10 @@ public static partial class Game
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
         && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
         && a.AspectRevision == b.AspectRevision
+        && a.MadnessRevision == b.MadnessRevision
+        && a.SiphoningRevision == b.SiphoningRevision
         && a.HeldCharges == b.HeldCharges
+        && a.IntimidatingCryMovement == b.IntimidatingCryMovement
         && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty
         && ReferenceEquals(a.StatSources, b.StatSources);

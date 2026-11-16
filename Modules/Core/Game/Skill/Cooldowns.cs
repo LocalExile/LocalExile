@@ -53,6 +53,9 @@ public static partial class Game
                     + flat + coefficient * Math.Max(0, GolemStat(player, "current_frenzy_charges"))) };
         }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, player, own) is not { } plan) return null;
+        if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(conn))
+            plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
+                + MadnessSkillValue(conn, "embrace_madness_amount_of_cooldown_to_gain_ms") };
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {
             9 => 9,   // Blink

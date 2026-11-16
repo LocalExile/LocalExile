@@ -69,6 +69,8 @@ public sealed partial class ReservationCurseSummonTests
         foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
         try
         {
+            await MadnessFixture(conn, lifetime);
+            SiphoningFixture(conn, lifetime);
             await AvianAspectFixture(conn, lifetime);
             await CrabAspectFixture(conn, lifetime);
             var catalog = new SummonCatalog(); var monsters = new MonsterCatalog();

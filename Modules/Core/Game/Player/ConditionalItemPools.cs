@@ -29,6 +29,7 @@ public static partial class Game
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
         var lowLifeSources = SelfCurseConditionInputs(conn, activeItems, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
+        var physicalAegis = PhysicalAegisStatus(conn, now);
         string stance = StanceCatalog.Selected(conn.Auras.Values);
         bool blood = stance == StanceCatalog.BloodSelection, sand = stance == StanceCatalog.SandSelection;
         bool changedStance = conn.RecentEvents.Happened(StatConditions.ChangedStance, now);
@@ -97,16 +98,20 @@ public static partial class Game
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = conn.ChannelSkill != 0;
         flags["_while_not_channelling"] = conn.ChannelSkill == 0;
+        flags["_while_you_have_active_physical_aegis"] = physicalAegis.Active;
+        flags["_while_you_have_depleted_physical_aegis"] = physicalAegis.Depleted;
+        flags["_while_unhinged"] = alive && Unhinged(conn);
+        flags["_while_not_unhinged"] = alive && !Unhinged(conn);
         flags["_if_golem_summoned_in_past_8_seconds"] =
             GolemSummonedInPastEightSeconds(conn, AreaTime(conn));
-        flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
-            && lowLifeSources.GetValueOrDefault(curseKey) != 0;
-        flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
-        flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
         flags["_in_blood_stance"] = flags["_while_in_blood_stance"] = blood;
         flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
         flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
         flags["has_cat_aspect"] = catAspect;
+        flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
+            && lowLifeSources.GetValueOrDefault(curseKey) != 0;
+        flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
+        flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
         flags["has_cats_stealth"] = catsStealth;
         flags["has_cats_agility"] = catsAgility;
         flags["_while_you_have_cat_aspect"] = catAspect;
@@ -126,7 +131,9 @@ public static partial class Game
                 charges.Converted(type), alive);
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
-        return RequalifySourcePhasing(conn, equipmentFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
+        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
+        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
 
@@ -200,6 +207,7 @@ public static partial class Game
         public StatSourcesResult? Applied;
         public bool Building;
         public long Revision, Presented;
+        public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
     }
 
@@ -216,12 +224,15 @@ public static partial class Game
             EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot());
             var current = conn.StatSourcesCache;
             var before = state.Applied;
+            var elusive = ElusivePanelState(conn);
+            bool sameElusive = state.AppliedElusive == elusive;
             int onslaughtEffect = Stats.Key("onslaught_effect_+%") is uint effectKey
                 ? conn.PlayerStats.TryGetValue(effectKey, out int replacement) ? replacement
                     : current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
             bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-            if (current is null || ReferenceEquals(before, current) && sameOnslaughtEffect) return false;
+            if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
             state.Applied = current;
+            state.AppliedElusive = elusive;
             state.AppliedOnslaughtEffect = onslaughtEffect;
             // After a Game-module reload the source marker is new but the connection's old final pools survive.
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
@@ -231,7 +242,9 @@ public static partial class Game
                         || s.Id.Contains("_while_", StringComparison.Ordinal)
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id)
                         || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
-            if (sameOnslaughtEffect
+            bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
+                == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
+            if (sameElusive && sameHerEmbrace && sameOnslaughtEffect
                 && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)

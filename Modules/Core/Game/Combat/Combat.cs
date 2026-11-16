@@ -2348,8 +2348,10 @@ public static partial class Game
         // path through this funnel leaves its life alone.
         if (m.Effects["base_cannot_be_damaged"] > 0) return null;
         uint before = m.Life;
+        if (allyAt is null) SpiderHitRewardsLocked(conn, m, ProjectileWorldTime(conn), player);
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
+        CaptureUnhingedHitKillLocked(conn, m, playerHit: allyAt is null);
         if (allyAt is null)
         {
             conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);
@@ -2841,6 +2843,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             conn.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
+            SiphoningSkillUsedLocked(conn, acceptedAt);
             bool movement = SkillsFor(conn).IsMovement(effect);
             if (movement) conn.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
             if (movement && IsDashEffect(SkillsFor(conn).EffectId(effect)))

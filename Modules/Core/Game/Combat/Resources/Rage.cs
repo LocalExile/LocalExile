@@ -24,6 +24,7 @@ public static partial class Game
             var inputs = RageStats.Inputs(name => RageStat(stats, name));
             // Stat projections must not advance Rage past an unprocessed projectile contact.
             var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
+            RageStats.ExpandItems(stats, value.Effective);
             foreach (var (name, amount) in RageStats.Display(value, inputs))
                 if (Stats.Key(name) is uint key) stats[key] = amount;
         }
