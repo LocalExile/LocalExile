@@ -27,9 +27,14 @@ public static class IncomingResourceDefences
         return bypass + shield.Damage(Math.Max(0, damage) - bypass, false, now);
     }
 
-    public static int TakenOverTime(int damage, Func<string, int> get, ref double carry, int lessPct = 0)
+    public static int TakenOverTime(double damage, Func<string, int> get, ref double carry, int lessPct = 0,
+        int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
     {
-        double earned = Math.Max(0, damage) * Math.Max(0, 1 + get(TakenStat) / 100.0)
+        double earned = Math.Max(0, damage)
+            * Math.Max(0, 1 + ((long)get("base_damage_taken_+%") + typedIncreasedPct) / 100.0)
+            * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
+            * Math.Max(0, 1 + get(TakenStat) / 100.0)
+            * Math.Max(0, 1 + finalTakenPct / 100.0)
             * Math.Max(0, 1 - Math.Clamp(lessPct, 0, 100) / 100.0) + carry;
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(earned + 1e-9));
         carry = Math.Max(0, earned - whole);
