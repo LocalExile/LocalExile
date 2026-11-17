@@ -206,13 +206,14 @@ public sealed class SupportHitDamageTests
         Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
         Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
             ("trap_throwing_speed_+%_per_frenzy_charge", 10)), mine: false, frenzyCharges: 3), 9);
-        // Several traps or mines from one use: the first on the aim, a row across the throw, or within the circle.
-        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 50), (100, 100), 0, 1, 0, new Random(1)));
-        Assert.Equal(new[] { (112, 100), (100, 100), (88, 100) },
-            Enumerable.Range(0, 3).Select(i => Game.PlacedThrowPoint((100, 50), (100, 100), i, 3, 0, new Random(1))));
-        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 50), (100, 100), 0, 3, 20, new Random(1)));
+        // Several traps or mines from one use scatter around the aim: within the support's circle, or a radius that
+        // grows with their number.
+        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 100), 1, 20, new Random(1)));
+        Assert.Equal(new[] { 0d, 20, 10, 14 }, new[] { Game.PlacedScatterRadius(1, 0), Game.PlacedScatterRadius(3, 20),
+            Game.PlacedScatterRadius(3, 0), Game.PlacedScatterRadius(5, 0) });
         Assert.All(Enumerable.Range(1, 40), i => Assert.True(
-            Game.Dist(Game.PlacedThrowPoint((100, 50), (100, 100), i, 41, 20, new Random(i)), (100, 100)) <= 21));
+            Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)), (100, 100)) <= 11));
+        Assert.Contains(Enumerable.Range(1, 40), i => Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)) != (100, 100));
         Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
         Assert.Equal(3, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_3_additional_trap_mine", 100)), new Random(1)));
         Assert.Equal(1, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_1_additional_trap_mine", 100)), new Random(1)));

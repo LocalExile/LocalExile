@@ -62,23 +62,18 @@ public static partial class Game
         return 0;
     }
 
-    // Where the index-th trap or mine of one use lands. The first lands on the aim. With throw_traps_in_circle_radius
-    // (Cluster Traps, Swift Assembly) the others land at random within that radius of it; without it (Multiple Traps,
-    // Minefield) they form a row across the throw, 12 cells apart and centred on the aim (a local rule).
-    public static (int X, int Y) PlacedThrowPoint((int X, int Y) from, (int X, int Y) aim, int index, int count,
-        int circle, Random random)
+    // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
+    // throw_traps_in_circle_radius when the support gives one (Cluster Traps, Swift Assembly), otherwise (Multiple
+    // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. The second
+    // is a player's description of the live game, not a client measurement.
+    public static double PlacedScatterRadius(int count, int circle) => count <= 1 ? 0 : circle > 0 ? circle : 4 + 2 * count;
+
+    public static (int X, int Y) PlacedThrowPoint((int X, int Y) aim, int count, int circle, Random random)
     {
-        if (count <= 1 || circle > 0 && index == 0) return aim;
-        if (circle > 0)
-        {
-            double angle = random.NextDouble() * Math.Tau, distance = circle * Math.Sqrt(random.NextDouble());
-            return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
-        }
-        double length = Dist(from, aim);
-        if (length < 1) return aim;
-        double offset = (index - (count - 1) / 2d) * 12;
-        return (aim.X + (int)Math.Round(-(aim.Y - from.Y) / length * offset),
-            aim.Y + (int)Math.Round((aim.X - from.X) / length * offset));
+        double radius = PlacedScatterRadius(count, circle);
+        if (radius <= 0) return aim;
+        double angle = random.NextDouble() * Math.Tau, distance = radius * Math.Sqrt(random.NextDouble());
+        return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 
     // A trap goes off for a hostile monster within this many cells of it: the existing 10, scaled by the trap's and the
@@ -123,7 +118,7 @@ public static partial class Game
         int circle = Get("throw_traps_in_circle_radius");
         for (int i = 0; i < count; i++)
         {
-        var point = PlacedThrowPoint(from, aim, i, count, circle, Random.Shared);
+        var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
         if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
         uint born = 0;
         double landsAt = 0;
