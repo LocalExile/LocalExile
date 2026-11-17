@@ -35,8 +35,7 @@ public class ArrowRainAndMirageTests
                         new GolemState.Action(rain, 200, b.Enemy, (120, 100), 0, clone.Monster.ActionGeneration), 1d]);
                 Assert.Equal(11, clone.Pulses.Count);
                 Assert.All(clone.Pulses, p => Assert.True(p.Next >= 1.35));
-                clone.Monster.Mods = MonsterModSet.None with
-                    { Effects = new(new Dictionary<string, int> { ["accuracy_rating"] = 1000000 }) };
+                clone.Gear["accuracy_rating"] = 1000000;
                 uint life = b.Enemy.Life;
                 Game.GolemStepLocked("test", b.Stream, b.Ciphers, c, clone, 1.36);
                 Assert.True(b.Enemy.Life < life);
