@@ -162,7 +162,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Population waits for walkability before claiming an instance; established empty saves remain cleared.
+- Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.

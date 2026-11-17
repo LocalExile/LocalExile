@@ -24,6 +24,14 @@ public class AreaPopulationTests
         Assert.All(spawns, s => Assert.False(s.X >= 280, $"a pack stands beyond the wall at ({s.X}, {s.Y})"));
         Assert.Contains(notes, n => n.Contains("cannot walk", StringComparison.Ordinal));
 
+        var gated = AreaPopulation.Plan(Area(), 600, 600, Walk, (50, 50), [], [], 1, _ => true, [],
+            localTransitions: [((200, 100), (400, 100))]);
+        Assert.Contains(gated, s => s.X > 330);
+        Assert.All(gated, s => Assert.True(Walk(s.X, s.Y)));
+        var reverse = AreaPopulation.Plan(Area(), 600, 600, Walk, (50, 50), [], [], 1, _ => true, [],
+            localTransitions: [((400, 100), (200, 100)), ((-1, 100), (400, 100))]);
+        Assert.All(reverse, s => Assert.True(s.X < 280));
+
         // Pack members can scatter nine cells from the centre. A thin wall must constrain them too.
         bool ThinWall(int x, int y) => x is > 5 and < 595 && y is > 5 and < 595 && x != 280;
         for (int seed = 1; seed <= 8; seed++)

@@ -280,7 +280,8 @@ public static class AreaPopulation
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
-        Func<int, bool>? guardSpawnable = null)
+        Func<int, bool>? guardSpawnable = null,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -433,7 +434,7 @@ public static class AreaPopulation
         // A pack in a pocket the arrival cannot walk to is a monster the area's count keeps and nobody can kill: the
         // map reads "more than 50 monsters remaining" long after it was cleared. The walk map of a generated map has
         // such pockets (cells walled off from the entrance), so the packs stand only where the player can reach them.
-        var reach = Reachable(w, h, walkable, arrival);
+        var reach = Reachable(w, h, walkable, arrival, localTransitions);
         var candidates = new List<(int X, int Y)>();
         int pocket = 0;
         for (int y = 0; y < h; y += 3)
@@ -691,17 +692,26 @@ public static class AreaPopulation
 
     /// <summary>Per cell: whether the arrival walks to it (8 neighbours, so a diagonal squeeze counts). Null when the
     /// arrival is not itself a walkable cell, where the walk map cannot say which way the player comes in.</summary>
-    static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
+    static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<((int X, int Y) From, (int X, int Y) To)>? localTransitions)
     {
         if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable(arrival.X, arrival.Y))
             return null;
         var seen = new bool[w * h];
         var q = new Queue<int>();
+        bool Floor((int X, int Y) p) => (uint)p.X < (uint)w && (uint)p.Y < (uint)h && walkable(p.X, p.Y);
+        var gates = (localTransitions ?? []).Where(t => Floor(t.From) && Floor(t.To))
+            .GroupBy(t => t.From.Y * w + t.From.X)
+            .ToDictionary(g => g.Key, g => g.Select(t => t.To.Y * w + t.To.X).Distinct().ToArray());
         seen[arrival.Y * w + arrival.X] = true;
         q.Enqueue(arrival.Y * w + arrival.X);
         while (q.Count > 0)
         {
             int i = q.Dequeue(), x = i % w, y = i / w;
+            // A gate is an edge only after its entrance is reached; an isolated destination alone is not a new seed.
+            if (gates.TryGetValue(i, out var destinations))
+                foreach (int destination in destinations)
+                    if (!seen[destination]) { seen[destination] = true; q.Enqueue(destination); }
             for (int dy = -1; dy <= 1; dy++)
                 for (int dx = -1; dx <= 1; dx++)
                 {
