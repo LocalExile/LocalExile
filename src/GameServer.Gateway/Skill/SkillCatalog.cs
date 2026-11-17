@@ -1041,7 +1041,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public void Warm()
     {
         WarmMonsterMeleeClocks();
-        _ = _monsterContacts.Value; _ = _summonedMonsters.Value; _ = _monsterProjectiles.Value;
+        _ = _monsterContacts.Value; _ = _summonedMonsters.Value; _ = MonsterProjectiles;
         _skillTypes.Warm();
     }
 
