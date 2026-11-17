@@ -61,7 +61,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats = original.Stats;
         if (action.UseDamageMore != 1 && Stats.Key("support_ruthless_big_hit_stun_base_duration_override_ms") is uint stun)
             stats = new Dictionary<uint, int>(stats) { [stun] = Own("support_ruthless_big_hit_stun_base_duration_override_ms") };
-        return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore, stats);
+        return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore * more, stats);
     }
 
     static bool RepeatMinionAttackLocked(ClientState conn, GolemState.Golem fighter, double now)

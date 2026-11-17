@@ -51,9 +51,21 @@ public sealed class MinionSupportExecutionTests
         try
         {
             var fighter = await Skeleton(f, "Multistrike Support", "Ruthless Support");
+            fighter.Gear["global_minimum_added_chaos_damage"] = fighter.Gear["global_maximum_added_chaos_damage"] = 100;
+            fighter.Gear["base_deal_no_physical_damage"] = 1;
+            fighter.Own[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
+            fighter.Abilities = Game.GolemAbilities(f.Conn, fighter.Monster.Variety!, fighter.Monster.Level, fighter, fighter.Player);
             var ability = fighter.Abilities.First(a => !a.Attack.Spell && Program.Skills.IsMelee(a.Effect));
             var enemy = new SpawnedMonster("target", new(105, 100, 0), 100, 3, 1000000) { Hostile = true };
             f.Conn.Monsters[999] = enemy;
+            double Poison(GolemState.Ability hit)
+            {
+                var target = new SpawnedMonster("poison target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
+                Invoke("MinionAilmentsLocked", f.Conn, fighter, hit, 998u, target, false, time.Time);
+                return target.Poisons.TotalDps(time.Time);
+            }
+            double originalPoison = Poison(ability);
+            Assert.True(originalPoison > 0);
             double original = ability.Attack.Damage.MaxTotal;
             Assert.True(original > 0);
             int Own(string n) => fighter.Own.GetValueOrDefault(Program.Stats.Key(n)!.Value);
@@ -70,6 +82,8 @@ public sealed class MinionSupportExecutionTests
                     double extra = repeat == 0 ? 1 : 1 + Own(repeat == 1 ? "multistrike_damage_+%_final_on_first_repeat"
                         : "multistrike_damage_+%_final_on_second_repeat") / 100d;
                     Assert.Equal(original * ruthless * extra, pending.Ability.Attack.Damage.MaxTotal, 5);
+                    double ailmentRuthless = use == 2 ? 1 + Own("support_ruthless_blow_ailment_damage_from_melee_hits_+%_final") / 100d : 1;
+                    Assert.Equal(originalPoison * ailmentRuthless * extra, Poison(pending.Ability), 5);
                     Assert.Equal(repeat, pending.RepeatIndex);
                     time.Time = pending.At;
                     uint life = enemy.Life;
