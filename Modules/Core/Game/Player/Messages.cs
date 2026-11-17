@@ -795,6 +795,11 @@ public static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
+                    // Nobody walked while the client was on its loading screen, so the walk history starts here: without this
+                    // the first collision pass replayed the whole entry (1.2 s of frames) under the combat lock, 258 ms, and
+                    // the player's first movement waited for it (live 2026-11-17).
+                    lock (conn.Monsters)
+                        conn.WalkersSteppedTo = ProjectileWorldTime(conn);
                     StartWorldFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
