@@ -162,12 +162,17 @@ public static partial class Game
                 minimumConverted[type] = session.MinimumConverted(type);
             }
         }
+        // "Count as having maximum number of … Charges": the effects count the maximum; the rows and buffs keep the
+        // charges really held.
+        var counted = new Dictionary<ChargeType, int>(held);
+        foreach (var type in Charges.Types)
+            if (ChargeScaling.CountsAsMaximum(type, Get)) counted[type] = Math.Max(counted[type], limits[type].Maximum);
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
         int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
         // Expand is a pure function of the coefficients (stats and dev), the counts and the conversions: the last
         // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
-        int[] heldNow = [.. Charges.Types.Select(t => held[t])];
+        int[] heldNow = [.. Charges.Types.Select(t => counted[t])];
         bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
         var slot = ChargeExpansions.GetValue(conn, _ => new());
         Dictionary<string, int> added;
@@ -176,13 +181,15 @@ public static partial class Game
             added = VerifyStatSnapshotTail ? Verified(last.Added) : last.Added;
         else
         {
-            added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            added = Expand();
             slot.Last = new(new(stats), dev, heldNow, convertedNow, added);
         }
+        Dictionary<string, int> Expand() => ChargeEffects.Expand(Coefficient, t => counted[t], t => converted[t],
+            ChargeScaling.Rules, ChargeScaling.Conditions, t => limits[t].Maximum);
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
         Dictionary<string, int> Verified(Dictionary<string, int> reused)
         {
-            var fresh = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
+            var fresh = Expand();
             if (!SameInOrder(fresh, reused))
             {
                 Interlocked.Increment(ref StatSnapshotTailMismatches);

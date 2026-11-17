@@ -29,7 +29,9 @@ public static class ChargeTriggers
     /// <summary>The stats the session observes for these rules.</summary>
     public static readonly IReadOnlyList<string> Observed =
         [FrenzyOnMaximumPower, LoseAllOnMaximumPower, LoseAllOnMaximumEndurance, EnduranceOnPowerLoss, LifeOnEnduranceLoss,
-            CannotGainAny, OnslaughtPerEnduranceWhenHit, .. CannotGainStats.SelectMany(s => s)];
+            CannotGainAny, OnslaughtPerEnduranceWhenHit, .. CannotGainStats.SelectMany(s => s),
+            .. Charges.Types.Select(t => $"count_as_having_max_{Charges.Name(t)}_charges"),
+            "count_as_having_max_endurance_frenzy_power_charges"];
 
     /// <summary>Whether the character cannot gain charges of the type.</summary>
     public static bool CannotGain(ChargeType type, Func<string, int> get) =>

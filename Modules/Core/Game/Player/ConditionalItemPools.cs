@@ -49,7 +49,8 @@ public static partial class Game
         {
             int maximum = charges.Limits(type).Maximum;
             flags["_while_at_maximum_" + type.ToString().ToLowerInvariant() + "_charges"] =
-                !charges.Converted(type) && maximum > 0 && charges.Effective(type) >= maximum;
+                !charges.Converted(type) && maximum > 0 && (charges.Effective(type) >= maximum
+                    || ChargeScaling.CountsAsMaximum(type, charges.ObservedStat));
         }
         return flags;
     }
