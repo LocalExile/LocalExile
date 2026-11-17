@@ -7,7 +7,7 @@ public static partial class Game
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment);
 
     static AnimatedSource? AnimatedItems(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem,
-        (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored)
+        (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored, double radius = 15)
     {
         if (restored is not null) return new(0, null, new(restored));
         if (definition.Id == "AnimateWeaponAltX")
@@ -35,7 +35,7 @@ public static partial class Game
         uint id = target;
         if (ground is null)
         {
-            var found = conn.Instance.Ground.Within(aim.X, aim.Y, 15, p => Slot(p.Item) != 0)
+            var found = conn.Instance.Ground.Within(aim.X, aim.Y, radius, p => Slot(p.Item) != 0)
                 .Where(p => Visible(p.Id)).OrderBy(p => Dist((p.Item.GridX, p.Item.GridY), aim)).FirstOrDefault();
             id = found.Id; ground = found.Item;
         }

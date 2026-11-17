@@ -119,6 +119,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
 - Player minions that fight, including Conviction relics' enemy-centred novas. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Player minions that fight, with compatible Multistrike repeats, Ruthless uses and Melee Splash.
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) §5.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) §4.
@@ -150,6 +152,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment (including Self Reflection's main-hand copy), summons, source recovery, spell repeats, mines and traps.
   Raging Spirit's quality rolls extra summons for manual, triggered and totem releases.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps.
+  Spell totems summon minion groups, golems, corpse minions and animated equipment from valid sources.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.

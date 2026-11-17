@@ -23,7 +23,8 @@ public sealed class SpellTotemExecutionTests
         return conn;
     }
 
-    static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)!);
+    static Item Gem(string name) => ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)
+        ?? Program.Items.FindGem(name)!.Value.Type);
     static ushort Equip(ClientState conn, string active, string support)
     {
         var items = Game.ItemsOf(conn);
@@ -99,6 +100,7 @@ public sealed class SpellTotemExecutionTests
         var conn = Connection("SpellTotem");
         try
         {
+            await VerifySummonTotems();
             ushort skill = Equip(conn, "SkillGemFireball", "SupportGemSpellTotem");
             var gem = Game.SupportedSkill(conn, skill);
             Assert.NotNull(Game.TotemVariety(conn, gem.Effect));
@@ -171,6 +173,56 @@ public sealed class SpellTotemExecutionTests
         }
         finally { conn.Closed = true; lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path); }
+    }
+
+    static async Task VerifySummonTotems()
+    {
+        foreach (string active in new[] { "Summon Skeletons", "Raise Zombie", "Raise Spectre",
+            "Animate Weapon", "Animate Guardian", "Summon Stone Golem", "Summon Holy Relic" })
+        {
+            var conn = Connection("SummonTotem" + Guid.NewGuid().ToString("N"));
+            using var wire = new Wire();
+            var session = Game.ProjectilesFor("summon-totem", wire.Stream, wire.Ciphers, conn);
+            try
+            {
+                ushort skill = Equip(conn, active, "SupportGemSpellTotem");
+                var gem = Game.GemSkillEffects(conn).Single(); var source = Game.SupportedSkill(conn, skill);
+                Assert.True(Game.IsTotemSkill(conn, skill));
+                Assert.True(Game.TotemPathAvailable(conn, skill, gem.Effect));
+                var summon = Game.SummonData.Find(Program.Skills.EffectId(gem.Effect));
+                SpawnedMonster? corpse = null;
+                if (summon?.Corpse == true)
+                    conn.Monsters[901] = corpse = new("corpse", new(120, 100, 0), 0, 0, 1000)
+                    { Hostile = true, Life = 0, Dead = true, Variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!, Level = 20 };
+                uint ground = 0;
+                if (summon?.Family is "AnimatedWeapon" or "AnimatedGuardian")
+                    ground = conn.Instance.Ground.Add(new(120, 100, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!)));
+                var totem = new TotemState.Totem(777, skill, (100, 100), 100, 100, null)
+                { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem };
+                conn.Totems.Place(totem, 1, 0);
+                Game.TickSpellTotemsLocked("summon-totem", wire.Stream, wire.Ciphers, conn, new List<byte>());
+                Assert.True(totem.NextCast > 0);
+                session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
+                var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                session.Enqueue(() => { done.SetResult(); return Task.CompletedTask; });
+                await done.Task;
+                int expected = active == "Summon Skeletons" ? 2 : 1;
+                Assert.Equal(expected, conn.Summons.Fighters.Count + conn.Golems.All.Count);
+                Assert.Equal(1000u, conn.PlayerMana);
+                if (corpse is not null) Assert.True(corpse.CorpseConsumed);
+                if (ground != 0) Assert.Null(conn.Instance.Ground.Get(ground));
+                if (Program.Skills.CooldownMs(gem.Effect, gem.Level) > 0)
+                {
+                    ushort sequence = totem.Sequence;
+                    totem.NextCast = 0;
+                    Game.TickSpellTotemsLocked("summon-totem", wire.Stream, wire.Ciphers, conn, new List<byte>());
+                    Assert.Equal(sequence, totem.Sequence);
+                    Assert.NotNull(totem.Cooldown);
+                    Assert.True(totem.Cooldown.RemainingSeconds > 0);
+                }
+            }
+            finally { session.Invalidate(); conn.Closed = true; PlayerInventories.Forget(conn.Character!); }
+        }
     }
     [Fact]
     public async Task Totem_release_uses_its_entity_position_supported_damage_and_source_lifetime()
