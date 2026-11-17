@@ -168,8 +168,8 @@ public static partial class Game
     // critical_strike_chance_+%_vs_blinded_enemies (PoB "against Blinded Enemies": ActorCondition enemy Blinded) is an
     // increase: a hit's chance against a Blinded target is recomputed from its base with it in the increased sum, never
     // the final chance scaled. Each site computes that second chance once (null without the stat) and picks it here.
-    public static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, int? vsProfane = null) =>
-        Math.Clamp((vsProfane is int profane && conn.FlaskGrounds.Profane(target) ? profane
+    public static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, GroundCritical? vsGround = null) =>
+        Math.Clamp((GroundCriticalOn(conn, target, vsGround) is int ground ? ground
         : vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance)
         + (conn.Monsters.GetValueOrDefault(target)?.Curses["enemy_additional_critical_strike_chance_against_self"] ?? 0), 0, 10000);
 
@@ -180,10 +180,42 @@ public static partial class Game
         StatOf(player, VsBlindedCriticalStat) is not (not 0 and var extra)
             ? null : AttackCriticalChanceWith(conn, player, extra, release);
 
-    // The default attack's (and an ordinary bow's) chance against a target on the player's profane ground: +100%
-    // increased critical strike chance (PoB's SelfCritChance INC for enemies on Profane Ground).
-    public static int? AttackCriticalChanceVsProfane(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
-        AttackCriticalChanceWith(conn, player, FlaskGrounds.ProfaneCritIncrease, release);
+    /// <summary>A hit's chances against a target on the player's grounds, worked out once from the chance's base: on
+    /// profane ground (+100% increased, PoB's SelfCritChance INC for enemies on Profane Ground), on consecrated ground with
+    /// Bottled Faith's increase (null without it), and on both (the increases add). Picked per target at the hit.</summary>
+    public readonly record struct GroundCritical(int? Profane, int? Consecrated, int? Both,
+        int? BlindedProfane, int? BlindedConsecrated, int? BlindedBoth)
+    {
+        public GroundCritical(int? profane, int? consecrated, int? both) : this(profane, consecrated, both, null, null, null) { }
+        public void Deconstruct(out int? profane, out int? consecrated, out int? both) =>
+            (profane, consecrated, both) = (Profane, Consecrated, Both);
+    }
+
+    static GroundCritical GroundCriticalWith(ClientState conn, Func<long, int?> with, int blinded)
+    {
+        int consecrated = UtilityFlaskStat(conn, FlaskGrounds.VsConsecratedCriticalStat);
+        return new(with(FlaskGrounds.ProfaneCritIncrease), consecrated > 0 ? with(consecrated) : null,
+            consecrated > 0 ? with(FlaskGrounds.ProfaneCritIncrease + (long)consecrated) : null,
+            blinded != 0 ? with(FlaskGrounds.ProfaneCritIncrease + (long)blinded) : null,
+            blinded != 0 && consecrated > 0 ? with(consecrated + (long)blinded) : null,
+            blinded != 0 && consecrated > 0 ? with(FlaskGrounds.ProfaneCritIncrease + (long)consecrated + blinded) : null);
+    }
+
+    static int? GroundCriticalOn(ClientState conn, uint target, GroundCritical? vsGround)
+    {
+        if (vsGround is not { } g) return null;
+        bool profane = conn.FlaskGrounds.Profane(target);
+        bool consecrated = g.Consecrated is not null && conn.Monsters.TryGetValue(target, out var m)
+            && conn.FlaskGrounds.Covers(FlaskGrounds.Kind.ConsecratedGround, m.Walk.Position(ProjectileWorldTime(conn)));
+        if (Blinded(conn, target))
+            return profane && consecrated ? g.BlindedBoth ?? g.Both
+                : profane ? g.BlindedProfane ?? g.Profane : consecrated ? g.BlindedConsecrated ?? g.Consecrated : null;
+        return profane && consecrated ? g.Both : profane ? g.Profane : consecrated ? g.Consecrated : null;
+    }
+
+    // The default attack's (and an ordinary bow's) chances against a target on the player's grounds (GroundCritical).
+    public static GroundCritical AttackCriticalChanceVsGround(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+        GroundCriticalWith(conn, extra => AttackCriticalChanceWith(conn, player, extra, release), StatOf(player, VsBlindedCriticalStat));
 
     static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
     {
@@ -196,9 +228,16 @@ public static partial class Game
     public static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
         conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
 
-    // A supported gem's chance against a target on the player's profane ground (+100% increased critical chance).
-    public static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release) =>
-        SupportedCriticalChanceFor(conn, skillId, release, FlaskGrounds.ProfaneCritIncrease);
+    // A passive-granted spell's chances against a target on the player's grounds, from its own chance function.
+    public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with) =>
+        SpellCriticalChanceVsGround(conn, with, 0);
+
+    public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with, int blinded) =>
+        GroundCriticalWith(conn, extra => with(extra), blinded);
+
+    // A supported gem's chances against a target on the player's grounds (GroundCritical).
+    public static GroundCritical SupportedCriticalChanceVsGround(ClientState conn, ushort skillId, bool release) =>
+        GroundCriticalWith(conn, extra => SupportedCriticalChanceFor(conn, skillId, release, extra), conn.Pools.VsBlindedCriticalPct);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).

@@ -46,8 +46,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
-    /// <summary>The chance against a target on the player's profane ground (Rational Doctrine), or null.</summary>
-    public int? VsProfaneCriticalChance { get; init; }
+    /// <summary>The chances against a target on the player's profane or consecrated ground (Game.GroundCritical), or null.</summary>
+    public Game.GroundCritical? VsGroundCriticalChance { get; init; }
     public string? AreaVisual { get; init; }
     public string? FlightVisual { get; init; }
     public Game.SupportedGem? MirageSource { get; init; }

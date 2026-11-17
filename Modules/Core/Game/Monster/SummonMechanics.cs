@@ -13,6 +13,14 @@ public static partial class Game
                 result ??= new(sources); result[key] = result.GetValueOrDefault(key) + value;
             }
             if (AreaTime(conn) < conn.Summons.HolyRegenerationUntil) Add("base_life_regeneration_rate_per_minute", conn.Summons.HolyRegenerationPerMinute);
+            if (AreaTime(conn) < conn.Summons.FeedingFrenzyUntil && conn.PlayerLife > 0)
+            {
+                Add("has_puppet_master", 1);
+                Add("puppet_master_minion_damage_+%_final", 10);
+                Add("minion_movement_speed_+%", 10);
+                Add("minion_attack_speed_+%", 10);
+                Add("minion_cast_speed_+%", 10);
+            }
             foreach (var name in new[] { "damage", "maximum_life" })
                 Add("active_skill_non_reaper_minion_" + name + "_+%_final", conn.Summons.Fighters.Values
                     .Where(g => g.Definition.Kind == "Reaper" && !g.Monster.Dead)
@@ -26,7 +34,20 @@ public static partial class Game
         if (conn.PlayerLife == 0 || InTown(conn)) return;
         foreach (var relic in conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == "HolyRelic" && !g.Monster.Dead && g.Pending is null))
             if (relic.Abilities.FirstOrDefault(a => a.Effect is 9927 or 9928) is { } nova && GolemReady(relic, nova, now))
+            {
+                if (GolemStat(relic.Own, "holy_relic_targets_nearest_enemy") != 0)
+                {
+                    var at = relic.Monster.Walk.Position(now);
+                    var nearest = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
+                            && !p.Value.Invulnerable && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key))
+                        .Where(p => Dist(at, p.Value.Walk.Position(now)) <= nova.Attack.Range)
+                        .MinBy(p => Dist(at, p.Value.Walk.Position(now)));
+                    if (nearest.Value is not null)
+                        GolemReserveLocked(conn, relic, nova, nearest.Key, nearest.Value, nearest.Value.Walk.Position(now), now);
+                    continue;
+                }
                 GolemReserveLocked(conn, relic, nova, target, victim, victim.Walk.Position(now), now);
+            }
     }
 
     public static void HolyRelicRegenerationLocked(ClientState conn, GolemState.Golem relic, GolemState.Ability nova, double now)
