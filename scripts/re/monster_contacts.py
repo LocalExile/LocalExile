@@ -1,27 +1,30 @@
-# usage: python -I scripts/re/monster_contacts.py [--json data/monster-contacts.json]
+# usage: python -I scripts/re/monster_contacts.py [--json data/monster-contacts.json] [--cached-only]
 #
 # For every MonsterVarieties row: the clips its .act maps to the animation keys of its projectile attacks (Animation.dat
 # Ids: "Melee" and the keys MonsterMortar / MonsterProjectileSpell name, e.g. the Sand Spitter mortar's
 # "SpellProjectile" = "attack1,attack2"), in ACT order, each with its index in the rig's animation list, its length
 # and its "contact" keyframe: time in ms and position in the model's space ([x, y, z] world units: +x the model's left,
-# -y forward, -z up). The client picks the clip of a pool with its sequence-seeded selector (AnimationVariantSelector)
-# and plays it stretched to the attack time; a projectile skill with `projectile_uses_contact_position` releases its
+# -y forward, -z up). The client picks the clip of a pool with its sequence-seeded selector (AnimationVariantSelector).
+# A projectile skill with `projectile_uses_contact_position` releases its
 # projectile at the contact (the Spitter's attack1: 374.5 ms of 1000, [1.33, 45.89, -71.56], i.e. 45.9 units behind
 # the body, which faces away from its target, and 71.6 up). The Gateway releases monster projectiles at that time and
 # from that point (Program.ProjectileHostile.cs; Agents/docs/protocol/11-skills.md §6).
 #
 # Events come from the rig .amd merged with the .ao chain's own list (ot_components.rig_clips: the Spitter's .ao
-# replaces the rig's events with exclude_metadata_events). Only plain pools are recorded (comma-separated clip names:
-# no "@alias", no "clip:condition" variants, every clip present in the rig); a key with anything else is left out, and
+# replaces the rig's events with exclude_metadata_events). The legacy pools keep plain names (and Throw budgets);
+# no "@alias" or "clip:condition" variants are accepted, and every clip must exist in the rig. Other keys are left out, and
 # the Gateway keeps its fallback timing for it. A clip with several "contact" events also lists them all
 # ("contacts": [[ms, position], ...]): the client releases the action once per contact event (0x9b8d), each a volley of
 # its own. The keys include the Animation of every monster_mortar / monster_projectile_spell / monster_projectile_weapon
 # granted effect (the Kelp Dreg's Snipe), and an .act entry that names an effect after its clips keeps its clips. Files
 # come from the GGPK through scripts/re/ggdump (cached in Tools/re/out/ot, see ot_components.py), fetched in batches first.
-import json, os, re, sys
+# Separate melee_clocks use the variety's actual AO, retaining slow_begin/slow_end and the ACT attack_time budget.
+# "clock" distinguishes verified absence of a slow span from old/incomplete data; malformed spans or ambiguous
+# AO/ACT bindings never acquire that marker. --cached-only fetches nothing.
+import json, math, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, all_contacts, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
+from ot_components import REPO, _block, all_contacts, amd_map, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 from anim_contacts import act_tokens, closing_brace  # noqa: E402
 import clientdb  # noqa: E402  (on the path through ot_components)
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
@@ -55,11 +58,12 @@ def animation_keys():
     return sorted(keys)
 
 
-def fetch_ao_chain(paths):
+def fetch_ao_chain(paths, fetch_missing=True):
     """Fetch these .ao files and every "extends" parent; return all .ao paths seen."""
     known, todo = set(), set(paths)
     while todo:
-        fetch(sorted(todo))
+        if fetch_missing:
+            fetch(sorted(todo))
         known |= todo
         nxt = set()
         for ao in todo:
@@ -105,42 +109,127 @@ def root_assignments(text):
         return {}
 
 
-def act_pools(text, keys):
-    """{key: [clip, ...]} for the .act's root-block `Key = "a,b";` entries among `keys` that are plain clip lists, and
-    the .ao the act animates."""
+def act_pools(text, keys, budgets=False):
+    """{key: [(clip, optional budget seconds), ...]} for supported root-block pools, and the .ao the act animates.
+    A single unsupported entry rejects the whole pool: removing one would change sequence-seeded selection."""
     entries = root_assignments(text)
     pools = {}
     for key in keys:
         value = entries.get(key)
         if not value:
             continue
-        clips = [c.strip() for c in value.split(",")]
-        # Stage casts use Throw (ZombieBossExtract). Preserve its clip/contact even when the ACT also
-        # specifies an attack budget; that budget is not a replacement for the granted effect's cast time.
-        if key == "Throw":
-            clips = [re.sub(r":attack_time=\d+(?:\.\d+)?$", "", c) for c in clips]
-        if all(NAME.fullmatch(c) for c in clips):
+        clips = []
+        for part in value.split(","):
+            name, *options = [p.strip() for p in part.split(":")]
+            if not NAME.fullmatch(name) or len(options) > 1:
+                break
+            budget = None
+            if options:
+                if not budgets and key != "Throw":
+                    break
+                match = re.fullmatch(r"attack_time=(\d+(?:\.\d+)?)", options[0])
+                if match is None:
+                    break
+                budget = float(match.group(1))
+                if not math.isfinite(budget) or budget <= 0:
+                    break
+            clips.append((name, budget))
+        else:
             pools[key] = clips
     m = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M)
     return pools, (m.group(1) if m else None)
 
 
+def complete_ao_events(text):
+    """Certify only the event data the existing AO reader can retain; a skipped list/event is not an absent span.
+    Keep this stricter check separate from the legacy contact parser and its permissive fallbacks."""
+    body = _block(text, "AnimationController")
+    if body is None:
+        return re.search(r'^\s*AnimationController\b', text, re.M) is None
+    assignments = re.findall(r"\banimations\s*=", body)
+    lists = re.findall(r"\banimations\s*=\s*'(.*?)'", body, re.S)
+    if len(assignments) != len(lists) or len(lists) > 1:
+        return False
+    for raw in lists:
+        try:
+            animations = json.loads(raw)
+        except ValueError:
+            return False
+        if not isinstance(animations, list):
+            return False
+        for animation in animations:
+            if not isinstance(animation, dict) or not isinstance(animation.get("name"), str) or not animation["name"]:
+                return False
+            events = animation.get("events", [])
+            if not isinstance(events, list):
+                return False
+            for event in events:
+                if (not isinstance(event, dict) or not isinstance(event.get("name"), str) or not event["name"]
+                        or type(event.get("time")) not in (int, float) or not math.isfinite(event["time"] * 1000)):
+                    return False
+    return True
+
+
+def complete_ao_chain(ao):
+    """All metadata contributing to this AO's events is cached and readable, including inherited event lists."""
+    seen, todo = set(), [ao]
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        text = read_text(path)
+        if text is None or not complete_ao_events(text):
+            return False
+        todo.extend(p if p.endswith(".ao") else p + ".ao" for p in extends_of(text))
+    return True
+
+
+def clip_clock(clip, budget, complete=True):
+    """Preserve optional clock inputs without treating missing, duplicated or malformed spans as no span."""
+    begins = [ms for event, ms, _ in clip["events"] if event == "slow_begin"]
+    ends = [ms for event, ms, _ in clip["events"] if event == "slow_end"]
+    begin = begins[0] if len(begins) == 1 else None
+    end = ends[0] if len(ends) == 1 else None
+    valid = not begins and not ends or (len(begins) == len(ends) == 1 and 0 <= begin < end <= clip["length"])
+    return {"clock": complete and valid, "slow_begin": begin, "slow_end": end, "budget": budget}
+
+
+def animation_source(acts, aos, act_ao, type_ao=None):
+    """A monster's Animated resource comes from its variety, not the ACT's authoring model.
+    Only one unambiguous ACT/AO binding supplies a clock; alternative resources and type overrides stay unproven."""
+    ao = aos[0] if aos else act_ao
+    known = len(acts) == len(aos) == 1 and (type_ao is None or type_ao == ao)
+    return ao, known
+
+
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "monster-contacts.json")
+    fetch_missing = "--cached-only" not in sys.argv
     keys = animation_keys()
     variants = [r for r in table("MonsterVarieties") if isinstance(r, dict) and r.get("Id")]
+    type_file = os.path.join(REPO, "data", "object-types.json")
+    if os.path.isfile(type_file):
+        with open(type_file, encoding="utf-8-sig") as source:
+            object_types = {r["type"]: r for r in json.load(source)["types"]}
+    else:
+        object_types = {r["type"]: r for r in table("object_types")} if clientdb.has("object_types") else {}
     acts = sorted({a for r in variants for a in (r.get("ACTFiles") or [])})
     aos = sorted({a for r in variants for a in (r.get("AOFiles") or [])})
     print(f"keys {', '.join(keys)}", file=sys.stderr, flush=True)
-    print(f"fetching {len(acts)} .act and {len(aos)} .ao", file=sys.stderr, flush=True)
-    fetch(acts)
-    fetch(aos)
+    print(f"{'fetching' if fetch_missing else 'reading cached'} {len(acts)} .act and {len(aos)} .ao", file=sys.stderr, flush=True)
+    if fetch_missing:
+        fetch(acts)
+        fetch(aos)
     parsed = {act: act_pools(read_text(act) or "", keys) for act in acts}
+    melee_pools = {act: act_pools(read_text(act) or "", ["Melee"], budgets=True)[0].get("Melee") for act in acts}
     act_aos = {ao for _, ao in parsed.values() if ao}
-    all_aos = fetch_ao_chain(aos + sorted(act_aos))
+    all_aos = fetch_ao_chain(aos + sorted(act_aos), fetch_missing)
     amds = amd_map(all_aos, fetch_missing=False)
-    fetch(sorted({amd for amd in amds.values() if amd}))
-    print(f"fetched; indexing {len(variants)} monster varieties", file=sys.stderr, flush=True)
+    if fetch_missing:
+        fetch(sorted({amd for amd in amds.values() if amd}))
+    complete = {ao: complete_ao_chain(ao) for ao in all_aos}
+    print(f"indexing {len(variants)} monster varieties", file=sys.stderr, flush=True)
 
     rigs = {}
 
@@ -156,13 +245,17 @@ def main():
 
     cache, out, pools_written = {}, {}, 0
     for n, row in enumerate(variants, 1):
-        key = (tuple(row.get("ACTFiles") or []), tuple(row.get("AOFiles") or []))
+        resolved_type = object_types.get(row["Id"], object_types.get(row.get("BaseMonsterTypeIndex"), {}))
+        key = (tuple(row.get("ACTFiles") or []), tuple(row.get("AOFiles") or []), resolved_type.get("animated_object"),
+               bool(resolved_type) and not resolved_type.get("missing"))
         if key not in cache:
             entry = None
             for act in key[0]:
                 pools, act_ao = parsed[act]
                 if not pools:
                     continue
+                # Preserve the legacy projectile/boss contact corpus. Ordinary melee clocks below bind to the
+                # variety's actual AO separately, without changing these consumers' existing fraction/position.
                 ao = act_ao or (key[1][0] if key[1] else None)
                 amd = amds.get(ao) if ao else None
                 if not amd:
@@ -170,10 +263,10 @@ def main():
                 clips = rig(amd, ao)
                 recorded = {}
                 for k, names in pools.items():
-                    if not all(name in clips for name in names):
+                    if not all(name in clips for name, _ in names):
                         continue
                     pool = []
-                    for name in names:
+                    for name, budget in names:
                         i, a = clips[name]
                         contact = first_contact(a["events"])
                         entry_clip = {"animation": name, "index": i, "length": a["length"],
@@ -187,6 +280,29 @@ def main():
                 if recorded:
                     entry = {"act": act, "ao": ao, "amd": amd, "pools": recorded}
                     break
+            for act in key[0]:
+                names = melee_pools[act]
+                if not names:
+                    continue
+                ao, known_binding = animation_source(key[0], key[1], parsed[act][1], key[2])
+                amd = amds.get(ao) if ao else None
+                if not amd:
+                    continue
+                clips = rig(amd, ao)
+                if not all(name in clips for name, _ in names):
+                    continue
+                clocks = []
+                for name, budget in names:
+                    i, a = clips[name]
+                    contact = first_contact(a["events"])
+                    clocks.append({"animation": name, "index": i, "length": a["length"],
+                                   "contact": None if contact is None else contact[0],
+                                   "act": act, "ao": ao, "amd": amd,
+                                   **clip_clock(a, budget, complete.get(ao, False) and known_binding and key[3])})
+                if entry is None:
+                    entry = {"act": act, "ao": ao, "amd": amd, "pools": {}}
+                entry["melee_clocks"] = clocks
+                break
             cache[key] = entry
         if cache[key]:
             out[row["Id"]] = cache[key]

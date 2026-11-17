@@ -709,8 +709,11 @@ public static partial class Game
             return;
         }
         if (!CurrentRecovery()) return;
+        // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
+        var during = UtilityFlasks.DuringEffectSources(local,
+            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife));
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, during));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for

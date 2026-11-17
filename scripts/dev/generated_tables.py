@@ -85,15 +85,17 @@ def item_types(doc):
 
 
 def monster_contacts(doc):
-    monsters, clips, frames = [], [], []
+    monsters, clips, frames, clocks = [], [], [], []
     for m, (variety, value) in enumerate(doc.items()):
-        monsters.append({"variety": variety, **flat(value, skip=("pools",))})
+        monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})
+        clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
         for pool, entries in value["pools"].items():
             for i, c in enumerate(entries):
                 clip = len(clips)
                 clips.append({"monster": m, "pool": pool, **child("monster", m, i, c, skip=("contacts",))})
                 frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]} for k, f in enumerate(c.get("contacts") or [])]
-    return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames}
+    return {"monster_contacts": monsters, "monster_contact_clips": clips, "monster_contact_clip_frames": frames,
+            "monster_melee_clocks": clocks}
 
 
 def monster_takehit(doc):
