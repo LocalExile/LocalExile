@@ -141,11 +141,11 @@ public static partial class Game
                     : Player("global_cannot_crit") != 0 || Own("global_cannot_crit") != 0 ? 0
                     : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
                         (long)Player("critical_strike_chance_+%") + Own("critical_strike_chance_+%"), Player, Own);
-                bool critical = RandomRolls.Chance(criticalChance, 10000, Random.Shared);
+                bool critical = RandomRolls.Chance(criticalChance + BrittleCriticalChance(m, now), 10000, Random.Shared);
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
                     : 150 + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+");
                 var rolled = packet.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
-                var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default));
+                var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
                 int damage = MonsterTakesMitigated(m, mitigated, spell);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)

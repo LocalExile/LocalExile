@@ -382,13 +382,14 @@ public static partial class Game
         int crit = (int)(a.Crit * (1 + (g.Monster.Mods.Effects["critical_strike_chance_+%"]
             + (a.Attack.Spell ? g.Monster.Mods.Effects["spell_critical_strike_chance_+%"] : 0)
             + (IsPrey(conn, g, id, target, now) ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_chance_+%_vs_focused_target") : 0)) / 100.0));
+        crit += BrittleCriticalChance(target, now);   // every hit against a Brittle enemy
         bool critical = g.Monster.Mods.Effects["never_crit"] == 0 && (g.Monster.Mods.Effects["always_crit"] != 0 || Random.Shared.Next(10_000) < crit);
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] + g.Monster.Mods.Effects["critical_strike_multiplier_+"]
                 + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]
                 + (IsPrey(conn, g, id, target, now) ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_multiplier_+_vs_focused_target") : 0)) / 100.0;
         var rolled = a.Attack.Damage.Scale(factor).Roll(Random.Shared);
-        int damage = MonsterTakesRolled(target, rolled, a.Attack.Spell);
+        int damage = MonsterTakesRolled(target, rolled, a.Attack.Spell, now: now);
         if (ApplyMonsterHitLocked(conn, target, damage, allyAt: g.Monster.Walk.Position(now)) is not { } hit) return false;
         if (hit.StageStarts)
         { CommitBossStage(remote, stream, ciphers, conn, id, target, now); hit = hit with { StageStarts = false }; }
@@ -403,7 +404,7 @@ public static partial class Game
         CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun);
         if (!target.Dead)
         {
-            var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(target, type, default));
+            var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(target, type, default, now));
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, n => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n),
                 n => target.Mods.Effects[n], Random.Shared);
             HitDebuffsOnHitLocked(target, n => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n), a.Attack.Spell, critical, now);
@@ -480,7 +481,7 @@ public static partial class Game
                     hazard.Carry[id] = now + .3;
                 }
                 double raw = hazard.DamagePerSecond * elapsed;
-                double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default))[hazard.Type].Min;
+                double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;

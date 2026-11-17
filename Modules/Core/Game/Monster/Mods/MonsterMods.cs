@@ -74,7 +74,7 @@ public static partial class Game
     /// Base and mod resistance compose before the cap; penetration subtracts once after that cap.
     /// </summary>
     public static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
-        Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
+        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
     /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
@@ -90,8 +90,9 @@ public static partial class Game
     }
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
-    public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen)), spell);
+    public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
+        double now = double.NaN)
+        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)), spell, now);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
