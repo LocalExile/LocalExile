@@ -79,6 +79,8 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
   Spellblade's active one-hand melee eligibility, weapon-local inputs and dual-wield contribution/penalty are implemented;
   verify its native panel/hits and per-hand transfer rounding against the reference-model behavior.
+  Varunastra's table-based weapon eligibility is implemented; selected-stat restrictions, off-hand support selection
+  and native availability/refresh remain open.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 

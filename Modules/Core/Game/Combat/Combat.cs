@@ -133,7 +133,7 @@ public static partial class Game
     public static double AttackContactDelay(ClientState conn, double attackSeconds, bool approach)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.AttackContact(ao, WeaponProfileFor(conn, activeSet: true));
+        double contact = Animations.AttackContact(ao, AnimationWeaponProfileFor(conn));
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
@@ -145,7 +145,7 @@ public static partial class Game
         out string? clip, out double fraction)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(conn, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(conn);
         // A transfigured gem (Id + AltX / AltY) swings its base gem's clip: Holy Sweep of Hammerfalls (SweepAltX) shares
         // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
         // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
@@ -176,7 +176,7 @@ public static partial class Game
         if (contactClip is not null)
         {
             string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-            var weapon = WeaponProfileFor(conn, activeSet: true);
+            var weapon = AnimationWeaponProfileFor(conn);
             if (Animations.SkillAttackContactAt(ao, weapon, contactClip, 0) is { } first
                 && Animations.SkillAttackContactAt(ao, weapon, contactClip, 1) is { } second && second.Contact > first.Contact)
                 return (second.Contact - first.Contact, true);
@@ -204,7 +204,7 @@ public static partial class Game
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt, ushort sequence)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, attackSeconds) / attackSeconds;
+        double contact = Animations.DefaultAttackContactSeconds(ao, AnimationWeaponProfileFor(conn), sequence, attackSeconds) / attackSeconds;
         bool approach = !conn.LockstepClient && arrivedAt > departedAt && stop != from;
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }

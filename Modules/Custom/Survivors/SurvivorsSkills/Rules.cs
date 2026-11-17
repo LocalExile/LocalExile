@@ -580,7 +580,7 @@ static partial class SurvivorsSkills
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
             ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         CastAnimationKind kind = SurvivorsCastKind(skill);
-        if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
+        if (Animations.CastClip(ao, AnimationWeaponProfileFor(conn), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),

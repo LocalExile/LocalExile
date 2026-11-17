@@ -61,8 +61,8 @@ public static partial class Game
         int? Replacement(string name) => Stats.Key(name) is uint key && replacements.TryGetValue(key, out int value) ? value : null;
         lock (conn.Monsters)
         {
-            int claws = (ActiveMainHand(conn)?.Type?.Class == "Claw" ? 1 : 0)
-                + (ActiveOffHand(conn)?.Type?.Class == "Claw" ? 1 : 0);
+            int claws = (WeaponIdentity.CountsAs(ActiveMainHand(conn), ItemsFor(conn).Mods, "Claw") ? 1 : 0)
+                + (WeaponIdentity.CountsAs(ActiveOffHand(conn), ItemsFor(conn).Mods, "Claw") ? 1 : 0);
             LeechOf(conn).Configure(ProjectileWorldTime(conn),
                 LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, Replacement, onLowLife),
                 get, Replacement, claws);

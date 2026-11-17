@@ -104,6 +104,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   attack fire and accuracy-derived attack lightning.
   Ritual boots' less-accuracy factor and the grant share resolved hand/skill accuracy. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers.
+  Varunastra's active-hand identities feed claw/dagger additions, positive weapon conditions and equipped-claw counts;
+  native per-hand flags retain the actual sword type. Its native presentation and other identity consumers remain open.
   New skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).

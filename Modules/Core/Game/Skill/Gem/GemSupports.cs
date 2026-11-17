@@ -77,7 +77,10 @@ public sealed class GemSupports(string folder = "data")
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass = null, int activeLevel = 1)
+        int? weaponClass = null, int activeLevel = 1) => Resolve(active, candidates, skills, weaponClass, activeLevel, false);
+
+    public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
+        int? weaponClass, int activeLevel, bool allOneHandMelee)
     {
         if (Of(active) is not { Support: false, CannotBeSupported: false } target) return [];
         var types = target.Types.ToHashSet();
@@ -95,7 +98,7 @@ public sealed class GemSupports(string folder = "data")
         {
             changed = false;
             foreach (var c in all)
-                if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass))
+                if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass, allOneHandMelee))
                 {
                     foreach (int t in c.Effect.Added) changed |= types.Add(t);
                     foreach (int t in c.Effect.AddedMinionTypes) changed |= minionTypes.Add(t);
@@ -103,7 +106,7 @@ public sealed class GemSupports(string folder = "data")
         } while (changed);
         var result = new List<Applied>();
         foreach (var c in all.OrderBy(c => c.Gem.Socket))
-            if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass)
+            if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass, allOneHandMelee)
                 && Level(c.Gem.Effect, c.Gem.Level) is { } level)
                 result.Add(new(c.Gem, c.Effect, level.Row, level.Cost,
                     skills.EffectStats(c.Gem.Effect, c.Gem.Level, c.Gem.Quality)));
@@ -122,11 +125,12 @@ public sealed class GemSupports(string folder = "data")
     public static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
         CompatibleTypes(support, types, minionTypes.ToHashSet(), weapon);
 
-    static bool CompatibleTypes(Effect support, IReadOnlySet<int> types, IReadOnlySet<int> minionTypes, int? weapon) =>
+    static bool CompatibleTypes(Effect support, IReadOnlySet<int> types, IReadOnlySet<int> minionTypes, int? weapon,
+        bool allOneHandMelee = false) =>
         (Matches(support.Allowed, types, true) || !support.IgnoreMinions && minionTypes.Count > 0
             && Matches(support.Allowed, minionTypes, false))
         && !Matches(support.Excluded, types, false)
-        && (support.Weapons.Length == 0 || weapon is int row && support.Weapons.Contains(row));
+        && WeaponIdentity.Allows(support.Weapons, weapon, allOneHandMelee);
 
     (uint Row, int Cost, int Speed)? Level(int effect, int level)
     {

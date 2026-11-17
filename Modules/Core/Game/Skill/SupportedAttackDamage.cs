@@ -59,17 +59,15 @@ public static class SupportedAttackDamage
             added = added.Add(DamageType.Cold, new(
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
-        string? family = weapon.ItemClass switch
-        {
-            "Claw" => "claws", "Dagger" or "Rune Dagger" => "daggers", _ => null,
-        };
-        if (family is not null)
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string slug = type.ToString().ToLowerInvariant();
-                added = added.Add(type, new(get($"attack_minimum_added_{slug}_damage_with_{family}"),
-                    get($"attack_maximum_added_{slug}_damage_with_{family}")));
-            }
+        foreach (var (itemClass, family) in new[] { ("Claw", "claws"), ("Dagger", "daggers") })
+            if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
+                || itemClass == "Dagger" && weapon.ItemClass == "Rune Dagger")
+                foreach (var type in DamageTypes.ConversionOrder)
+                {
+                    string slug = type.ToString().ToLowerInvariant();
+                    added = added.Add(type, new(get($"attack_minimum_added_{slug}_damage_with_{family}"),
+                        get($"attack_maximum_added_{slug}_damage_with_{family}")));
+                }
         if (weapon.WieldingWand)
             foreach (var (type, suffix) in WandAddedRanges)
                 added = added.Add(type, new(get($"attack_minimum_added_{suffix}"), get($"attack_maximum_added_{suffix}")));

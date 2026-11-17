@@ -247,6 +247,10 @@ public static partial class Game
                 stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
             if (Stats.Key("off_hand_weapon_type") is uint offType)
                 stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
+            foreach (var (name, local) in new[] { (WeaponIdentity.MainAllOneHandMelee, mainLocal),
+                (WeaponIdentity.OffAllOneHandMelee, offLocal) })
+                if (Stats.Key(name) is uint identity && !devSet.Contains(identity))
+                    stats[identity] = WeaponIdentity.AllOneHandMelee(local) ? 1 : 0;
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
             if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))

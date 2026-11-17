@@ -104,7 +104,7 @@ public static partial class Game
         out string? clip, out double fraction, out double earliestSeconds)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(conn, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(conn);
         double latestLimit = Math.Max(0, attackSeconds - AttackTiming.LandMargin);
         if (SkillsFor(conn).EffectId(effect) is { } effectId
             && Animations.SkillAttackContact(ao, weapon, SkillClipName(effectId)) is { } found)

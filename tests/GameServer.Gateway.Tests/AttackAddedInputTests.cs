@@ -55,6 +55,7 @@ public sealed class AttackAddedInputTests : IDisposable
     [Fact]
     public void Equipped_attack_additions_preserve_weapon_scope_and_added_effectiveness()
     {
+        Varunastra_keeps_the_additions_on_its_own_hand();
         Claw_and_dagger_additions_belong_to_the_attacking_hand();
         Accuracy_boots_apply_their_less_rating_before_the_attack_grant();
         var items = Game.ItemsOf(conn);
@@ -153,6 +154,127 @@ public sealed class AttackAddedInputTests : IDisposable
         var inactive = Game.CharacterPlayerStats(conn);
         Assert.Equal(0, inactive.GetValueOrDefault(Key(maximumFire)));
         Assert.Equal(0, inactive.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
+    }
+
+    void Varunastra_keeps_the_additions_on_its_own_hand()
+    {
+        var originalPools = conn.Pools;
+        var catalogue = new UniqueCatalog(Program.Items);
+        var definition = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Varunastra"));
+        var sword = Assert.IsType<Item>(catalogue.Create(definition, new Random(17)));
+        var items = Game.ItemsOf(conn);
+        var main = items.Add(PlayerInventories.Weapon1, 0, 0, sword)!;
+        var belt = items.Add(PlayerInventories.Belt, 0, 0, Make("Stygian Vise") with
+        {
+            Sockets = [new(SocketColour.Abyss, Make("Murderous Eye Jewel") with
+            {
+                Rarity = ItemRarity.Rare,
+                Mods = [new(ModSection.Explicit, Program.Items.Mods.ById("AbyssAddedLightningDamageWithClawsJewel1__")!.Hash, [1, 19]),
+                    new(ModSection.Explicit, Program.Items.Mods.ById("AbyssAddedFireDamageWithDaggersJewel1")!.Hash, [5, 11])],
+            })],
+        })!;
+        var stats = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+        int Get(string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var weapon = Game.WeaponFor(conn);
+        Assert.Equal("One Hand Sword", weapon.ItemClass);
+        Assert.Equal(1, weapon.LocalSources!["local_varunastra_weapon_counts_as_all_1h_melee_weapon_types"]);
+        var raw = SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)));
+        Assert.Equal(new DamageRange(1, 19), raw[DamageType.Lightning]);
+        Assert.Equal(new DamageRange(5, 11), raw[DamageType.Fire]);
+        Assert.Equal(new DamageRange(1.5, 28.5),
+            SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)), 20_000, 15_000)[DamageType.Lightning]);
+        Assert.Equal(new DamageRange(7.5, 16.5),
+            SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)), 20_000, 15_000)[DamageType.Fire]);
+        Assert.Equal(19, Get("main_hand_maximum_lightning_damage"));
+        Assert.Equal(11, Get("main_hand_maximum_fire_damage"));
+        Assert.Equal(1, Get("main_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(0, Get("off_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(0, Get("main_hand_weapon_type")); // Native one-hand sword enum, not Claw or Dagger.
+        var profile = Game.WeaponProfileFor(conn);
+        Assert.True(profile.Axe && profile.Sword && profile.Mace && profile.Claw && profile.Dagger && profile.OneHandMelee);
+        Assert.False(profile.Wand || profile.Bow || profile.Staff || profile.TwoHand || profile.DualClaws || profile.Unarmed);
+        var animation = Game.AnimationWeaponProfileFor(conn);
+        Assert.True(animation.Sword);
+        Assert.False(animation.Axe || animation.Mace || animation.Claw || animation.Dagger);
+        double swordContact = Game.AttackContactDelay(conn, 1, approach: false);
+        void Claws(int count)
+        {
+            Game.ConfigureLeech(conn, name => name == "life_leech_%_is_instant_per_equipped_claw" ? 10 : 0, new Dictionary<uint, int>(), false);
+            var leech = Game.LeechOf(conn);
+            Assert.Equal((double)count, leech.Hit(0, (10, 0, 0), false, false, false, attack: true).Life);
+            leech.Clear(0);
+        }
+        Claws(1);
+        foreach (var (name, allowed) in new[] { ("Cobra Lash", true), ("Ground Slam", true), ("Sweep", false),
+            ("Rain of Arrows", false), ("Kinetic Blast", false) })
+        {
+            int effect = Program.Items.GemEffects(Make(name)).First();
+            Assert.Equal(allowed, Game.WeaponRestricted(conn, effect) is null);
+        }
+        var body = items.Add(PlayerInventories.BodyArmour, 0, 0, Make("Simple Robe"))!;
+        foreach (var (skill, support, allowed) in new[] { ("Double Strike", "Nightblade Support", true),
+            ("Heavy Strike", "Shockwave Support", true), ("Double Strike", "Close Combat Support", true),
+            ("Heavy Strike", "Trauma Support", true), ("Rain of Arrows", "Barrage Support", false),
+            ("Kinetic Blast", "Barrage Support", false) })
+        {
+            items.Change(PlayerInventories.BodyArmour, body.Id, item => item with
+            { Sockets = [new(SocketColour.White, Make(skill)), new(SocketColour.White, Make(support))], Links = [2] });
+            var active = Game.GemSkillEffects(conn).Single(g => g.Name == skill);
+            Assert.Equal(allowed, Game.SupportedSkill(conn, active.Id).Supports.Count == 1);
+        }
+        items.Change(PlayerInventories.BodyArmour, body.Id, item => item with
+        { Sockets = [new(SocketColour.White, Make("Double Strike")), new(SocketColour.White, Make("Nightblade Support"))], Links = [2] });
+        var doubleStrike = Game.GemSkillEffects(conn).Single(g => g.Name == "Double Strike");
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => ItemCatalog.Create(Program.Items.ByHash(sword.TypeHash)!));
+        Assert.Empty(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
+        Assert.NotNull(Game.WeaponRestricted(conn, Program.Items.GemEffects(Make("Cobra Lash")).First()));
+        Assert.Equal(swordContact, Game.AttackContactDelay(conn, 1, approach: false));
+        Assert.False(Game.WeaponProfileFor(conn).Claw);
+        Claws(0);
+        var off = items.Add(PlayerInventories.Offhand1, 0, 0, sword)!;
+        stats = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(0, Get("main_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(1, Get("off_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(0, SupportedAttackDamage.Raw(Game.WeaponFor(conn), Get, new(Game.PlayerAccuracy(conn)))[DamageType.Fire].Max);
+        Assert.Equal(new DamageRange(5, 11), SupportedAttackDamage.Raw(Game.OffhandWeaponFor(conn)!, Get, new(Game.PlayerAccuracy(conn)))[DamageType.Fire]);
+        Assert.Null(Game.WeaponRestricted(conn, Program.Items.GemEffects(Make("Cobra Lash")).First()));
+        Assert.False(Game.WeaponProfileFor(conn).DualClaws);
+        Claws(1);
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => Make("Nailed Fist"));
+        Assert.True(Game.WeaponProfileFor(conn).DualClaws);
+        Claws(2);
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => sword);
+        Assert.True(Game.WeaponProfileFor(conn).DualClaws);
+        Assert.Single(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
+        Claws(2);
+        var stored = items.Add(14, 0, 0, Make("Rusted Sword"))!;
+        items.SwapWeaponSets();
+        stats = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(0, Get("main_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(0, Get("off_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.False(Game.WeaponProfileFor(conn).Claw);
+        Assert.Empty(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
+        Claws(0);
+        items.SwapWeaponSets();
+        conn.Experience = CharacterStats.ExperienceFor(50);
+        conn.Pools = Game.PoolsFor(conn, 50);
+        Assert.Null(Game.ActiveMainHand(conn));
+        Assert.Null(Game.ActiveOffHand(conn));
+        Assert.Empty(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
+        stats = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(0, Get("main_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.Equal(0, Get("off_hand_varunastra_weapon_counts_as_all_1h_melee_weapon_types"));
+        Assert.False(Game.WeaponProfileFor(conn).Claw);
+        Claws(0);
+        conn.Experience = CharacterStats.ExperienceFor(100);
+        conn.Pools = Game.PoolsFor(conn, 100);
+        Assert.Single(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
+        items.Remove(PlayerInventories.BodyArmour, body.Id);
+        items.Remove(PlayerInventories.Offhand1, off.Id);
+        items.Remove(14, stored.Id);
+        items.Remove(PlayerInventories.Weapon1, main.Id);
+        items.Remove(PlayerInventories.Belt, belt.Id);
+        conn.Pools = originalPools;
     }
 
     void Claw_and_dagger_additions_belong_to_the_attacking_hand()

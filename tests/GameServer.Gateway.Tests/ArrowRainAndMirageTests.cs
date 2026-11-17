@@ -421,11 +421,17 @@ public class ArrowRainAndMirageTests
     static void Claw_and_dagger_projectiles_keep_the_released_hand_and_source()
     {
         static uint Key(string name) => Program.Stats.Key(name)!.Value;
-        static Item Weapon(string name) => ItemCatalog.Create(Program.Items.Find(name)!);
+        static Item Weapon(string name)
+        {
+            if (name != "Varunastra") return ItemCatalog.Create(Program.Items.Find(name)!);
+            var uniques = new UniqueCatalog(Program.Items);
+            return Assert.IsType<Item>(uniques.Create(uniques.Find(name)!, new Random(17)));
+        }
         foreach (var (name, itemClass, other, mod, maximum, ineligible) in new[]
         {
             ("Nailed Fist", "Claw", "Glass Shank", "AbyssAddedLightningDamageWithClawsJewel1__", 19, "Imperial Claw"),
             ("Carving Knife", "Rune Dagger", "Nailed Fist", "AbyssAddedLightningDamageWithDaggersJewel1", 20, "Demon Dagger"),
+            ("Varunastra", "One Hand Sword", "Rusted Sword", "AbyssAddedLightningDamageWithClawsJewel1__", 19, "Varunastra"),
         })
         {
             using var b = new Battle("Spectral Throw", "Fireball", "Spellblade Support", "Shield Charge");

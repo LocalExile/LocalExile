@@ -283,7 +283,12 @@ The claw/dagger pairs are global Stats 6774-6777, 6786-6789, 6800-6803, 6812-681
 Their descriptions (2121-2122, 2131-2132, 2139-2140, 2147-2148, 2154-2155) restrict the additions to that hand's
 attacks. The dagger descriptions reference `ReminderTextDaggerRuneDagger` (ReminderText 157): Rune Daggers count
 as Daggers. `AbyssAdded*DamageWithClaws/DaggersJewel` has positive spawn weight for `abyss_jewel_melee` (234), the
-Murderous Eye Jewel tag. Native panel/hit parity and special weapon-identity overrides remain unverified.
+Murderous Eye Jewel tag. Native panel/hit parity remains unverified.
+
+Varunastra's `WeaponCountsAsAllOneHandedWeapons__1` (Mod 12753) supplies local Stat 4196. Its main/off-hand
+aliases are Stats 4197/4198 (client keys `0x1066/0x1067`); neither replaces the actual sword type. The same hand
+can receive both claw and dagger additions, once each. The native one-hand melee mask and restriction ordering
+are recorded in [hand selection](../re/projectiles/hand-selection.md); that evidence is stable-input RE, not gameplay.
 
 Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
 `minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).

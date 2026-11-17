@@ -1088,8 +1088,10 @@ public static partial class Game
     {
         var allowed = SkillsFor(conn).WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
-        int main = HandType(conn, PlayerInventories.Weapon1)?.ClassRow ?? UnarmedClassRow;
-        return allowed.Contains(main) || HandType(conn, PlayerInventories.Offhand1)?.ClassRow is int off && allowed.Contains(off)
+        bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
+            WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
+                hand is { } held && WeaponIdentity.AllOneHandMelee(ItemModStats.Local(held.Item, ItemsFor(conn).Mods)));
+        return Fits(ActiveMainHand(conn), UnarmedClassRow) || Fits(ActiveOffHand(conn), null)
             ? null : "the equipped weapon cannot use this skill";
     }
 

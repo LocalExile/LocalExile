@@ -2444,6 +2444,10 @@ passive or another item changes which weapons qualify. Because the client still 
 `GemDisabled` / `GemSkillInstanceDisabled` refuse it through `WeaponRestricted`: `SkillCatalog.WeaponRestrictions`
 (the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
 inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
+Varunastra's active local flag additionally admits a listed one-hand melee class, using the same Module identity
+predicate as flat attack additions and support table restrictions. The actual ItemClasses row and native weapon type
+stay unchanged; its aliases and source are described in [20](20-damage.md) §2b. Support resolution still selects the
+main hand; this does not implement the complete native selected-stat predicate or alternating-hand executor.
 
 The rest of `FUN_141eee810` (Frida 2026-11-01, `scripts/re/frida/trace-skill-usable.js` and
 `trace-skill-usable-stats.js`), with ebp the main and esi the off hand's type, every test reading the skill's stats:

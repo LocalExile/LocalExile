@@ -385,7 +385,7 @@ public static partial class Game
             || Has("multistrike_damage_+%_final_on_second_repeat"))) return null;
         bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
+        var window = Animations.SpellMoveWindow(ao, AnimationWeaponProfileFor(conn), CastAnimationKind.Projectile,
             start, duration / (1d + repeats), cannotCancelBeforeContact);
         return window is { } cast ? cast with
         {
@@ -412,7 +412,7 @@ public static partial class Game
         double seconds = LockstepAttackSeconds(conn, skill);
         if (skill != SkillCatalog.FirstSkillId) return AttackContactDelay(conn, seconds, approach: false);
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        return Animations.DefaultAttackCutInSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, seconds);
+        return Animations.DefaultAttackCutInSeconds(ao, AnimationWeaponProfileFor(conn), sequence, seconds);
     }
 
     // The walk-up is over: the swing began in the frame [start, end] (the order's own, or the step pass's goal frame), from
