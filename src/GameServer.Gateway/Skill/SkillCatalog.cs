@@ -331,7 +331,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>The ActionTypes Id of a basic action's skill id (HASH16 &amp; 0x3fff: Move 0x2909), or null.</summary>
-    public string? ActionName(ushort skillId) => _actions.Value.FirstOrDefault(a => a.Id == skillId).Name;
+    public string? ActionName(ushort skillId)
+    {
+        foreach (var action in _actions.Value)
+            if (action.Id == skillId) return action.Name;
+        return null;
+    }
 
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
@@ -933,6 +938,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// order; null for a clip with one or none.</summary>
         public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
 
+        /// <summary>The merged AO/rig clock was extracted completely. False for legacy data or an unsupported span;
+        /// true with null slow bounds means the clip has no slow span.</summary>
+        public bool ClockMetadataAvailable { get; init; }
+        public int? SlowBeginMs { get; init; }
+        public int? SlowEndMs { get; init; }
+        public double? BudgetSeconds { get; init; }
+
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
@@ -954,6 +966,44 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
     public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
         _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+
+    /// <summary>The ordinary melee clip clock from the variety's actual AO, independent of the legacy projectile
+    /// and boss contact corpus. Null when that separate metadata has not been extracted.</summary>
+    public MonsterClipContact? MeleeClock(string varietyId, ushort sequence)
+    {
+        if (!_monsterMeleeClocks.Value.TryGetValue(varietyId, out var pool) || pool.Length == 0) return null;
+        Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
+        weights.Fill(1);
+        return pool[AnimationVariantSelector.Select(sequence, weights)];
+    }
+
+    /// <summary>Load ordinary melee timing and action identity before gameplay starts, so the first swing does not
+    /// read and index the generated tables while holding the game's simulation lock.</summary>
+    public void WarmMonsterMeleeClocks()
+    {
+        _ = _monsterMeleeClocks.Value;
+        _ = _actions.Value;
+    }
+
+    private readonly Lazy<Dictionary<string, MonsterClipContact[]>> _monsterMeleeClocks = new(() =>
+    {
+        var result = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
+        if (ClientTables.TableOrNull("monster_melee_clocks") is not { } clocks
+            || ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
+        var byVariety = clocks.By("monster");
+        foreach (var variety in varieties)
+        {
+            var pool = byVariety[variety.Index].OrderBy(c => c.Int("ord"))
+                .Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"), c.Int("length"), c.IntOrNull("contact"), null)
+                {
+                    ClockMetadataAvailable = c.BoolOrNull("clock") == true,
+                    SlowBeginMs = c.IntOrNull("slow_begin"), SlowEndMs = c.IntOrNull("slow_end"),
+                    BudgetSeconds = c.RealOrNull("budget"),
+                }).ToArray();
+            if (pool.Length > 0) result[variety.Text("variety")!] = pool;
+        }
+        return result;
+    });
 
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
