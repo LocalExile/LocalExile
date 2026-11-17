@@ -492,6 +492,15 @@ character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of me
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
 
+**Kalandra's Touch** (`RingReflections`, Progression's equipment sum): a ring with `local_ring_duplicate_other_ring`
+("Reflects opposite Ring") in the left or right ring slot (rows 6/7) adds a copy of the other slot's ring to the
+active items, so every modifier of it (implicits, explicits, crafted, enchantments and anointments, corruption and
+influence implicits, at the other ring's quality) counts twice, requirements included. The copy keeps the other ring's
+corrupted and influence flags (Path of Building's CalcSetup counts the Touch as such an item). Nothing is reflected
+from another Kalandra's Touch, an empty or inactive slot, sockets or socketed gems, or in the third ring slot (row
+102, no opposite slot). The item and its tooltip are unchanged on the wire; whether the client draws the reflected
+lines itself is not checked.
+
 Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
 Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
 all-white Unset Ring socket are generated from the unique rows too; their link groups use the Jeweller's approximation.
