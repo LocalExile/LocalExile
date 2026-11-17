@@ -227,7 +227,9 @@ public static class AreaLayouts
     });
 
     /// <summary>When the client reports the area generated (0x7d): the walk map scripts/walkmaps saved meanwhile, if
-    /// any. Waits up to 2 s for the file.</summary>
+    /// any. Waits up to 2 s for the file while the recorder runs (<see cref="Recording"/>); without it nothing writes
+    /// the file, so it looks once and does not wait: the player is already past the loading screen, and the wait held
+    /// every arrival in an area without a walk map for 2 s (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitFor(AreaLayout layout, uint seed)
     {
         string bin = $"{Folder}/{layout.Id}_seed{seed}.bin";
@@ -238,23 +240,27 @@ public static class AreaLayouts
                 var better = For(layout.Hash, seed);
                 return better.Walkable is null ? null : better;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
     }
 
     /// <summary>When the client reports the area generated (0x7d) and the layout has no area transitions yet: the ones
-    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file.</summary>
+    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file while the recorder runs
+    /// (<see cref="Recording"/>); without it it looks once and does not wait. A hideout has no area transitions, so the
+    /// wait held every arrival in one for a second (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitForTransitions(AreaLayout layout, uint seed)
     {
         for (int i = 0; i < 10; i++)
         {
             if (AreaTransitionCatalog.Captured(layout.Id, seed))
             {
-                await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
+                if (Recording) await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
                 var better = For(layout.Hash, seed);
                 return better.AreaTransitions.Length > 0 || better.Waypoint is not null ? better : null;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
@@ -293,27 +299,31 @@ public static class AreaLayouts
     static Func<int, int, bool> Walkable(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 2;
 
-    static readonly (int Dx, int Dy)[] Neighbours = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
     static (int X, int Y) DeepestCell(byte[] cells, int w, int h)
     {
-        var dist = new int[w * h];
-        var q = new Queue<int>();
+        // Run for every connection to an area without a start point, a hideout's five million cells among them: plain
+        // arrays (a cell is queued once, when its distance is set) instead of a Queue, a tuple loop and LINQ per cell.
+        int n = w * h;
+        var dist = new int[n];
+        var queue = new int[n];
+        int head = 0, tail = 0;
         for (int i = 0; i < cells.Length; i++)
-            if (cells[i] < 2) { dist[i] = 0; q.Enqueue(i); } else dist[i] = int.MaxValue;
-        while (q.Count > 0)
+            if (cells[i] < 2) queue[tail++] = i; else dist[i] = int.MaxValue;
+        while (head < tail)
         {
-            int i = q.Dequeue(), x = i % w, y = i / w;
-            foreach (var (dx, dy) in Neighbours)
-            {
-                int nx = x + dx, ny = y + dy;
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                int j = ny * w + nx;
-                if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.Enqueue(j); }
-            }
+            int i = queue[head++], x = i % w, next = dist[i] + 1;
+            if (x + 1 < w && dist[i + 1] > next) { dist[i + 1] = next; queue[tail++] = i + 1; }
+            if (x > 0 && dist[i - 1] > next) { dist[i - 1] = next; queue[tail++] = i - 1; }
+            if (i + w < n && dist[i + w] > next) { dist[i + w] = next; queue[tail++] = i + w; }
+            if (i >= w && dist[i - w] > next) { dist[i - w] = next; queue[tail++] = i - w; }
         }
-        int best = Array.IndexOf(dist, dist.Where(d => d != int.MaxValue).Max());
+        // The first cell with the greatest distance; a grid without a blocked cell has none, as before.
+        int best = -1, deepest = -1;
+        for (int i = 0; i < n; i++)
+            if (dist[i] != int.MaxValue && dist[i] > deepest) { deepest = dist[i]; best = i; }
+        if (best < 0) throw new InvalidOperationException("Sequence contains no elements");
         return (best % w, best / w);
     }
 

@@ -198,7 +198,6 @@ public static partial class Game
                 // A support/source that no longer supplies the reservation cannot remain active.
                 conn.Auras.Remove(aura.SkillId);
                 EndReservationRuntimeLocked(conn, aura);
-                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
                 stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
                 changed = true;
                 continue;
@@ -234,7 +233,7 @@ public static partial class Game
         while (!ReservationBudgetFits(conn) && conn.Auras.Count > 0)
         {
             // Existing unchanged auras keep their admission. Of the reservations whose price just rose, the latest
-            // source loses admission first; its intent is cleared so the next reconcile cannot resurrect it. If the
+            // source loses admission first, keeping its saved intent for when it is affordable again. If the
             // percentage did not change, a pool/efficiency input made the whole active set unaffordable, so trim the
             // active set from its latest source in the same deterministic order.
             var overCapacity = changedAuras.Count > 0
@@ -245,7 +244,6 @@ public static partial class Game
             if (overCapacity.FirstOrDefault() is not { } aura) break;
             if (!conn.Auras.Remove(aura.SkillId)) break;
             EndReservationRuntimeLocked(conn, aura);
-            CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
             stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
             changed = true;
             // A trimmed aura may have supplied pool stats. Rebuild before the next capacity decision and make sure

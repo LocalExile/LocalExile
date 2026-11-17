@@ -89,13 +89,22 @@ public sealed class GolemTests
         var shielded = new GolemState.Golem(1, null!, flame, 1);
         var raw = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
             new Dictionary<uint, int>(), new(new Dictionary<string, int>()));
+        int nativeChaos = HitMitigation.Resistance(monsters, varietyFlame, 70, DamageType.Chaos).Value;
         var converted = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
             new Dictionary<uint, int>(), new(new Dictionary<string, int>
             {
-                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 100,
-                ["base_chaos_damage_resistance_%"] = 75
+                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
+                ["base_chaos_damage_resistance_%"] = 50 - nativeChaos
             }));
         Assert.False(raw.Fatal); Assert.True(raw.MaximumLife > 0);
+        var justBelow = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
+            new Dictionary<uint, int>(), new(new Dictionary<string, int>
+            {
+                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
+                ["base_chaos_damage_resistance_%"] = 49 - nativeChaos
+            }));
+        Assert.False(justBelow.Fatal); Assert.True(justBelow.MaximumLife > 0);
+        Assert.True(justBelow.MaximumEnergyShield > 0);
         Assert.True(converted.Fatal); Assert.Equal(0u, converted.MaximumLife);
         Assert.Equal(0, converted.MaximumEnergyShield);
         var pool = shielded.ShieldPool;

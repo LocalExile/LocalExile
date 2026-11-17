@@ -25,12 +25,33 @@ public static class ClientTables
     {
         if (Override.Value is { } tables) return tables.ContainsKey(table);
         if (!File.Exists(DefaultPath)) return false;
-        using var db = Open();
-        using var c = db.CreateCommand();
-        c.CommandText = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = $t";
-        c.Parameters.AddWithValue("$t", table);
-        return c.ExecuteScalar() is not null;
+        return Names().Contains(table);
     }
+
+    // The names of the tables in this version of client.db, read once. Has is asked before every optional table
+    // (TableOrNull, TableOrEmpty) and by rules that run for every arrival, and it opened the database for each answer:
+    // a connection and a parse of the whole schema every time (2026-11-17: 1 s of the first five area arrivals).
+    // The key counts the write-ahead log too: a table another server adds at its startup lands there first.
+    static HashSet<string> Names()
+    {
+        string wal = DefaultPath + "-wal";
+        var key = (DefaultPath, Written, File.Exists(wal) ? File.GetLastWriteTimeUtc(wal) : default, File.Exists(wal) ? new FileInfo(wal).Length : 0L);
+        lock (Tables)
+            if (names is { } kept && kept.Key == key) return kept.Names;
+        var read = Read(db =>
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            using var c = db.CreateCommand();
+            c.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table'";
+            using var r = c.ExecuteReader();
+            while (r.Read()) found.Add(r.GetString(0));
+            return found;
+        });
+        lock (Tables) names = (key, read);
+        return read;
+    }
+
+    static ((string Path, DateTime Written, DateTime WalWritten, long WalLength) Key, HashSet<string> Names)? names;
 
     /// <summary>The table's rows. Read from client.db once per version of the file and shared: a table read again within
     /// a few seconds of its last use (the catalogues load in bursts) is not read again.</summary>
@@ -48,8 +69,7 @@ public static class ClientTables
             }
         if (!Has(table))
             throw new FileNotFoundException($"the client table {table} is not in {DefaultPath} (the servers build it from sql/ at startup)", table);
-        ClientTable read;
-        using (var db = Open()) read = ClientTable.Read(db, table);
+        var read = Read(db => ClientTable.Read(db, table));
         lock (Tables)
         {
             Tables[table] = (read, written, DateTime.UtcNow);
@@ -86,10 +106,40 @@ public static class ClientTables
     static void Sweep()
     {
         lock (Tables)
-        {
             foreach (string name in Tables.Where(e => DateTime.UtcNow - e.Value.Used > Keep).Select(e => e.Key).ToList()) Tables.Remove(name);
-            if (Tables.Count == 0) { Sweeper?.Dispose(); Sweeper = null; }
+        bool closed;
+        lock (Reading)
+        {
+            if (shared is not null && DateTime.UtcNow - sharedUsed > Keep) { shared.Dispose(); shared = null; }
+            closed = shared is null;
         }
+        lock (Tables)
+            if (Tables.Count == 0 && closed) { Sweeper?.Dispose(); Sweeper = null; }
+    }
+
+    // One connection for a burst of reads. The catalogues read their tables one after another (a first login reads over
+    // a hundred), and a connection of its own for each parsed the whole schema again: 992 tables, 250 KB of SQL.
+    // It is closed once nothing has read for Keep, as the tables are forgotten, so the file is not held open between
+    // bursts; and it is opened again when the file's path or write time is not the one it was opened for.
+    static readonly object Reading = new();
+    static SqliteConnection? shared;
+    static (string Path, DateTime Written) sharedFor;
+    static DateTime sharedUsed;
+
+    static T Read<T>(Func<SqliteConnection, T> read)
+    {
+        T result;
+        lock (Reading)
+        {
+            var now = (DefaultPath, Written);
+            if (shared is not null && sharedFor != now) { shared.Dispose(); shared = null; }
+            if (shared is null) { shared = Open(); sharedFor = now; }
+            try { result = read(shared); }
+            catch { shared.Dispose(); shared = null; throw; }
+            sharedUsed = DateTime.UtcNow;
+        }
+        lock (Tables) Sweeper ??= new Timer(_ => Sweep(), null, Keep, Keep);
+        return result;
     }
 
     static SqliteConnection Open()

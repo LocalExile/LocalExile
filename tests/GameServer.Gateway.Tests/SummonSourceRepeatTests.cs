@@ -22,7 +22,7 @@ public sealed class SummonSourceRepeatTests
         await Game.SummonsTick("test", f.Stream, f.Ciphers, f.Conn, 0);
         var original = Assert.Single(f.Conn.Summons.Fighters).Value;
         Assert.Equal(ids[1], original.Source); Assert.Equal(20, original.GemLevel);
-        Game.SaveSummons(f.Conn);
+        SaveWithoutAreaLock(f.Conn, () => Game.SaveSummons(f.Conn));
         var durable = JsonSerializer.Deserialize<SummonedMinions.Saved[]>(CharacterSaves.Load(f.Conn.Character!)!.ModuleData!["Game.SummonedMinions"])!.Single();
         Assert.Equal((uint)1, durable.Host); Assert.Equal(1, durable.Socket);
         Assert.Equal(ids[1], Game.RestoredSummonSource(f.Conn, durable with { Source = ids[0] }));
@@ -48,6 +48,21 @@ public sealed class SummonSourceRepeatTests
         Assert.Equal(Math.Min(priorLife, replacement.Monster.MaxLife), replacement.Monster.Life);
     }
 
+    static void SaveWithoutAreaLock(ClientState conn, Action save)
+    {
+        var previous = Saves.FailWrite;
+        int writes = 0;
+        Saves.FailWrite = character =>
+        {
+            Assert.Equal(conn.Character, character);
+            Assert.False(Monitor.IsEntered(conn.Monsters));
+            writes++;
+            return false;
+        };
+        try { save(); Assert.True(writes > 0); }
+        finally { Saves.FailWrite = previous; }
+    }
+
     static async Task VerifyGolemSources()
     {
         using var f = new Fixture();
@@ -65,7 +80,7 @@ public sealed class SummonSourceRepeatTests
             await Game.GolemsTick("test", f.Stream, f.Ciphers, f.Conn, 0);
             var original = Assert.Single(f.Conn.Golems.All).Value;
             Assert.Equal(ids[1], original.Source); Assert.Equal(20, original.GemLevel);
-            Game.SaveGolems(f.Conn);
+            SaveWithoutAreaLock(f.Conn, () => Game.SaveGolems(f.Conn));
             var durable = JsonSerializer.Deserialize<GolemState.Saved[]>(CharacterSaves.Load(f.Conn.Character!)!.ModuleData!["Game.Golems"])!.Single();
             Assert.Equal((uint)1, durable.Host); Assert.Equal(1, durable.Socket);
             Assert.Equal(ids[1], Game.RestoredGolemSource(f.Conn, durable with { Skill = ids[0] }));
