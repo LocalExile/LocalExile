@@ -202,8 +202,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   memories, the Sanctum floors, the Deepwater biome grid; they come with each league's server side, see the
   [roadmap](../roadmap/world.md)), and 15 the client cannot generate at any seed tried (the
   list is written to data/areas-unavailable.txt). The port matches a load of every other row.
-  The extra terrain features a level rolled are exposed (`ServerLevels.Level.Features`, the generator's own list) for
-  modules that place league content.
   A tour of 3 random seeds per matching area: all 519 match. Every traced load at another seed of that tour (1215,
   `lg.ps1 loads`) matches in draws, grids, doodads, heights and transitions too, the last one (a shrine's ground,
   2_6_2) since 2026-10-29. A 5-seed tour of every supported area, stopped after 475 stops (101 areas): 469 match in
