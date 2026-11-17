@@ -770,6 +770,11 @@ public static partial class Game
                     // The equipment again (S→C 0x02bc), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
+                    // The area's population stays in this handler: run beside it, its monster creations and the frame
+                    // pass hold the combat lock long enough that a packet builder waiting for that lock while it holds
+                    // the send gate stalls every cast and walk echo (live 2026-11-17: two 400-500 ms freezes behind a
+                    // 596 ms empty send, and a 559 ms lock hold). The handler answers no input meanwhile only because the
+                    // client is still loading the area.
                     await PopulateArea(remote, stream, ciphers, conn);
                     // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
                     // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
