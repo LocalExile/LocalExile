@@ -290,6 +290,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int ActionGeneration;
     public int? SwingGeneration;
     public double SwingOrderedAt;
+    // A known ordinary melee clip's contact and recovery, measured before action speed. The generation prevents
+    // a later ailment update from retiming a canceled swing or a different action's busy period.
+    public (int Generation, ActionTimeClock Clock, double Contact, double Duration, double Tail)? MeleeClock;
     // The last melee order, or admitted lockstep AI Move/swing: one rising counter for the actor's orders.
     // The client picks a melee swing's clip by its action sequence.
     public ushort Sequence = 0x8000;
