@@ -1169,8 +1169,8 @@ item overrides remain open. No extracted-data changes are required.
 - **Eldritch Chaos and Eldritch Exalted Orbs** reroll or add to a rare's explicits as Chaos/Exalted do, only on an
   item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The **Eldritch Orb of Annulment** is an
   Annulment under the same condition.
-- **Orb of Unmaking**, used from the bag (C→S 0x58), refunds every allocated Atlas passive of all three presets and is
-  consumed; with nothing allocated it stays (`Game.UseOrbOfUnmaking`).
+- **Orb of Unmaking**, used from the bag (C→S 0x58), grants one Atlas passive respec point and is consumed
+  (CurrencyItems "Grants an atlas passive skill refund point"; [15](15-progression.md) §2).
 - **Orb of Binding** turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as
   Alchemy) with four linked sockets coloured from the base's requirements.
 - **Tainted currency** (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's Whetstone)

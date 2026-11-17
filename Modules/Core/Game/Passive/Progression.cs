@@ -73,7 +73,7 @@ public static partial class Game
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
             for (int i = 0; i < conn.AtlasPassives.Length; i++)
-                conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct()] : [];
+                conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct().Order()] : [];
             conn.AtlasPassivePoints = save?.AtlasPassivePoints ?? 0;
 
             // The Atlas layout picked on the map device is a character choice; fall back to the first starting node.
