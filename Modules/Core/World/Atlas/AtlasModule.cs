@@ -18,14 +18,19 @@ public sealed class AtlasModule : IModule
     /// sends the three presets again so the tree's counter follows (S→C 0x3d, the message a click in the tree gets).</summary>
     static async Task AwardMapPoints(ClientState conn, IPlayer player, int maps, string label)
     {
-        if (maps <= 0 || conn.AtlasPassivePoints >= MapCompletionPoints) return;
-        int before = conn.AtlasPassivePoints;
-        conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
-        if (CharacterName(conn) is { } character)
-            CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
-        await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
-        await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
-            $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
+        if (maps <= 0) return;
+        if (conn.AtlasPassivePoints < MapCompletionPoints)
+        {
+            int before = conn.AtlasPassivePoints;
+            conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+            await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
+            await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
+                $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
+        }
+        // Trees II and III unlock at 50 and 100 completed maps.
+        await AtlasFeature.SyncTreeFlags(conn);
     }
 
     /// <inheritdoc/>
@@ -77,6 +82,7 @@ public sealed class AtlasModule : IModule
         GameEvents.Command(module.Manifest.Id, "atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async (conn, args) =>
         {
             AtlasProgress.Reset(WorldOf(conn).CharacterData);
+            await AtlasFeature.SyncTreeFlags(conn);
             var slots = AtlasFeature.SlotsOf(PlayerOf(conn));
             await PlayerOf(conn).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
                 "0x01a3 /atlas_reset");
@@ -208,6 +214,7 @@ static class AtlasFeature
     internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
     {
         ApplyLeagueFlags(conn);
+        ApplyTreeFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
         var completed = AtlasProgress.Completed(data);
@@ -230,6 +237,46 @@ static class AtlasFeature
         if (pointsChanged)
             foreach (var message in global::Game.AtlasPresetMessages(conn, "after the map points"))
                 yield return message;
+    }
+
+    /// <summary>Completed maps needed for Atlas trees I, II and III. The client's text says "bonus Atlas objectives"; the
+    /// server has no bonus-objective count (S→C 0x1a3 carries only the completed-map masks), so completed maps stand in.</summary>
+    internal static readonly int[] TreeUnlockMaps = [0, 50, 100];
+
+    /// <summary>AtlasTrees' flag columns for trees II and III: Unlocked (329, 331) and Active (330, 332).</summary>
+    static readonly (int Unlocked, int Active)[] TreeFlags = [(0, 0), (329, 330), (331, 332)];
+
+    /// <summary>A tree is unlocked by the character's completed maps, or by holding nodes (an old save's nodes in a tree that
+    /// is now locked stay reachable).</summary>
+    internal static bool TreeUnlocked(ClientState conn, int tree) =>
+        tree == 0 || (tree < TreeUnlockMaps.Length && tree < conn.AtlasPassives.Length
+            && (conn.AtlasPassives[tree].Count > 0
+                || AtlasProgress.Completed(WorldOf(PlayerOf(conn)).CharacterData).Count >= TreeUnlockMaps[tree]));
+
+    /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
+    /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
+    /// shows the tree selector when more than one tree is unlocked and starts on the last tree with Unlocked and Active.</summary>
+    internal static bool ApplyTreeFlags(ClientState conn)
+    {
+        bool changed = false;
+        int active = AtlasActivePreset(conn);
+        for (int tree = 1; tree < TreeFlags.Length; tree++)
+        {
+            bool unlocked = TreeUnlocked(conn, tree);
+            changed |= unlocked ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Unlocked) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Unlocked);
+            bool on = unlocked && active == tree;
+            changed |= on ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Active) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Active);
+        }
+        return changed;
+    }
+
+    /// <summary>Re-evaluates the tree flags and sends the league flags again (S→C 0x2bc) when they changed.</summary>
+    internal static async Task SyncTreeFlags(ClientState conn)
+    {
+        if (!ApplyTreeFlags(conn) || !conn.PlayerSent) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)), "0x02bc Atlas tree flags");
     }
 
     static bool ApplyLeagueFlags(ClientState conn)
@@ -272,7 +319,14 @@ static class AtlasFeature
             await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab refused");
             return;
         }
+        if (!TreeUnlocked(conn, preset))
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: locked (needs {TreeUnlockMaps[preset]} completed maps)");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab locked");
+            return;
+        }
         SetAtlasActivePreset(conn, preset);
+        await SyncTreeFlags(conn);
         await Send(remote, stream, ciphers, AtlasSlots(conn, preset),
             $"0x003d Atlas tree tab: preset {preset} active, {conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points");
     }

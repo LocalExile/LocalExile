@@ -101,8 +101,17 @@ yet confirmed on screen).
     use that form.
 - **C→S 0x2a8** (3 bytes, u8): a tab of the Atlas tree picked (`0x1407cacf0`, also `0x1407c7500`). The byte is the
   tab's AtlasTrees row (the tabs are built from AtlasTrees.dat's rows, `0x1407c6520`), taken as the preset. The server
-  saves it and answers with that preset's 0x3d alone. Tabs II and III ("Unlocked at 50/100 bonus Atlas objectives")
-  are not locked here.
+  saves it and answers with that preset's 0x3d alone, unless the tree is locked (the server refuses it).
+  - **Unlocking** is by league quest flags, not by a message: AtlasTrees has two flag columns (row +0x10 Unlocked, +0x14
+    Active). Tree I has none (always unlocked); tree II is 329 `AtlasPassiveAllocationSet1Unlocked` / 330
+    `...Set1Active`, tree III 331 `...Set2Unlocked` / 332 `...Set2Active`. The client tests bit (id - 1) of the
+    Player's league flag set (the unlock test `0x1407c7c90`, like `UnlockedMapDevice` 350) and builds the tree selector
+    (`0x1407c6520`) only when more than one tree is unlocked; a 0x2bc league-flag update shows it at once. The selector
+    starts on the last tree whose Unlocked and Active flags are both set (`0x1407c7370`, `0x1407ca980`), so the Active
+    flags must mirror the active preset. The real rule is "Unlocked at 50 / 100 bonus Atlas objectives"
+    (AtlasTrees.UnlockObjective); the server has no bonus-objective count and uses the completed-map count (50 and 100)
+    per character, a tree holding nodes counting as unlocked so an old save keeps its tree. The flags live on the
+    connection (re-sent with 0x2bc when they change), never in the account's saved league flags.
 - **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the "gold
   respec" flag of 0x36). A refund spends one respec point (none for a stale node: icon-only, off the graph or cut off from the start); an Orb of Unmaking grants one (the Atlas Book of Skill's two
   are not modelled). **C→S 0x40** (the Atlas "Refund All", from 0x37's senders) and **0x41** (0x38's, the widget

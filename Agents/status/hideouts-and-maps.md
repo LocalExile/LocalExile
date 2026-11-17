@@ -40,7 +40,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   as they are. The active preset is saved (module data `atlas.active`), picked with a tab (C→S 0x2a8) and sent last
   so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
   spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
-  ([15](../docs/protocol/15-progression.md) §2; not yet tried live). A map's area stats take the active preset's
+  ([15](../docs/protocol/15-progression.md) §2; not yet tried live). Trees II and III unlock at 50 and 100 completed
+  maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
   Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
