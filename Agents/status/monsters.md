@@ -155,6 +155,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
   the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
   `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
+  The client's side of Sirus - his action classes, the geometry rows that pick his art and the shapes his
+  skills hit - is reverse engineered in [game/sirus](../docs/game/sirus/README.md).
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
