@@ -60,6 +60,8 @@ public static partial class Game
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+        if (a.Effect is int effect && SkillsFor(conn).EffectId(effect) is { } effectId && effectId.Contains("TornadoShot", StringComparison.Ordinal))
+            profile = MonsterTornadoShot(profile, (aim - origin).Length, SkillsFor(conn).EffectStats(effect, m.Level));
         if (nativeTargets is not null)
             profile = profile with { ContactCells = SkillsFor(conn).ProjectileContactCells(projectile.Metadata) };
         var owner = session.ActorKey(id, m);
@@ -93,6 +95,33 @@ public static partial class Game
             ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         HideVisual = projectile.Variation > 0,
     };
+
+    /// <summary>A monster's Tornado Shot (ExileTornadoShot): each arrow pierces to the aimed cell and bursts there into
+    /// tornado_shot_num_of_secondary_projectiles secondary arrows around it, as the player's does
+    /// (GatewayProjectileSkillProfiles.TornadoShotChildren). A monster's action draws none of its arrows, so these are
+    /// the server's objects: before, its two arrows flew on past the aim and never split.</summary>
+    static ProjectileProfile MonsterTornadoShot(ProjectileProfile arrow, double toAim, IReadOnlyList<(uint, int)> stats)
+    {
+        int secondary = Stats.Key("tornado_shot_num_of_secondary_projectiles") is uint key
+            && stats.FirstOrDefault(s => s.Item1 == key).Item2 is > 0 and var n ? Math.Min(n, 16) : 3;
+        var child = arrow with
+        {
+            Id = "Metadata/Projectiles/TornadoShotSecondaryArrow",
+            Count = secondary,
+            SpreadRadians = 0,
+            // The client's secondary action ends its flight after 300 ms (GatewayProjectileSkillProfiles).
+            Range = arrow.Speed * .3,
+            Lifetime = ProjectileRuntime.Time(.3),
+            Pierce = 0,
+            EndEmission = null,
+        };
+        return arrow with
+        {
+            Range = Math.Max(1, toAim),
+            Pierce = -1,
+            EndEmission = new(child, Radial: true, RandomDirections: true),
+        };
+    }
 
     /// <summary>A server-created projectile object plays nothing by itself. Start the rig's flight clip at spawn even
     /// when the .ao declares the same default animation: the explicit 0x1b2 is what guarantees the server object is
