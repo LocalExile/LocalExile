@@ -418,11 +418,11 @@ public class ArrowRainAndMirageTests
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Different_weapon_mastery_reaches_shared_damage();
-        Righteous_fire_uses_outgoing_increases();
+        Righteous_fire_uses_player_damage_modifiers();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
     }
 
-    static void Righteous_fire_uses_outgoing_increases()
+    static void Righteous_fire_uses_player_damage_modifiers()
     {
         static uint Key(string name) => Program.Stats.Key(name)!.Value;
         using var b = new Battle("Righteous Fire");
@@ -470,6 +470,78 @@ public class ArrowRainAndMirageTests
         Assert.True(c.Pools.EnergyShield > 0);
         c.PlayerLife = Math.Max(2, c.PlayerLife / 2);
         Burn(ringDamage); // Current Life is not the base of the burn.
+
+        var wandType = Program.Items.Find("Driftwood Wand")!;
+        var plainWand = ItemCatalog.Create(wandType) with { ItemLevel = 86, Rarity = ItemRarity.Rare };
+        var suffix = Program.Items.Mods.ById("GlobalDamageOverTimeMultiplier1h1")!;
+        Assert.Contains(new ItemRolls(Program.Items).Pool(wandType, plainWand), p => p.Mod.Id == suffix.Id);
+        var suffixRoll = suffix.Roll(ModSection.Explicit, new Random(17));
+        int wandMultiplier = suffixRoll.Values[0];
+        Assert.InRange(wandMultiplier, 7, 11);
+        items.Add(PlayerInventories.Weapon1, 0, 0, plainWand with { Mods = [suffixRoll] });
+        Assert.Equal(wandMultiplier, Game.CharacterPlayerStats(c)[Key("dot_multiplier_+")]);
+        Burn(ringDamage, factor: (100 + wandMultiplier) / 100d);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+
+        var uniques = new UniqueCatalog(Program.Items);
+        var blade = uniques.Create("Fleshrender", new Random(17))!;
+        int genericMultiplier = blade.Mods.Single(m => Program.Items.Mods.ByHash(m.Hash)!.Id
+            == "GlobalDamageOverTimeMultiplierUnique__1").Values[0];
+        Assert.InRange(genericMultiplier, 20, 40);
+        items.Add(PlayerInventories.Weapon1, 0, 0, blade);
+        Assert.Equal(genericMultiplier, Game.CharacterPlayerStats(c)[Key("dot_multiplier_+")]);
+        Burn(ringDamage, factor: (100 + genericMultiplier) / 100d);
+
+        var blackflame = uniques.Create("Blackflame", new Random(17))!;
+        int fireMultiplier = blackflame.Mods.Single(m => Program.Items.Mods.ByHash(m.Hash)!.Id
+            == "FireDamageOverTimeMultiplierUnique__3").Values[0];
+        Assert.InRange(fireMultiplier, 8, 12);
+        items.Add(7, 0, 0, blackflame);
+        Assert.Equal(fireMultiplier, Game.CharacterPlayerStats(c)[Key("fire_dot_multiplier_+")]);
+        double both = (100 + genericMultiplier + fireMultiplier) / 100d;
+        Burn(ringDamage, factor: both); // Multipliers add to each other, separately from the ring's increase.
+        c.PlayerStats[Key("fire_damage_+%")] = 30;
+        Burn(ringDamage + 30, factor: both);
+        c.PlayerStats.Remove(Key("fire_damage_+%"));
+        foreach (string stat in new[] { "ignite_dot_multiplier_+", "ailment_dot_multiplier_+",
+            "critical_ailment_dot_multiplier_+", "critical_ignite_dot_multiplier_+", "physical_dot_multiplier_+",
+            "chaos_dot_multiplier_+", "cold_dot_multiplier_+" })
+            c.PlayerStats[Key(stat)] = 500;
+        Burn(ringDamage, factor: both);
+        c.PlayerStats[Key("dot_multiplier_+")] = 7;
+        Burn(ringDamage, factor: (100 + 7 + fireMultiplier) / 100d); // Explicit final override replaces the item input.
+        c.PlayerStats[Key("dot_multiplier_+")] = -150;
+        Burn(ringDamage, factor: 0);
+        c.PlayerStats.Remove(Key("dot_multiplier_+"));
+        c.PlayerStats[Key("fire_dot_multiplier_+")] = -10;
+        Burn(ringDamage, factor: (100 + genericMultiplier - 10) / 100d);
+        c.PlayerStats.Remove(Key("fire_dot_multiplier_+"));
+
+        // Current equipment, including a real weapon-set swap, refreshes the live RF tick.
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 0;
+        Assert.Equal(0, Game.CharacterPlayerStats(c).GetValueOrDefault(Key("dot_multiplier_+")));
+        Burn(ringDamage, factor: (100 + fireMultiplier) / 100d);
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 1000;
+        Burn(ringDamage, factor: both);
+        items.SwapWeaponSets();
+        Burn(ringDamage, factor: (100 + fireMultiplier) / 100d);
+        items.SwapWeaponSets();
+        Burn(ringDamage, factor: both);
+        c.PlayerStats[Key("base_deal_no_fire_damage")] = 1;
+        Burn(ringDamage, factor: 0);
+        c.PlayerStats.Remove(Key("base_deal_no_fire_damage"));
+        c.PlayerStats[Key("delirium_aura_damage_over_time_+%_final")] = 30;
+        Burn(ringDamage, factor: both * 1.3);
+        c.PlayerStats.Remove(Key("delirium_aura_damage_over_time_+%_final"));
+        b.Enemy.Mods = MonsterModSet.None with
+            { Effects = new(new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = 50 }) };
+        Burn(ringDamage, factor: both * .5); // Blackflame's ignite-only chaos rule does not change RF's damage type.
+        Assert.False(b.Enemy.Ignites.Burning);
+        b.Enemy.Mods = MonsterModSet.None;
+        items.Remove(7, Assert.Single(items.Items(7)).Id);
+        Burn(ringDamage, factor: (100 + genericMultiplier) / 100d);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        Burn(ringDamage);
 
         // The same generic bucket includes the real different-weapon mastery, once and additively with the ring.
         items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Nailed Fist")!));

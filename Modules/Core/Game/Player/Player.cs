@@ -1014,6 +1014,8 @@ public static partial class Game
             + Get("damage_over_time_+%") + Get("fire_damage_over_time_+%") + Get("burn_damage_+%")
             + Get("area_damage_+%") + Get("righteous_fire_damage_+%");
         perSecond = perSecond * Math.Max(0, 100 + increased) / 100;
+        double dotMultiplier = (double)Get("dot_multiplier_+") + Get("fire_dot_multiplier_+");
+        perSecond = perSecond * Math.Max(0, 100 + dotMultiplier) / 100;
         if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
             perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
         perSecond *= ChargeDamageMore(playerStats);

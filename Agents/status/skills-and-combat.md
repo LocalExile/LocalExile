@@ -64,7 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Righteous Fire: enemy burn takes player increases (server-tested). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Righteous Fire: enemy-burn increases and DoT multipliers (server-tested). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
