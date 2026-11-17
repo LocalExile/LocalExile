@@ -13,19 +13,15 @@ public sealed class GenerosityAuraPresentationTests
     [Fact]
     public void Generosity_aura_keeps_both_records_and_hides_only_the_received_icon()
     {
-        var packets = Game.AuraBuffs(Aura(false)).ToArray();
-        Assert.Equal(2, packets.Length);
-        Assert.Equal(0x21, packets[0][22] & 0x21); // source: bit0 art, bit5 display state
-        Assert.Equal(0x28, packets[1][22] & 0x28); // received: bit3 active skill, bit5 display state
-    }
+        var generosity = Game.AuraBuffs(Aura(false)).ToArray();
+        Assert.Equal(2, generosity.Length);
+        Assert.Equal(0x21, generosity[0][22] & 0x21); // source: bit0 art, bit5 display state
+        Assert.Equal(0x28, generosity[1][22] & 0x28); // received: bit3 active skill, bit5 display state
 
-    [Fact]
-    public void Ordinary_aura_keeps_its_default_display_state()
-    {
-        var packets = Game.AuraBuffs(Aura(true)).ToArray();
-        Assert.Equal(2, packets.Length);
-        Assert.Equal(0x00, packets[0][22] & 0x08); // source still has no active-skill association
-        Assert.Equal(0x08, packets[1][22] & 0x28); // received keeps bit3, no bit5 override
+        var ordinary = Game.AuraBuffs(Aura(true)).ToArray();
+        Assert.Equal(2, ordinary.Length);
+        Assert.Equal(0x00, ordinary[0][22] & 0x08); // source still has no active-skill association
+        Assert.Equal(0x08, ordinary[1][22] & 0x28); // received keeps bit3, no bit5 override
     }
 
     [Fact]
