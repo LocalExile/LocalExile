@@ -600,8 +600,10 @@ public static partial class Game
             }
             else if (value.Kind == ProjectileEventKind.Area)
             {
-                Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
-                    + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
+                // Every area event of every projectile skill comes here, under the instance's lock: trace only.
+                if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
+                    Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
+                        + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
                 if (p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
                     Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
             }
