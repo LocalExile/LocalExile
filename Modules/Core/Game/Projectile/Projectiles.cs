@@ -651,8 +651,11 @@ public static partial class Game
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
-            float rotation = 0)
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null)
         {
+            // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
+            // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
+            if (startClip is uint first) (animatedFlags, animatedId) = ((byte)(animatedFlags | 9), first);
             uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
             // MiscAnimated has no row for it (a GroundEffects piece).
@@ -674,6 +677,9 @@ public static partial class Game
                 visual.Created = true;
                 return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             }, wake: true);
+            if (thenClip is { } next && next.After < lifetime)
+                Runtime.Schedule(Runtime.Now + next.After, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                    ? [InstanceProtocol.AnimationUpdate(id, 0, next.Clip, 1)] : null));
             // endClip: a clip the art plays when its time is up (a ground's fade-out); the object goes after it.
             if (endClip is { } ending)
                 Runtime.Schedule(Runtime.Now + lifetime, () => WorldRecords(id, () => visual.Created && !visual.Ended

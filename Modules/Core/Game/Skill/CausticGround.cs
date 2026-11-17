@@ -40,9 +40,18 @@ public static partial class Game
         // Caustic Arrow's own caustic ground: GroundEffects' CausticCloud variation 2 (five pieces of 120 world units).
         // A worn skill effect names another through ground_caustic_art_variation (Celestial 7, Oblivion 13).
         const int CausticArrowGroundVariation = 2;
-        // The row's end effect is the art's "fadeout" clip. Its index is a guess: the rigs in projectile_clips number
-        // their clips by name, which puts "fadeout" before "loop". The 0.6 s it is given is a guess too.
-        const uint CausticFadeoutClip = 0;
+        /// <summary>The clips of a ground piece: the one it appears with and its length, its loop and the row's end
+        /// effect with its length, as indices in the piece's rig (.amd, read from the client 2026-11-17).
+        /// caustic_arrow_ground/rig.amd: fadein 0 (0.366 s), fadeout 1 (1.5 s), loop 2; the Celestial ground's rig is the
+        /// same size. poison_arrow/rig.amd (Tentacles): cloudbegone 0 (2.083 s), cloudemerge 1 (0.833 s), cloudstuff 2.
+        /// Null for a rig not read yet: its piece is drawn as it is made and removed at the end.</summary>
+        static (uint Start, double StartSeconds, uint Loop, uint End, double EndSeconds)? GroundClips(string ao) =>
+            ao.Contains("/caustic_arrow_ground/", StringComparison.OrdinalIgnoreCase)
+                || ao.Contains("/caustic_arrow/celestial/celestial_caustic_ground_", StringComparison.OrdinalIgnoreCase)
+                ? (0u, .366, 2u, 1u, 1.5)
+            : ao.EndsWith("/Microtransactions/Spells/poison_arrow/rig.ao", StringComparison.OrdinalIgnoreCase)
+                ? (1u, .833, 2u, 0u, 2.083)
+            : null;
 
         readonly ConditionalWeakTable<SpawnedMonster, CausticCover> causticCover = new();
 
@@ -112,9 +121,15 @@ public static partial class Game
                 var order = art.Pieces.OrderBy(_ => Random.Shared.Next()).ToArray();
                 int next = 0;
                 foreach (var (offset, size, turn) in GroundPieces(radius, art.PieceRadius * (23d / 250), Random.Shared))
-                    Effect((int)Math.Round(centre.X + offset.X), (int)Math.Round(centre.Y + offset.Y), order[next++ % order.Length],
-                        ProjectileRuntime.Time(duration), size, artRadius: art.PieceRadius,
-                        endClip: (CausticFadeoutClip, ProjectileRuntime.Time(.6)), rotation: turn);
+                {
+                    string ao = order[next++ % order.Length];
+                    var clips = GroundClips(ao);
+                    Effect((int)Math.Round(centre.X + offset.X), (int)Math.Round(centre.Y + offset.Y), ao,
+                        ProjectileRuntime.Time(duration), size, artRadius: art.PieceRadius, rotation: turn,
+                        startClip: clips?.Start,
+                        thenClip: clips is { } c ? (c.Loop, ProjectileRuntime.Time(c.StartSeconds)) : null,
+                        endClip: clips is { } e ? (e.End, ProjectileRuntime.Time(e.EndSeconds)) : null);
+                }
             }
             long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
             void Tick()

@@ -68,14 +68,22 @@ public static partial class Game
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
         double dps = toxic && !damageContext.Suppressed
             ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
+        // The falling arrow's art is one clip (index 0: spore_drop.ao and blast_rain's arrow_drop.ao "animate",
+        // rain_of_arrows/rig.ao "rainofarrows", which has no default animation) that reaches the ground part-way in:
+        // its impact particles at 0.224 s and 0.218 s, Blast Rain's "contact" at 0.333 s. So it starts that long before
+        // the arrow lands.
+        double fall = toxic ? .224 : blast ? .333 : .218;
         for (int i = 0; i < landings.Count; i++)
         {
             var at = landings[i];
             long land = session.Runtime.Now + ProjectileRuntime.Time(.35 + i * spacing);
+            session.Runtime.Schedule(land - ProjectileRuntime.Time(fall), () =>
+            {
+                if (session.Active && conn.PlayerLife != 0) session.RainArt(at, down, 1, rotation: Facing(at - use.Origin), clip: 0);
+            });
             session.Runtime.Schedule(land, () =>
             {
                 if (!session.Active || conn.PlayerLife == 0) return;
-                session.RainArt(at, down, 1, rotation: Facing(at - use.Origin));
                 session.Runtime.Impact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
@@ -83,8 +91,11 @@ public static partial class Game
                     // Each pod and its roots face their own way.
                     float turn = (float)(Random.Shared.NextDouble() * Math.Tau);
                     session.RainArt(at, ArtOf("toxic_rain_place"), duration, rotation: turn);
-                    // The pod is its own object type (rain_of_spores/BloomPod); only its model is drawn here.
-                    session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration, rotation: turn);
+                    // The pod is its own object type (rain_of_spores/BloomPod); only its model is drawn here, with the
+                    // clips BloomPod.ot plays: 1 (grow_slow_01) when it is made and one of 2-4 (grow_slow_explode_01-03,
+                    // 0.966 s) when it bursts. Every skin's pod extends that type, so the indices hold for all.
+                    session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration,
+                        rotation: turn, clip: 1, endClip: ((uint)Random.Shared.Next(2, 5), .966));
                     session.PlaceToxicPod(use, at, radius, duration, dps,
                         -Get("rain_of_spores_vines_movement_speed_+%_final"), -Get("minimum_rain_of_spores_movement_speed_+%_final_cap"), ArtOf("toxic_rain_explode"));
                 }
