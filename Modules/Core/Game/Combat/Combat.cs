@@ -833,6 +833,11 @@ public static partial class Game
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
             return false;
         }
+        if (gem.Name is not null && SelfBuffRefused(conn, gem.Effect) is { } refused)
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
+            return false;
+        }
         bool vaalCast = gem.Name is not null && SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not null;
         if (vaalCast && (vaalUse = ExecuteVaalUse(conn, skillId, gem.Effect)) is null)
         {
@@ -1018,6 +1023,7 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else

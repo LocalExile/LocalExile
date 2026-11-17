@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class WeaponProjectileGemTests
+public sealed class SkillQuickWinsTests
 {
     // A bow/wand attack gem with no projectile row of its own fires the held weapon's (its own art by weapon where the
     // data has it); a Barrage volley still has no recipe and stays refused before its cost.
@@ -26,6 +26,25 @@ public sealed class WeaponProjectileGemTests
             Assert.Null(Game.ResolveProjectileDefinition(barrage.Effect));
             Assert.False(Game.ProjectilePathAvailable("weapon-test", f.Conn, barrage.Id, barrage.Effect));
         }
+    }
+
+    // A hand-cast Steelskin starts the guard buff through the triggered-guard code: 70% of each hit absorbed up to its
+    // limit, 1.5 s, and its 3 s cooldown counted from the buff's end, refused before its cost until then.
+    [Fact]
+    public async Task Manual_steelskin_absorbs_and_recovers_after_its_buff()
+    {
+        using var f = new Fixture("Rusted Sword", "SkillGemSteelskin");
+        var steelskin = f.Gem("QuickGuard");
+        double now = f.Conn.Clock.Elapsed.TotalSeconds;
+        Assert.Null(Game.SelfBuffRefused(f.Conn, steelskin.Effect));
+        Assert.True(await Game.CastSelfBuff("guard-test", f.Stream, f.Ciphers, f.Conn, steelskin.Id, steelskin.Effect));
+        Assert.NotNull(Game.SelfBuffRefused(f.Conn, steelskin.Effect));
+        // The cast reads the game clock a little after now: the times below leave it half a second.
+        Assert.Equal((6, 3, 3), Game.TriggeredGuardHit(f.Conn, 20, 10, 10, now + .1));
+        Assert.Equal((3, 0, 0), Game.TriggeredGuardHit(f.Conn, 10, 0, 0, now + 1.4));
+        Assert.Equal((50, 0, 0), Game.TriggeredGuardHit(f.Conn, 50, 0, 0, now + 2.5));
+        Assert.False(Game.TriggerGuardReady(f.Conn, now + 4.4));
+        Assert.True(Game.TriggerGuardReady(f.Conn, now + 5.5));
     }
 
     sealed class Fixture : IDisposable

@@ -17,8 +17,8 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     static readonly RuleTable<ClientState, TriggeredGuard> TriggeredGuards = new();
-    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
-        is "QuickGuard" or "ImmortalCall" or "MoltenShell";
+    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
+    static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell";
 
     static TriggeredGuard? CurrentTriggeredGuard(ClientState conn, double now)
     {
