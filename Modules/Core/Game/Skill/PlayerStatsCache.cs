@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 // 0x25) it was built several times over with the same inputs (live 2026-11-05: up to 1.3 s per message in the Upper
 // Sceptre of God, the input queue 16 s behind, and the move echoes put the player back where they had been). Inside such a
 // message's scope (PlayerStatsScope) a snapshot is reused while its inputs are the same: the pools, the buffs added, life,
-// mana, the auras, moving and the /set_stat overrides, for at most Lifetime (a task the message started outlives it).
+// the mana's conditions (ManaState), the auras, moving and the /set_stat overrides, for at most Lifetime (a task the message started outlives it).
 // Everything else (equipment, item and passive messages, ticks) builds its own.
 public static partial class Game
 {
@@ -41,12 +41,22 @@ public static partial class Game
         lock (conn.Monsters) overrides = conn.PlayerStats.Count;
         return new()
         {
-            At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
+            At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = ManaState(conn),
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
             Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
         };
+    }
+
+    // The snapshot reads the current mana only as its conditions (ItemConditionFlags: full, half or less) and empty;
+    // the amount itself was the key, so every point of regeneration after a cast missed the cache and each of its
+    // readers (charges, recovery, the pose, crit context) built the whole snapshot again under the lock until the pool
+    // was full (CPU sample 2026-11-18: 5.5k of 52k samples in a Fireball fight, second only to the monster AI).
+    static long ManaState(ClientState conn)
+    {
+        long mana = conn.PlayerMana, pool = conn.Pools.Mana;
+        return (mana >= pool ? 1 : 0) | (mana * 2 <= pool ? 2 : 0) | (mana == 0 ? 4 : 0);
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
@@ -76,7 +86,7 @@ public static partial class Game
     // A live connection (its player update loops run) rebuilds its snapshot at most once a frame of 60 Hz while the inputs
     // above are the same: a fight asked for 157 full builds a second (live 2026-11-05, 56% of a core), most of them for the
     // same state. Anything slower than a frame (regeneration, Rage decay, Fortification expiry, "recently" windows) is at
-    // most that late; a change of the pools, a buff added, life, mana, the auras, moving or an override rebuilds at once.
+    // most that late; a change of the pools, a buff added, life, a mana condition, the auras, moving or an override rebuilds at once.
     // Off a live connection (tests, the build scopes) every read builds.
     const double PlayerStatsFrame = 1.0 / 60;
     sealed class ThrottledStats { public PlayerStatsEntry? Entry; }

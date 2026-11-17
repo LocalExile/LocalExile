@@ -1861,7 +1861,9 @@ public static partial class Game
                     leveled = true;
                     Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} levels to {ItemsFor(conn).GemLevel(after)}");
                 }
-                else
+                // A plain gain is logged only with the projectile trace: three lines a kill per gem were written under the
+                // Monsters lock for every monster an explosion killed.
+                else if (GameServer.Core.Diagnostics.ServerTrace.Projectiles)
                     Console.WriteLine($"[gateway] {CharacterName(conn)}'s {ItemsFor(conn).GemName(after)} gains experience " +
                         $"+{after.GemExperience - before.GemExperience} ({after.GemExperience}, level {ItemsFor(conn).GemLevel(after)})");
             }

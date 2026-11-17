@@ -204,9 +204,12 @@ public static partial class Game
         + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now) =>
-        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now),
-            IgnitedLog(id, target, critical, now));
+        MonsterIgnites.Settings settings, bool critical, double now)
+    {
+        // The log is built only for a hit that ignited: formatting it for every hit of an explosion was its own cost.
+        if (IgniteOnHitLocked(session.Conn, id, target, settings, critical, now) is { Count: > 0 } packets)
+            QueueDotBuff(session, packets, IgnitedLog(id, target, critical, now));
+    }
 
     // Queues a projectile hit's ignited or bleeding buff packets on its session, the log on the last.
     static void QueueDotBuff(ProjectileSession session, List<byte[]>? packets, string log)
