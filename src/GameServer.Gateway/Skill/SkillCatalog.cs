@@ -331,7 +331,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>The ActionTypes Id of a basic action's skill id (HASH16 &amp; 0x3fff: Move 0x2909), or null.</summary>
-    public string? ActionName(ushort skillId) => _actions.Value.FirstOrDefault(a => a.Id == skillId).Name;
+    public string? ActionName(ushort skillId)
+    {
+        foreach (var action in _actions.Value)
+            if (action.Id == skillId) return action.Name;
+        return null;
+    }
 
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
@@ -646,6 +651,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
 
+        /// <summary>Reads the three tables now; each set is still worked out on its first use.</summary>
+        public void Warm() => _ = _rows.Value;
+
         // Any named type a caller asks for (Trap, Mine, Totem, ...): resolved once and reused, like the fixed sets.
         readonly Dictionary<string, Lazy<HashSet<int>>> _byId = new(StringComparer.Ordinal);
 
@@ -868,8 +876,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     });
 
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
-    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
+    /// first "contact" in ms (its length without one), by which the client times a spell mortar's landing.</summary>
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null)
+    {
+        /// <summary>The flight's candidate clips (a group, several names) land at different contacts.</summary>
+        public bool Varies { get; init; }
+    }
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
     /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
@@ -887,7 +900,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             ProjectileClip? Clip(string key) =>
                 r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
-                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact"))
+                        { Varies = r.BoolOrNull(key + "_varies") ?? false } : null;
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
@@ -923,6 +937,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
     {
+        /// <summary>Every contact of a clip with several (monster_contact_clip_frames: the Iguana's five spines), in time
+        /// order; null for a clip with one or none.</summary>
+        public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
+
+        /// <summary>The merged AO/rig clock was extracted completely. False for legacy data or an unsupported span;
+        /// true with null slow bounds means the clip has no slow span.</summary>
+        public bool ClockMetadataAvailable { get; init; }
+        public int? SlowBeginMs { get; init; }
+        public int? SlowEndMs { get; init; }
+        public double? BudgetSeconds { get; init; }
+
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
@@ -941,18 +966,75 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return pool[AnimationVariantSelector.Select(sequence, weights)];
     }
 
+    /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
+    public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
+        _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+
+    /// <summary>The ordinary melee clip clock from the variety's actual AO, independent of the legacy projectile
+    /// and boss contact corpus. Null when that separate metadata has not been extracted.</summary>
+    public MonsterClipContact? MeleeClock(string varietyId, ushort sequence)
+    {
+        if (!_monsterMeleeClocks.Value.TryGetValue(varietyId, out var pool) || pool.Length == 0) return null;
+        Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
+        weights.Fill(1);
+        return pool[AnimationVariantSelector.Select(sequence, weights)];
+    }
+
+    /// <summary>Load ordinary melee timing and action identity before gameplay starts, so the first swing does not
+    /// read and index the generated tables while holding the game's simulation lock.</summary>
+    public void WarmMonsterMeleeClocks()
+    {
+        _ = _monsterMeleeClocks.Value;
+        _ = _actions.Value;
+    }
+
+    /// <summary>Builds, at startup, what the first arrival in an area reads of the skills: the monsters' contacts,
+    /// summons and projectiles and the skill types' rows, with the melee clocks. They are built on first use otherwise,
+    /// which was inside the first player's arrival, while the monsters were being placed (2026-11-17: about 0.5 s).</summary>
+    public void Warm()
+    {
+        WarmMonsterMeleeClocks();
+        _ = _monsterContacts.Value; _ = _summonedMonsters.Value; _ = _monsterProjectiles.Value;
+        _skillTypes.Warm();
+    }
+
+    private readonly Lazy<Dictionary<string, MonsterClipContact[]>> _monsterMeleeClocks = new(() =>
+    {
+        var result = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
+        if (ClientTables.TableOrNull("monster_melee_clocks") is not { } clocks
+            || ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
+        var byVariety = clocks.By("monster");
+        foreach (var variety in varieties)
+        {
+            var pool = byVariety[variety.Index].OrderBy(c => c.Int("ord"))
+                .Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"), c.Int("length"), c.IntOrNull("contact"), null)
+                {
+                    ClockMetadataAvailable = c.BoolOrNull("clock") == true,
+                    SlowBeginMs = c.IntOrNull("slow_begin"), SlowEndMs = c.IntOrNull("slow_end"),
+                    BudgetSeconds = c.RealOrNull("budget"),
+                }).ToArray();
+            if (pool.Length > 0) result[variety.Text("variety")!] = pool;
+        }
+        return result;
+    });
+
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
         var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        var framesByClip = ClientTables.TableOrNull("monster_contact_clip_frames")?.By("clip");
+        IReadOnlyList<(int, ContactPoint?)>? Frames(int clip) => framesByClip is null ? null
+            : framesByClip[clip].OrderBy(f => f.Int("ord")).Select(f => (f.Int("ms"), AnimationContacts.Point(f, "position"))).ToArray() is { Length: > 1 } all
+                ? all : null;
         foreach (var variety in varieties)
         {
             var byKey = clipsByVariety[variety.Index]
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
                 .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
-                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position")) { Contacts = Frames(c.Index) }).ToArray(),
+                    StringComparer.Ordinal);
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;

@@ -964,8 +964,33 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,
   sequence 0xffff.
-  Its busy period covers the full attack duration from the actual action send; contact still occurs halfway through:
+  Its busy period covers the full attack duration from the actual action send:
   the hit lands if the monster lives and the player is still within reach + 2 (0x1af, then 0x1b1 on the player).
+  Ordinary `Melee` contacts follow the native animation clock, not a fraction of the whole attack interval.
+  Actor setup `0x141ea0c60` starts with clip length / integer attack duration. When that is below 1,
+  `slow_animations_go_to_idle` (Actor resource +0x58, inherited from Monster.ot) clamps it to 1 for animation
+  categories whose Animation.dat column 2 is false (`Melee` and `OffMelee`). `ZombieBite` has a 1766 ms clip,
+  contact at 1099 ms and no slow span: its 2400 ms attack plays contact at 1099 ms, then recovers. The old linear
+  calculation was about 0.39 s late. Its 1388 ms Quick attack plays at 1.272334, so the linear calculation happened
+  to match.
+  Player damage and TakeHit arrived together; the error preceded both (3.29.3c hotfix, 2026-11-16).
+
+  Slow-span setup `0x141b0d690` / `0x141b0d420` uses length L, requested duration T, budget B (ACT `attack_time`,
+  else L), span S, and budgeted span E = B*S/L. With T <= B it restores linear playback. Otherwise the span takes
+  min(8*E, T-B+E); outside takes the remaining time, except a clamped Actor keeps natural outside speed and leaves
+  an idle tail after the cap. Body +0x1f8 independently multiplies progress by published `virtual_action_speed_+%`
+  (`0x141ea3840` / `0x141dc16b0`), including changes during a swing. The server settles elapsed action time before
+  applying each new published rate, and retimes pending contact and recovery. Freeze retains its separate
+  cancellation/contact-suppression path; a changed attack-duration stat does not replace an already admitted clip.
+
+  The variety's actual AOFiles can differ from the AO named by its ACT: `ZombieMummy` uses `Mummy_no_amb.ao`
+  without a slow span, while `IntMissionRaisedZombieMummy` uses `Mummy.ao` with one. The latter's 1166 ms clips have
+  spans 327..502 / 387..526 ms and contacts 566 / 632 ms. New `monster_melee_clocks` rows preserve that separate
+  source and leave the existing projectile/boss contact tables unchanged. Unknown AO composition, incomplete
+  clocks, dual wield and other native actions retain their previous timing. ACT options other than a single
+  `attack_time` (including `max_slow_time`, the explicit cap override parsed at `0x142a0a645`) are excluded from
+  known pools. Another category needs its actual AO, selected clip and native event clock verified at fast,
+  natural, slow and capped durations, then action-speed changes, in predictive and lockstep modes.
   A mortar skill (Sand Spitter: `monster_mortar_attack`, GrantedEffects SkillID 183 → MonsterMortar 183 →
   `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) is drawn by the client, as from GGG, whose server
   creates no mortar object: the mortar action's constructor (`0x141b6c390`) takes its MonsterMortar row from the
@@ -1382,6 +1407,13 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
   See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
   late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
+  **Heavy Strike impact (2026-11-14).** Predictive Trarthus hits were observed entering `0x141e97e20`
+  with a null action and stat view, after the pathing attack had gone; skill-specific hit callbacks require an action.
+  The native `heavy_strike_02/heavy_strike_hit.ao` contains the impact mesh, particles and three sound events.
+  Heavy Strike and its transfigured variants now present that AO as a short-lived server effect at a confirmed hit.
+  Their generic immediate hit uses sequence `0xffff` to avoid a second skill impact if an action is still retained;
+  it keeps typed blood/weapon feedback, critical flags and frame ordering. Other skills keep their action sequence.
+  Impact removal uses the existing connection effect scheduler, including area retirement, rather than per-hit tasks.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
@@ -1700,11 +1732,36 @@ Its hammers deal no damage: the client draws them, but the server has no hammerf
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
-**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
-it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
-(§10k).
+**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
+when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
+(live 2026-10-23). A resync follows at the end of the action ([07](07-latency-visibility-movement.md) §5).
+Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+
+**Leap Slam** (ActionTypes `LeapSlam` 0x9779) resolves its range independently of its damage radius.
+`0x1412fafd0` gives range 60, or 30 for `skill_behaviour_variation` 2 (Groundbreaking, from GrantedEffects.SkillID).
+`0x1419fe630` scales the aim delta by `range / max(length - 1, 0)` when beyond range, rounding components with
+`floor(x + 0.5)`; the integer endpoint is not a strict radius-60/30 circle.
+`0x141a01520` searches from that candidate back toward the start for walking clearance and a clear layer-1 ray,
+so a gap need not be walkable along the whole flight.
+The server binds that landing to the use and resolves its area there, rather than applying an in-place melee reach test.
+
+The native `leave_ground` and `hit_ground` events time the flight (`0x1419fd8e0`); its speed is distance divided by
+that flight time (`0x1419fdaf0`). The named events and clip lengths are in `animation_clip_events` and `animation_clips`.
+For total base duration B, final hand speed S and action speed A, the clip duration is
+`B / 1000 / (1 + S/100) / (1 + A/100)`; `0x14270bce0` adds the skill's extra base milliseconds after the weapon's
+local speed, before final speed (ordinary Leap Slam adds 550, Groundbreaking adds none).
+The native startup skip seeks to `leave_ground - 0.01` animation seconds (`0x141944380`), not immediately to impact.
+It requires behaviour other than 2, the character's skipping flag, and no active `instant_movement_skill_delay`
+buff belonging to another action (`0x1419fda80`, `0x141944d40`). The server does not create that buff yet; its official
+refresh/expiry policy is unknown, so current eligible uses skip startup without claiming the official recovery cadence.
+
+Landing occupancy is separate from a successful hit: `0x1419fe0f0` pushes overlapping enemy centers apart by
+source size + target size + 2, even without a hit roll. The server uses that geometry with its existing walkability,
+knockback-immunity guards and queued position update; native displacement speed is not reproduced.
+The `leap_slam_always_knockback_within_range` inner-circle argument reaches an empty default-client callback
+(`0x1419fdce0`, vtable +0x530), so it does not establish the server's complete forced-knockback policy.
+Named movement-blocking regions and the native special-field landing gate also remain outside the server model.
+
 
 **Flicker Strike** (ActionTypes `FlickerStrike` 0x6352, base class `0x141a5f640`) does not move the player on the
 client: in 17 started Flicker actions with a target, nothing set the player's position (Frida, live 2026-11-09).

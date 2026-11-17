@@ -25,6 +25,16 @@ public static class AreaTransitionCatalog
     /// <summary>The WorldAreas id of an area hash (from the atlas), or null without the atlas.</summary>
     public static string? IdOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Id;
 
+    // Repeated area connections are distinct edges: the k-th way out pairs with the k-th way back.
+    public static int? PairedEntrance(ushort source, ushort destination, int? entrance)
+    {
+        var outgoing = Atlas.Value?.GetValueOrDefault(source)?.Connections?.Where(c => c.Hash16 == destination).ToArray() ?? [];
+        var incoming = Atlas.Value?.GetValueOrDefault(destination)?.Connections?.Where(c => c.Hash16 == source).ToArray() ?? [];
+        if (outgoing.Length < 2 || outgoing.Length != incoming.Length || entrance is null) return null;
+        int index = Array.FindIndex(outgoing, c => c.Index == entrance);
+        return index < 0 ? null : incoming[index].Index;
+    }
+
     /// <summary>The WorldAreas name of an area hash (from the atlas), or null.</summary>
     public static string? NameOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Name;
 

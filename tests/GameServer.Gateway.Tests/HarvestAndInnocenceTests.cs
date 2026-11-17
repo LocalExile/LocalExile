@@ -49,5 +49,15 @@ public class HarvestAndInnocenceTests
         Assert.False(Game.TransitionShown(conn, 2, shortcut));
         conn.Instance.SetState(Act5Objects.ShortcutOpen);
         Assert.True(Game.TransitionShown(conn, 2, shortcut));
+        Assert.Contains(Act10Objects.ShortcutOpen, Quests.For(new HashSet<string> { "shortcut-test" }).OnMonsterKilled(Act10Areas.DesecratedChambers, Act10Monsters.Avarius));
+        var desecrated = new ClientState(layout with { Id = Act10Areas.DesecratedChambers }, 1, 1)
+        { Instance = new(), LeagueModule = conn.LeagueModule };
+        desecrated.QuestFlags.Add("a10q2-KilledBoss");
+        Assert.True(Game.TransitionShown(desecrated, 1, normal));
+        Assert.False(Game.TransitionShown(desecrated, 2, shortcut));
+        desecrated.Instance.SetState(Act10Objects.ShortcutOpen);
+        Assert.True(Game.TransitionShown(desecrated, 2, shortcut));
+        Assert.False(Game.TransitionShown(new ClientState(desecrated.Layout, 1, 1)
+        { Instance = new(), LeagueModule = conn.LeagueModule }, 2, shortcut));
     }
 }

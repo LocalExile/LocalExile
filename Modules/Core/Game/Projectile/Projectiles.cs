@@ -152,6 +152,7 @@ public static partial class Game
                 invalid = true;
                 lifetime?.Dispose();
                 ClearPods();
+                if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
                 visuals.Clear(); output.Writer.TryComplete();
@@ -284,29 +285,56 @@ public static partial class Game
 
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
-            var result = new List<ProjectileActor>(Conn.Monsters.Count + 1);
+            var result = new List<ProjectileActor>(Conn.Monsters.Count + Conn.Totems.All.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
-                if (monster.Dead || monster.Life == 0) continue;
+                if (monster.Dead || monster.Life == 0 || monster.WorldHidden || ArenaHazards.Untargetable(Conn, monster)) continue;
                 var walk = monster.Walk;
                 int size = LivingCollision.Size(monster);
                 if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
                     || kept.Hostile != monster.Hostile || kept.Size != size)
-                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, new(Key(id, monster), monster.Hostile ? 2 : 1,
-                        t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size });
+                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, MonsterActor(Key(id, monster), walk, monster.Hostile, size));
                 result.Add(kept.Actor);
             }
             // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
             // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
             // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
             if (actorOf.Count > 2 * result.Count + 64) PruneActors();
-            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
-                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
+            // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
+            // A totem's id and place never change, so it keeps one record for as long as it is listed.
+            var totems = Conn.Totems.All;
+            double clock = Conn.Clock.Elapsed.TotalSeconds;
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Alive(clock)) InOrder(result, TotemActor(totems[i]));
             if (Conn.PlayerLife > 0)
-                result.Add(playerActor ??= new(new(PlayerId, epoch), 1,
+                InOrder(result, playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
+        }
+
+        // Its own method: a lambda in the loop above made the loop keep its walk in a new closure at every monster of
+        // every call (24 bytes each), also when the kept record was used.
+        static ProjectileActor MonsterActor(ProjectileActorKey key, PlayerWalk walk, bool hostile, int size) =>
+            new(key, hostile ? 2 : 1, t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size };
+
+        readonly System.Runtime.CompilerServices.ConditionalWeakTable<TotemState.Totem, ProjectileActor> totemActors = [];
+        ProjectileActor TotemActor(TotemState.Totem totem)
+        {
+            if (totemActors.TryGetValue(totem, out var kept)) return kept;
+            totemActors.Add(totem, kept = new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            return kept;
+        }
+
+        static readonly Comparer<ProjectileActor> ContactOrder = Comparer<ProjectileActor>.Create((a, b) =>
+            a.Key.Id != b.Key.Id ? a.Key.Id.CompareTo(b.Key.Id) : a.Key.Generation.CompareTo(b.Key.Generation));
+
+        static void InOrder(List<ProjectileActor> actors, ProjectileActor actor)
+        {
+            int at = actors.Count == 0 || ContactOrder.Compare(actors[^1], actor) <= 0 ? actors.Count
+                : actors.BinarySearch(actor, ContactOrder);
+            actors.Insert(at < 0 ? ~at : at, actor);
         }
 
         void PruneActors()
@@ -360,7 +388,7 @@ public static partial class Game
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
                 return ProjectileHitResult.Miss;
-            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
+            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Conn, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
@@ -420,7 +448,7 @@ public static partial class Game
                     .RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
-                    shot.VsProfaneCriticalChance);
+                    shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, player: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
@@ -564,7 +592,9 @@ public static partial class Game
                 end.Ended = true;
                 // A lobbed shot's landing is its impact too (the mortar's "end" clip plays where it comes down).
                 end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
-                    && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing;
+                    && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
+                        || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
+                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true);
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
                 if (end.StaysAfterEnd)
                 {
@@ -595,8 +625,15 @@ public static partial class Game
                     }, remove: true);
                 }
             }
-            else if (value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
-                Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            else if (value.Kind == ProjectileEventKind.Area)
+            {
+                // Every area event of every projectile skill comes here, under the instance's lock: trace only.
+                if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
+                    Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
+                        + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
+                if (p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
+                    Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            }
         }
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,

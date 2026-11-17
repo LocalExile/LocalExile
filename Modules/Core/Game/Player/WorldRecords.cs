@@ -160,17 +160,25 @@ public static partial class Game
     public static async Task SendWorldRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
-        if (!conn.LockstepClient) { await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), log, still, atGate); return; }
-        var target = conn.WorldOutput.PublishedObject(id);
-        bool admitted = await SendWorldBatch(conn, QuestKillCommitOutput is not null ? [] : [target], _ =>
+        if (!conn.LockstepClient) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), log, still, atGate);
+        else
         {
-            var bytes = atGate is null ? InstanceProtocol.RemoveObject(id) : atGate();
-            if (bytes is null) return null;
-            bytes = bytes.ToArray();
-            BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
-            return new(OutputRecord.Remove(target, WorldOrder.Last, bytes, log));
-        }, still, transport: (remote, stream, ciphers));
-        if (admitted && QuestKillCommitOutput is null) await target.Removed;
+            var target = conn.WorldOutput.PublishedObject(id);
+            bool admitted = await SendWorldBatch(conn, QuestKillCommitOutput is not null ? [] : [target], _ =>
+            {
+                var bytes = atGate is null ? InstanceProtocol.RemoveObject(id) : atGate();
+                if (bytes is null) return null;
+                bytes = bytes.ToArray();
+                BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+                return new(OutputRecord.Remove(target, WorldOrder.Last, bytes, log));
+            }, still, transport: (remote, stream, ciphers));
+            if (admitted && QuestKillCommitOutput is null) await target.Removed;
+        }
+        // A monster can leave the area without dying here (a minion's body, a wisp, a scripted encounter's removal; the
+        // golem and minion queues send theirs through this same call): the map overlay's "X monsters remain" (S→C 0x1a0)
+        // counts the living ones again. A corpse that is consumed changes nothing, and the count is only sent when it
+        // really differs (MonsterRemaining.cs).
+        await SendRemainingMonsters(remote, stream, ciphers, conn);
     }
 
     static OutputRecord PresentedRecord(WorldObject target, byte[] bytes, string? log = null) =>

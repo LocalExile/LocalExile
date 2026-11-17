@@ -34,13 +34,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Unique-flask mechanics; Oriath explosion parity, Sap, Brittle and Replica Rumi's Petrified remain open.
+  Docs: [13](../docs/protocol/13-items.md) §8a.
+
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
-  cards; random selection uses local weights, the official exchange probabilities are unknown.
+  cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.
   Docs: [17](../docs/protocol/17-npcs.md).
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
-- Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
+- Optional backpack mods can enable the native 20 slots; pickup stacks span both carried grids and quest rewards can enter the enabled backpack. Stored items remain removable after disabling the mod.
 
-- Character-build previews and imports through the mod SDK; the POB mod and converter are external.
+- Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
@@ -52,9 +55,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- Unique items, Mageblood, Headhunter and abyss jewels; most uniques' own mechanics are missing. Every client unique
-  has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps, Impossible Escape,
-  watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
+- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire and abyss jewels; most uniques' own mechanics
+  are missing.
+  Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
+  Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
+  Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
 - Ruthless items, flasks, drops and vendors. Docs: [league modes](../docs/game/league-modes.md).
 - Essence crafting. Docs: [13](../docs/protocol/13-items.md), "Essence crafting".
 - Quiver eligibility: every hand sends its weapon type. Docs: [13](../docs/protocol/13-items.md),
@@ -93,7 +98,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/eldritch-ember-coe.md).
 - **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
-- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules, not checked live).
+- **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules; the Tainted orbs live 2026-11-14).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
 - **Enkindling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/enkindling-coe.md).

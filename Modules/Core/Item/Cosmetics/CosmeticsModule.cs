@@ -207,16 +207,36 @@ public static class CosmeticsFeature
 
     internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
-        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
+        int percent = ApplyPetSpeed(conn, id, pet, now);
         var from = pet.Walk.Order(to.X, to.Y, now);
         // Local gates can put the owner in a separate walkable component. A finite loot walk must stop
         // where its path ends, but a following pet rejoins its owner when that path falls short.
         if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
         {
             pet.Walk.Teleport(to.X, to.Y, now);
-            return InstanceProtocol.Teleport(id, to.X, to.Y);
+            return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+                .. InstanceProtocol.Teleport(id, to.X, to.Y)];
         }
-        return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
+        return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+            .. InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408)];
+    }
+
+    static int ApplyPetSpeed(ClientState conn, uint id, SpawnedPet pet, double now)
+    {
+        double speed = GameEvents.ResolveMovementSpeed(conn, id, Math.Max(conn.Walk.Speed, 1));
+        // Metadata/Pet/Pet.ot has Pathfinding base_speed 37. The native final stat is an integer percent;
+        // quantize the estimate to that same speed rather than letting pickup run ahead of the visible pet.
+        int percent = (int)Math.Round(Math.Clamp((speed / 37 - 1) * 100, -99, int.MaxValue - 100d));
+        double resolved = 37 * (1 + percent / 100d);
+        if (pet.Walk.Speed != resolved) pet.Walk.SetSpeed(resolved, now);
+        return percent;
+    }
+
+    internal static byte[]? PetSpeedUpdate(ClientState conn, uint id, SpawnedPet pet, double now)
+    {
+        double previous = pet.Walk.Speed;
+        int percent = ApplyPetSpeed(conn, id, pet, now);
+        return previous == pet.Walk.Speed ? null : InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]);
     }
 
     // Pets follow the player, every player tick (GameEvents.Tick): when one is farther than PetFollowRange from the player
@@ -226,6 +246,15 @@ public static class CosmeticsFeature
     {
         try
         {
+            uint[] pets;
+            lock (conn.Pets) pets = [.. conn.Pets.Keys];
+            foreach (uint id in pets)
+                await global::Game.SendWorldRecord(conn, id, () =>
+                {
+                    lock (conn.Pets)
+                        return !conn.Closed && !conn.LeavingArea && conn.Pets.TryGetValue(id, out var pet)
+                            ? PetSpeedUpdate(conn, id, pet, conn.Clock.Elapsed.TotalSeconds) : null;
+                });
             double now = conn.Clock.Elapsed.TotalSeconds;
             var player = conn.Walk.Position(now);
             var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();

@@ -7,6 +7,8 @@ using GameServer.Modding;
 /// connections, the state and the saves, and the module the rules. Agents/docs/dev/modules.md.</summary>
 public interface IGameLogic
 {
+    /// <summary>Validate an imported character's native progress against this game's rules, without saving it.</summary>
+    void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) { }
     /// <summary>Claim this already active area's player updates after entry or game replacement.</summary>
     void ResumePlayerUpdates(ClientState conn) { }
     /// <summary>A server frame of the connection ended (Program.RunWorldFrames); the next one starts at

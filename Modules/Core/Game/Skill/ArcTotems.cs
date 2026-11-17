@@ -35,7 +35,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(conn, caster, m, hit.Scale(more).Roll(Random.Shared)), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
-                SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsProfane(conn, totem.SkillId, false));
+                SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
             bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(Random.Shared));

@@ -85,7 +85,8 @@ public static class InstanceEntities
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
     /// that many, or the client misreads the message), and a u32-counted list of u32 (<paramref name="list"/>, buff +0x80: a
     /// RecordSkillUseLocations buff's first entry and the <c>frost_fury_stage</c> buff's entries 1 and 2 (the client's
-    /// Winter Orb channelling art), which those behaviours read unchecked: give at least the entries the row's behaviour
+    /// Winter Orb channelling art), and MirageArcherVisualBuff's element 0 / MirageArcherDisplayBuff's elements 0..2,
+    /// which those behaviours read unchecked: give at least the entries the row's behaviour
     /// reads, since an empty list leaves the vector null). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
     /// f6c is the countdown rate (default 1.0). A duration is drawn as a countdown clock under the icon (below the
@@ -645,6 +646,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
+    /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
+    public byte ActorStance { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -720,7 +723,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
                 case "Actor":
-                    w.WStr32("").U16(0).U8(0).U32(0).U32(0);
+                    w.WStr32("").U16(0).U8(ActorStance).U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;

@@ -177,6 +177,7 @@ public static partial class Game
                             () =>
                             {
                                 at = Math.Max(at, ProjectileWorldTime(conn));
+                                CancelMeleeRepeats(conn, at);
                                 walkAction = Interlocked.Increment(ref conn.ActionCount);
                                 if (conn.LockstepClient) conn.Walk.Order(use.X, use.Y, at);
                                 else arrive = conn.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(conn)), at).At;
@@ -205,7 +206,8 @@ public static partial class Game
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
-                if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+                bool leapSkill = attack && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
+                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -222,15 +224,18 @@ public static partial class Game
                 // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
+                LeapSlam.Use? leap = null;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+                    CancelMeleeRepeats(conn, at);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     (px, py) = inPlace ? conn.Walk.Position(at) : conn.Walk.Order(use.X, use.Y, at);
                     if (inPlace) conn.Walk.Order(px, py, at);
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
-                    if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
+                    if (leap is not null) CommitLeapSlam(conn, leap);
+                    else if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
                     else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
@@ -249,7 +254,14 @@ public static partial class Game
                     noFlickerTarget = flickerTo is null;
                     return !noFlickerTarget;
                 }
-                if (cast && gem.Name is not null)
+                if (leapSkill)
+                {
+                    if (!TryBeginAttackUse(conn, use.SkillId, gem.Effect, at,
+                        acceptedAt => { at = acceptedAt; StartAction(); }, out cooldownUse,
+                        acceptedAt => (leap = PlanLeapSlam(conn, use.SkillId, gem.Effect, (use.X, use.Y), acceptedAt)) is not null))
+                        continue;
+                }
+                else if (cast && gem.Name is not null)
                 {
                     if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                         CooldownForSkill(conn, use.SkillId),
@@ -276,21 +288,27 @@ public static partial class Game
                 if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
                     use.SkillId, use.Slot, cooldownUse?.ActionToken ?? action, cooldownUse);
                 Mark("charge");
-                bool projectileRuntime = cast && gem.Name is not null && UsesProjectileRuntime(gem.Effect);
+                bool projectileRuntime = cast && gem.Name is not null && (UsesProjectileRuntime(gem.Effect) || leapSkill);
                 double? swingAt = attack ? at : null;
                 Task<bool>? castTask = projectileRuntime ? CastGemSkill(remote, stream, ciphers, conn, use.SkillId,
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse,
-                    swingAt: swingAt) : null;
+                    swingAt: swingAt, leap: leap) : null;
                 if (castTask is { IsCompletedSuccessfully: true, Result: false }) continue;
                 Mark("cast");
                 bool acknowledged = false;
+                bool predictedLeap = cast && PredictsLeapSlam(conn, SkillsFor(conn).EffectId(gem.Effect), use.Slot);
                 Func<Task> echo = async () =>
                 {
-                    await Send(remote, stream, ciphers,
-                    [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
-                    $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
+                    await Send(remote, stream, ciphers, [],
+                    $"{(predictedLeap ? "0x01ac predicted Leap Slam acknowledged" : "0x01ab action started")} {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
-                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+                        () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)),
+                    atGate: () =>
+                    {
+                        byte[] reply = [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
+                            .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []];
+                        return predictedLeap ? LeapSlamAcknowledgement(ciphers, reply) : reply;
+                    });
                     if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
                 };
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
@@ -311,8 +329,11 @@ public static partial class Game
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse, swingAt: swingAt);
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
-                if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
-                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
+                if (leap is { } jump)
+                    ResyncAfter(remote, stream, ciphers, conn,
+                        Math.Max(0, jump.At + jump.Timing.End - conn.Clock.Elapsed.TotalSeconds), gem.Name!);
+                else if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level, use.SkillId), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
                 string mode = Environment.GetEnvironmentVariable("Game_MOVE_MODE") ?? "echo";
                 if (mode == "teleport")
@@ -678,7 +699,9 @@ public static partial class Game
                 if (!isNew && row >= chooser.Ids.Count) { Console.WriteLine($"[gateway] {remote} <= 0x00af row {row} out of range"); continue; }
                 ulong instance = isNew ? 0 : chooser.Ids[row];
                 Console.WriteLine($"[gateway] {remote} <= 0x00af chose {(isNew ? "a new instance" : $"instance {instance}")} of 0x{chooser.Area:x4}");
-                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint), $"chooser row {row}");
+                await ChangeArea(remote, stream, ciphers, conn,
+                    new PendingTransfer(chooser.Area, instance, isNew, AtWaypoint: chooser.AtWaypoint)
+                    { ArrivalEntrance = chooser.ArrivalEntrance }, $"chooser row {row}");
             }
             else if (id == InstanceWaypoints.TravelId)
                 _ = TravelByWaypoint(remote, stream, ciphers, conn, InstanceWaypoints.ReadTravel(bytes));
@@ -715,7 +738,7 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {remote} arrived by waypoint: spawn ({ax}, {ay}) next to the waypoint at ({arrival.GridX}, {arrival.GridY})");
                     }
                     // Otherwise next to the exit back; Resurrect at Checkpoint and the monster packs' clearance use it too.
-                    else if (conn.Layout.Arrival(conn.CameFrom) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
+                    else if (conn.Layout.Arrival(conn.CameFrom, conn.ArrivalEntrance) is var (ex, ey) && (ex, ey) != (conn.Layout.SpawnX, conn.Layout.SpawnY))
                     {
                         conn.Use(conn.Layout with { SpawnX = ex, SpawnY = ey });
                         Console.WriteLine($"[gateway] {remote} arrival from 0x{conn.CameFrom:x4}: ({ex}, {ey})");
@@ -741,6 +764,10 @@ public static partial class Game
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
                     await PopulateArea(remote, stream, ciphers, conn);
+                    // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
+                    // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
+                    // reads "More than 50 monsters remain" everywhere (InstanceProtocol.MonstersRemaining).
+                    await SendRemainingMonsters(remote, stream, ciphers, conn, force: true);
                     await SendGroundItems(remote, stream, ciphers, conn);
                     await PlaceStartWeapon(remote, stream, ciphers, conn);
                     await SpawnTownNpcs(remote, stream, ciphers, conn);

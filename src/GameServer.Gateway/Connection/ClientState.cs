@@ -14,6 +14,11 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 
     /// <summary>With <see cref="New"/>: the new instance's seed (0 = Auth's choice; the capture tour sets it).</summary>
     public uint Seed { get; init; }
+
+    public int? ArrivalEntrance { get; init; }
+
+    /// <summary>Through a map portal: the map the instance is opened with, also when it was the last portal.</summary>
+    public MapDevice.Run? Map { get; init; }
 }
 
 // A monster this connection spawned: label for /mobs, the server's estimate of its walk, and its AI state.
@@ -30,6 +35,8 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
+    public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
@@ -171,6 +178,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
+    /// <summary>Kept in the instance but absent from client views during a scripted disappearance.</summary>
+    public bool WorldHidden;
     /// <summary>The action it takes now. A boss with a kit of its own swaps this for the chosen skill of that kit each
     /// AI pass (BossKits.Choose); everything downstream — the walk-up, the swing's clip, its hit — reads this one.</summary>
     public MonsterAttack? Attack { get; set; }
@@ -187,6 +196,11 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
     public uint? SummonerId;
     public bool NoRewards;
+    /// <summary>A shrine's ally (the Skeletal shrine's skeletons): it fights the player's enemies as a minion does while
+    /// not being one. GGG's shrine summons are the shrine's, not the player's ("You are not considered to be summoning
+    /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
+    /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
+    public bool AlliedFighter;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -223,7 +237,17 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
     public IReadOnlyDictionary<string, int>? EncounterStats;
-    public MonsterModEffects Effects => Curses.Effects(EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects);
+    /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
+    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public MonsterModEffects Effects
+    {
+        get
+        {
+            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
+            return Curses.Effects(effects);
+        }
+    }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }
     // Damage over time not yet applied (fractions of a point between ticks).
@@ -266,6 +290,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int ActionGeneration;
     public int? SwingGeneration;
     public double SwingOrderedAt;
+    // A known ordinary melee clip's contact and recovery, measured before action speed. The generation prevents
+    // a later ailment update from retiming a canceled swing or a different action's busy period.
+    public (int Generation, ActionTimeClock Clock, double Contact, double Duration, double Tail)? MeleeClock;
     // The last melee order, or admitted lockstep AI Move/swing: one rising counter for the actor's orders.
     // The client picks a melee swing's clip by its action sequence.
     public ushort Sequence = 0x8000;
@@ -457,7 +484,7 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
-public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false);
+public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false, int? ArrivalEntrance = null);
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
@@ -493,6 +520,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public ushort LastTown { get; init; }
     /// <summary>The area the player left through an exit to come here, or null (login, Resurrect in Town).</summary>
     public ushort? CameFrom { get; init; }
+    public int? ArrivalEntrance { get; init; }
     // The character's class: its Characters.dat row (the Witch: 1).
     public int ClassRow { get; init; } = SkillCatalog.WitchRow;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
@@ -893,6 +921,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public Flasks.Effects FlaskEffects { get; } = new();
     /// <summary>The utility flasks whose effect runs (UtilityFlasks); their stats count in the pools until they end.</summary>
     public UtilityFlasks.Effects UtilityFlaskEffects { get; } = new();
+    /// <summary>Life, mana and hybrid flasks' "during effect" mods while their recovery runs.</summary>
+    public UtilityFlasks.RecoveryDuringEffects RecoveryFlaskStats { get; } = new();
+    /// <summary>Ignited corpses consumed since the flask-charge loop last paid them (Cinderswallow Urn's recharge).</summary>
+    public int IgnitedCorpsesConsumed;
     /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
     public StolenMods StolenMods { get; } = new();
     /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
@@ -1098,6 +1130,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
 
     /// <summary>The open map's portals created in this area, by object id: where each stands.</summary>
     public readonly Dictionary<uint, (int X, int Y, int Index)> MapPortals = [];
+    public MapDevice.OpenMap? MapPortalRun;
+    public string? InstanceOwner { get; init; }
 
     /// <summary>Counts the map portal sequences started (SpawnMapPortals); a newer one stops the older.</summary>
     public int MapPortalGeneration;
@@ -1152,6 +1186,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// instance (a test's) keeps its own.</summary>
     public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
     readonly EmergeGround ownEmergeGround = new();
+    // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
+    public int SentMonstersRemaining = -1;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.

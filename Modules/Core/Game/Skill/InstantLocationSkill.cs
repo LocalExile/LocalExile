@@ -1,8 +1,8 @@
 using GameServer.Core.World;
 
 
-/// <summary>The bounded instant movement path: ordinary Frostblink's distance calculation on a captured grid.
-/// Terrain endpoint searches and other movement skills are not modelled here.</summary>
+/// <summary>Ordinary Frostblink's distance calculation and clear endpoint admission.
+/// Invalid endpoints still fail closed instead of guessing the native fallback search.</summary>
 public static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>
@@ -57,7 +57,7 @@ public static class InstantLocationSkill
     }
 
     // Called again under the send gate: an old request cannot move the player after transfer/death/pause.
-    // A fully walkable straight route is deliberately stricter than the client's blink terrain endpoint search.
+    // 0x141c00cd0 accepts a valid endpoint via 0x141c006d0 before running its fallback terrain trace.
     public static bool TryResolve(ClientState conn, int epoch, (uint X, uint Y) aim,
         bool inTown, Func<string, int> stat, out (int X, int Y) from, out (int X, int Y) to)
     {
@@ -83,13 +83,10 @@ public static class InstantLocationSkill
         if (!Allowed(from.X, from.Y) || !Allowed(endpoint.X, endpoint.Y)) return false;
         if (conn.Blockers.Any(b => Math.Max(Math.Abs((long)endpoint.X - b.X), Math.Abs((long)endpoint.Y - b.Y))
             - b.Size < 2)) return false; // Player Positioned size 1: retain its ordinary placement clearance.
-        var previous = from;
         foreach (var cell in ClientPathfinder.Line(from, endpoint))
         {
-            if (!Allowed(cell.X, cell.Y)) return false;
-            if (cell.X != previous.X && cell.Y != previous.Y
-                && (!Allowed(previous.X, cell.Y) || !Allowed(cell.X, previous.Y))) return false;
-            previous = cell;
+            // Quest gates remain enforced; ordinary terrain between two clear endpoints is not a walking route.
+            if (conn.Barrier.Contains(cell)) return false;
         }
         to = endpoint;
         return true;

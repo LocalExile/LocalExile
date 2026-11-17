@@ -24,8 +24,12 @@ public static class ImpossibleEscapeCatalogue
     public static IReadOnlyList<Keystone> All => Entries.Value;
 
     // Current items store a graph ID; older items stored the row of the same Maven keystone.
-    public static Keystone? ForStoredValue(int value) =>
-        All.FirstOrDefault(entry => entry.GraphId == value) ?? All.FirstOrDefault(entry => entry.Row == value);
+    public static Keystone? ForStoredValue(int value)
+    {
+        // Native API exports can carry this HASH16 in a signed short (-1916 == 63620).
+        int hash = value is >= short.MinValue and < 0 ? unchecked((ushort)value) : value;
+        return All.FirstOrDefault(entry => entry.GraphId == hash) ?? All.FirstOrDefault(entry => entry.Row == value);
+    }
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 

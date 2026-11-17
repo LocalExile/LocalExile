@@ -41,6 +41,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceMicrotransactions.cs`, `Microtransactions.cs` (`MtxCatalog`, `CosmeticEffects`), Gateway
   (`AnswerMtxRequest`, `PickCosmetic`, `Looks`, `CosmeticStats`), `CharacterSaves.Cosmetics`, `PetObject`,
   `SpawnPets`, `StepPetFollow`, `SkillSlots`.
+  Pet walking applies entity speed modifiers to both the native movement stat and the arrival estimate;
+  removing a modifier restores in-flight speed on the next tick.
   Docs: [23](../docs/protocol/23-microtransactions.md).
 
 ## Partly working

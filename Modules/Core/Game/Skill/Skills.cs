@@ -279,6 +279,7 @@ public static partial class Game
         UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet)
             .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
         WithVaalPrevention(conn, stats);
+        WithVaalAura(conn, stats);
         AddSpiritLeadershipStats(conn, stats);
         AddTotemAuraStats(conn, stats);
         WithRage(conn, stats);
@@ -563,7 +564,12 @@ public static partial class Game
                     stats[group] = cooldown.SharedGroup ?? 36;
                 if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
             }
+            int additionalAttackMs = SkillsFor(conn).IsAttack(effect) ? SkillAttackTiming.AdditionalMilliseconds(stats) : 0;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
+            // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
+            // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
+            if (IsLeapSlam(conn, effect))
+                stats[StatKeys.SkillBehaviourVariation] = SkillsFor(conn).BehaviourVariation(effect);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.
             if (Stats.Key("base_skill_effect_duration") is uint baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
@@ -632,6 +638,9 @@ public static partial class Game
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
                 stats[repeatKey] = repeats;
+            // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
+            if (SkillsFor(conn).IsAttack(effect) && Stats.Key("attack_repeat_count") is uint attackRepeatKey)
+                stats[attackRepeatKey] = MeleeAttackRepeats(conn, id);
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect)))
             {
@@ -681,7 +690,6 @@ public static partial class Game
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
             if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0
-                && !SkillHitPlan.ForSkill(SkillsFor(conn), effect, supported.Level, supported.Quality).CanHit
                 && SkillsFor(conn).SecondaryHitDamage(effect, supported.Level, supported.Quality) is { IsZero: false } secondaryBase)
             {
                 foreach (var (stat, value) in SecondaryPanelRows(conn, Get, playerStats, supported, secondaryBase))
@@ -720,7 +728,10 @@ public static partial class Game
                     if (Stats.Key(key) is uint statKey) stats[statKey] = value;
                 if (SkillsFor(conn).IsAttack(effect))
                 {
-                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round(((shieldWeapon ?? WeaponFor(conn)).AttackMs / (seconds * 1000) - 1) * 100);
+                    // Additional base time belongs in the duration row, not in an equivalent attack-speed penalty.
+                    int attackBaseMs = (shieldWeapon ?? WeaponFor(conn)).AttackMs;
+                    if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
+                    stats[StatKeys.MainHandAttackSpeedPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
                     stats[StatKeys.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
                     foreach (var (field, value) in new[]
                     {
@@ -739,8 +750,15 @@ public static partial class Game
                         offInputs = SupportedHitInputsFor(conn, id, weapon: offWeapon);
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
+                        double offSeconds = SupportedOffHandAttackSeconds(conn, id, offWeapon);
+                        if (additionalAttackMs != 0)
+                        {
+                            int offBaseMs = SkillAttackTiming.BaseMilliseconds(offWeapon.AttackMs, additionalAttackMs);
+                            int offSpeed = (int)Math.Round((offBaseMs / (offSeconds * 1000) - 1) * 100);
+                            offHand[offHand.FindIndex(row => row.Stat == "off_hand_attack_speed_+%")] = ("off_hand_attack_speed_+%", offSpeed);
+                        }
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
-                            SupportedOffHandAttackSeconds(conn, id, offWeapon), damageFactor,
+                            offSeconds, damageFactor,
                             OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
@@ -816,6 +834,10 @@ public static partial class Game
                     Get("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana));
             if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
                 Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
+            if (SkillsFor(conn).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
+                foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
+                    if (HitSummonDefinition(SkillsFor(conn).EffectId(effect), rarity) is { } sentinel)
+                        Publish(sentinel.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, sentinel, supported));
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
                 Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
                     n => GolemStat(playerStats, n)));
@@ -858,29 +880,34 @@ public static partial class Game
     // masks (0x53 sets them, so 0 would clear "Always Attack Without Moving"). The default attack goes on slot 0 (left
     // mouse button) only when nothing at all was saved for that slot; nothing is sent without a saved bar, so the client
     // keeps its own default.
-    public static async Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendSkillBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        Send(remote, stream, ciphers, [], "0x0053 current skill bar", atGate: () => SkillBarRecord(conn));
+
+    // A bind received while an earlier refresh waits for the send gate must win over that refresh.
+    internal static byte[]? SkillBarRecord(ClientState conn)
     {
-        FillSkillBar(conn);
-        var save = CharacterSaves.Load(CharacterName(conn));
-        var saved = save?.SkillBar;
-        if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return;
-        var ids = new ushort[InstanceProtocol.SkillBarSlots];
-        var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
-            .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
-            .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
-        if (saved is { Count: > 0 })
-            foreach (var (slot, entry) in saved)
-            {
-                if (slot < 0 || slot >= ids.Length) continue;
-                if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
-                else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
-            }
-        if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
-        foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
-        ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
-        await Send(remote, stream, ciphers, InstanceProtocol.SkillBar(ids, attackInPlace, mask52),
-            $"0x0053 skill bar: {string.Join(", ", ids.Select((id, i) => id == 0 ? null : $"slot {i} 0x{id:x4}").OfType<string>())}" +
-            $", attack in place 0x{attackInPlace:x4}, 0x52 mask 0x{mask52:x4}");
+        lock (conn.Monsters)
+        {
+            FillSkillBar(conn);
+            var save = CharacterSaves.Load(CharacterName(conn));
+            var saved = save?.SkillBar;
+            if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(conn).Count == 0) return null;
+            var ids = new ushort[InstanceProtocol.SkillBarSlots];
+            var byEffect = GemSkillEffects(conn).Select(g => (g.Id, Effect: SkillsFor(conn).EffectId(g.Effect)))
+                .Append((Id: SkillCatalog.FirstSkillId, Effect: SkillEffectId(conn, SkillCatalog.FirstSkillId)))
+                .Where(e => e.Effect is not null).GroupBy(e => e.Effect!).ToDictionary(g => g.Key, g => g.First().Id);
+            if (saved is { Count: > 0 })
+                foreach (var (slot, entry) in saved)
+                {
+                    if (slot < 0 || slot >= ids.Length) continue;
+                    if (entry.StartsWith("Action/") && SkillsFor(conn).ActionSkillId(entry["Action/".Length..]) is ushort action) ids[slot] = action;
+                    else if (byEffect.TryGetValue(entry, out ushort id)) ids[slot] = id;
+                }
+            if (saved is not { Count: > 0 } || !saved.ContainsKey(0)) ids[0] = SkillCatalog.FirstSkillId;
+            foreach (var build in GameEvents.SkillBarBuilding.For(conn)) build(conn, ids);
+            ushort attackInPlace = save?.AttackInPlaceSlots ?? 0, mask52 = save?.SkillBarMask52 ?? 0;
+            return InstanceProtocol.SkillBar(ids, attackInPlace, mask52);
+        }
     }
 
     // Puts the skills that are nowhere on the saved bar into its empty slots (SkillBarLayout), leaving every other slot as
@@ -1010,6 +1037,7 @@ public static partial class Game
 
     public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
+        if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
         // Devout of Gruthkul: every spell, auras and triggered spells too (wiki: they cannot be cast or triggered).
         if (CastingSpell(conn, effect) && SpellsDisabled(conn)) return "spells are disabled";

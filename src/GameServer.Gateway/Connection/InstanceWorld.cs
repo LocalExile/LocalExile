@@ -5,6 +5,8 @@
 /// </summary>
 public sealed class InstanceWorld
 {
+    /// <summary>Module-owned static scene snapshots that survive rule reloads, keyed by their owner and placement.</summary>
+    public readonly Dictionary<string, (uint Id, string Type, GameServer.Core.Protocol.Instance.QuestObject Object)> SceneObjects = new(StringComparer.Ordinal);
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 
@@ -20,6 +22,10 @@ public sealed class InstanceWorld
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
+    /// Monsters lock.</summary>
+    public ClientState? PausedBy;
 
     /// <summary>Server objects of the instance (effects, projectiles, stashes, minions): ids unique to all its clients, from
     /// 0x04000000. A client numbers the objects it makes itself (its predicted projectiles: a wand's bolt) from 0x3000:
