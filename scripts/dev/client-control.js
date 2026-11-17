@@ -242,8 +242,9 @@ function execute(request) {
     }
     case 'create': {
       // The client's own 0x12 sender, without the create screen's state 11 push: no auto-Play follows the result.
-      if (current.screen !== 'characters' || current.loginState !== 3)
-        throw new Error('Create requires character selection');
+      // An account without characters opens on the creation screen (state 8 over selection's 9): that is fine too.
+      if (!(current.screen === 'characters' || current.states.at(-1) === 8 && current.states.includes(9)) || current.loginState !== 3)
+        throw new Error('Create requires character selection or creation');
       const name = loginText(request.name, 'character name'), league = loginText(request.league, 'league');
       const startState = loginText(request.startState, 'start state');
       loginSocket(); lastCreateResult = null; createdAwaitingPlay = false; createSent = true;
