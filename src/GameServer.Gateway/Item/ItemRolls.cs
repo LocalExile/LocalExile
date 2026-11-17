@@ -173,16 +173,20 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
-        var (prefix, suffix) = type.Class is "Jewel" or "AbyssJewel"
+        var (prefix, suffix) = SmallAffixClass(type.Class)
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
         var local = ItemModStats.Local(item, catalog.Mods);
         return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
             Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
     }
+
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
+    /// which share the jewels' caps.</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
@@ -200,7 +204,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Item item, Random rng)
     {
-        bool jewel = type.Class is "Jewel" or "AbyssJewel";
+        bool jewel = SmallAffixClass(type.Class);
         int weighted = jewel ? (rng.Next(20) < 13 ? 3 : 4) : rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 };
         var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type, item);
         return (RareAffixCount(weighted, maxPrefix, maxSuffix, jewel ? 4 : 6), maxPrefix, maxSuffix);
