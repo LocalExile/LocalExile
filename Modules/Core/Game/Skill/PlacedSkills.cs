@@ -39,12 +39,46 @@ public static partial class Game
         ["support_trap_and_mine_damage_trap_throwing_speed_+%_final", "active_skill_trap_throwing_speed_+%_final"];
     static readonly string[] MineThrowFinal =
         ["support_trap_and_mine_damage_mine_throwing_speed_+%_final", "support_minefield_mine_throwing_speed_+%_final"];
-    public static double PlacedThrowSeconds(Func<string, int> get, bool mine)
+    public static double PlacedThrowSeconds(Func<string, int> get, bool mine, int frenzyCharges = 0)
     {
+        // Charged Traps and Charged Mines: increased throwing speed per Frenzy Charge.
         double speed = Math.Max(0, 1 + (get(mine ? "mine_laying_speed_+%" : "trap_throwing_speed_+%")
-            + get("trap_and_mine_throwing_speed_+%")) / 100d);
+            + get("trap_and_mine_throwing_speed_+%") + frenzyCharges
+                * get(mine ? "mine_throwing_speed_+%_per_frenzy_charge" : "trap_throwing_speed_+%_per_frenzy_charge")) / 100d);
         foreach (string name in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(name) / 100d);
         return (mine ? .3 : .6) / Math.Max(.01, speed);
+    }
+
+    // Swift Assembly: its chances of 1, 2 or 3 additional traps or mines, read as one roll per use with the largest
+    // number first (a local reading of "chance to throw up to N additional").
+    public static int SwiftAssemblyExtra(Func<string, int> get, Random random)
+    {
+        int roll = random.Next(100), threshold = 0;
+        for (int extra = 3; extra >= 1; extra--)
+        {
+            threshold += get($"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine");
+            if (roll < threshold) return extra;
+        }
+        return 0;
+    }
+
+    // Where the index-th trap or mine of one use lands. The first lands on the aim. With throw_traps_in_circle_radius
+    // (Cluster Traps, Swift Assembly) the others land at random within that radius of it; without it (Multiple Traps,
+    // Minefield) they form a row across the throw, 12 cells apart and centred on the aim (a local rule).
+    public static (int X, int Y) PlacedThrowPoint((int X, int Y) from, (int X, int Y) aim, int index, int count,
+        int circle, Random random)
+    {
+        if (count <= 1 || circle > 0 && index == 0) return aim;
+        if (circle > 0)
+        {
+            double angle = random.NextDouble() * Math.Tau, distance = circle * Math.Sqrt(random.NextDouble());
+            return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
+        }
+        double length = Dist(from, aim);
+        if (length < 1) return aim;
+        double offset = (index - (count - 1) / 2d) * 12;
+        return (aim.X + (int)Math.Round(-(aim.Y - from.Y) / length * offset),
+            aim.Y + (int)Math.Round((aim.X - from.X) / length * offset));
     }
 
     // A trap goes off for a hostile monster within this many cells of it: the existing 10, scaled by the trap's and the
@@ -59,7 +93,8 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
         double started = AreaTime(conn);
-        double seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine) / PlayerActionFactor(conn));
+        double seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine,
+            ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
         double release = started + seconds;
         Console.WriteLine($"[gateway] {(kind.Mine ? "mine" : "trap")} throw of skill 0x{skill:x4}: {seconds:0.000} s");
         var lifetime = CombatLifetime;
@@ -83,22 +118,27 @@ public static partial class Game
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
-        for (int i = 0; i < PlacedSkillCount(conn, gem, kind.Mine); i++)
+        // Decided once per use: the supports' extra traps or mines, and Swift Assembly's chance of more.
+        int count = PlacedSkillCount(conn, gem, kind.Mine) + SwiftAssemblyExtra(Get, Random.Shared);
+        int circle = Get("throw_traps_in_circle_radius");
+        for (int i = 0; i < count; i++)
         {
+        var point = PlacedThrowPoint(from, aim, i, count, circle, Random.Shared);
+        if (!conn.Layout.WalkableFor(point.X, point.Y, 0)) point = aim;
         uint born = 0;
         double landsAt = 0;
         await SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
-                if ((!replaced && !current()) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
+                if ((!replaced && !current()) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(point.X, point.Y, 0)) return null;
                 var context = ReservationContext(conn, skill);
                 var reserve = kind.Mine ? SupportedReservation(conn, skill) : null;
                 uint id = conn.TakeObjectId();
                 double now = AreaTime(conn);
                 double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : kind.Mine ? .6 : .975;
                 double land = now + flight;
-                var placed = new PlacedSkills.Placed(id, skill, gem.Effect, aim, kind.Mine, land + .5,
+                var placed = new PlacedSkills.Placed(id, skill, gem.Effect, point, kind.Mine, land + .5,
                     land + Math.Max(0, Get(kind.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : kind.Mine ? 5 : 4)
                         * Math.Max(.01, 1 + Get(kind.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                     SupportedHitFor(conn, skill, suppress: false), new Dictionary<uint, int>(gem.Stats),
@@ -132,8 +172,8 @@ public static partial class Game
                 if (!conn.LockstepClient)
                 {
                     if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                        bytes.Presentation(id, InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
-                    bytes.Presentation(id, InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)flight, InstanceProtocol.FollowTerrain));
+                        bytes.Presentation(id, InstanceProtocol.ActionStarted(id, from.X, from.Y, point.X, point.Y, thrown, 0xffff, 0x0408));
+                    bytes.Presentation(id, InstanceProtocol.MoveTo(id, point.X, point.Y, (float)flight, InstanceProtocol.FollowTerrain));
                 }
                 born = id; landsAt = land;
                 conn.Placed.Dirty = true;
@@ -151,8 +191,8 @@ public static partial class Game
                     if ((!replaced && !current()) || conn.Closed || conn.LeavingArea || !conn.Placed.All.ContainsKey(born)) return null;
                     List<byte[]> records = [];
                     if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                        records.Add(InstanceProtocol.ActionStarted(born, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
-                    records.Add(InstanceProtocol.MoveTo(born, aim.X, aim.Y,
+                        records.Add(InstanceProtocol.ActionStarted(born, from.X, from.Y, point.X, point.Y, thrown, 0xffff, 0x0408));
+                    records.Add(InstanceProtocol.MoveTo(born, point.X, point.Y,
                         (float)Math.Max(0, landsAt - AreaTime(conn)), InstanceProtocol.FollowTerrain));
                     return [.. records];
                 }
@@ -303,6 +343,21 @@ public static partial class Game
         }
     }
 
+    // Charged Traps: a trap an enemy set off may grant a Frenzy and a Power Charge. Charged Mines: so may a mine
+    // detonated with an enemy in its target range (the 60 cells its skill aims within).
+    static void PlacedChargesLocked(ClientState conn, PlacedSkills.Placed placed, bool enemyTriggered, double now)
+    {
+        if (placed.Mine ? !conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
+                && Dist(m.Walk.Position(now), placed.At) <= 60) : !enemyTriggered) return;
+        foreach (var (type, stat) in new[] {
+            (ChargeType.Frenzy, placed.Mine ? "%_chance_to_gain_frenzy_charge_on_mine_detonated_targeting_an_enemy"
+                : "%_chance_to_gain_frenzy_charge_on_trap_triggered_by_an_enemy"),
+            (ChargeType.Power, placed.Mine ? "%_chance_to_gain_power_charge_on_mine_detonated_targeting_an_enemy"
+                : "%_chance_to_gain_power_charge_on_trap_triggered_by_an_enemy") })
+            if (GolemStat(placed.Own, stat) is > 0 and var chance && Random.Shared.Next(100) < chance)
+                ChargesOf(conn).Enqueue(new ChargeEvent.Grant(type, 1, placed.Mine ? "Charged Mines" : "Charged Traps"));
+    }
+
     static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, double now, WorldRecordBuilder bytes)
     {
@@ -359,6 +414,7 @@ public static partial class Game
                         && Dist(m.Walk.Position(now), placed.At) <= placed.TriggerRadius);
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
                     PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
+                    PlacedChargesLocked(conn, placed, nearby, now);
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
                     if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")
                     {

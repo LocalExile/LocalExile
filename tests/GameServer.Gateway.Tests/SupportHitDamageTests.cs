@@ -204,6 +204,18 @@ public sealed class SupportHitDamageTests
         Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get(("mine_laying_speed_+%", 50),
             ("support_minefield_mine_throwing_speed_+%_final", -55)), mine: true), 9);
         Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
+        Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
+            ("trap_throwing_speed_+%_per_frenzy_charge", 10)), mine: false, frenzyCharges: 3), 9);
+        // Several traps or mines from one use: the first on the aim, a row across the throw, or within the circle.
+        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 50), (100, 100), 0, 1, 0, new Random(1)));
+        Assert.Equal(new[] { (112, 100), (100, 100), (88, 100) },
+            Enumerable.Range(0, 3).Select(i => Game.PlacedThrowPoint((100, 50), (100, 100), i, 3, 0, new Random(1))));
+        Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 50), (100, 100), 0, 3, 20, new Random(1)));
+        Assert.All(Enumerable.Range(1, 40), i => Assert.True(
+            Game.Dist(Game.PlacedThrowPoint((100, 50), (100, 100), i, 41, 20, new Random(i)), (100, 100)) <= 21));
+        Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
+        Assert.Equal(3, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_3_additional_trap_mine", 100)), new Random(1)));
+        Assert.Equal(1, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_1_additional_trap_mine", 100)), new Random(1)));
         // A trap or mine fires at the nearest enemy that is not on it, else straight away from the player.
         Assert.Equal((110, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(100, 100), (130, 100), (110, 100), (300, 100)]));
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));

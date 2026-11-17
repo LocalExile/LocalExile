@@ -70,7 +70,9 @@ Nothing yet.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   The trap, mine and totem supports' own more or less damage scales the supported hit.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
-  Their extra-throw patterns, flight and arming times and charge generation remain open.
+  Extra traps and mines spread out (Cluster Traps' and Swift Assembly's circle; a row for the others), Swift
+  Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges and throwing speed.
+  Flight and arming times, the native multi-throw patterns and the charges' critical bonuses remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
