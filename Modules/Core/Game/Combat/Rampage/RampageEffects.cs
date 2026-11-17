@@ -317,12 +317,17 @@ public static partial class Game
             if (world.PendingBuffRemoval.Count > 0) return true;
             double now = ProjectileWorldTime(conn);
             foreach (var (id, entry) in world.Blinds)
-                if (!world.Enabled || entry.Until <= now || !conn.Monsters.TryGetValue(id, out var target)
-                    || target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0
+                if (RampageBlindEndsLocked(conn, world, id, entry.Until, now)
                     || world.SentBlinds.GetValueOrDefault(id) != entry.Until) return true;
             return false;
         }
     }
+
+    // The blind is over: the streak's effects are off, its time is up, or its monster is gone, dead or cannot be blinded.
+    // Under conn.Monsters.
+    static bool RampageBlindEndsLocked(ClientState conn, RampageWorld world, uint id, double until, double now) =>
+        !world.Enabled || until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0
+        || target.Mods.Effects["cannot_be_blinded"] != 0;
 
     static Task ExpireRampageBlinds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         !RampageBlindWork(conn) ? Task.CompletedTask :
@@ -338,7 +343,7 @@ public static partial class Game
                 world.PendingBuffRemoval.Clear();
                 double now = ProjectileWorldTime(conn);
                 foreach (var (id, entry) in world.Blinds.ToArray())
-                    if (!world.Enabled || entry.Until <= now || !conn.Monsters.TryGetValue(id, out var target) || target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0)
+                    if (RampageBlindEndsLocked(conn, world, id, entry.Until, now))
                     {
                         bytes.AddRange(InstanceEntities.RemoveBuff(id, entry.Buff));
                         if (conn.Monsters.TryGetValue(id, out var old)) old.RampageBlindUntil = 0;
