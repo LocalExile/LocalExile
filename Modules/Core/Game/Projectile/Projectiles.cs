@@ -636,7 +636,7 @@ public static partial class Game
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return CreateProjectileObject(id, obj);
-                }, () => visual.PendingGlide);
+                }, () => Projected(visual));
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
                 // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
@@ -825,8 +825,15 @@ public static partial class Game
                             + $" ended={visual.Ended} created={visual.Created} position={p.Position} remaining={p.Remaining}");
                     return null;
                 }
-                return glide;
+                return Projected(visual);
             });
+        }
+
+        // The pending move as it is projected: the next one built stops at the simulated position first.
+        static byte[][]? Projected(Visual visual)
+        {
+            if (visual.PendingGlide is not null) visual.Glided = true;
+            return visual.PendingGlide;
         }
 
         byte[][]? GlideRecords(ProjectileEntity p, Visual visual)
@@ -846,9 +853,8 @@ public static partial class Game
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
-            // first stop at the simulated position.
+            // first stop at the simulated position. A move replaced before it was projected was never the first.
             bool first = !visual.Glided;
-            visual.Glided = true;
             var start = first ? visual.SpawnedAt : p.Position;
             float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
             byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
