@@ -139,6 +139,7 @@ public static partial class Game
             var rawDamage = damage;
             double more = Math.Max(0, 1 + mods["monster_rarity_damage_+%_final"] / 100d)
                 * Math.Max(0, 1 - mods["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d)
+                * Math.Max(0, 1 + Own("vaal_upgrade_minion_damage_+%_final") / 100d)
                 * Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)

@@ -28,6 +28,7 @@ public sealed class HitSummonTests
     {
         await DominanceRegression();
         await VaalRegression();
+        await VaalSentinelRegression();
         using var f = new MinionUtilityTests.Fixture();
         var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
@@ -209,6 +210,55 @@ public sealed class HitSummonTests
             Assert.Equal(930u,archer.Target);
             clock.Time=22; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time); Assert.Empty(f.Conn.Summons.Fighters);
 
+        }
+        finally { Game.AreaUpdateContext.Value=outer; }
+    }
+
+    static async Task VaalSentinelRegression()
+    {
+        Assert.Equal("02BC00001000000000000000001509000102000200000404C132000300000404C13200",
+            Convert.ToHexString(InstanceEntities.PlayerMinionsChange(0x1000,
+                [new(0x4000002,0xc104,50), new(0x4000003,0xc104,50)])));
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            foreach (bool absolution in new[] { true, false })
+            {
+                f.Equip((absolution ? "Vaal Absolution" : "Vaal Domination",20));
+                string vaalId = absolution ? "VaalAbsolution" : "VaalDomination";
+                var vaal = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect) == vaalId);
+                ushort source = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect)
+                    == (absolution ? "Absolution" : "DominatingBlow")).Id;
+                Game.RefreshVaalSouls(f.Conn); for (int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                bool Admit() => Game.TryBeginSkillCooldownUse(f.Conn, vaal.Id, vaal.Effect, null, false,
+                    () => f.Conn.ActionCount++, out _);
+                Assert.False(Admit());
+                var victim = Target(f,940,MonsterRarity.Rare); Mark(f,victim,source,clock.Time); Kill(f,940,victim,clock.Time);
+                await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                var normal = Assert.Single(f.Conn.Summons.Fighters).Value;
+                Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                var owned = Assert.Single(f.Conn.Summons.PresentedOwnership).Value;
+                Assert.Equal((ushort)(0xc000 | vaal.Id), owned.Source);
+                Assert.Equal(absolution ? 50 : 3, owned.Type);
+                Assert.Null(Game.SentinelOwnershipPresentation(f.Conn));
+                normal.Monster.Life = normal.Monster.MaxLife / 2;
+                Assert.True(Admit());
+                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),normal.Id));
+                var ascended = Assert.Single(f.Conn.Summons.Fighters).Value;
+                Assert.NotEqual(normal.Id,ascended.Id); Assert.Equal(vaalId,ascended.Definition.Kind);
+                Assert.Equal(source,ascended.Source); Assert.Same(normal.InheritedMods,ascended.InheritedMods);
+                Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                Assert.Equal(absolution ? 51 : 4,Assert.Single(f.Conn.Summons.PresentedOwnership).Value.Type);
+                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                Assert.Equal(-70,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_taken_+%_final")!.Value]);
+                clock.Time++; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                clock.Time+=35; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                Assert.Empty(f.Conn.Summons.Fighters); Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                Assert.Empty(f.Conn.Summons.PresentedOwnership); f.Conn.NextAttackAt=0;
+            }
         }
         finally { Game.AreaUpdateContext.Value=outer; }
     }

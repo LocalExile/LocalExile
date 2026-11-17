@@ -14,6 +14,7 @@ public sealed class GolemState
         public int GemLevel, Quality, Limit;
         public MonsterModSet InheritedMods = MonsterModSet.None;
         public object? SourceIdentity;
+        public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
         public double Regeneration, Shield, MaximumShield;
         public int Combo;

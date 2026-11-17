@@ -261,7 +261,7 @@ public static partial class Game
             GolemPulsesLocked(remote, stream, ciphers, conn, g, now); return;
         }
         bool area = GolemStat(a.Stats, "is_area_damage") != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
-        var centre = a.Effect is 3347 or 10799 or 10800 or 869 or 11994 or 11995 ? action.Aim : at;
+        var centre = a.Effect is 3347 or 10799 or 10800 or 869 or 11994 or 11995 or 11996 or 11997 ? action.Aim : at;
         if (a.Effect == 869)
         {
             var end = action.Aim;

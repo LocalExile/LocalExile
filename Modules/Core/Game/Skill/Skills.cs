@@ -839,6 +839,20 @@ public static partial class Game
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(conn).EffectId(effect), rarity) is { } sentinel)
                         Publish(sentinel.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, sentinel, supported));
+            if (SkillsFor(conn).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
+                or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
+            {
+                bool absolution = SkillsFor(conn).EffectId(effect)!.Contains("Absolution", StringComparison.Ordinal);
+                string family = absolution ? "absolution_sentinels" : "dominated_monsters";
+                string display = absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance";
+                int basis = GolemStat(own, "base_max_number_of_vaal_" + family);
+                if (basis == 0) basis = GolemStat(own, display);
+                Publish("max_number_of_vaal_" + family, Math.Clamp(basis
+                    + GolemStat(playerStats, "base_max_number_of_vaal_" + family)
+                    + GolemStat(playerStats, "max_number_of_vaal_" + family), 0, 200));
+                foreach (string count in new[] { "number_of_active_absolution_sentinels", "number_of_active_vaal_absolution_sentinels",
+                    "number_of_dominated_monsters", "number_of_dominated_vaal_monsters" }) Publish(count, GolemStat(playerStats, count));
+            }
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
                 Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
                     n => GolemStat(playerStats, n)));
