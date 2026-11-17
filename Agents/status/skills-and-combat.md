@@ -65,8 +65,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
-- Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources, on monsters and the player; not
-  checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
+- Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
+  on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
