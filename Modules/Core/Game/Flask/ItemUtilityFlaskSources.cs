@@ -7,8 +7,6 @@ public static partial class Game
         ("local_unique_flask_physical_damage_%_to_add_as_chaos_while_healing", "physical_damage_%_to_add_as_chaos", false),
         ("local_unique_flask_elemental_damage_%_to_add_as_chaos_while_healing", "elemental_damage_%_to_add_as_chaos", false),
         ("local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing", "base_life_leech_from_chaos_damage_permyriad", false),
-        ("local_unique_flask_block_%_while_healing", "additional_block_%", false),
-        ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%", false),
         ("local_unique_flask_physical_damage_%_to_add_as_cold_while_healing", "physical_damage_%_to_add_as_cold", false),
         ("local_unique_flask_avoid_chill_%_while_healing", "base_avoid_chill_%", false),
         ("local_unique_flask_avoid_freeze_%_while_healing", "base_avoid_freeze_%", false),
@@ -53,8 +51,6 @@ public static partial class Game
         {
             BlockChance = ActorScale.Saturate((long)result.BlockChance
                 + snapshot.Where(row => row.Stat == "additional_block_%").Sum(row => (long)row.Value)),
-            SpellBlockChance = ActorScale.Saturate((long)result.SpellBlockChance
-                + snapshot.Where(row => row.Stat == "base_spell_block_%").Sum(row => (long)row.Value)),
         };
     }
 }
