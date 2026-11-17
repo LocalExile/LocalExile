@@ -7,9 +7,17 @@ public static partial class Game
     sealed record AnimatedSource(uint Id, WorldItemObject? Ground, Dictionary<byte, Item> Equipment);
 
     static AnimatedSource? AnimatedItems(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem,
-        (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored)
+        (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored, double radius = 15)
     {
         if (restored is not null) return new(0, null, new(restored));
+        if (definition.Id == "AnimateWeaponAltX")
+        {
+            if (ActiveMainHand(conn) is not { Type: { } type } hand
+                || WeaponIn(conn, hand) is not { Melee: true }
+                || ItemModStats.LevelRequirement(hand.Item, type.DropLevel, ItemsFor(conn).Mods)
+                    > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return null;
+            return new(0, null, new() { [2] = hand.Item });
+        }
         if (definition.Family == "Clone")
         {
             if (ActiveMainHand(conn) is not { Type.Class: "Bow" } bow) return null;
@@ -27,7 +35,7 @@ public static partial class Game
         uint id = target;
         if (ground is null)
         {
-            var found = conn.Instance.Ground.Within(aim.X, aim.Y, 15, p => Slot(p.Item) != 0)
+            var found = conn.Instance.Ground.Within(aim.X, aim.Y, radius, p => Slot(p.Item) != 0)
                 .Where(p => Visible(p.Id)).OrderBy(p => Dist((p.Item.GridX, p.Item.GridY), aim)).FirstOrDefault();
             id = found.Id; ground = found.Item;
         }
