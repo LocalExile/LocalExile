@@ -64,6 +64,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
+
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
@@ -152,8 +154,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
-- Absolution and Dominating sentinels, Phantasms and direct Vaal Skeletons. Docs: [11](../docs/protocol/11-skills.md) §10h.
-  Vaal Skeleton totem, trap and mine casts are refused before spending souls or starting an action.
+- Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions. Docs: [11](../docs/protocol/11-skills.md) §10h.
+  Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.

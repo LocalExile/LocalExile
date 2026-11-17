@@ -19,11 +19,13 @@ The client data has no currency drop weights. `CurrencyItems` carries `StackSize
 `Action` and `CurrencyUseType`; `BaseItemTypes` carries `DropLevel`. The weights
 are the Gateway's own table.
 
-## 2. The current hardcoded table
+## 2. The core table
 
-`src/GameServer.Gateway/Item/ItemDrops.cs` (`Currency`): 24 entries, sum 4049.51.
-The category is 35% of an item drop (`drop_multiplier_currency` scales that
-category only). Shares below are conditional on a currency drop.
+world.db's `drop_currency_weights` (36 rows, all `core`/`estimated`) is the pool; `ItemDrops.Currency` is the compiled
+24-entry fallback (sum 4049.51) used only while the table is empty or the database fails to load. The first 24 rows
+below are that fallback's; the rest are added by `sql/updates/*/*_currency_drop_gaps.sql`. The category is 35% of an
+item drop (`drop_multiplier_currency` scales that category only). Shares below are conditional on a currency drop,
+for the original 24 rows only (before the added rows).
 
 | Currency | BaseItemTypes Id | DropLevel | Weight | Share |
 |---|---|---:|---:|---:|
@@ -52,23 +54,31 @@ category only). Shares below are conditional on a currency drop.
 | Divine Orb | `CurrencyModValues` | 35 | 1 | 0.025% |
 | Mirror of Kalandra | `CurrencyDuplicate` | 35 | 0.01 | 0.00025% |
 
-The table is not the whole core currency set. Examples of types with a
-`DropLevel` that are not in it:
+The 12 added rows have no published weight. Each is an estimate placed by rarity against the rows above; none is a
+measurement. Orb of Unmaking copies Orb of Regret, and Hinekora's Lock copies the Mirror.
 
-| Currency | BaseItemTypes Id | DropLevel | Note |
-|---|---|---:|---|
-| Orb of Binding | `CurrencyUpgradeToRareAndSetSockets` | 25 | core orb, missing |
-| Sacred Orb | `CurrencyRerollDefences` | 35 | source needs checking |
-| Ancient Orb | `CurrencyRerollUnique` | 35 | core drop since 3.28 |
-| Cartographer's Chisel | `CurrencyMapQuality` | 52 | map currency; 3.25 follows map drop rules |
-| Fracturing Orb | `CurrencyFractureRare` | 68 | core drop since 3.28 |
-| Orb of Unmaking | `CurrencyAtlasPassiveRefund` | 70 | Atlas currency |
-| Orb of Horizons | `CurrencyRerollMapType` | 68 | no longer obtained in 3.28 |
+| Currency | BaseItemTypes Id | DropLevel | Weight | Basis |
+|---|---|---:|---:|---|
+| Engineer's Orb | `CurrencyStrongboxQuality` | 1 | 17 | uncommon, between Blessed and Regal |
+| Harbinger's Orb | `CurrencyUpgradeMapTier` | 1 | 1.5 | rare, as Annulment |
+| Orb of Binding | `CurrencyUpgradeToRareAndSetSockets` | 25 | 18 | uncommon, between Blessed and Regal |
+| Sacred Orb | `CurrencyRerollDefences` | 35 | 0.3 | very rare, well below Divine |
+| Ancient Orb | `CurrencyRerollUnique` | 35 | 2 | core drop since 3.28; rare, as Exalted |
+| Hinekora's Lock | `CurrencyHinekorasLock` | 40 | 0.01 | as the Mirror |
+| Instilling Orb | `CurrencyInstillingOrb` | 40 | 16 | uncommon, between Blessed and Regal |
+| Enkindling Orb | `CurrencyEnkindlingOrb` | 40 | 16 | uncommon, between Blessed and Regal |
+| Stacked Deck | `DivinationCardDeck` (a card base) | 50 | 2 | rare outside league mechanics, as Exalted |
+| Cartographer's Chisel | `CurrencyMapQuality` | 52 | 35 | fairly common in its range, near Chaos/Scouring |
+| Fracturing Orb | `CurrencyFractureRare` | 68 | 0.2 | core drop since 3.28; very rare |
+| Orb of Unmaking | `CurrencyAtlasPassiveRefund` | 70 | 25 | as Orb of Regret (owner's judgment) |
+
+Not in the table, on purpose: Orb of Horizons (`CurrencyRerollMapType`, DropLevel 68; no longer obtained in 3.28),
+Silver Coin, the Veiled orbs and every boss- or league-only currency (§5.1).
 
 Eldritch, Tainted, Foulborn, coin, omen and similar items have their own sources
 and are not part of the ordinary orb pool. `CurrencyItems` has 1,962 rows in
-3.29.3c, including cards, scarabs, essences and map fragments; only the core orb
-table above is used by `ItemDrops.Currency`.
+3.29.3c, including cards, scarabs, essences and map fragments; only the core table above is used
+by the ordinary currency drop.
 
 ## 3. Recent changes to relative currency rates
 
@@ -80,7 +90,7 @@ These are the fresh data points; the full public table is only the 2014 leak
 | 3.26 | Orb of Regret drop chance lowered; distributed across the other currency items | Regret weight should be lower than the 2014 shape |
 | 3.28 | Currency items are a significantly larger portion of dropped items; non-unique equipment is about 6% less common; Ruthless unaffected | the 35% currency category is too low for 3.28+ |
 | 3.28 | Relative rarities adjusted; Exalted and Regal Orbs comparatively more common | Exalted/Regal weights should rise |
-| 3.28 | Fracturing and Ancient Orbs enter the core drop pool | add both to the table |
+| 3.28 | Fracturing and Ancient Orbs enter the core drop pool | both are in the table (estimated weights) |
 | 3.28 | Quality currency from Synthesised Monsters reduced | not a core-table row |
 | 3.29 | Chromatic Orbs are rarer after the socket changes | lower the 200 weight |
 | 3.29 | Currency, fragments and cards stack up to 10,000 in stash tabs | stack size only, not a weight |
@@ -119,7 +129,7 @@ here; do not guess it.
 
 ## 5. Boss, league and area-specific sources
 
-`ItemDrops.Currency` is the global core pool, and `ItemDrops.Card` picks a
+The `drop_currency_weights` table is the global core pool, and `ItemDrops.Card` picks a
 uniform random card from every supported card. Neither models the game's
 restricted pools: some currency is boss- or league-only, and every card has an
 area, a minimum map tier, a `DropLevel`, or a boss/league source. The weights
@@ -133,9 +143,6 @@ cannot be treated as complete until those sources are part of the model.
 | Maven's Orb, Orb of Dominance | The Maven | game knowledge; verify against the item pages |
 | Veiled Chaos/Exalted | Betrayal safehouses/Catarina | game knowledge; verify |
 | Eldritch Chaos/Exalted/Annulment | Searing Exarch/Eater of Worlds | game knowledge; verify |
-| Fracturing Orb, Ancient Orb | core drop since 3.28 | 3.28 patch notes |
-| Cartographer's Chisel | map currency; map drop rules | 3.25 patch notes |
-| Orb of Unmaking | Atlas currency | client `DropLevel` 70 |
 | Breach, Timeless and Simulacrum splinters | league mechanics | not boss-only; separate pools |
 
 The Gateway table has no source column. A boss-only currency must not be added
@@ -174,8 +181,8 @@ Current code: `ItemDrops.Card(Random rng)` does not check `DropLevel`, area,
 map tier, boss or league; it picks uniformly from every supported card. A
 correct `Card` needs the area id, map tier and monster level (and a boss/league
 flag for the special hooks), then the intersection of the area table,
-`DropLevel <= monster level` and the special source. `MapRun.CardDropChance` and
-`PacksDropCards` only change the chance, not the pool.
+`DropLevel <= monster level` and the special source. The map's card factor and
+`PacksDropCards` (`Game.ExtraDropsFromMap`) only change the chance, not the pool.
 
 Boss unique pools and the known chances are in [boss-drops.md](boss-drops.md);
 the full work plan is in [drop-research-roadmap.md](drop-research-roadmap.md).
@@ -224,8 +231,7 @@ sources above are corrections and cross-checks, not a replacement table.
 
 ## 8. Open
 
-- Calibrate the 24 weights to the 3.28/3.29 changes, then add Orb of Binding,
-  Sacred Orb, Ancient Orb, Cartographer's Chisel and Fracturing Orb.
+- Calibrate the 36 weights to the 3.28/3.29 changes; the 12 added rows are estimates with no published source.
 - Decide whether Scroll of Wisdom and Portal Scroll belong in the same currency
   pool as the orbs; the 2014 table excludes them.
 - Implement the drop penalty in `ItemDrops` and apply it to currency (and cards
