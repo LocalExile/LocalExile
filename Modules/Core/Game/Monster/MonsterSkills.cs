@@ -23,6 +23,7 @@ public static partial class MonsterSkills
     {
         CorpseSkills = LoadCorpseSkills();
         BuffRows = LoadBuffRows();
+        Dashes = LoadDashes();
     }
 
     /// <summary>How long a buff or curse lasts when its skill names no duration.</summary>
@@ -37,14 +38,16 @@ public static partial class MonsterSkills
 
     /// <summary>The GrantedEffects rows of the Dash action (ActiveSkills <c>dash</c>): the player's Dash and the monsters'
     /// (ExileQuickDodge, DashMercenary, MonsterQuickDodgeRun …).</summary>
-    static readonly Lazy<HashSet<int>> Dashes = new(() =>
+    static HashSet<int> Dashes = [];
+
+    static HashSet<int> LoadDashes()
     {
         var skills = ClientTables.Table("ActiveSkills");
         int dash = skills.Select(r => r.Text("Id")).ToList().IndexOf("dash");
         return [.. ClientTables.Table("GrantedEffects").Where(e => dash >= 0 && e.IntOrNull("ActiveSkill") == dash).Select(e => e.Index)];
-    });
+    }
 
-    static bool IsDash(int effect) => Dashes.Value.Contains(effect);
+    static bool IsDash(int effect) => Dashes.Contains(effect);
 
     /// <summary>The skill's own skill_travel_distance_+% at the monster's level (ExileQuickDodge's 20: its Dash goes 36
     /// cells, where the player's base Dash goes 30). StatsOf leaves skill_ stats out of a use's stats.</summary>
