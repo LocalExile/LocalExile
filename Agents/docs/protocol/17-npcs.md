@@ -244,6 +244,10 @@ Automatic quest selection conservatively accepts only rows with empty extra list
 zero minimum level and native neutral context/league selectors (60 / `0x777`). Other rows retain manual selection.
 The raw evidence and decoded `semantics.json`/`equipment.json` stay under ignored `Tools/re/out/gameplay-captures/`.
 
+Lilly's "Virtue Gems" rows 950/951 use an account context, outside the generic automatic selector.
+Row 950 finishes league quest flag 1163; Purchase Items (952) requires that flag, in addition to the character unlock.
+Vendors runs the eligible introduction and saves 1163 when its talk finishes; its gem stock reads the shared unlock.
+
 ### NPCTalk scripts
 
 A row's `Script` / `Script2` (NPCTalk columns) can do more than set flags. The Game module runs these calls

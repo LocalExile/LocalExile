@@ -138,6 +138,35 @@ public sealed class NpcConversationTests
         // system the server does not have.
         var einhar = Game.Npcs.Value.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag, einhar));
+        await VerifyLillyGemIntroduction();
+    }
+
+    static async Task VerifyLillyGemIntroduction()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var conn = f.Conn;
+        conn.Wire = ("lilly-test", f.Stream, f.Ciphers);
+        var npc = new SpawnedNpc(Game.Npcs.Value.Find("Metadata/NPC/Act6/Lilly")!, 100, 100);
+        conn.Npcs[500] = npc; conn.TalkingTo = 500;
+        using var text = GameEvents.NpcOption.Add("Game", option =>
+        {
+            if (!option.HasText) return Task.FromResult(false);
+            conn.InNpcTalk = true;
+            return Task.FromResult(true);
+        });
+        Assert.False(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
+        conn.QuestFlags.Add("a6q4-QuestRewardSeen");
+        Assert.True(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
+        Assert.True(conn.HasQuestFlag(GemVendorStock.LillyUnlock));
+        Assert.DoesNotContain(VendorsFeature.LillyGemShopLeagueFlag, conn.LeagueQuestFlags);
+        await VendorsFeature.FinishLillyGemIntroduction(conn);
+        Assert.Contains(VendorsFeature.LillyGemShopLeagueFlag, conn.LeagueQuestFlags);
+        Assert.Contains(VendorsFeature.LillyGemShopLeagueFlag, Game.PersonalStashOf(conn).LeagueQuestFlags);
+        Assert.False(await VendorsFeature.BeginLillyGemIntroduction(conn, 500, npc));
+        conn.QuestFlags.Remove(GemVendorStock.LillyUnlock);
+        var gems = GemVendorStock.For(Program.Items, Game.Npcs.Value, Program.Skills);
+        Assert.Empty(gems.Stock(npc.Npc.Id, conn.ClassRow, conn.QuestFlagsSnapshot()));
+        Assert.NotEmpty(gems.Stock(npc.Npc.Id, conn.ClassRow, VendorsFeature.VendorQuestFlags(conn)));
     }
 
     sealed class Wire : IDisposable
