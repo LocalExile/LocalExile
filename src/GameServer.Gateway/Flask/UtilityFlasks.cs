@@ -61,7 +61,8 @@ public static class UtilityFlasks
 
     /// <summary>How a flask effect's stat counts here.</summary>
     public static Support SupportOf(string stat) =>
-        ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) ? Support.Modelled
+        ActorScale.IsInput(stat) || Modelled.Contains(stat) || ElementalAilmentInputs.Contains(stat) || HandedFlag(stat)
+            ? Support.Modelled
         : PanelOnly.Contains(stat) ? Support.PanelOnly
         : stat is "base_ward" or "ward_+%" ? Support.Ward
         : Support.Unsupported;
@@ -122,14 +123,46 @@ public static class UtilityFlasks
         ("local_unique_flask_block_%_while_healing", "monster_base_block_%", 1, false),
         ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%", 1, false),
         // Stormblood (and its cold sibling): all damage from critical strikes can shock (chill, freeze) during the effect
-        // (MonsterElementalAilments.Inflicting), and sap (brittle), whose source still has to inflict it.
+        // (MonsterElementalAilments.Inflicting). Sap and Brittle are not modelled.
         ("local_unique_flask_all_damage_from_critical_strikes_can_shock_during_effect", "all_damage_from_critical_strikes_can_shock", 1, true),
         ("local_unique_flask_all_damage_from_critical_strikes_can_chill_during_effect", "all_damage_from_critical_strikes_can_chill", 1, true),
         ("local_unique_flask_all_damage_from_critical_strikes_can_freeze_during_effect", "all_damage_from_critical_strikes_can_freeze", 1, true),
-        ("local_unique_flask_all_damage_from_critical_strikes_can_sap_during_effect", "all_damage_from_critical_strikes_can_sap", 1, true),
-        ("local_unique_flask_all_damage_from_critical_strikes_can_inflict_brittle_during_effect",
-            "all_damage_from_critical_strikes_can_inflict_brittle", 1, true),
     ];
+
+    // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
+    static volatile (string Local, string Stat)[] _handedFlags = [];
+    static readonly object HandedFlagsLock = new();
+
+    static bool HandedFlag(string stat)
+    {
+        foreach (var flag in _handedFlags) if (flag.Stat == stat) return true;
+        return false;
+    }
+
+    /// <summary>A hand-over for modules: each pair is a flask's local "during effect" flag and the character stat it
+    /// sets to 1 while the effect runs, as a <see cref="DuringEffect"/> flag row, put in the raw stats the rules read.
+    /// The framework names none; disposing the result (the module's lifetime) takes back the pairs it added.</summary>
+    public static IDisposable HandOverDuringEffectFlags(IReadOnlyCollection<(string Local, string Stat)> flags)
+    {
+        (string, string)[] added;
+        lock (HandedFlagsLock)
+        {
+            added = [.. flags.Distinct().Except(_handedFlags)];
+            _handedFlags = [.. _handedFlags, .. added];
+        }
+        return new FlagsHandOver(added);
+    }
+
+    sealed class FlagsHandOver((string, string)[] added) : IDisposable
+    {
+        int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            lock (HandedFlagsLock) _handedFlags = [.. _handedFlags.Except(added)];
+        }
+    }
 
     /// <summary>A buff a flask grants besides its own (BuffDefinitions row, with its stats).</summary>
     public sealed record ExtraBuff(ushort BuffRow, string BuffId, IReadOnlyList<(string Stat, int Value)> Stats);
@@ -155,8 +188,7 @@ public static class UtilityFlasks
         IgnitedDuringEffectTakenStat,   // Cinderswallow Urn
         "monster_base_block_%", "base_spell_block_%",   // Rumi's Concoction (Apply)
         "all_damage_from_critical_strikes_can_shock", "all_damage_from_critical_strikes_can_chill",
-        "all_damage_from_critical_strikes_can_freeze", "all_damage_from_critical_strikes_can_sap",
-        "all_damage_from_critical_strikes_can_inflict_brittle",   // Stormblood
+        "all_damage_from_critical_strikes_can_freeze",   // Stormblood
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -252,7 +284,7 @@ public static class UtilityFlasks
     public static List<Source> DuringEffectSources(IReadOnlyDictionary<string, int> local, double effect)
     {
         List<Source> stats = [];
-        foreach (var (localStat, stat, sign, flag) in DuringEffect)
+        foreach (var (localStat, stat, sign, flag) in DuringEffect.Concat(_handedFlags.Select(f => (f.Local, f.Stat, 1, true))))
             if (local.GetValueOrDefault(localStat) is int value and not 0 && SupportOf(stat) != Support.Unsupported)
                 stats.Add(new Source($"mod {stat}", stat, sign * (flag ? 1 : Scale(value, effect))));
         return stats;
@@ -524,8 +556,7 @@ public static class UtilityFlasks
                 "recover_%_maximum_life_on_kill" or "recover_%_maximum_mana_on_kill" or "recover_energy_shield_%_on_kill" => stat,
                 // Stormblood: the hit's ailments read these from the merged player stats.
                 "all_damage_from_critical_strikes_can_shock" or "all_damage_from_critical_strikes_can_chill"
-                    or "all_damage_from_critical_strikes_can_freeze" or "all_damage_from_critical_strikes_can_sap"
-                    or "all_damage_from_critical_strikes_can_inflict_brittle" => stat,
+                    or "all_damage_from_critical_strikes_can_freeze" => stat,
                 "base_cast_speed_+%" => "cast_speed_+%",
                 // Onslaught's attack speed is PoB's Speed INC (Attack): the attack-speed stat itself, not only the
                 // pools' timing bucket. The pools already add it through Apply, and PassiveBonus reads the passives'
@@ -535,7 +566,8 @@ public static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
                 "phase_through_objects" => "virtual_phase_through_objects",
-                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat) => stat,
+                _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
+                    || HandedFlag(stat) => stat,
                 _ => null,
             };
             if (name is not null && catalog.Key(name) is uint key)

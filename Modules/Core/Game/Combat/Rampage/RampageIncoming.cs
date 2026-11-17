@@ -79,7 +79,7 @@ public static partial class Game
             accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
             if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
             var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
-                weapon.MaxLife, Random.Shared, out bool critical).Scale(MonsterDamageDealtFactor(attacker, now));   // its Sap
+                weapon.MaxLife, Random.Shared, out bool critical).Scale(SappedDamageFactor(attacker, now));
             var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;

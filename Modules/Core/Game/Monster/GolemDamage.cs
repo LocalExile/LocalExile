@@ -107,7 +107,7 @@ public static partial class Game
             return false;
         }
         var rolled = MonsterModHit(source, attack.Damage.Roll(Random.Shared), m.Life, m.MaxLife, Random.Shared, out bool critical,
-            cannotCrit: VaalOversoul.CannotCrit(source, attack)).Scale(MonsterDamageDealtFactor(source, now));   // its Sap
+            cannotCrit: VaalOversoul.CannotCrit(source, attack)).Scale(SappedDamageFactor(source, now));
         bool elementalImmune = g.Definition.IsGolem && (Player("golem_immunity_to_elemental_damage") > 0
             || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && Player("elemental_golem_immunity_to_elemental_damage") > 0);
         int damage = 0;

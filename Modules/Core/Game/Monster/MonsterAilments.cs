@@ -178,7 +178,7 @@ public static partial class Game
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
-        var alternate = AlternateAilmentsOnHit(m.Ailments, taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random);
+        var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)
             if (effect.Kind == Kind.Freeze) conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
             else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
@@ -189,6 +189,7 @@ public static partial class Game
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
             {
                 m.Ailments.Shatter();
+                m.RuleAilments.Clear();
                 conn.RecentEvents.Record(StatConditions.ShatteredEnemy, now);
             }
             else ShockOnKillLocked(conn, m, player, now);
@@ -209,8 +210,11 @@ public static partial class Game
         }
         if (added.Count + alternate.Count == 0 || conn.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
-        if (reflected is not null) reflected.AddRange(added.Concat(alternate));
-        else ReflectAilmentsLocked(conn, added.Concat(alternate), now, player, random);
+        // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
+        ReflectAlternateAilmentsLocked(conn, alternate, now, Player, random);
+        if (added.Count == 0) return;
+        if (reflected is not null) reflected.AddRange(added);
+        else ReflectAilmentsLocked(conn, added, now, player, random);
     }
 
     /// <summary>Mirrored: the ailments a hit added act on the player as well (wiki Reflect), as they landed, then through
@@ -224,8 +228,7 @@ public static partial class Game
         ApplyPlayerAilmentsLocked(conn, now, ailments =>
         {
             foreach (var e in added)
-                ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()),
-                    e.Kind >= Kind.Scorch ? AlternateOnSelf(e.Kind, e.Magnitude, Player) : e.Magnitude,
+                ailments.Inflict(Enum.Parse<PlayerElementalAilments.Kind>(e.Kind.ToString()), e.Magnitude,
                     e.Until - e.From, now, Player, random);
         });
     }
@@ -257,12 +260,13 @@ public static partial class Game
             // Maim and Hinder raise no ailment magnitude, so an idle monster with only them would never get its walk
             // factor recomputed; they are checked before the idle skip (the knockback above stays first: an idle
             // monster still moves).
+            if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {AilmentMagnitudeText(kind, magnitude)}"));
+                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
             }
             double action = MonsterActionFactor(m, now, freeze: false);
             double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
@@ -294,11 +298,8 @@ public static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    // Scorch, Brittle and Sap (scorched 1243, frostburn 1244 "Brittle", sapped 1245) have the chilled and shocked rows'
-    // shape: IsRecovery, one GrantedStats value, sent as AilmentBuffValue gives it.
     public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
-        InstanceEntities.AddBuff(id, instance, kind >= Kind.Scorch ? AlternateAilmentOf(kind).BuffRow : (ushort)(kind + 1),
-            PlayerId, u82: 0,
-            values: kind == Kind.Freeze ? null : [(uint)AilmentBuffValue(kind, magnitude)],
+        InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
+            values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
 }

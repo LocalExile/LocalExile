@@ -281,6 +281,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double OverpoweredUntil;
     // The chill, freeze and shock the player's hits have put on it (MonsterElementalAilments); kept on the corpse.
     public readonly MonsterElementalAilments Ailments = new();
+    // The ailments of kinds the rules define (RuleAilments); kept on the corpse.
+    public readonly RuleAilments RuleAilments = new();
     // All outgoing attacks share this defender's sequence, under the Monsters lock. A new spawn starts fresh.
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
@@ -547,6 +549,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
     public readonly RecentEvents RecentEvents = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // The player's ailments of kinds the rules define (RuleAilments), cleared with the elemental ones.
+    public readonly RuleAilments RuleAilments = new();
     public readonly IncomingDamagingAilments IncomingAilments = new();
     public IncomingDamagingAilments.State? PresentedIncomingAilments;
     public int PresentedIncomingAilmentEpoch = -1;
@@ -590,7 +594,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
             }
             if (clear)
             {
-                RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear();
+                RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear(); RuleAilments.Clear();
                 IncomingAilments.Clear(); PresentedIncomingAilments = null;
                 PresentedIncomingAilmentEpoch = IncomingHitEpoch;
             }
@@ -965,8 +969,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public PassiveBuffAuras.BlindState BlindAura { get; } = new();
     /// <summary>Whether the player phases (a Quartz Flask runs): the walk estimate walks through monsters (Blockers).</summary>
     public volatile bool Phasing;
-    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the monster ailments' fixed instances
-    /// (MonsterElementalAilments.Instance) and never hands out 0.</summary>
+    /// <summary>The next buff instance (S→C 0x1c1). It wraps back to 1 below the fixed instances
+    /// (<see cref="FixedBuffInstances"/>) and never hands out 0.</summary>
     /// The instance's (InstanceWorld.NextBuff): one player's buff on a monster never shares an instance with another's, so a
     /// client's removal of its own never takes off one another client put there.
     public ushort NextBuff
@@ -974,11 +978,14 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get => Instance is { } i ? i.World.NextBuff : nextBuff;
         set
         {
-            ushort v = value is 0 or >= MonsterElementalAilments.LowestInstance ? (ushort)1 : value;
+            ushort v = value is 0 or >= FixedBuffInstances ? (ushort)1 : value;
             if (Instance is { } i) i.World.NextBuff = v; else nextBuff = v;
         }
     }
     ushort nextBuff = 1;
+    /// <summary>The lowest of the buff instances NextBuff never hands out: the rules keep these for buffs that always
+    /// use the same instance on their object (MonsterElementalAilments.Instance is the top three).</summary>
+    public const ushort FixedBuffInstances = ushort.MaxValue - 7;
     public uint PlayerMaxLife => Pools.Life;
     public uint PlayerReservedLife
     {

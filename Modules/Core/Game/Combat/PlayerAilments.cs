@@ -13,10 +13,8 @@ public static partial class Game
         get("active_skill_ignite_damage_+%_final"))
     {
         NeverFreeze = get("never_freeze") != 0,
-        // Scorch, Brittle and Sap (AlternateAilmentsOnPlayerLocked): the boss skills' chance_to_scorch_% and the like.
-        ScorchChance = get("chance_to_scorch_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
-        BrittleChance = get("chance_to_inflict_frostburn_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
-        SapChance = get("chance_to_inflict_sapped_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
+        // Scorch and Brittle (AlternateAilmentsOnPlayerLocked) read the boss skills' chance_to_scorch_% and the like.
+        SourceStats = get,
     };
 
     public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,

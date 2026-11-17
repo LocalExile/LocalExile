@@ -141,10 +141,6 @@ public static class PanelStats
         new("virtual_immune_to_bleeding", ["immune_to_bleeding"], Flag: true),
         new("combined_bleeding_duration_on_self_+%", ["self_bleed_duration_+%"]),
         .. Ailment("ignite", "ignited"), .. Ailment("chill", "chilled"), .. Ailment("freeze", "frozen"), .. Ailment("shock", "shocked"),
-        // Scorch, Brittle (frostburn) and Sap are elemental ailments too, so Avoid Elemental Ailments counts for each.
-        new("avoid_scorch_%", ["base_avoid_scorch_%", AvoidElementalAilments]),
-        new("avoid_frostburn_%", ["base_avoid_frostburn_%", AvoidElementalAilments]),
-        new("avoid_sap_%", ["base_avoid_sap_%", AvoidElementalAilments]),
         new("avoid_poison_%", ["base_avoid_poison_%"]),
         new("virtual_cannot_be_poisoned", ["cannot_be_poisoned"], Flag: true),
         new("virtual_immune_to_poison", ["immune_to_poison"], Flag: true),

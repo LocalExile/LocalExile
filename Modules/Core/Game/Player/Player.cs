@@ -580,7 +580,6 @@ public static partial class Game
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
-        var alternateAilments = new int[AlternateAilments.Length];
         bool moving = conn.Walk.Moving(last);
         while (PlayerUpdatesCurrent(conn, updates))
         {
@@ -621,8 +620,9 @@ public static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
-            foreach (var (packet, log) in PlayerAlternateAilmentBuffs(conn, alternateAilments, tickNow))
-                await Send(remote, stream, ciphers, packet, log);
+            if (!conn.RuleAilments.Idle)
+                foreach (var (packet, log) in AlternateAilmentBuffs(PlayerId, "player", conn.RuleAilments, tickNow))
+                    await Send(remote, stream, ciphers, packet, log);
             IncomingDamagingAilments.State nextIncoming;
             IncomingDamagingAilments.State presented;
             int incomingEpoch;
