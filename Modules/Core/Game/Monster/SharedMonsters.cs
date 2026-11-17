@@ -81,7 +81,7 @@ public static partial class Game
         }
         d = TargetDistance(conn, d);
         var t = m.Target;
-        bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
+        bool live = TargetLive(t, conn);
         if (live && ReferenceEquals(t, conn))
         {
             if (!m.Aggro && d > m.AggroRange) m.Target = null; // gave up: free for whoever comes
@@ -108,6 +108,10 @@ public static partial class Game
 
     const double TargetMargin = 15;
 
+    // Whether a monster's target still counts: a live player of this connection's instance, in the area.
+    static bool TargetLive(ClientState? t, ClientState conn) =>
+        t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
+
     // Dormant bodies were created and woken too. Keep their views eligible for the rise's component update,
     // without adding them to RunMonsters or giving them an AI action. Under the instance's monster lock.
     static uint[] AwakeMonsterIds(ClientState conn) =>
@@ -125,9 +129,12 @@ public static partial class Game
         {
             // Only the runner's client puts monsters to sleep (KeepWakeZone); the others have every one they were shown.
             awake = AwakeMonsterIds(conn);
-            // Its targets' actions; a monster with none (a scripted boss, an idle one) acts on the runner's loops.
+            // Its targets' actions; a monster with none (a scripted boss, an idle one) acts on the runner's loops. So does
+            // one whose target is gone (left the area, closed, dead): it stays that player's, and no loop ran it, so it
+            // could never take the next one either (live 2026-11-17: back in a kept area, every monster that had fought
+            // the player stood idle). Its AI pass retargets it (MonsterTargetsLocked).
             run = [.. world.Monsters.Where(e => world.MonsterOrigins.ContainsKey(e.Key)
-                && (ReferenceEquals(e.Value.Target, conn) || runner && e.Value.Target is null)).Select(e => e.Key)];
+                && (ReferenceEquals(e.Value.Target, conn) || runner && !TargetLive(e.Value.Target, conn))).Select(e => e.Key)];
         }
         conn.AwakeMonsters = awake; // SortedDictionary: already in order
         conn.RunMonsters = run;
