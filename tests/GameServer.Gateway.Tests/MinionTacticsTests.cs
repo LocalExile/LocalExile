@@ -15,7 +15,7 @@ public sealed class MinionTacticsTests
     }
     sealed class ZeroRandom : Random { public override int Next(int maxValue) => 0; }
     static object? Invoke(string name, params object[] args) =>
-        typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, args);
+        typeof(Game).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, args);
     static SpawnedMonster Enemy(MinionUtilityTests.Fixture f, uint id, int x) => f.Conn.Monsters[id] =
         new("target", new(x, 100, 0), 100, 3, 1000000) { Hostile = true };
 

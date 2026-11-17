@@ -7,7 +7,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class MinionSupportExecutionTests
 {
     static void Invoke(string name, params object[] arguments) =>
-        typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments);
+        typeof(Game).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments);
 
     static async Task<GolemState.Golem> Skeleton(AnimatedAdmissionTests.Fixture f, params string[] supports)
     {
