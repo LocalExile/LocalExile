@@ -1339,9 +1339,9 @@ public static partial class Game
             RecordPlayerSkills(conn, skills);
             skillsPacket = PlayerSkillsWithVaalSouls(conn, skills, gone);
         }
-        await Send(remote, stream, ciphers, skillsPacket, "0x02bc player Actor: current skill stats",
-            still: () => !conn.Closed && !conn.LeavingArea);
-        if (!CurrentGameRules) return;
+        if (!conn.DeferSkillStats)
+            await Send(remote, stream, ciphers, skillsPacket, "0x02bc player Actor: current skill stats",
+                still: () => !conn.Closed && !conn.LeavingArea);        if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 
