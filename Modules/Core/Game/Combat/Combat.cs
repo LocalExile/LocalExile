@@ -2008,7 +2008,7 @@ public static partial class Game
                 var rampagePlayer = freshPlayer ? player : null;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
                 uint lifeBefore = m.Life;
-                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
+                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer, allyAt: null,
                     cull: Cull.Of(player, skillStats, critical, spell), cullPlayer: player);
                 if (applied is not null)
                 {
@@ -2330,7 +2330,15 @@ public static partial class Game
     // it hits from) is not the player's hit for his hit-recently.
     public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null,
-        Cull cull = default, IReadOnlyDictionary<uint, int>? cullPlayer = null)
+        Cull cull = default) =>
+        ApplyMonsterHitLocked(conn, m, damage, rampageSource, player, allyAt, cull, null);
+
+    // The area-hit caller passes the attack's cached snapshot as `cullPlayer` for every victim: Rampage's `player` is
+    // rebuilt only for the first target, so the two contexts must stay separate. This is an overload rather than an
+    // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.
+    public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
+        bool? rampageSource, IReadOnlyDictionary<uint, int>? player, (int X, int Y)? allyAt,
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
