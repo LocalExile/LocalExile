@@ -35,7 +35,7 @@ seed; nothing is read from the docs:
 
 | Table | Rows |
 |---|---|
-| `drop_currency_weights` | `ItemDrops.Currency` (24 rows), each with its `BaseItemTypes.DropLevel` |
+| `drop_currency_weights` | `ItemDrops.Currency` (24 rows) and 12 more core orbs from `currency_drop_gaps` (estimated), each with its `BaseItemTypes.DropLevel` |
 | `drop_bosses` | `WorldAreas.Bosses_MonsterVarietiesKeys` (630 distinct boss ids); the category comes from the area's `IsUniqueMapArea`/`IsMapArea`/`IsLabyrinthArea`/`IsLabyrinthBossArea` flags, else `campaign` (act > 0) or `other` |
 | `drop_boss_items` | 108 rows: major boss unique pools (PoEDB), boss-only currency, the King in the Mists exact chances |
 | `drop_card_areas` | 555 area/card pairs from PoEDB |
