@@ -202,20 +202,28 @@ public static partial class Game
     // gate (about 29 a second even when nothing had changed).
     static bool RampagePresentationPending(ClientState conn)
     {
-        lock (conn.Monsters)
-            return CurrentRampageWork && conn.OwnedCombatState is RampageWorld
-                && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
-                && conn.Rampage.Current != conn.SentRampage;
+        lock (conn.Monsters) return conn.OwnedCombatState is RampageWorld && RampageUnsentLocked(conn);
     }
+
+    // The streak differs from the one the client was sent. Under conn.Monsters.
+    static bool RampageUnsentLocked(ClientState conn) =>
+        CurrentRampageWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.Rampage.Current != conn.SentRampage;
+
+    /// <summary>What of a streak the full stat and skill snapshots depend on: they are sent again only when this
+    /// changes. Damage and movement change every 20 stacks; rarity, area and Chain Hook's and Shield Charge's attack
+    /// speed (every 10 stacks) only for a character that has the stat, at its own group size.</summary>
+    public static (int Active, int Damage, int Movement, int Rarity, int Area, int AttackSpeed) RampageStatSignature(
+        RampageState.Value value, int rarityPerKills, int areaPer25, int attackSpeedPer10) =>
+        (value.Active ? 1 : 0, value.DamagePercent, value.MovementPercent, RampageRarity(value.Stacks, rarityPerKills),
+            RampageRarity(value.Stacks, 25) * areaPer25, RampageRarity(value.Stacks, 10) * attackSpeedPer10);
 
     public static byte[]? RampagePresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {
-            if (!CurrentRampageWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
+            if (!RampageUnsentLocked(conn)) return null;
             var stats = CharacterPlayerStats(conn);
             var value = conn.Rampage.Current;
-            if (value == conn.SentRampage) return null;
             var bytes = new List<byte>();
             // The same buff instance takes the new count; replacing it every kill cost a remove and an add.
             if (value.Active)
@@ -230,15 +238,13 @@ public static partial class Game
                 bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.RampageBuff));
                 conn.RampageBuff = 0;
             }
-            // Damage and movement change every 20 stacks; rarity and area at their own group sizes. The full stat and
-            // skill snapshots are ~39 KB together, so they follow only those changes. current_rampage_stacks changes
-            // every kill and is one small stat update (the buff row reads its count from it).
-            int rarityPer = Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityKey
-                ? stats.GetValueOrDefault(rarityKey) : 0;
-            int areaPer = Stats.Key("area_of_effect_+%_per_25_rampage_stacks") is uint areaKey
-                ? stats.GetValueOrDefault(areaKey) : 0;
-            var signature = (value.Active ? 1 : 0, value.DamagePercent, value.MovementPercent,
-                RampageRarity(value.Stacks, rarityPer), RampageRarity(value.Stacks, 25) * areaPer);
+            // The full stat and skill snapshots are ~39 KB together, so they follow only the changes that reach them
+            // (RampageStatSignature). current_rampage_stacks changes every kill and is one small stat update (the buff
+            // row reads its count from it).
+            int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+            var signature = RampageStatSignature(value, Stat("item_found_rarity_+1%_per_X_rampage_stacks"),
+                Stat("area_of_effect_+%_per_25_rampage_stacks"),
+                Stat("chain_hook_and_shield_charge_attack_speed_+%_per_10_rampage_stacks"));
             if (signature != conn.SentRampageStat)
             {
                 conn.ApplyMovementSpeed();

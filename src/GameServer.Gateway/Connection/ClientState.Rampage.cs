@@ -25,7 +25,7 @@ public sealed partial class ClientState
     public RampageState.Value SentRampage { get; set; }
     // The stat-driving part of the last published streak: the full stats go out only when one of these changes,
     // while current_rampage_stacks (every kill) goes as one partial stat update.
-    public (int Active, int Damage, int Movement, int Rarity, int Area)? SentRampageStat;
+    public (int Active, int Damage, int Movement, int Rarity, int Area, int AttackSpeed)? SentRampageStat;
     public int SentRampageStacks;
     // Explosion art budget: a burst of kill explosions should not create an effect object for every corpse.
     public double ExplosionArtWindow;
