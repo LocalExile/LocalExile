@@ -95,7 +95,7 @@ is not in the client tables needs a source and a confidence note.
   source; keep the generic pool as a fallback only where the game has one.
 - [ ] Handle disabled cards (`The Cartographer`, `The Obscured`, `The Puzzle`)
   and the campaign-area card pools (the PoEDB table is map/unique-map based).
-- [ ] Wire the card drop chance: map mods (`CardDropFactor`, `PacksDropCards`),
+- [ ] Wire the card drop chance: map mods (`Game.ExtraDropsFromMap`, `PacksDropCards`),
   Divination Scarabs, Atlas passives; chance and pool are separate.
 - [ ] Verify a few cards live: The Doctor in Burial Chambers (tier 7+), The
   Apothecary in Cage (tier 7+), a boss/league card.

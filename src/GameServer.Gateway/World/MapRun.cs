@@ -52,15 +52,15 @@ public sealed class MapMods
     public int ExtraNormalPacks => Math.Max(0, Get("map_contains_x_additional_normal_packs"));
     /// <summary>Extra magic packs whose monsters drop cards (the Divination Scarabs').</summary>
     public int PacksDropCards => Get("map_X_magic_packs_drop_cards_from_area");
-    /// <summary>The map's divination card and scarab drop factors: its increased and more modifiers multiplied, 1 for none.</summary>
-    public double CardDropFactor => Factor("map_divination_card_drop_chance_+%")
-        * Factor("map_divination_card_drop_chance_+%_final_from_quality")
-        * Factor("map_divination_card_drop_chance_+%_final_from_faridun_wish");
-    public double ScarabDropFactor => Factor("map_scarab_drop_chance_+%_final_from_uber_mod")
-        * Factor("map_unscaled_scarab_drop_chance_+%_final_from_uber_mod")
-        * Factor("map_scarab_drop_chance_+%_final_from_faridun_wish");
+    public int CardDropChance => SumWhere(id => id.Contains("divination_card", StringComparison.OrdinalIgnoreCase)
+        && id.Contains("chance", StringComparison.OrdinalIgnoreCase));
+    public int ScarabDropChance => SumWhere(id => id.Contains("scarab", StringComparison.OrdinalIgnoreCase)
+        && id.Contains("drop_chance", StringComparison.OrdinalIgnoreCase));
+    public int CurrencyDropChance => SumWhere(id => id.Contains("currency", StringComparison.OrdinalIgnoreCase)
+        && id.Contains("drop_chance", StringComparison.OrdinalIgnoreCase)
+        && !id.Contains("divination", StringComparison.OrdinalIgnoreCase));
 
-    double Factor(string id) => Math.Max(0, 100 + Get(id)) / 100.0;
+    int SumWhere(Func<string, bool> match) => Stats.Where(kv => match(kv.Key)).Sum(kv => kv.Value);
     public int RarePackIncrease => Get("map_number_of_rare_packs_+%");
     public int MagicPackIncrease => Get("map_number_of_magic_packs_+%");
 
@@ -78,9 +78,6 @@ public sealed class MapMods
         if (MonsterDamage != 0) extra["damage_+%"] = MonsterDamage;
         if (Get("map_monster_damage_taken_+%_final_from_atlas_keystone") is int taken and not 0)
             extra["map_monster_damage_taken_+%_final_from_atlas_keystone"] = taken;
-        // The vital and deadly Atlas keystones' more life and damage, as the monster stats of the same name.
-        foreach (string atlas in MonsterModCatalog.AtlasLifeStats.Concat(MonsterModCatalog.AtlasDamageStats))
-            if (Get("map_" + atlas) is int more and not 0) extra[atlas] = more;
         // The map tier's hidden more life and damage (the area stats' tier block).
         foreach (string hidden in new[] { MonsterModCatalog.MapHiddenLifeStat, MonsterModCatalog.MapHiddenDamageStat })
             if (Get(hidden) is int more and not 0) extra[hidden] = more;

@@ -58,6 +58,9 @@ into that list (`AtlasStats`, `Game.MapAreaStats`) from the active preset:
   + `_per_fragment_used` × fragments; only the first id names unique maps.
 - `map_contains_x_additional_<r>_packs_if_<r>` (no area text) becomes the plain count on a map of that rarity and is
   dropped otherwise. Meticulous Appraiser moves the three quantity stats into `map_item_drop_rarity_+%` at 300%.
+- The vital and deadly keystones' `map_monster_{life,damage}_+%_final_from_{vital,deadly}_atlas` stay in the list as
+  they are; the Game module copies each to the monster stat without `map_`, a more modifier on the monster's life or hit
+  (`MonsterModEffects.HandOverMore`).
 - A HardMode league uses the HardMode vectors: Wandering Path keeps only its first stat, Grand Design only its first.
 - `atlas_keystone_no_extra_content` (Back to Basics) needs nothing more: the level generator already rolls no league
   content with it. Its 0–80% more mod effect, Growing Hordes, Eye of the Djinn's per-empty-slot scarab effect and the
