@@ -1280,7 +1280,9 @@ public static partial class Game
     {
         if (!CurrentGameRules) return;
         RefreshVaalSouls(conn);
-        lock (conn.Monsters)
+        // Named, because it is a large block (auras, pools, cooldowns) that runs on every skill refresh, and a waiter that
+        // found the combat lock busy here had no name to show for it.
+        using (conn.Performance.Lock(conn.Monsters, "skills"))
         {
             if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             RefreshVaalSouls(conn);

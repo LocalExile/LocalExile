@@ -700,7 +700,7 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
             var packets = new WorldRecordBuilder(conn, admission);
-            lock (world.Monsters)
+            using (conn.Performance.Lock(world.Monsters, "shared-monsters"))
             {
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
