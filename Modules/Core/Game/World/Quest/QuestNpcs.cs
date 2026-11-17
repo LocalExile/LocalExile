@@ -93,6 +93,13 @@ public static partial class Game
                     : transitioned ? c.Npc with { TransitionState = transitionState }
                     : c.RoomState ? c.Npc with { TransitionState = 1 } : c.Npc;
                 c.Id = await SpawnNpc(remote, stream, ciphers, conn, npc, c.X, c.Y, c.Angle);
+                if (c.Appears?.AdvanceOnAppearance == true)
+                {
+                    SpawnedNpc? spawned;
+                    lock (conn.Npcs) spawned = conn.Npcs.GetValueOrDefault(c.Id);
+                    if (spawned is not null)
+                        await StepNpcTransition(remote, stream, ciphers, conn, c.Id, spawned, "quest NPC entrance");
+                }
                 Console.WriteLine($"[gateway] {remote} quest npc {c.Npc.Name} ({c.Npc.Id}) appears at ({c.X}, {c.Y}): {why}");
             }
             else if (!want && c.Id != 0)

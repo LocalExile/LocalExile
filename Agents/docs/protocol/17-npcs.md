@@ -39,6 +39,9 @@ few ControlZone, Functions, Stats or Brackets (not written yet).
 `Act2/HelenaSins.ot` has three Transitionable states: 1 hangs below the ledge; 2 climbs up and becomes
 targetable; 3 hides the model, marker and targeting. Rescue uses 2, including on a return to the instance.
 
+`Act5/SinInnocence.ot` creates state 1 with `entrance_avarius` paused and targeting disabled. The 1→2
+update starts the entrance; its animation end enables targeting. Creating state 2 directly is the returning pose.
+
 The NPC component's debug dump (`0x141e7b860`) prints the NPC and the NPCTalk row the client picks for the player
 (`0x141e7d430`): the client chooses the dialogue itself.
 

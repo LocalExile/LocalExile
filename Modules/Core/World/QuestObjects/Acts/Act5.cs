@@ -126,7 +126,7 @@ sealed class Act5 : Act
                 On.SecondForm(ChamberOfInnocence, Act5Monsters.Avarius, Act5Monsters.Innocence),
                 On.Seen(ChamberOfInnocence, Act5Monsters.Innocence, "a5q4-SeenInnocence"),
                 On.Killed(ChamberOfInnocence, Act5Monsters.Innocence, "a5q4-KilledBoss"),
-                On.Appears(ChamberOfInnocence, Act5Monsters.Innocence, Act5Npcs.SinInnocence, "a5q6-QuestReceived"),
+                On.Appears(ChamberOfInnocence, Act5Monsters.Innocence, Act5Npcs.SinInnocence, "a5q6-QuestReceived", advanceOnAppearance: true),
                 On.Exists(Act5Objects.ControlBlocksToSquare, until: "a5q4-KilledBoss", to: OriathSquare),
                 On.Exists(Act5Objects.ControlBlocksToDestroyedSquare, from: "a5q4-KilledBoss", to: RuinedSquare),
                 On.Exists(Act5Objects.InnocenceToCourts, until: "a5q4-KilledBoss", to: TemplarCourts),
