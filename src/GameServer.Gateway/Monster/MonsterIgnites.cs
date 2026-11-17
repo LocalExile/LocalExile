@@ -88,7 +88,7 @@ public sealed class MonsterIgnites
         for (int i = 0; i < active.Count; i++) active[i] = active[i] with { Aggravated = true };
     }
 
-    // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra 脳 the strongest aggravated
+    // The damage per second of the live instances: the Stacks strongest, plus aggravatedExtra × the strongest aggravated
     // one (an aggravated bleed's "as though moving" part, which does not stack with the moving bonus).
     double Dealing(List<Ignite> live, double aggravatedExtra) =>
         live.Select(i => i.DamagePerSecond).OrderDescending().Take(Math.Max(1, Stacks)).Sum()
