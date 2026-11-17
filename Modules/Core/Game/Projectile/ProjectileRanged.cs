@@ -86,7 +86,7 @@ public static partial class Game
                 Bow: !wand),
             SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
-            VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
+            VsGroundCriticalChance = AttackCriticalChanceVsGround(conn, character, release: true),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),

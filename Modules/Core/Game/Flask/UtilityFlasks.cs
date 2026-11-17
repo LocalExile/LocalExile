@@ -4,8 +4,8 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    // C→S 0x70 on a utility flask (13-items.md §8a): it spends its charges (S→C 0xbf), puts its buff on the player with
-    // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
+    // C鈫扴 0x70 on a utility flask (13-items.md 搂8a): it spends its charges (S鈫扖 0xbf), puts its buff on the player with
+    // its duration (S鈫扖 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
     // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
     public static async Task<bool> UseUtilityFlaskCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot,
@@ -67,6 +67,10 @@ public static partial class Game
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
             FlaskToLinkedTargetsLocked(conn, flask.Item, local, utility, Get);
+            // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
+            foreach (var (stat, charge) in ChargesOnFlaskUse)
+                if (local.GetValueOrDefault(stat) is int count and > 0)
+                    ChargesOf(conn).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
             MakeFlaskGroundsLocked(conn, local, seconds, now, character);
             state.StatRevision++;
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
@@ -84,6 +88,13 @@ public static partial class Game
         "Metadata/Items/Flasks/FlaskUtility7" => StatConditions.UsedAmethystFlask,
         _ => null,
     };
+
+    static readonly (string Stat, ChargeType Charge)[] ChargesOnFlaskUse =
+    [
+        ("local_flask_gain_endurance_charges_on_use", ChargeType.Endurance),
+        ("local_flask_gain_frenzy_charges_on_use", ChargeType.Frenzy),
+        ("local_flask_gain_power_charges_on_use", ChargeType.Power),
+    ];
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own

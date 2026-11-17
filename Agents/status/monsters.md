@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Ordinary melee with resolved clip metadata follows native timing ([11](../docs/protocol/11-skills.md) §6).
 - Monsters belong to the area instance: re-entering it finds the living ones where they were, with their damage, and
   the dead stay dead; a new instance gets fresh packs.
   Code: `InstanceStore.cs`, `PopulateArea`, Gateway.

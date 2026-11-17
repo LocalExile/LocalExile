@@ -312,8 +312,9 @@ public static partial class Game
             int chance = SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct);
             int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
                 ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
-            int? vsProfane = SpellCriticalStrike.Chance(baseChance, Player, Own,
-                conn.Pools.SpellCriticalStrikeChancePct + FlaskGrounds.ProfaneCritIncrease);
+            var vsProfane = SpellCriticalChanceVsGround(conn,
+                extra => SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extra),
+                Player(VsBlindedCriticalStat));
             int multiplier = CriticalHitMultiplier((long)conn.Pools.SpellCriticalStrikeMultiplier
                 + Own("base_critical_strike_multiplier_+"), player, own);
             var gambler = GamblerFor(player);
