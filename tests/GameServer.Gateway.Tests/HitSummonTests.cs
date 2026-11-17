@@ -27,6 +27,7 @@ public sealed class HitSummonTests
     public async Task Absolution_marks_non_unique_deaths_consumes_once_and_refreshes_a_living_sentinel_at_the_limit()
     {
         await DominanceRegression();
+        await VaalRegression();
         using var f = new MinionUtilityTests.Fixture();
         var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
@@ -178,6 +179,36 @@ public sealed class HitSummonTests
             Assert.Equal(5,f.Conn.Summons.Fighters.Count);
             await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
             Assert.Empty(f.Conn.Summons.Fighters);
+        }
+        finally { Game.AreaUpdateContext.Value=outer; }
+    }
+
+    static async Task VaalRegression()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time=1 }; var outer=Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value=new(Game.CombatLifetime!,clock);
+        try
+        {
+            f.Equip(("Vaal Summon Skeletons",1));
+            var vaal=Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="VaalSummonSkeletons");
+            Game.RefreshVaalSouls(f.Conn);
+            bool Admit()=>Game.TryBeginSkillCooldownUse(f.Conn,vaal.Id,vaal.Effect,null,false,()=>f.Conn.ActionCount++,out _);
+            Assert.False(Admit());
+            for(int i=0;i<50;i++) Assert.True(f.Conn.VaalSouls.Gain());
+            Assert.True(Admit());
+            Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100)));
+            Assert.Equal(0u,Assert.Single(f.Conn.VaalSouls.Read()).Current);
+            Assert.Equal(18,f.Conn.Summons.Fighters.Count);
+            foreach(var (kind,count) in new[]{("Melee",14),("Ranged",2),("Spellcaster",1),("General",1)})
+                Assert.Equal(count,f.Conn.Summons.Fighters.Values.Count(g=>g.Monster.Variety!.Id.Contains(kind,StringComparison.Ordinal)));
+            var archer=f.Conn.Summons.Fighters.Values.First(g=>g.Monster.Variety!.Id.Contains("Ranged",StringComparison.Ordinal));
+            Assert.Contains(archer.Abilities,a=>a.Projectile is not null);
+            var enemy=Target(f,930); archer.Monster.Walk.Teleport(500,500,clock.Time); enemy.Walk.Teleport(510,500,clock.Time);
+            Game.GolemStepLocked("test",f.Stream,f.Ciphers,f.Conn,archer,clock.Time);
+            Assert.Equal(930u,archer.Target);
+            clock.Time=22; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time); Assert.Empty(f.Conn.Summons.Fighters);
+
         }
         finally { Game.AreaUpdateContext.Value=outer; }
     }

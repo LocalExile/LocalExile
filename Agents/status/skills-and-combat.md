@@ -147,7 +147,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blink Arrow leaves its clone at departure. Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
-- Animated equipment, source recovery/repeats, Absolution and Dominating sentinels, and Phantasms.
+- Animated equipment, source recovery/repeats, Absolution and Dominating sentinels, Phantasms and Vaal Skeletons.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
