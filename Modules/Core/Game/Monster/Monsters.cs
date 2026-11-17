@@ -396,13 +396,21 @@ public static partial class Game
     // area without a walk map. Game_MONSTERS=0 turns it off.
     public static async Task PopulateArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        var layout = conn.Layout;
+        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0" || CaptureTour.Active(CharacterName(conn))) return;
+        // An entry without a walk map cannot place packs yet. Do not mark the shared instance populated: a later
+        // entry with its map ready must still place them. An established save (even empty) needs no new walk map.
+        if (conn.Instance.Monsters is null && layout.Id != Sirus.Area && layout.Walkable is null) return;
+        if (Monsters.Error is { } catalogError)
+        {
+            Console.WriteLine($"[gateway] {remote} area monsters: {catalogError}");
+            return;
+        }
         // Another player already runs this instance's monsters: this client shows theirs (SharedMonsters.cs).
         if (!ClaimMonsterHost(remote, conn)) return;
         // The packs go in one monster at a time, and the overlay's count waits for the last of them (the entry's 0x1a0,
         // Messages.cs): a recount per spawn would be a count of the area per monster.
         using var recount = HoldMonstersRemaining(conn);
-        var layout = conn.Layout;
-        if (Environment.GetEnvironmentVariable("Game_MONSTERS") == "0") return;
         // The Crux of Nothingness fight places its three Mystic Fetishes at fixed offsets from the room's mapboss point
         // (KingInMists.cs). Keep that point on the connection so the treant form uses the same origin as the humanoid,
         // and so a kept instance recovers it before its saved monsters are restored.
@@ -410,8 +418,6 @@ public static partial class Game
         if (layout.Id == "AzmeriLeagueBoss"
             && AreaPopulation.FitRooms(layout.Id, conn.Seed, [], "data").Points.FirstOrDefault(p => p.Name == "mapboss") is { } mapboss)
             conn.KingOrigin = (mapboss.X, mapboss.Y);
-        // A capture tour only waits for the recorder: no monsters to attack the character meanwhile.
-        if (CaptureTour.Active(CharacterName(conn))) return;
         // An instance entered before keeps its monsters as the last connection left them: where they were, with their
         // damage; the dead stay dead (#12).
         if (conn.Instance.Monsters is { } saved)
@@ -431,7 +437,6 @@ public static partial class Game
         // Crux of Nothingness is the boss arena, not the maze: the area's `voodoo-king-maze1` pack belongs to the
         // separate maze layout the fight does not build yet.
         if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
-        if (Monsters.Error is { } error) { Console.WriteLine($"[gateway] {remote} area monsters: {error}"); return; }
         // Emerge monsters (Gravel Eater, Tide Strider …) are placed waiting and rise near the player (MonsterEmerge.cs).
         var quests = QuestsOf(conn);
         bool useWetlandsFallback = false;
