@@ -4,8 +4,8 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    // C鈫扴 0x70 on a utility flask (13-items.md 搂8a): it spends its charges (S鈫扖 0xbf), puts its buff on the player with
-    // its duration (S鈫扖 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
+    // C→S 0x70 on a utility flask (13-items.md §8a): it spends its charges (S→C 0xbf), puts its buff on the player with
+    // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
     // Reusing this flask replaces its timer; another flask of the same kind keeps its own, strongest effect applies.
     public static async Task<bool> UseUtilityFlaskCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint slot,
