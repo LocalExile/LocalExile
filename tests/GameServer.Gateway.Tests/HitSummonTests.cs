@@ -272,7 +272,7 @@ public sealed class HitSummonTests
                 vaal = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="VaalSummonSkeletons");
                 var supported = Game.SupportedSkill(f.Conn,vaal.Id);
                 Assert.True(Game.IsTotemSkill(f.Conn,vaal.Id) || Game.PlacedKind(supported) is not (false,false));
-                Assert.Equal("Vaal Summon Skeletons through totems, traps or mines is not implemented",
+                Assert.Equal("Vaal minion skills through totems, traps or mines are not implemented",
                     Game.GemSkillInstanceDisabled(f.Conn,vaal.Effect,vaal.Id));
                 var ordinary = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="SummonSkeletons");
                 Assert.Null(Game.ActorSkillInstanceDisabled(f.Conn,ordinary.Effect,ordinary.Id));
@@ -369,6 +369,17 @@ public sealed class HitSummonTests
                 clock.Time+=35; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
                 Assert.Empty(f.Conn.Summons.Fighters); Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 Assert.Empty(f.Conn.Summons.PresentedOwnership); f.Conn.NextAttackAt=0;
+                foreach (string support in new[] { "Spell Totem Support", "Trap Support", "Blastchain Mine Support" })
+                {
+                    f.Equip((absolution ? "Vaal Absolution" : "Vaal Domination",20),(support,1));
+                    var host=Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
+                    Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1,host.Id,item=>item with { Links=[2] });
+                    var candidate=Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)==vaalId);
+                    var applied=Game.SupportedSkill(f.Conn,candidate.Id);
+                    if (Game.IsTotemSkill(f.Conn,candidate.Id) || Game.PlacedKind(applied) is not (false,false))
+                        Assert.Equal("Vaal minion skills through totems, traps or mines are not implemented",
+                            Game.GemSkillInstanceDisabled(f.Conn,candidate.Effect,candidate.Id));
+                }
             }
         }
         finally { Game.AreaUpdateContext.Value=outer; }
