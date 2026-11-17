@@ -15,8 +15,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md) §8.
 - Utility flasks and the Iron Flask's Ward. Docs: [13](../docs/protocol/13-items.md) §8a,
   [Antiquarian](../docs/game/antiquarian.md).
-- Unique flasks' "during effect" mechanics: Dying Sun, Oriath's End, Divination Distillate, Bottled Faith, Cinderswallow
-  Urn, Rumi's Concoction and its Replica (no Petrified), Stormblood. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Items: the start kit, moving, equipping, sockets, dropping, stacks and `/item`.
   Docs: [13](../docs/protocol/13-items.md) §4a.
 - Item mods: rarities, mod lists, magic and rare rolls, identification and their stats on the character.
@@ -35,6 +33,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
+
+- Unique-flask mechanics; Oriath explosion parity, Sap, Brittle and Replica Rumi's Petrified remain open.
+  Docs: [13](../docs/protocol/13-items.md) §8a.
 
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
   cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.

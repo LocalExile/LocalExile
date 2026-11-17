@@ -1554,6 +1554,9 @@ type count for shock, chill and freeze (Sap, Brittle and the Replica Rumi's Petr
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
+Oriath's End scales through the secondary-damage path, but its explosions still use the shared fixed radius and art
+and do not apply ailments.
+Cinderswallow's damage-taken qualifier through ignite proliferation remains unverified.
 
 With `flasks_apply_to_your_linked_targets` (Paladin's Field Medicine), a non-unique utility flask also puts its buff
 and the Silver Flask's Onslaught (0x1c1, the player as source, the flask's duration) on each of the player's linked
