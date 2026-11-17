@@ -4068,16 +4068,16 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   set with `/set_stat` counts in the charge effects and limits too.
 - **Not modelled.** Held state and gain/expiry for the charge types without a reachable player source here: Spirit
   and Siphoning (their maxima come only from abyss-jewel and Elder/Shaper item counts the server does not model),
-  Blitz and Challenger (no 3.29 player source: their stats appear only in monster/mercenary skill stat sets), Brine
-  and the rest, beyond the three bounded maxima, the converted charges and the Blood Charges above;
-  skills and effects that consume or remove
-  charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
-  need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
-  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
-  soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
-  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
-  server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
-  mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  Blitz and Challenger (no 3.29 player source: their stats appear only in monster/mercenary skill stat sets), Brine,
+  Divine, Crab, Fanatic and Celestial, beyond the three bounded maxima, the converted charges and the Blood Charges
+  above; stealing charges (monsters hold none); expiry triggers that use a skill (The Eternal Apple's warcry);
+  gains that need an attack's own freeze or ignite, a taunt, a knockback, close range, totems, mines, Vaal souls,
+  allies or the Charged Traps/Mines supports; Malachai's Loop's self-shock; conditional maxima and minima (while
+  affected by an aura, on low life, devotion, item-set counts); per-charge stats whose target the server does not
+  calculate (damage over time multipliers, wand-only or one skill's damage, damage against low/full-life enemies,
+  attack leech, elemental avoidance, the Frenzy gem's own per-charge speed and damage, the Flicker Strike
+  enchantment's damage). The
+  other gains, losses, triggers and maxima are `ChargeGains`, `ChargeTriggers`, `ChargeMaxima` and `ChargeScaling`.
 
 **Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
 lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges

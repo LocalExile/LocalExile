@@ -139,6 +139,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spells disabled (Devout of Gruthkul). Docs: [11](../docs/protocol/11-skills.md) §10j.
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Charge gains on stun, skill use and target state, supports' own chances, "lose all" and "on reaching maximum"
+  uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) §15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
