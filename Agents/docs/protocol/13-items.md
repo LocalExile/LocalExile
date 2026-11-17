@@ -492,6 +492,12 @@ character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of me
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
 
+**Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
+its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack
+made with that weapon doubles, before the triple-damage roll can override it. The server's attack hits are the main
+hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not
+alternate hands on the server yet.
+
 Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
 Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
 all-white Unset Ring socket are generated from the unique rows too; their link groups use the Jeweller's approximation.

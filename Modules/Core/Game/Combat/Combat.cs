@@ -516,7 +516,8 @@ public static partial class Game
                 if (WeaponProfileFor(conn, activeSet: true).Melee)
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
-                var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
+                var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
+                    .ForWeapon(weapon.LocalSources).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
                         AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
@@ -1887,6 +1888,7 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         MonsterIgnites.Settings ignite = default, bleed = default;
         MonsterPoisons.Settings poison = default;
@@ -1931,6 +1933,7 @@ public static partial class Game
                     // A shield skill swings the shield (ShieldWeapon), which carries no local modifiers of the main hand.
                     var shield = spell ? null : ShieldWeapon(conn, skillId);
                     var local = spell || shield is not null ? null : MainHandLocalSources(conn);
+                    weaponLocal = local;
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
                     sweepHit = SupportedHitFor(conn, skillId, suppress: true, weapon: shield, charges: discharge?.Charges, addedChaos: addedChaos);
@@ -1973,7 +1976,7 @@ public static partial class Game
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
                     GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
-                        .RollOutgoingHit(contactHit, Random.Shared)),
+                        .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, Random.Shared)),
                     ProjectileWorldTime(conn));
                 // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                 // extra fire, and removes the flame.

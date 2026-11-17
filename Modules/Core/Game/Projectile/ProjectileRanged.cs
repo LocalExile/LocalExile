@@ -69,7 +69,7 @@ public static partial class Game
                     Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
                     Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources),
                     Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand),
-                    CriticalRoll = criticalRoll, Leech = captured.Leech,
+                    CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = WeaponFor(conn).LocalSources,
                     AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
                     AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
                     PointBlank = Get("keystone_point_blank") != 0,

@@ -359,7 +359,7 @@ public static partial class Game
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
-                        .RollOutgoingHit(contactHit, Random.Shared)), now);
+                        .ForWeapon(local).RollOutgoingHit(contactHit, Random.Shared)), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;

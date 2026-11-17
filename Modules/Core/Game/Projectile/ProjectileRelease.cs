@@ -370,7 +370,7 @@ public static partial class Game
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
-            Leech = HitLeechSources(player, !spell, own, local),
+            Leech = HitLeechSources(player, !spell, own, local), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
