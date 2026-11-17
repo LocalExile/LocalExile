@@ -54,12 +54,28 @@ public static class SkillArea
         (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
             * Math.Max(0L, 100L + get("active_skill_area_of_effect_radius_+%_final")) / 100 - 100, -100, int.MaxValue);
 
+    /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist
+    /// Brand, Corrupting Cry and Blessed Call (only a warcry carries the last two).</summary>
+    static readonly string[] SupportMoreArea =
+    [
+        "support_spell_cascade_area_of_effect_+%_final", "support_brand_area_of_effect_+%_final",
+        "support_corrupting_cry_area_of_effect_+%_final", "consecrated_cry_warcry_area_of_effect_+%_final",
+    ];
+
+    /// <summary>Greater Spell Echo: increased area for each repeat of the spell (the first cast is repeat 0).</summary>
+    public const string IncreasedPerRepeat = "support_greater_spell_echo_area_of_effect_+%_per_repeat";
+
+    /// <summary>A "more area" percentage as the radius multiplier it gives: the square root of (1 + more), as the area
+    /// modifier is (Fist of War's 59% more area is ×1.26 radius, not ×1.59).</summary>
+    public static double RadiusMultiplier(int moreAreaPercent) => Math.Sqrt(Math.Max(0, 1 + moreAreaPercent / 100.0));
+
     /// <summary>The area modifier: (1 + increased) × each more multiplier, at least 0.</summary>
     public static double Modifier(Func<string, int> get, bool spell)
     {
         int increased = Increased(get, spell);
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (string more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        foreach (string more in SupportMoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
         // Discharge: more area per removable charge it will spend (the charges above the minimum).
         if (get(MorePerRemovableCharge) is int perCharge and not 0)
             mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get($"current_removable_{Charges.Name(t)}_charges"))) / 100.0);

@@ -1375,13 +1375,13 @@ public static partial class Game
                 if (ready)
                 {
                     fistMore = 1 + Fist("support_ancestral_slam_big_hit_damage_with_hits_and_ailments_+%_final") / 100.0;
-                    fistRadius = 1 + Fist("support_ancestral_slam_big_hit_area_+%") / 100.0;
+                    fistRadius = SkillArea.RadiusMultiplier(Fist("support_ancestral_slam_big_hit_area_+%"));
                 }
             }
         }
         if (leap is not null && IsLeapSlam(conn, gem.Effect))
             return ScheduleLeapSlam(remote, stream, ciphers, conn, skillId, gem, leap, criticalRoll,
-                sequence, fistMore, Math.Sqrt(Math.Max(0, fistRadius)));
+                sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
@@ -1736,7 +1736,11 @@ public static partial class Game
             : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId), out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
-        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
+        // Greater Spell Echo: each repeat of the spell has more increased area than the one before.
+        var areaStats = skillStats;
+        if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0 && Stats.Key(SkillArea.BaseIncreased) is uint baseKey)
+            areaStats = new Dictionary<uint, int>(skillStats) { [baseKey] = skillStats.GetValueOrDefault(baseKey) + perRepeat * repeat };
+        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, areaStats, spell, gem.Effect)) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
