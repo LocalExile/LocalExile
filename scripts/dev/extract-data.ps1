@@ -44,8 +44,8 @@ $manifest = @(
     # elevator and objective marker are named by the arena's tiles, not by a room, so they are asked for by name.
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
-                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker'); Version = 10; Needs = @('tables', 'area-transitions', 'room-points')
-       UsedBy = 'monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
+                'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker'); Version = 11; Needs = @('tables', 'area-transitions', 'room-points')
+       UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
@@ -55,9 +55,10 @@ $manifest = @(
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector). v5: every
     # contact of a clip with several (one release each), the effects' own animation keys, .act clips that name an effect.
+    # v6 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 5; Needs = @('tables')
-       UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
+       Args = @('scripts/re/monster_contacts.py'); Version = 6; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'

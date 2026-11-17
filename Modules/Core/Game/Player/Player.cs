@@ -1021,6 +1021,18 @@ public static partial class Game
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
             else Console.WriteLine($"[gateway] {remote} flask {e.Slot} effect ends ({why})");
+        // A life, mana or hybrid flask's "during effect" mods end with its recovery.
+        bool changed;
+        lock (conn.Monsters)
+        {
+            changed = conn.RecoveryFlaskStats.Prune(conn.FlaskEffects);
+            if (changed) RecomputePoolsAndSpeed(conn);
+        }
+        if (changed)
+        {
+            Console.WriteLine($"[gateway] {remote} recovery flask during effect ends ({why})");
+            await SendCharacterStats(remote, stream, ciphers, conn, "recovery flask effect ended");
+        }
     }
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they

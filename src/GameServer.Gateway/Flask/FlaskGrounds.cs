@@ -23,7 +23,20 @@ public static class FlaskGrounds
 
     /// <summary>What a use of a flask with these local stats makes, and its radius.</summary>
     public static IEnumerable<(Kind Kind, int Radius)> OnUse(IReadOnlyDictionary<string, int> local) =>
-        OnUseStats.Where(s => local.GetValueOrDefault(s.Stat) > 0).Select(s => (s.Kind, local[s.Stat]));
+        OnUseStats.Where(s => local.GetValueOrDefault(s.Stat) > 0).Select(s => (s.Kind, s.Kind == Kind.ConsecratedGround
+            ? (int)((long)local[s.Stat] * Math.Max(0, 100 + local.GetValueOrDefault(ConsecratedAreaStat)) / 100) : local[s.Stat]));
+
+    /// <summary>Bottled Faith: "Consecrated Ground created by this Flask has Tripled Radius" (200: the radius times 1 +
+    /// 200%).</summary>
+    public const string ConsecratedAreaStat = "local_flask_area_of_consecrated_ground_+%";
+
+    /// <summary>Increased critical strike chance against enemies on the player's consecrated ground (Bottled Faith during
+    /// its effect: Game.CriticalChanceOn).</summary>
+    public const string VsConsecratedCriticalStat = "critical_strike_chance_+%_vs_enemies_on_consecrated_ground";
+
+    /// <summary>"Consecrated Ground you create applies X% increased Damage taken to Enemies" (Bottled Faith: ground created
+    /// during its effect). The ground keeps the value it was created with (Ground.EnemyDamageTakenPct).</summary>
+    public const string EnemyDamageTakenStat = "consecrated_ground_enemy_damage_taken_+%";
 
     /// <summary>Taunt lasts 3 s (the stat's reminder text: "Taunt lasts for 3 seconds"; wiki Taunt), before
     /// taunt_duration_+% (Program.TauntSeconds).</summary>
@@ -116,7 +129,8 @@ public static class FlaskGrounds
 
     /// <summary>One ground a flask made: where, how far it reaches, when it ends (connection clock seconds) and its effect
     /// object (the art). A taunt makes none: it is the monsters' (Program.TauntLocked).</summary>
-    public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null)
+    public sealed record Ground(Kind Kind, int X, int Y, int Radius, double Ends, uint? Object = null,
+        int EnemyDamageTakenPct = 0)
     {
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
@@ -251,6 +265,15 @@ public static class FlaskGrounds
         public bool Covers(Kind kind, (int X, int Y) at)
         {
             lock (_lock) return _grounds.Append(_stationary).Any(g => g?.Kind == kind && g.Covers(at));
+        }
+
+        /// <summary>The increased damage taken an enemy at <paramref name="at"/> gets from the consecrated grounds covering
+        /// it: the strongest one (the same effect from two grounds does not stack).</summary>
+        public int ConsecratedEnemyDamageTaken((int X, int Y) at)
+        {
+            lock (_lock) return _grounds.Append(_stationary)
+                .Where(g => g is { Kind: Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && g.Covers(at))
+                .Select(g => g!.EnemyDamageTakenPct).DefaultIfEmpty(0).Max();
         }
 
         /// <summary>Marks a monster blinded (with the buff id that shows it) or not: the buff id to add (newly blinded),

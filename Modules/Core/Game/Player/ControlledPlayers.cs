@@ -57,7 +57,9 @@ public static partial class Game
             await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, "bot allocates earned passive points");
         }
         if (await ExecuteControlledIntent(conn, leader, now, following)) return;
+        // Reactive reservation hits do not make their toggles usable as automatic attacks.
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillHitPlan.ForSkill(SkillsFor(conn), g.Effect, g.Level, g.Quality).CanHit
+            && ToggledReservation(conn, g.Id) is null
             && GemSkillInstanceDisabled(conn, g.Effect, g.Id) is null);
         bool onTheMove = following || leader.Walk.Moving(now);
         double seconds = gem.Name is null ? .35 : SkillsFor(conn).IsAttack(gem.Effect)
