@@ -106,6 +106,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers.
   Varunastra's active-hand identities feed claw/dagger additions, positive weapon conditions and equipped-claw counts;
   native per-hand flags retain the actual sword type. Its native presentation and other identity consumers remain open.
+  Fan of Blades supplies either-hand additional attack projectiles and attacking-hand projectile hit increases,
+  including Survivors; mixed hands, allocation/refund and released snapshots have automated checks, not native validation.
   New skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).

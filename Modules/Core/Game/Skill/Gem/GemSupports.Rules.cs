@@ -545,7 +545,8 @@ public static partial class Game
         if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
-        return new(raw, Get, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
+        Func<string, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
+        return new(raw, hitStats, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,
             WieldingWand: attackWeapon?.WieldingWand == true,

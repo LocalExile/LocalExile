@@ -1,6 +1,7 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Modules.Survivors;
 
 namespace GameServer.Gateway.Tests;
 
@@ -415,7 +416,165 @@ public class ArrowRainAndMirageTests
         Spellblade_requires_an_active_one_hand_melee_weapon();
         Spellblade_transfers_each_active_weapon_before_spell_scaling();
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
+        Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Fan_of_Blades_reaches_projectile_count_and_attack_damage()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        static Item Make(string name) => name == "Varunastra"
+            ? new UniqueCatalog(Program.Items).Create(name, new Random(17))!
+            : ItemCatalog.Create(Program.Items.Find(name)!);
+        using var b = new Battle("Spectral Throw", "Fireball", "Double Strike", "Lightning Strike", "Kinetic Blast", "Ice Shot");
+        var c = b.Conn;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+        c.PlayerStats[Key("attack_minimum_added_lightning_damage")] = 10;
+        c.PlayerStats[Key("attack_maximum_added_lightning_damage")] = 10;
+        c.PlayerStats[Key("attack_minimum_added_chaos_damage")] = 10;
+        c.PlayerStats[Key("attack_maximum_added_chaos_damage")] = 10;
+        c.PlayerStats[Key("damage_+%")] = 100;
+        c.PlayerStats[Key("spell_damage_+%")] = 0;
+        var items = Game.ItemsOf(c);
+        var hand = items.Items(PlayerInventories.Weapon1).Single();
+        var activeType = Program.Items.ByHash(hand.Item.Sockets[0].Gem!.TypeHash)!;
+        items.Add(PlayerInventories.BodyArmour, 0, 0, Make("Simple Robe") with
+        {
+            Sockets = [hand.Item.Sockets[0] with { Gem = hand.Item.Sockets[0].Gem! with
+                { GemExperience = Program.Items.Gem(activeType)!.ExperienceFor(2) } }, .. hand.Item.Sockets.Skip(1)],
+            Links = [1, 1, 1, 1, 1, 1],
+        });
+        items.Change(PlayerInventories.Weapon1, hand.Id, _ => Make("Nailed Fist"));
+        var gem = Game.GemSkillEffects(c).Single(g => g.Name == "Spectral Throw");
+        var fireball = Game.GemSkillEffects(c).Single(g => g.Name == "Fireball");
+        var melee = Game.GemSkillEffects(c).Single(g => g.Name == "Double Strike");
+        var hybrid = Game.GemSkillEffects(c).Single(g => g.Name == "Lightning Strike");
+        var survivorsCatalog = SurvivorsSkills.SurvivorsCatalogFor(c);
+        SurvivorsSkills.SurvivorsComputedCast SurvivorsCast(string name)
+        {
+            int index = survivorsCatalog.ToList().FindIndex(skill => skill.Name == name);
+            Assert.True(index >= 0);
+            var run = new SurvivorsRun();
+            run.Learn(index);
+            return Assert.IsType<SurvivorsSkills.SurvivorsComputedCast>(SurvivorsSkills.SurvivorsComputeCast(
+                c, run, survivorsCatalog[index], 1, index, new([], [], 1, 20, 40)));
+        }
+        var type = Program.Items.Find("Large Cluster Jewel")!;
+        var theme = ClusterJewels.FindTheme(type.Cluster!, "affliction_dagger_and_claw_damage")!;
+        var fan = Program.Items.Mods.ById("AfflictionNotableFanofBlades_")!;
+        var plain = ClusterJewels.Create(type, theme, 8, 2)!;
+        Assert.Contains(new ItemRolls(Program.Items).Pool(type, plain), p => p.Mod.Id == fan.Id);
+        var cluster = ClusterJewels.Create(type, theme, 8, 2, [fan])!;
+        var jewel = items.Add(PlayerInventories.PassiveJewels, 20, 0, cluster)!;
+        c.Passives.Add(Program.Passives.JewelNodeForSlot(20)!.Value);
+        var layout = ClusterJewelLayout.For(20, cluster)!;
+        ushort notable = (ushort)(layout.Base + Assert.Single(layout.NotableOrders).Key);
+        c.Pools = Game.PoolsFor(c, 100);
+        var spellBase = Game.SupportedProjectileHit(c, fireball.Id, area: false);
+        var meleeBase = Game.SupportedHitFor(c, melee.Id, suppress: false);
+        var hybridMeleeBase = Game.SupportedHitFor(c, hybrid.Id, suppress: false);
+        var hybridProjectileBase = Game.SupportedHitFor(c, hybrid.Id, suppress: false, projectile: true);
+        var ailmentBase = Game.SupportedAilmentRows(c, gem.Id, "main_hand");
+        Assert.Contains(ailmentBase, row => row.Stat.Contains("poison") && row.Value > 0);
+        var survivorsBase = SurvivorsCast("Spectral Throw");
+        var survivorsSpellBase = SurvivorsCast("Fireball");
+        c.ClusterPassives.Add(notable);
+        var stats = Game.FinalPlayerStats(c).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(1, stats[Key("attack_skill_additional_num_projectiles_while_wielding_claws_daggers")]);
+        Assert.Equal(20, stats[Key("projectile_attack_damage_+%_with_claw_or_dagger")]);
+        Assert.Equal(2, gem.Level);
+        var use = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        // Level-two Spectral Throw: 10 * 102.6% * (100% + 100% + 20%), with one additional projectile.
+        Assert.Equal((2, new DamageRange(22.572, 22.572)), (use.Profile.Count, shot.Hit[DamageType.Lightning]));
+        Assert.Equal(spellBase.Components, Game.SupportedProjectileHit(c, fireball.Id, area: false).Components);
+        Assert.Equal(meleeBase.Components, Game.SupportedHitFor(c, melee.Id, suppress: false).Components);
+        Assert.Equal(hybridMeleeBase.Components, Game.SupportedHitFor(c, hybrid.Id, suppress: false).Components);
+        Assert.Equal(hybridProjectileBase[DamageType.Lightning].Min * 1.1,
+            Game.SupportedHitFor(c, hybrid.Id, suppress: false, projectile: true)[DamageType.Lightning].Min, 6);
+        Assert.Equal(ailmentBase, Game.SupportedAilmentRows(c, gem.Id, "main_hand"));
+        var survivors = SurvivorsCast("Spectral Throw");
+        Assert.Equal(survivorsBase.Count + 1, survivors.Count);
+        Assert.Equal(survivorsBase.Shot!.Hit[DamageType.Lightning].Min * 1.1,
+            survivors.Shot!.Hit[DamageType.Lightning].Min, 6);
+        Assert.Equal(survivorsBase.Shot.AreaHit![DamageType.Lightning].Min * 1.1,
+            survivors.Shot.AreaHit![DamageType.Lightning].Min, 6);
+        var survivorsSpell = SurvivorsCast("Fireball");
+        Assert.Equal(survivorsSpellBase.Count, survivorsSpell.Count);
+        Assert.Equal(survivorsSpellBase.Shot!.Hit.Components, survivorsSpell.Shot!.Hit.Components);
+
+        foreach (var (mainName, offName, count, mainDamage, offDamage) in new (string, string?, int, double, double)[]
+        {
+            ("Nailed Fist", null, 2, 22.572, 0), ("Glass Shank", null, 2, 22.572, 0),
+            ("Carving Knife", null, 2, 22.572, 0), ("Varunastra", null, 2, 22.572, 0),
+            ("Rusted Sword", null, 1, 20.52, 0),
+            ("Rusted Sword", "Nailed Fist", 2, 20.52, 22.572), ("Nailed Fist", "Rusted Sword", 2, 22.572, 20.52),
+            ("Rusted Sword", "Varunastra", 2, 20.52, 22.572), ("Varunastra", "Rusted Sword", 2, 22.572, 20.52),
+            ("Glass Shank", "Carving Knife", 2, 22.572, 22.572), ("Varunastra", "Varunastra", 2, 22.572, 22.572),
+        })
+        {
+            items.Change(PlayerInventories.Weapon1, hand.Id, _ => Make(mainName));
+            if (items.Items(PlayerInventories.Offhand1) is [var off]) items.Remove(PlayerInventories.Offhand1, off.Id);
+            if (offName is not null) items.Add(PlayerInventories.Offhand1, 0, 0, Make(offName));
+            var captured = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+            Assert.Equal(count, captured.Profile.Count);
+            Assert.Equal(mainDamage, Assert.IsType<ProjectileOffense>(captured.Payload).Hit[DamageType.Lightning].Min, 6);
+            var panel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal(count, panel[Key("total_number_of_projectiles_to_fire")]);
+            Assert.Equal((int)mainDamage, panel[Key("main_hand_minimum_lightning_damage")]);
+            if (offName is not null)
+                Assert.Equal(offDamage, Game.SupportedOffHandHit(c, gem.Id, Game.OffhandWeaponFor(c)!)[DamageType.Lightning].Min, 6);
+            Assert.Equal(1, Game.CaptureGemProjectile(c, b.Session, fireball.Id, fireball, (120, 100), new(0)).Profile.Count);
+        }
+        items.Remove(PlayerInventories.Offhand1, items.Items(PlayerInventories.Offhand1).Single().Id);
+        foreach (var (weapon, skill) in new[] { ("Driftwood Wand", "Kinetic Blast"), ("Crude Bow", "Ice Shot") })
+        {
+            items.Change(PlayerInventories.Weapon1, hand.Id, _ => Make(weapon));
+            var active = Game.GemSkillEffects(c).Single(g => g.Name == skill);
+            var captured = Game.CaptureGemProjectile(c, b.Session, active.Id, active, (120, 100), new(0));
+            Assert.Equal(1, captured.Profile.Count);
+            var inputs = Game.SupportedHitInputsFor(c, active.Id)!;
+            Assert.Equal(inputs.Raw[DamageType.Lightning].Min * 2,
+                Assert.IsType<ProjectileOffense>(captured.Payload).Hit[DamageType.Lightning].Min, 6);
+        }
+
+        // The notable and body-socketed gems stay active when only the claw's Dexterity requirement fails.
+        items.Change(PlayerInventories.Weapon1, hand.Id, _ => Make("Imperial Claw"));
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 100;
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Null(Game.ActiveMainHand(c));
+        stats = Game.FinalPlayerStats(c).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(1, stats[Key("attack_skill_additional_num_projectiles_while_wielding_claws_daggers")]);
+        var inactivePanel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal(1, inactivePanel[Key("total_number_of_projectiles_to_fire")]);
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 1000;
+        c.Pools = Game.PoolsFor(c, 100);
+        items.Change(PlayerInventories.Weapon1, hand.Id, _ => Make("Nailed Fist"));
+        c.ClusterPassives.Remove(notable);
+        var refunded = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        Assert.Equal((1, new DamageRange(20.52, 20.52)),
+            (refunded.Profile.Count, Assert.IsType<ProjectileOffense>(refunded.Payload).Hit[DamageType.Lightning]));
+        c.ClusterPassives.Add(notable);
+        c.PlayerStats[Key("number_of_additional_projectiles")] = 1;
+        var released = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var releasedShot = Assert.IsType<ProjectileOffense>(released.Payload);
+        Assert.Equal((3, new DamageRange(22.572, 22.572)), (released.Profile.Count, releasedShot.Hit[DamageType.Lightning]));
+        b.Session.Runtime.Release(released);
+        items.Add(14, 0, 0, Make("Rusted Sword"));
+        items.SwapWeaponSets();
+        items.Remove(PlayerInventories.PassiveJewels, jewel.Id);
+        c.PlayerStats.Remove(Key("number_of_additional_projectiles"));
+        var removed = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        Assert.Equal((1, new DamageRange(20.52, 20.52)),
+            (removed.Profile.Count, Assert.IsType<ProjectileOffense>(removed.Payload).Hit[DamageType.Lightning]));
+        Assert.Equal((3, new DamageRange(22.572, 22.572)), (released.Profile.Count, releasedShot.Hit[DamageType.Lightning]));
+        b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+        // Damage rolls floor each type independently; this only checks at least one admitted projectile hit.
+        uint minimum = (uint)releasedShot.Hit.Components.Sum(part => Math.Floor(part.Range.Min));
+        uint maximum = (uint)releasedShot.Hit.Components.Sum(part => Math.Floor(part.Range.Max));
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, minimum, maximum * 3);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
     }
 
     static void Claw_and_dagger_projectiles_keep_the_released_hand_and_source()

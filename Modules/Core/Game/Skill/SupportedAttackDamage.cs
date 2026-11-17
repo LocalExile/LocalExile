@@ -29,9 +29,19 @@ public static class SupportedAttackDamage
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types,
         AttackAccuracyProfile accuracy)
     {
-        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), get, new DamageConversion(), spell: false,
+        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), HitModifiers(weapon, get), new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120));
+    }
+
+    // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
+    // Keep this in the existing projectile-hit increase bucket, so it cannot increase melee hits or ailments.
+    public static Func<string, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<string, int> get)
+    {
+        if (!WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
+            && !WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") && weapon.ItemClass != "Rune Dagger") return get;
+        int increased = get("projectile_attack_damage_+%_with_claw_or_dagger");
+        return increased == 0 ? get : name => get(name) + (name == "projectile_damage_+%" ? increased : 0);
     }
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a

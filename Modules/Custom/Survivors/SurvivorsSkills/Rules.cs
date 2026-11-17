@@ -948,9 +948,10 @@ static partial class SurvivorsSkills
         };
         var raw = RawDamage();
         if (raw.IsZero) return null;
-        var hitDamage = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: false, projectile: true,
+        Func<string, int> hitStats = armedAttack ? SupportedAttackDamage.HitModifiers(weapon, Get) : Get;
+        var hitDamage = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: false, projectile: true,
             supportModifiers: supportMods);
-        var areaHit = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: true, projectile: true,
+        var areaHit = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: true, projectile: true,
             supportModifiers: supportMods);
         if (hitDamage.IsZero && areaHit.IsZero) return null;
 

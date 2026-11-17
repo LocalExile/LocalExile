@@ -290,6 +290,13 @@ aliases are Stats 4197/4198 (client keys `0x1066/0x1067`); neither replaces the 
 can receive both claw and dagger additions, once each. The native one-hand melee mask and restriction ordering
 are recorded in [hand selection](../re/projectiles/hand-selection.md); that evidence is stable-input RE, not gameplay.
 
+Fan of Blades (PassiveSkills 3093, granted by Mod 22890) supplies Stats 11248 and 11815: one additional attack
+projectile while wielding a Claw/Dagger, and 20% increased projectile attack hit damage **with** those weapons.
+Descriptions 4962/9907 distinguish the scopes. The [native count predicate](../re/projectiles/count-stat-inputs.md)
+accepts either active hand's type 10/12/16 or either Varunastra alias, once per attack; damage uses the attacking
+hand's identity and joins the existing increased bucket. Melee components, spells and ailments receive no damage
+increase. These are data/RE and automated server checks, including Survivors; native panel/hit parity is unverified.
+
 Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
 `minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).
 Native stat description 9405 applies the range per 1% light radius **above base**. The modifier's 2-5 therefore gives

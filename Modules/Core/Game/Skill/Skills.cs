@@ -393,7 +393,7 @@ public static partial class Game
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy)
     {
         int Get(string name) => RageStat(stats, name);
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy), Get,
+        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy), SupportedAttackDamage.HitModifiers(weapon, Get),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
