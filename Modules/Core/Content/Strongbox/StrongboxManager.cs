@@ -186,6 +186,7 @@ public static class StrongboxManager
         var area = Areas.GetOrCreateValue(instance);
         Box opened;
         StrongboxCatalog.Entry type;
+        bool first;
         await area.Gate.WaitAsync();
         try
         {
@@ -193,6 +194,7 @@ public static class StrongboxManager
                 || StrongboxCatalog.ByRow(boxes[index].Row) is not { } found) return;
             type = found;
             var closed = boxes[index];
+            first = !boxes.Any(b => b.Opened);
             opened = closed with { Opened = true, Id = conn.TakeObjectId() };
             boxes[index] = opened;
             Save(instance, boxes);
@@ -213,63 +215,112 @@ public static class StrongboxManager
         var stats = AreaStats(conn);
         int level = AreaLevel(conn);
         var rng = new Random();
-        await Ambush(conn, type, (opened.X, opened.Y), level, stats, rng);
-        await DropLoot(conn, type, (opened.X, opened.Y), level, stats, rng);
+        await Ambush(conn, type, opened, level, stats, first, rng);
+        await DropLoot(conn, type, opened, level, stats, rng);
     }
 
-    /// <summary>The box's guards: one of the area's own packs (its MonsterPacks by weight, its count), at the chest mods'
-    /// summoned rarity, around the box and coming for the player; one more pack with
-    /// <c>map_strongboxes_additional_pack_chance_%</c>.</summary>
-    static async Task Ambush(ClientState conn, StrongboxCatalog.Entry box, (int X, int Y) at, int level,
-        IReadOnlyDictionary<uint, int> stats, Random rng)
+    /// <summary>The box's guards: what its mods summon (each mod with <c>summoned_monster_rarity</c>: its
+    /// <c>number_of_packs_to_summon</c> packs and <c>number_of_monsters_to_summon</c> single monsters at that rarity; the
+    /// implicit ChestSummonNormals is 3 normal packs), one more normal pack with <c>map_strongboxes_additional_pack_chance_%</c>,
+    /// and on the instance's first box <c>map_first_strongbox_contains_x_additional_rare_monsters</c> rares. A pack is one of
+    /// the area's own MonsterPacks by weight at its count; a single monster a variety of one of them. They stand around the
+    /// box and come for the player, with the area's <c>map_strongbox_monsters_*</c> life, damage, speeds, size and item
+    /// quantity.</summary>
+    static async Task<List<uint>> Ambush(ClientState conn, StrongboxCatalog.Entry box, Box state, int level,
+        IReadOnlyDictionary<uint, int> stats, bool first, Random rng)
     {
         var (remote, stream, ciphers) = conn.Wire;
+        var guards = new List<uint>();
         var packs = (Packs.For(conn.Layout.Id)?.Scattered ?? [])
             .Where(p => p.Pack.Entries.Any(e => Spawnable(e.Variety) is not null)).ToList();
         if (packs.Count == 0)
         {
             Console.WriteLine($"[gateway] {remote} strongbox {box.Name}: no monster packs for {conn.Layout.Id}; no ambush");
-            return;
+            return guards;
         }
-        int extra = Stats.Key("map_strongboxes_additional_pack_chance_%") is uint key ? stats.GetValueOrDefault(key) : 0;
-        int packCount = 1 + (extra > 0 && rng.Next(100) < extra ? 1 : 0);
+        var stat = StatOf(stats);
+        var groups = new List<(int Packs, int Monsters, MonsterRarity Rarity, string Why)>();
+        foreach (var line in StrongboxMods.Lines(ItemsFor(conn).Mods, box, state.Explicits))
+            if (line.Mod.Stats.Any(s => s.Id == "summoned_monster_rarity"))
+                groups.Add((StrongboxMods.Value(line, "number_of_packs_to_summon"), StrongboxMods.Value(line, "number_of_monsters_to_summon"),
+                    (MonsterRarity)Math.Clamp(StrongboxMods.Value(line, "summoned_monster_rarity"), 0, 2), line.Mod.Id));
+        if (groups.Count == 0) groups.Add((1, 0, MonsterRarity.Normal, "no summoning mod"));
+        int extra = stat("map_strongboxes_additional_pack_chance_%");
+        if (extra > 0 && rng.Next(100) < extra) groups.Add((1, 0, MonsterRarity.Normal, "additional pack chance"));
+        if (first && stat("map_first_strongbox_contains_x_additional_rare_monsters") is int firstRares and > 0)
+            groups.Add((0, firstRares, MonsterRarity.Rare, "first strongbox"));
+        int Both(string name) => stat("map_" + name) + stat(name);
+        var effects = new Dictionary<string, int>
+        {
+            ["maximum_life_+%"] = Both("strongbox_monsters_life_+%"), ["damage_+%"] = Both("strongbox_monsters_damage_+%"),
+            ["attack_speed_+%"] = Both("strongbox_monsters_attack_speed_+%"),
+            ["base_movement_velocity_+%"] = Both("strongbox_monsters_movement_velocity_+%"),
+            ["base_actor_scale_+%"] = Both("strongbox_monsters_actor_scale_+%"),
+        }.Where(e => e.Value != 0).ToDictionary(e => e.Key, e => e.Value);
+        var extraMods = effects.Count == 0 ? null : new MonsterModSet([], [], new MonsterModEffects(effects));
+        int quantity = Both("strongbox_monsters_item_quantity_+%");
         var made = new List<string>();
-        for (int p = 0; p < packCount; p++)
+        int spot = 0;
+        foreach (var (packCount, monsters, rarity, why) in groups)
+        {
+            for (int p = 0; p < packCount; p++)
+            {
+                var pack = PickPack();
+                int count = rng.Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
+                int spawned = 0;
+                for (int i = 0; i < count; i++) if (await Spawn(pack, rarity)) spawned++;
+                made.Add($"{pack.Id} × {spawned} {rarity} ({why})");
+            }
+            int singles = 0;
+            for (int i = 0; i < monsters; i++) if (await Spawn(PickPack(), rarity)) singles++;
+            if (monsters > 0) made.Add($"{singles} {rarity} monster(s) ({why})");
+        }
+        Console.WriteLine($"[gateway] {remote} strongbox {box.Name} ambush, level {level}: {string.Join(", ", made)}" +
+            (effects.Count > 0 || quantity != 0 ? $"; monsters {string.Join(", ", effects.Select(e => $"{e.Key} {e.Value}"))}" +
+                (quantity != 0 ? $" item quantity {quantity}%" : "") : ""));
+        return guards;
+
+        PackCatalog.Pack PickPack()
         {
             int roll = rng.Next(Math.Max(1, packs.Sum(x => x.Weight)));
-            var pack = packs.FirstOrDefault(x => (roll -= x.Weight) < 0).Pack ?? packs[^1].Pack;
-            int count = rng.Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
-            int spawned = 0;
-            for (int i = 0; i < count; i++)
-            {
-                if (Spawnable(pack.PickVariety(rng)) is not { } variety) continue;
-                double angle = rng.NextDouble() * Math.Tau, radius = 5 + rng.NextDouble() * 4;
-                int x = at.X + (int)Math.Round(Math.Cos(angle) * radius), y = at.Y + (int)Math.Round(Math.Sin(angle) * radius);
-                uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)level, box.SummonRarity, x, y,
-                    alone: false, log: false, owned: (_, monster) => monster.Aggro = true);
-                if (id == 0) break;
-                spawned++;
-            }
-            made.Add($"{pack.Id} × {spawned}{(p > 0 ? " (additional pack)" : "")}");
+            return packs.FirstOrDefault(x => (roll -= x.Weight) < 0).Pack ?? packs[^1].Pack;
         }
-        Console.WriteLine($"[gateway] {remote} strongbox {box.Name} ambush, level {level}, {box.SummonRarity}: {string.Join(", ", made)}" +
-            $" (additional pack chance {extra}%)");
+
+        async Task<bool> Spawn(PackCatalog.Pack pack, MonsterRarity rarity)
+        {
+            if (Spawnable(pack.PickVariety(rng)) is not { } variety) return false;
+            // A ring around the box, each guard a little further round it.
+            double angle = spot++ * 2.399963229728653, radius = 5 + rng.NextDouble() * 5;
+            int x = state.X + (int)Math.Round(Math.Cos(angle) * radius), y = state.Y + (int)Math.Round(Math.Sin(angle) * radius);
+            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)level, rarity, x, y,
+                alone: false, log: false, extraMods: extraMods, owned: (_, monster) =>
+                {
+                    monster.Aggro = true;
+                    // Item quantity of the guards' own drops, as the Sulphite enrage's (UtilityFlasks.ItemQuantityFactor).
+                    if (quantity != 0) monster.EncounterStats = new Dictionary<string, int> { [MapSulphite.EnragedQuantity] = quantity * 100 };
+                });
+            if (id == 0) return false;
+            guards.Add(id);
+            return true;
+        }
 
         static MonsterCatalog.Variety? Spawnable(int row) =>
             Monsters.Find(row.ToString()) is { Supported: true } v && Emerges.Kind(v) == EmergeKind.None ? v : null;
     }
 
     /// <summary>The box's items (<see cref="StrongboxLoot"/>) on the ground around it, as a monster's drops lie.</summary>
-    static async Task DropLoot(ClientState conn, StrongboxCatalog.Entry box, (int X, int Y) at, int level,
+    static async Task DropLoot(ClientState conn, StrongboxCatalog.Entry box, Box state, int level,
         IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
         var (remote, stream, ciphers) = conn.Wire;
-        var items = ItemDrops.Stacked(StrongboxLoot.Roll(conn, box, level, stats, rng));
+        var catalog = ItemsFor(conn).Mods;
+        var mods = state.Explicits;
+        var items = ItemDrops.Stacked(StrongboxLoot.Roll(conn, box, id => StrongboxMods.Stat(catalog, box, mods, id), level, stats, rng));
         foreach (var drop in items)
         {
             double angle = rng.NextDouble() * Math.Tau, r = 2 + rng.NextDouble() * 3;
-            int x = at.X + (int)Math.Round(Math.Cos(angle) * r), y = at.Y + (int)Math.Round(Math.Sin(angle) * r);
+            int x = state.X + (int)Math.Round(Math.Cos(angle) * r), y = state.Y + (int)Math.Round(Math.Sin(angle) * r);
             if (conn.Layout.Walkable is { } walk && !walk(x, y)) (x, y) = conn.Layout.Near((x, y));
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);

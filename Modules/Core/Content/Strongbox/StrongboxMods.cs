@@ -79,18 +79,25 @@ public static class StrongboxMods
         return rolled;
     }
 
-    /// <summary>The sum of a stat over a box's own mods (its Chests implicits and its rolled explicits), by stat id.</summary>
-    public static int Stat(ModCatalog catalog, StrongboxCatalog.Entry box, IReadOnlyList<ItemMod> mods, string id)
+    /// <summary>A box's own mods (its Chests implicits at their values, then its rolled explicits), each with its values.</summary>
+    public static IEnumerable<(ModCatalog.Mod Mod, IReadOnlyList<int> Values)> Lines(ModCatalog catalog, StrongboxCatalog.Entry box,
+        IReadOnlyList<ItemMod> mods)
     {
-        long sum = 0;
         foreach (int row in box.Implicits)
-            if (catalog.Row(row) is { } mod)
-                for (int i = 0; i < mod.Stats.Count; i++)
-                    if (mod.Stats[i].Id == id) sum += mod.RangeAt(i).Min;
+            if (catalog.Row(row) is { } mod) yield return (mod, [.. Enumerable.Range(0, mod.Stats.Count).Select(i => mod.RangeAt(i).Min)]);
         foreach (var m in mods)
-            if (catalog.ByHash(m.Hash) is { } mod)
-                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++)
-                    if (mod.Stats[i].Id == id) sum += m.Values[i];
-        return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
+            if (catalog.ByHash(m.Hash) is { } mod) yield return (mod, m.Values);
     }
+
+    /// <summary>One stat of a mod line, 0 when the mod has none.</summary>
+    public static int Value((ModCatalog.Mod Mod, IReadOnlyList<int> Values) line, string id)
+    {
+        for (int i = 0; i < line.Mod.Stats.Count && i < line.Values.Count; i++)
+            if (line.Mod.Stats[i].Id == id) return line.Values[i];
+        return 0;
+    }
+
+    /// <summary>The sum of a stat over a box's own mods, by stat id.</summary>
+    public static int Stat(ModCatalog catalog, StrongboxCatalog.Entry box, IReadOnlyList<ItemMod> mods, string id) =>
+        (int)Math.Clamp(Lines(catalog, box, mods).Sum(l => (long)Value(l, id)), int.MinValue, int.MaxValue);
 }
