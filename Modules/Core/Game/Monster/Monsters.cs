@@ -123,7 +123,7 @@ public static partial class Game
     // A pack the area holds back until the player comes near (PopulateArea): created a few at a time, nearest first, and
     // well outside the view so one never appears in front of him (a screen is ~50 cells across; this is about two).
     const int PopulationRevealCells = 120;
-    const int PendingMonstersPerTick = 8;
+    const int PendingMonstersPerTick = 2;
     const int PendingMonstersTickMilliseconds = 250;
 
     static bool RevealPack(AreaPopulation.Spawn s, (int X, int Y) here) =>
@@ -336,13 +336,18 @@ public static partial class Game
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
                 MonsterType: ((ushort)variety.Row, level)));
-        else await Send(remote, stream, ciphers, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+        else
         {
+            // Decided and built before the gate: the builder takes the combat lock, and holding the gate while waiting for
+            // it stalled the next cast behind the monster AI — 297 ms on one spawn (live 2026-11-17).
+            byte[]? types;
             lock (conn.Monsters)
-                return CurrentGameWork && !conn.Closed && !conn.LeavingArea
+                types = CurrentGameWork && !conn.Closed && !conn.LeavingArea
                     && (ownedCurrent is null || ownedCurrent()) && conn.MonsterTypes.Add((variety.Row, level))
                     ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null;
-        });
+            if (types is not null)
+                await Send(remote, stream, ciphers, types, $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})");
+        }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
         // (MonsterSpeedRoll.cs); the walk estimate uses the same speed so arrival, swing range and contact agree with it.
