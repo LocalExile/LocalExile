@@ -62,7 +62,9 @@ public static partial class Game
         // The volley leaves towards the aim and each arrow comes down leaning the way it was shot (an object's
         // rotation: atan2(x, -y), as a projectile's).
         static float Facing(ProjectileVector d) => d.Length < .001 ? 0 : (float)Math.Atan2(d.X, -d.Y);
-        session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin));
+        // A server effect does not start its .ao's default_animation: Toxic Rain's shoot-up art (spores_shootup.ao,
+        // one clip "animate" that carries its vine trails) drew nothing until the clip was sent (live 2026-11-17).
+        session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: toxic ? 0 : null);
         double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
