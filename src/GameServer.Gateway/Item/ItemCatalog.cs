@@ -17,6 +17,15 @@ public sealed class ItemCatalog
     }
 
     private StashRules? _stash;
+
+    /// <summary>Builds, at startup, what every login reads of the items: the stash rules and their tab layouts, the gems,
+    /// the flasks, the weapons' criticals and the attribute requirements. They are built on first use otherwise, which
+    /// was inside the first player's login (2026-11-17: about 0.9 s of it).</summary>
+    public void Warm()
+    {
+        _ = Stash;
+        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
+    }
     private readonly string _folder;
     private readonly Lazy<HashSet<int>> _activeGemEffects;
 

@@ -11,16 +11,24 @@ public static partial class Game
 
     public static void SaveSummons(ClientState conn)
     {
-        lock (conn.Monsters)
+        lock (MinionSaveLocks.GetOrCreateValue(conn))
         {
-            if (!conn.Summons.Restored) return;
-            double now = AreaTime(conn);
-            string text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
-                    && conn.Summons.Definitions[g.Id].Persistent)
-                .Select(g => SavedSummon(conn, g, now)).ToArray());
-            string guardian = JsonSerializer.Serialize(conn.Summons.GuardianEquipment);
-            CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
-            CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => guardian);
+            string text, guardian, character;
+            lock (conn.Monsters)
+            {
+                if (!conn.Summons.Restored) return;
+                double now = AreaTime(conn);
+                text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
+                        && conn.Summons.Definitions[g.Id].Persistent)
+                    .Select(g => SavedSummon(conn, g, now)).ToArray());
+                guardian = JsonSerializer.Serialize(conn.Summons.GuardianEquipment);
+                character = CharacterName(conn);
+            }
+            Saves.Atomically(() =>
+            {
+                CharacterSaves.ChangeModuleData(character, SummonSaveKey, _ => text);
+                CharacterSaves.ChangeModuleData(character, GuardianSaveKey, _ => guardian);
+            });
         }
     }
 

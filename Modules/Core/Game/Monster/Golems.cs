@@ -237,23 +237,32 @@ public static partial class Game
                     stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, object> MinionSaveLocks = new();
+
     public static void SaveGolems(ClientState conn)
     {
-        lock (conn.Monsters)
+        lock (MinionSaveLocks.GetOrCreateValue(conn))
         {
-            if (!conn.Golems.Restored) return;
-            double now = AreaTime(conn);
-            var canonical = PlayerSkillSourcesLocked(conn).Where(source => source.Active)
-                .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());
-            var local = conn.Golems.All.Values
-                .Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
-                .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, SavedGolem(conn, g, now), g.GemSource))
-                .Concat(conn.Golems.Waiting.Select(w => new LocalGolemSave(
-                    w.Saved.Skill, GolemData.Find(w.Saved.Effect)?.Effect ?? int.MinValue, w.Saved with
-                    { ReviveSeconds = SavedPositiveDelay(w.At - now) }, w.GemSource)))
-                .ToArray();
-            string character = CharacterName(conn);
-            Guid owner = conn.VitalsSessionId;
+            Dictionary<ushort, PlayerSkillSource> canonical;
+            LocalGolemSave[] local;
+            string character;
+            Guid owner;
+            lock (conn.Monsters)
+            {
+                if (!conn.Golems.Restored) return;
+                double now = AreaTime(conn);
+                canonical = PlayerSkillSourcesLocked(conn).Where(source => source.Active)
+                    .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());
+                local = conn.Golems.All.Values
+                    .Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
+                    .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, SavedGolem(conn, g, now), g.GemSource))
+                    .Concat(conn.Golems.Waiting.Select(w => new LocalGolemSave(
+                        w.Saved.Skill, GolemData.Find(w.Saved.Effect)?.Effect ?? int.MinValue, w.Saved with
+                        { ReviveSeconds = SavedPositiveDelay(w.At - now) }, w.GemSource)))
+                    .ToArray();
+                character = CharacterName(conn);
+                owner = conn.VitalsSessionId;
+            }
             Saves.Atomically(() => CharacterSaves.ChangeModuleData(character, GolemSaveKey, existing =>
             {
                 var inventory = PlayerInventories.Current(character);

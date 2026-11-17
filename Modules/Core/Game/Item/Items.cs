@@ -491,14 +491,22 @@ public static partial class Game
     public static Item AdornedJewel(Item item, int percent)
     {
         if (percent == 0 || item.Rarity != ItemRarity.Magic || !item.Corrupted) return item;
-        return item with
+        // One scaled copy per jewel and percentage: the stat sources' cache compares worn items by reference (and then
+        // their mod lists), so a new copy at every build missed it each time.
+        if (AdornedJewels.TryGetValue(item, out var kept) && kept.Percent == percent) return kept.Item;
+        var scaled = item with
         {
             Mods = [.. item.Mods.Select(mod => mod with
             {
                 Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
             })],
         };
+        AdornedJewels.AddOrUpdate(item, new(percent, scaled));
+        return scaled;
     }
+
+    sealed record ScaledJewel(int Percent, Item Item);
+    static readonly RuleTable<Item, ScaledJewel> AdornedJewels = new();
 
     /// <summary>Why a held item cannot go into PassiveJewels1 at (x, y), or null: the slot must be an ordinary large
     /// jewel socket whose passive node is allocated, or a cluster jewel's expansion socket whose jewel is socketed,

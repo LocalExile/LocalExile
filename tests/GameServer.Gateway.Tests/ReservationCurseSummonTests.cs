@@ -224,6 +224,16 @@ public sealed partial class ReservationCurseSummonTests
                 Game.ItemsOf(conn).Remove(PlayerInventories.Cursor, cursor.Id);
             ushort claritySource = Equip("Clarity");
             CharacterSaves.SetAuraActive(conn.Character!, "Clarity", true);
+            Game.RestoreRememberedAuras(conn, ["Clarity"]);
+            Assert.NotNull(conn.Auras[claritySource].SourceBuff);
+            uint efficiency = Program.Stats.Key("clarity_mana_reservation_efficiency_+%")!.Value;
+            conn.PlayerStats[efficiency] = -99;
+            Game.EnsureOwnAuraPools(conn);
+            Assert.DoesNotContain(claritySource, conn.Auras.Keys);
+            Assert.Contains("Clarity", CharacterSaves.Remembered(conn.Character!).Auras);
+            conn.PlayerStats.Remove(efficiency);
+            Game.ReconcileOwnAuras(conn, validateSkills: true);
+            Assert.Contains(claritySource, conn.Auras.Keys);
             conn.ClientSkillIds = [claritySource];
             var heldHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), heldHost.Id, 0);
@@ -241,6 +251,19 @@ public sealed partial class ReservationCurseSummonTests
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.DoesNotContain(conn.Auras.Values, a => a.EffectId == "Clarity");
             Assert.DoesNotContain("Clarity", CharacterSaves.Load(conn.Character!)!.ActiveAuras ?? []);
+            foreach (string name in new[] { "Herald of Ice", "Arctic Armour", "Tempest Shield" })
+            {
+                ushort id = Equip(name);
+                var gemSkill = Game.SupportedSkill(conn, id);
+                string effectId = Program.Skills.EffectId(gemSkill.Effect)!;
+                Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, id,
+                    gemSkill.Effect, name, Game.SupportedReservationCost(conn, id)!.Value, 20, 0));
+                Assert.Null(conn.Auras[id].SourceBuff);
+                conn.Auras.Clear();
+                Game.RestoreRememberedAuras(conn, [effectId]);
+                Assert.Null(conn.Auras[id].SourceBuff);
+                await Game.DisableReservations("test", wire.Stream, wire.Ciphers, conn, "all");
+            }
         }
         finally
         {

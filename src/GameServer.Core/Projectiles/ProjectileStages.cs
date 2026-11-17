@@ -29,10 +29,18 @@ public sealed partial class ProjectileRuntime
             void Pulse()
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
-                foreach (var target in world.Actors(Now, Now).OrderBy(a => a.Key.Id))
-                    if (target.Team != p.Use.Team && target.Key != p.Use.Owner
-                        && (target.Position(Now) - p.Position).Length <= pulse.Radius + target.Radius)
-                        Damage(p, target, pulse.Stage, isArea: true);
+                var targets = ActorsInOrder(generations: false, out int listed);
+                try
+                {
+                    for (int i = 0; i < listed; i++)
+                    {
+                        var target = targets[i];
+                        if (target.Team != p.Use.Team && target.Key != p.Use.Owner
+                            && (target.Position(Now) - p.Position).Length <= pulse.Radius + target.Radius)
+                            Damage(p, target, pulse.Stage, isArea: true);
+                    }
+                }
+                finally { Return(targets, listed); }
                 Schedule(Now + pulse.Interval, Pulse);
             }
             Pulse();
@@ -179,16 +187,58 @@ public sealed partial class ProjectileRuntime
         ProjectileActorKey? victim, long areaId)
     {
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: recipe.Radius, Stage: recipe.Stage));
-        foreach (var target in world.Actors(Now, Now).OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
-            if (target.Team != p.Use.Team && target.Key != p.Use.Owner
-                && (!recipe.ExcludeContactTarget || target.Key != victim)
-                && (target.Position(Now) - centre).Length <= recipe.Radius + target.Radius)
-                if (target.Key == victim)
-                    Damage(p, target, recipe.Stage, multiplier: recipe.Multiplier, admissionStage: "direct", isArea: true);
-                else Damage(p, target, recipe.Stage,
-                    recipe.Scope == ProjectileHitScope.Emission ? p.EmissionId : areaId, new(), recipe.Multiplier,
-                    admissionStage: recipe.Scope == ProjectileHitScope.Emission
-                        ? recipe.Stage + ":" + p.GroundBounces : recipe.Stage, isArea: true);
+        var targets = ActorsInOrder(generations: true, out int listed);
+        try
+        {
+            for (int i = 0; i < listed; i++)
+            {
+                var target = targets[i];
+                if (target.Team != p.Use.Team && target.Key != p.Use.Owner
+                    && (!recipe.ExcludeContactTarget || target.Key != victim)
+                    && (target.Position(Now) - centre).Length <= recipe.Radius + target.Radius)
+                    if (target.Key == victim)
+                        Damage(p, target, recipe.Stage, multiplier: recipe.Multiplier, admissionStage: "direct", isArea: true);
+                    else Damage(p, target, recipe.Stage,
+                        recipe.Scope == ProjectileHitScope.Emission ? p.EmissionId : areaId, new(), recipe.Multiplier,
+                        admissionStage: recipe.Scope == ProjectileHitScope.Emission
+                            ? recipe.Stage + ":" + p.GroundBounces : recipe.Stage, isArea: true);
+            }
+        }
+        finally { Return(targets, listed); }
+    }
+
+    /// <summary>
+    /// The actors as they are now, in the order an area's or a pulse's hits are decided in: by id, and with
+    /// <paramref name="generations"/> then by generation. It is a copy, taken before the first hit: a hit may change the
+    /// host's list. A host that lists them in that order already (the Gateway's session does) costs the copy alone; any
+    /// other list is sorted as before, keeping the listed order of equal keys. The array is rented: hand it back with
+    /// <see cref="Return"/>. (An area sorted every actor of the instance for each of its explosions.)
+    /// </summary>
+    ProjectileActor[] ActorsInOrder(bool generations, out int count)
+    {
+        var actors = world.Actors(Now, Now);
+        count = actors.Count;
+        var copy = System.Buffers.ArrayPool<ProjectileActor>.Shared.Rent(count);
+        bool ordered = true;
+        for (int i = 0; i < count; i++)
+        {
+            var actor = copy[i] = actors[i];
+            if (i == 0 || !ordered) continue;
+            var before = copy[i - 1].Key;
+            ordered = before.Id != actor.Key.Id ? before.Id < actor.Key.Id
+                : !generations || before.Generation <= actor.Key.Generation;
+        }
+        if (ordered) return copy;
+        int at = 0;
+        var byId = actors.OrderBy(a => a.Key.Id);
+        foreach (var actor in generations ? byId.ThenBy(a => a.Key.Generation) : byId) copy[at++] = actor;
+        return copy;
+    }
+
+    static void Return(ProjectileActor[] actors, int count)
+    {
+        Array.Clear(actors, 0, count);
+        System.Buffers.ArrayPool<ProjectileActor>.Shared.Return(actors);
     }
 
     public bool TryConsume(long projectileId)
