@@ -5,9 +5,9 @@ public static partial class Game
 {
     static MonsterModSet GolemModifiers(GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
-        var values = new Dictionary<string, int>();
+        var values = new Dictionary<string, int>(golem.InheritedMods.Effects.Stats);
         foreach (var (key, value) in player)
-            if (Stats.Name(key) is { } name && name.StartsWith("minion_", StringComparison.Ordinal)) values[name[7..]] = value;
+            if (Stats.Name(key) is { } name && name.StartsWith("minion_", StringComparison.Ordinal)) values[name[7..]] = values.GetValueOrDefault(name[7..]) + value;
         foreach (var (key, value) in golem.Own)
         {
             string name = Stats.Name(key) ?? "";
@@ -29,7 +29,7 @@ public static partial class Game
             values["attack_speed_+%"] = values.GetValueOrDefault("attack_speed_+%") + values.GetValueOrDefault("attack_and_cast_speed_+%");
             values["base_movement_velocity_+%"] = values.GetValueOrDefault("movement_speed_+%") + values.GetValueOrDefault("base_movement_velocity_+%");
             values.Remove("life_regeneration_rate_per_minute_%");
-            return MonsterModSet.None with { Effects = new(values) };
+            return golem.InheritedMods with { Effects = new(values) };
         }
         string family = golem.Definition.Kind == "Carrion" ? "bone" : golem.Definition.Kind.ToLowerInvariant();
         values["damage_+%"] = values.GetValueOrDefault("damage_+%") + Get("golem_damage_+%") + Get(family + "_golem_damage_+%")
@@ -41,7 +41,7 @@ public static partial class Game
         values["base_resist_all_elements_%"] = values.GetValueOrDefault("base_resist_all_elements_%") + Get(family + "_golem_elemental_resistances_%");
         // Recovery is stepped once by the owner controller, not again by RegenerateMonstersLocked.
         values.Remove("life_regeneration_rate_per_minute_%");
-        return MonsterModSet.None with { Effects = new(values) };
+        return golem.InheritedMods with { Effects = new(values) };
     }
 
     static uint GolemMaximumLife(MonsterCatalog.Variety variety, byte level, GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
@@ -55,7 +55,11 @@ public static partial class Game
             * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "life") / 100.0) : 1);
         if (golem.Definition.Kind is "Flame" or "Ice" or "Lightning" && GolemStat(player, "elemental_golems_maximum_life_is_doubled") > 0) more *= 2;
         if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_maximum_life_+%_final") / 100d);
-        increased += golem.Gear.GetValueOrDefault("maximum_life_+%");
+        var inherited = golem.InheritedMods.Effects;
+        increased += golem.Gear.GetValueOrDefault("maximum_life_+%") + inherited["maximum_life_+%"];
+        more *= Math.Max(0, 1 + inherited["monster_life_+%_final_from_rarity"] / 100d)
+            * Math.Max(0, 1 + inherited[MonsterModCatalog.RarityTableLifeStat] / 100d)
+            * Math.Max(0, 1 + inherited[MonsterModCatalog.MapHiddenLifeStat] / 100d);
         return (uint)Math.Clamp(((Monsters.BaseLife(variety, level) ?? 100) + golem.Gear.GetValueOrDefault("base_maximum_life"))
             * Math.Max(.01, 1 + increased / 100) * more, 1, int.MaxValue);
     }
@@ -98,7 +102,7 @@ public static partial class Game
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             double seconds = (spell || Raw("cast_time_overrides_attack_duration") != 0) && catalog.CastTimeMs(effect) > 0
                 ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
-            double speed = 1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0;
+            double speed = (1 + mods["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d) * (1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0);
             speed *= Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100.0);
             speed *= Math.Max(.01, 1 + Own(spell ? "active_skill_minion_cast_speed_+%_final" : "active_skill_minion_attack_speed_+%_final") / 100d);
             bool multistrike = MinionSupportMatches(effect, "SupportMultistrike");
@@ -150,7 +154,9 @@ public static partial class Game
             }
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             var rawDamage = damage;
-            double more = Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
+            double more = Math.Max(0, 1 + mods["monster_rarity_damage_+%_final"] / 100d)
+                * Math.Max(0, 1 - mods["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d)
+                * Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Raw("active_skill_damage_+%_final") / 100.0)
@@ -194,12 +200,12 @@ public static partial class Game
             radius *= (1 + Raw("active_skill_area_of_effect_radius_+%_final") / 100.0)
                 * Math.Sqrt(Math.Max(0, 1 + (mods["base_skill_area_of_effect_+%"] + Raw("base_skill_area_of_effect_+%")) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
-            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell, Scripted = true };
+            var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
             var projectile = catalog.MonsterProjectile(effect);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
-            if (effect != 9511 && !spell && golem.Weapon is { Melee: false } ranged)
-                projectile ??= new(ranged.WieldingWand ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
+            if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
+                projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(player, "minion_cooldown_recovery_+%") + (golem.Definition.IsGolem ? GolemStat(player, "golem_skill_cooldown_recovery_+%") : 0) + Own("minion_cooldown_recovery_+%")) / 100.0);
