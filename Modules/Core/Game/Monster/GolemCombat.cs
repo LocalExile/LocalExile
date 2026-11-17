@@ -391,7 +391,7 @@ public static partial class Game
         if (a.Effect == 306)
         {
             var element = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning }
-                .First(type => GolemStat(a.Stats, $"base_deal_no_{type.ToString().ToLowerInvariant()}_damage") == 0);
+                .First(type => GolemStat(a.Stats, $"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage") == 0);
             current = GolemAbilities(conn, g.Monster.Variety!, g.Monster.Level, g, currentPlayer, now,
                 prismatic: element).Single(ability => ability.Effect == a.Effect);
         }
