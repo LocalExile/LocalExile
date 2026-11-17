@@ -315,9 +315,6 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
-    // Cinderswallow Urn: the increased damage taken of an ignite inflicted during the flask's effect, until that ignite ends.
-    public int IgnitedTakenPct;
-    public double IgnitedTakenUntil;
     // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;

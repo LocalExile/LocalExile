@@ -285,7 +285,8 @@ public static partial class Game
             int? vsBlinded = Player(VsBlindedCriticalStat) is not 0 and var extra
                 ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
             var vsProfane = SpellCriticalChanceVsGround(conn,
-                extra => SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extra));
+                extra => SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extra),
+                Player(VsBlindedCriticalStat));
             int multiplier = (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier + Own("base_critical_strike_multiplier_+"),
                 int.MinValue, int.MaxValue);
             var gambler = GamblerFor(player);

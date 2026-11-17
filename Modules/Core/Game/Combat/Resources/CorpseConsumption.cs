@@ -9,12 +9,12 @@ static partial class Game
     internal const string CorpseKillChance = "killing_blow_consumes_corpse_restore_10%_life_chance_%";
     internal const int CorpseKillLifePct = 10;
 
-    /// <summary>A corpse the player consumed (a warcry, Devour, a raise or offering, a golem): an ignited one counts for
+    /// <summary>A corpse the player consumed (a warcry, Devour, a raise or offering): an ignited one counts for
     /// Cinderswallow Urn's "Recharges X Charges when you Consume an Ignited corpse", which the flask-charge loop pays
-    /// (RunFlaskChargeRegen). The corpse keeps whether it died burning (MonsterIgnites.DiedBurning). Under the Monsters lock.</summary>
+    /// (RunFlaskChargeRegen). Only ignites still present at consumption count. Under the Monsters lock.</summary>
     internal static void NoteCorpseConsumedLocked(ClientState conn, SpawnedMonster corpse)
     {
-        if (corpse.Ignites.Burning || corpse.Ignites.DiedBurning) Interlocked.Increment(ref conn.IgnitedCorpsesConsumed);
+        if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(conn))) Interlocked.Increment(ref conn.IgnitedCorpsesConsumed);
     }
 
     /// <summary>The killing blow's corpse consumption: true when the corpse was consumed (the caller removes the corpse

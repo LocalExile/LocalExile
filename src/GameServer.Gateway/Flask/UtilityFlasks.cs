@@ -112,7 +112,7 @@ public static class UtilityFlasks
             FlaskGrounds.VsConsecratedCriticalStat, 1, false),
         ("local_flask_during_effect_enemy_damage_taken_+%_on_consecrated_ground", FlaskGrounds.EnemyDamageTakenStat, 1, false),
         // Cinderswallow Urn: recovery on kill (KillRecovery.From reads the merged player stats), and the increased damage
-        // taken of enemies ignited during the effect (Game.MarkIgnitedDuringFlaskLocked).
+        // taken retained by each ignite applied during the effect (MonsterIgnites).
         ("local_flask_recover_%_maximum_life_on_kill_during_flask_effect", "recover_%_maximum_life_on_kill", 1, false),
         ("local_flask_recover_%_maximum_mana_on_kill_during_flask_effect", "recover_%_maximum_mana_on_kill", 1, false),
         ("local_flask_recover_%_maximum_energy_shield_on_kill_during_flask_effect", "recover_energy_shield_%_on_kill", 1, false),
@@ -419,6 +419,19 @@ public static class UtilityFlasks
         public IReadOnlyList<Source> Sources()
         {
             lock (_lock) return [.. _active.SelectMany(a => a.Stats)];
+        }
+
+        /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>
+        public int MaximumStat(string stat)
+        {
+            lock (_lock)
+            {
+                int value = 0;
+                foreach (var effect in _active)
+                    foreach (var source in effect.Stats)
+                        if (source.Stat == stat) value = Math.Max(value, source.Value);
+                return value;
+            }
         }
 
         /// <summary>Whether a running effect shows its own Onslaught buff (a Silver Flask's).</summary>

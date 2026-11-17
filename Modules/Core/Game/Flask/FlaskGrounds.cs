@@ -35,7 +35,7 @@ public static partial class Game
 
     /// <summary>The strongest value of a stat the running utility flasks grant (their "during effect" mods).</summary>
     public static int UtilityFlaskStat(ClientState conn, string stat) =>
-        conn.UtilityFlaskEffects.Sources().Where(s => s.Stat == stat).Select(s => s.Value).DefaultIfEmpty(0).Max();
+        conn.UtilityFlaskEffects.MaximumStat(stat);
 
     public static Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, (int X, int Y) at)

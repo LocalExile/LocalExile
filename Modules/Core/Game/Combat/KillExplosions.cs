@@ -6,6 +6,17 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public static partial class Game
 {
+    // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
+    // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
+    internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
+        IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        double raw = maximumLife / 10d;
+        return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
+            DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
+    }
+
     /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
     /// exploded monsters 22.85 and 24.35 cells away). The native radius does not follow the character's increased area
     /// of effect; scaling our 25 by a 85% AoE build produced 37 cells and hit roughly twice the native crowd, which
@@ -68,7 +79,8 @@ public static partial class Game
         // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
         var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
             .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
-        if (element is { } e) packet = packet.Add(DamagePacket.Of(e, elemental, elemental));
+        var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, player) : DamagePacket.Empty;
+        var elementalPenetration = Penetration.Of(player, Stats, attack: false);
         long amount = (long)physical + chaos + elemental;
         string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
             element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
@@ -85,6 +97,12 @@ public static partial class Game
                 if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
                 if (Dist(m.Walk.Position(now), at) > radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false);
+                if (element is not null)
+                {
+                    var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
+                        type => MonsterHitResistance(m, type, elementalPenetration, now));
+                    damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
+                }
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }

@@ -1548,8 +1548,8 @@ runs, ending early when the pools fill (`UtilityFlasks.RecoveryDuringEffects`: D
 light radius and resistances). Unique flask mechanics on top: Bottled Faith's ground has tripled radius, and ground
 created during its effect keeps its increased damage taken for enemies on it, with its crit chance against them read
 per target at the hit (`Game.GroundCritical`, computed with Rational Doctrine's profane increase); Cinderswallow Urn's
-ignites during the effect add damage taken until they end, and a consumed corpse that died ignited recharges it (paid
-by the flask-charge loop); Rumi's block adds before increased block; Stormblood lets a critical strike's every damage
+ignites during the effect retain damage taken individually until they end, and a corpse the player consumes while still
+ignited recharges it (paid by the flask-charge loop); Rumi's block adds before increased block; Stormblood lets a critical strike's every damage
 type count for shock, chill and freeze (Sap, Brittle and the Replica Rumi's Petrified are not modelled); the
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not

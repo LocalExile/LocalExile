@@ -315,9 +315,6 @@ public static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
-        // One line per release proves the volley size (Dying Sun's flask adds number_of_additional_projectiles).
-        Console.WriteLine($"[gateway] projectile release {gem.Name}: count {profile.Count}, " +
-            $"number_of_additional_projectiles {Get("number_of_additional_projectiles")}");
         var at = totem?.At ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
