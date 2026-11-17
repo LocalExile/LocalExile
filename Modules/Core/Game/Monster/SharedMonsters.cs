@@ -680,7 +680,9 @@ public static partial class Game
     // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
     // and the ones gone from the instance go. A monster out of the runner's wake zone gets no order (an order wakes a
     // sleeping object and the next 0x1a9 crashed the client); the others never put one to sleep.
-    public static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        // False in the pass that only follows this pass's births, so one call reveals one round of held-back monsters.
+        bool reveal = true)
     {
         var world = conn.Instance.World;
         bool watch;
@@ -692,6 +694,7 @@ public static partial class Game
         // Monsters still in wait whose watcher left: the runner watches them now.
         if (watch) WatchBuried(remote, stream, ciphers, conn);
         bool runner = IsMonsterRunner(conn);
+        if (reveal && runner) await RevealHeldBack(remote, stream, ciphers, conn);
         // What goes to this client here is its own view: nothing of it goes on to the others (MirrorSharedMonsters).
         Mirroring.Value = true;
         var bossBars = new List<(uint Id, SpawnedMonster M)>();
@@ -700,7 +703,7 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
             var packets = new WorldRecordBuilder(conn, admission);
-            lock (world.Monsters)
+            using (conn.Performance.Lock(world.Monsters, "shared-monsters"))
             {
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
@@ -767,7 +770,7 @@ public static partial class Game
             return packets.Build();
         }, transport: (remote, stream, ciphers));
         if (births.Count > 0 && await conn.WorldOutput.AwaitBirths(births))
-            await SyncInstanceMonsters(remote, stream, ciphers, conn);
+            await SyncInstanceMonsters(remote, stream, ciphers, conn, reveal: false);
         foreach (var (id, m) in bossBars) await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
     }
 }

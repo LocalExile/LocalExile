@@ -102,7 +102,14 @@ public sealed class ConnectionPerformance
             long start = Stopwatch.GetTimestamp();
             Monitor.Enter(gate);
             enteredAt = Stopwatch.GetTimestamp();
-            try { owner.RecordTicks(LatencyPhase.CombatWait, enteredAt - start, operation); }
+            try
+            {
+                owner.RecordTicks(LatencyPhase.CombatWait, enteredAt - start, operation);
+                // Which phase is holding the combat lock, and for how long: the aggregate CombatWait/CombatHold cannot say
+                // (live 2026-11-17: 500-600 ms holds during an area entry, and every phase looked alike).
+                if (LagProbe && Stopwatch.GetElapsedTime(start, enteredAt).TotalMilliseconds >= 50)
+                    Console.WriteLine($"[slow-lock] {operation} wait={Stopwatch.GetElapsedTime(start, enteredAt).TotalMilliseconds:0} ms");
+            }
             catch { Monitor.Exit(gate); throw; }
         }
         public void Dispose()
@@ -110,6 +117,8 @@ public sealed class ConnectionPerformance
             long ticks = Stopwatch.GetTimestamp() - enteredAt;
             Monitor.Exit(gate);
             owner.RecordTicks(LatencyPhase.CombatHold, ticks, operation);
+            if (LagProbe && ticks * 1000.0 / Stopwatch.Frequency >= 50)
+                Console.WriteLine($"[slow-lock] {operation} hold={ticks * 1000.0 / Stopwatch.Frequency:0} ms");
         }
     }
 
