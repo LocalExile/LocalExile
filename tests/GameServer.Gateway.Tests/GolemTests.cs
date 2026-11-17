@@ -56,6 +56,30 @@ public sealed class GolemTests
         var added = Game.GolemAbilities(conn, varietyFlame, 70, minion, new Dictionary<uint, int>());
         Assert.All(added, a => Assert.Equal(baseline.Single(b => b.Effect == a.Effect).Attack.Damage[DamageType.Fire].Min + 100,
             a.Attack.Damage[DamageType.Fire].Min));
+        // Added Chaos must not make a skeleton's native QuickDodge eligible for the attack controller.
+        // The same rule applies to zero-base utility spells without an explicit no-damage stat.
+        var summons = new SummonCatalog();
+        foreach (var (summon, utility, hit) in new[] {
+            ("SummonSkeletons", "MonsterQuickDodgeRunUnarmed", "Melee"),
+            ("SummonHolyRelic", "RelicTeleport", "RelicTriggeredNova") })
+        {
+            var definition = summons.Find(summon)!;
+            var nativeDefinition = new GolemCatalog.Definition(skills.EffectRow(summon), summon, definition.Family,
+                definition.Variety, 0, [], false, false, false);
+            var fighter = new GolemState.Golem(1, null!, nativeDefinition, 1);
+            var variety = monsters.Find(definition.Variety)!;
+            var beforeAdded = Game.GolemAbilities(conn, variety, 70, fighter, new Dictionary<uint, int>());
+            Assert.Equal(0d, beforeAdded.Single(a => a.Id == utility).Attack.Damage.MaxTotal);
+            Assert.True(beforeAdded.Single(a => a.Id == hit).Attack.Damage.MaxTotal > 0);
+            // SupportedSkill projects global added damage into both the attack and spell forms.
+            foreach (string kind in new[] { "global", "attack", "spell" })
+                foreach (string bound in new[] { "minimum", "maximum" })
+                    fighter.Own[Program.Stats.Key($"{kind}_{bound}_added_chaos_damage")!.Value] = 100;
+            var afterAdded = Game.GolemAbilities(conn, variety, 70, fighter, new Dictionary<uint, int>());
+            Assert.Equal(0d, afterAdded.Single(a => a.Id == utility).Attack.Damage.MaxTotal);
+            Assert.Equal(beforeAdded.Single(a => a.Id == hit).Attack.Damage[DamageType.Chaos].Min + 100,
+                afterAdded.Single(a => a.Id == hit).Attack.Damage[DamageType.Chaos].Min);
+        }
         Assert.Equal(3, GolemCatalog.Limit(1, n => n == "number_of_golems_allowed" ? 2 : 0));
         Assert.Equal(4, GolemCatalog.Limit(1, n => n == "base_number_of_golems_allowed" ? 3 : 0));
         Assert.Equal(8, GolemCatalog.Limit(3, n => n switch { "number_of_golems_allowed" => 1, "double_golem_limit" => 1, _ => 0 }));

@@ -34,6 +34,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Unique-flask mechanics; Oriath explosion parity, Sap, Brittle and Replica Rumi's Petrified remain open.
+  Docs: [13](../docs/protocol/13-items.md) §8a.
+
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
   cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.
   Docs: [17](../docs/protocol/17-npcs.md).
