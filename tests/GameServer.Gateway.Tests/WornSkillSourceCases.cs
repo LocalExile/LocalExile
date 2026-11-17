@@ -37,8 +37,26 @@ static class WornSkillSourceCases
             var supportType = catalog.FindGem("Arrogance Support")!.Value;
             var support = ItemCatalog.Create(supportType.Type) with { GemVariant = supportType.Variant.Index };
             int effect = supportType.Variant.Effect;
-            var host = Game.ItemsOf(conn).Add(PlayerInventories.Boots, 0, 0,
-                item with { Sockets = [new ItemSocket(SocketColour.White, support)], Links = [1] });
+            var cleaveType = catalog.FindGem("Cleave")!.Value;
+            var cleave = ItemCatalog.Create(cleaveType.Type) with { GemVariant = cleaveType.Variant.Index };
+            var host = Game.ItemsOf(conn).Add(PlayerInventories.Boots, 0, 0, item with
+            {
+                Sockets = [new ItemSocket(SocketColour.White, support), new ItemSocket(SocketColour.White, cleave)],
+                Links = [2],
+            });
+            // A socketed melee gem keeps Blood and Sand's stance area of effect beside the worn sources.
+            var melee = Assert.Single(Game.GemSkillEffects(conn), s => s.Effect == cleaveType.Variant.Effect);
+            uint areaKey = Program.Stats.Key("active_skill_area_of_effect_+%_final")!.Value;
+            int baseArea = Game.SupportedSkill(conn, melee.Id).Stats.GetValueOrDefault(areaKey);
+            int stanceEffect = Program.Skills.EffectRow("BloodAndSand");
+            conn.Auras[0x998] = new AuraCatalog.Aura(0x998, stanceEffect, "BloodAndSand", "Blood and Sand", 1,
+                AuraCatalog.BuffRow("BloodAndSand", "Sand"), 0, 0, Level: 20, Stance: "Sand");
+            int sand = Program.Skills.EffectStats(stanceEffect, 20, 0).First(s => s.Item1 == Program.Stats.Key(
+                "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance")).Item2;
+            Assert.NotEqual(0, sand);
+            Assert.Equal((int)Math.Round(100 * ((1 + baseArea / 100.0) * (1 + sand / 100.0) - 1)),
+                Game.SupportedSkill(conn, melee.Id).Stats.GetValueOrDefault(areaKey));
+            conn.Auras.Remove(0x998);
             Assert.NotEmpty(Game.AllWornGrantedSkillsOf(conn));
             Assert.Contains(Game.WornGrantedSkillsOf(conn), g => g.Effect == aura.Effect);
             var source = Assert.Single(Game.GemSkillEffects(conn), s => s.Effect == aura.Effect);
