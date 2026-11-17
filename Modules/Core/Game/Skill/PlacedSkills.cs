@@ -64,15 +64,17 @@ public static partial class Game
 
     // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
     // throw_traps_in_circle_radius when the support gives one (Cluster Traps, Swift Assembly), otherwise (Multiple
-    // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. The second
-    // is a player's description of the live game, not a client measurement.
+    // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. They cluster
+    // near the aim with a few outliers: the distance is the radius times a squared uniform roll, so about seven in ten
+    // land within half of it. The growing radius and the clustering are a player's description of the live game, not a
+    // client measurement.
     public static double PlacedScatterRadius(int count, int circle) => count <= 1 ? 0 : circle > 0 ? circle : 4 + 2 * count;
 
     public static (int X, int Y) PlacedThrowPoint((int X, int Y) aim, int count, int circle, Random random)
     {
         double radius = PlacedScatterRadius(count, circle);
         if (radius <= 0) return aim;
-        double angle = random.NextDouble() * Math.Tau, distance = radius * Math.Sqrt(random.NextDouble());
+        double angle = random.NextDouble() * Math.Tau, roll = random.NextDouble(), distance = radius * roll * roll;
         return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 

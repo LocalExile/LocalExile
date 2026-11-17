@@ -214,6 +214,11 @@ public sealed class SupportHitDamageTests
         Assert.All(Enumerable.Range(1, 40), i => Assert.True(
             Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)), (100, 100)) <= 11));
         Assert.Contains(Enumerable.Range(1, 40), i => Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)) != (100, 100));
+        // They cluster near the aim with a few outliers: most of 200 land within half the radius, some beyond it.
+        var scatter = new Random(1);
+        var landed = Enumerable.Range(0, 200).Select(_ => Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 20, scatter), (100, 100))).ToArray();
+        Assert.InRange(landed.Count(d => d <= 10.5), 111, 189);
+        Assert.Contains(landed, d => d > 10.5);
         // A detonation sequence speeds up: 250 ms, then 10% more detonation speed for each mine already gone off.
         Assert.Equal(new[] { .25, .25 / 1.1, .25 / 1.5, .1 }, new[] { Game.MineSequenceGap(250, 0),
             Game.MineSequenceGap(0, 1), Game.MineSequenceGap(250, 5), Game.MineSequenceGap(200, 10) });
