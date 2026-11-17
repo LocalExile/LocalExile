@@ -7,7 +7,6 @@
     <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />
     <Project Path="src/GameServer.Host/GameServer.Host.csproj" />
     <Project Path="src/GameServer.Modding/GameServer.Modding.csproj" />
-    <Project Path="src/GameServer.DevClient/GameServer.DevClient.csproj" />
     <Project Path="src/GameServer.Patch/GameServer.Patch.csproj" />
     <Project Path="src/GameServer.Storage/GameServer.Storage.csproj" />
     <Project Path="src/LocalExile/LocalExile.csproj" />

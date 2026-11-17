@@ -2,10 +2,11 @@
 
 A playable server core that does **not** speak the official client's protocol. It exposes accounts,
 characters, a world and instances over one-JSON-object-per-line TCP, for building and testing game logic.
+[Waypoint](https://github.com/LocalExile/Waypoint)'s Accounts tab builds and starts it to register accounts and create
+characters (its `DevHost.cs`), so its ops below are that launcher's contract.
 
 ```powershell
-dotnet run --project src/GameServer.Host            # 127.0.0.1:7000, accounts in data/characters.db
-dotnet run --project src/GameServer.DevClient       # interactive client
+dotnet run --project src/GameServer.Host            # 127.0.0.1:7000, accounts in data/auth.db
 ```
 
 Env: `Game_DEV_PORT`, `Game_DEV_BIND`, `Game_CHARACTERS_DB` (the database), `Game_DEV_DB` (an older accounts.json, imported once).
@@ -24,14 +25,14 @@ Env: `Game_DEV_PORT`, `Game_DEV_BIND`, `Game_CHARACTERS_DB` (the database), `Gam
 | `enter_area` | area, [monster_level] | zone change; towns (`*_town`) are shared, other areas get a fresh private instance |
 | `who` | | current character + instance |
 
-Example session in the client:
+Example session, one request per line:
 
 ```
-register name=alice password=pw1234
-login name=alice password=pw1234
-create_character name=Exile class=witch
-enter_world name=Exile
-enter_area area=1_1_2
+{"op":"register","name":"alice","password":"pw1234"}
+{"op":"login","name":"alice","password":"pw1234"}
+{"op":"create_character","name":"Exile","class":"witch"}
+{"op":"enter_world","name":"Exile"}
+{"op":"enter_area","area":"1_1_2"}
 ```
 
 ## Layout
@@ -39,7 +40,7 @@ enter_area area=1_1_2
 - `GameServer.Core` — `AccountService`, `InstanceManager`, `GameSession` (protocol logic, no sockets)
 - `GameServer.Storage` — `SqliteAccountStore` (accounts in `data/auth.db`, characters in `data/characters.db`); `JsonAccountStore`
   reads an older `accounts.json` for its one-time import
-- `GameServer.Host` — TCP host; `GameServer.DevClient` — console client
+- `GameServer.Host` — TCP host
 - Tests: `tests/GameServer.Core.Tests` (service, store, instances, and full TCP flows)
 
 Passwords are PBKDF2-SHA256 (50k iterations, per-account salt); sessions are random 24-byte tokens, 12 h expiry.
@@ -50,7 +51,7 @@ Separate from the dev protocol: this is the start of serving the real client. It
 key exchange (Agents/docs/re/008), then decodes the client's messages with `LoginCodec` (Agents/docs/re/009) and logs one line per
 message. After an id it doesn't know, it can't find the next message boundary (there's no length prefix), so it
 hex-dumps the rest of that connection. It answers account login (0x03 → 0x04) against the same account store as
-`GameServer.Host` (`data/characters.db`, [saves](saves.md)), so register accounts with the dev client first. Each account also stores a verifier
+`GameServer.Host` (`data/auth.db`, [saves](saves.md)), so register accounts first (`register` below, or the Host). Each account also stores a verifier
 for the client's SHA-256 password digest, and accounts made before that get it on their next dev-protocol login.
 Host and Auth read and write the database directly and cache no accounts, so both can run at once.
 
@@ -58,6 +59,7 @@ Host and Auth read and write the database directly and cache no accounts, so bot
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe                  # writes data/login-keys.json (private keys; untracked)
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Auth                                            # serve on tcp/20493 (Game_LOGIN_PORT)
+dotnet run --project src/GameServer.Auth -- register <account>                     # create an account; password on standard input
 dotnet run --project src/GameServer.Auth -- passwd <account> " "                    # set a dev account's password (any length)
 ```
 

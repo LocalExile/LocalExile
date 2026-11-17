@@ -44,7 +44,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
 - Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
-  Code: `GameServer.Host`, `GameServer.DevClient`.
+  Waypoint's Accounts tab uses it to register accounts and create characters. Code: `GameServer.Host`.
   Docs: [dev-server.md](../docs/dev-server.md).
 - Hooks for outside tools such as the desktop launcher: `live.ps1 -Stop` (also with `-Only` or `-NoClient`),
   `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the

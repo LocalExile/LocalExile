@@ -269,39 +269,21 @@ a restart. See [editable game data](docs/dev/editable-game-data.md) for what can
 
 ## 8. Create an account and a character
 
-Start the dev account service in one terminal:
+Register the account with the login server's tool; it reads the password from the first line of standard input:
 
 ```powershell
-dotnet run --project src/GameServer.Host
+"choose-a-password" | dotnet run --project src/GameServer.Auth -- register myaccount
 ```
 
-Success: `[host] listening on 127.0.0.1:7000, db=data\characters.db`.
-
-In a second terminal:
-
-```powershell
-dotnet run --project src/GameServer.DevClient
-```
-
-Then type, one line at a time:
-
-```
-register name=myaccount password=choose-a-password
-login name=myaccount password=choose-a-password
-create_character name=MyWitch class=witch
-characters
-```
-
-Every reply should contain `"ok":true`; the last one lists your character.
+Success: `[auth] account myaccount created`. Then log in with it in the game and create the character on the
+character screen.
 
 - Account and character names: 3–32 letters, digits, `_` or `-`. Passwords: at least 4 characters.
-- Piping the commands instead of typing them works too:
-  `"register name=a password=b`n...`n" | dotnet run --project src/GameServer.DevClient`. The client ignores the
-  byte-order mark PowerShell adds.
+- The accounts are in `data/auth.db`, which the running login server reads directly, so this works while it runs. If
+  Auth's build folder is locked by a running Auth, use its built copy instead:
+  `"choose-a-password" | dotnet src/GameServer.Auth/bin/Debug/net10.0/GameServer.Auth.dll register myaccount`.
 - The game's login screen may show a previously used account name in the Email field (the client remembers it per
   Windows user). Replace it with yours.
-- Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
-  running while you play: it and the login server share the accounts in `data/auth.db`, and neither caches them.
 
 ## 9. (Optional) Walk maps
 

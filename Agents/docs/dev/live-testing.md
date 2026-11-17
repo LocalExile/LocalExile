@@ -24,7 +24,7 @@ How to run the patched client (an allowed build, `ClientBuilds.cs`) against our 
 3. With "Save Login Details" ticked the client auto-submits the saved login at startup. If it fails, Auth now closes
    the connection and Log In works again. In the client the password field needs a click before typing; Enter does not
    submit, click Log In.
-4. Accounts are made with `GameServer.DevClient` ([GettingStarted](../../GettingStarted.md) step 8); characters live in
+4. Accounts are made with `GameServer.Auth register` ([GettingStarted](../../GettingStarted.md) step 8); characters live in
    `data/characters.db` ([saves](../saves.md)).
 
 ## One-time setup
@@ -35,7 +35,7 @@ dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.pa
 ```
 
 Also point the GGPK gateway list at the local login server (`GameServer.Patch gateway --login 127.0.0.1:20493`; the
-original is backed up to `data/gateway_list.original.txt`), and register an account with `GameServer.DevClient`.
+original is backed up to `data/gateway_list.original.txt`), and register an account with `GameServer.Auth register`.
 
 ## A run
 
