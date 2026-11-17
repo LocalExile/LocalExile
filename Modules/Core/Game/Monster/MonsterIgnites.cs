@@ -47,7 +47,8 @@ public static partial class Game
     /// (<see cref="ShowIgnitedLocked"/>), or null when nothing was added.</summary>
     public static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
-        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds)) return null;
+        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
+                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
@@ -186,7 +187,8 @@ public static partial class Game
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
-                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom,
+                UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {

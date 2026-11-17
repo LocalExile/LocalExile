@@ -6,7 +6,8 @@ using GameServer.Core.World;
 /// stun" gains it feeds, the melee hit's raw fortification damage plus whether that same hit already fortified, and
 /// whether a qualifying hit guarantees a stun. Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
-    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false);
+    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false, bool Guaranteed = false,
+    double BaseSeconds = 0);
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -40,7 +41,7 @@ public static class HitReaction
     }
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
-    static double Seconds(StunHit hit, SpawnedMonster m) => BaseSeconds * Math.Max(0, 1 + hit.DurationPct / 100.0)
+    static double Seconds(StunHit hit, SpawnedMonster m) => (hit.BaseSeconds > 0 ? hit.BaseSeconds : BaseSeconds) * Math.Max(0, 1 + hit.DurationPct / 100.0)
         * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects["base_stun_recovery_+%"] / 100.0);
 
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call under the Monsters lock.</summary>
