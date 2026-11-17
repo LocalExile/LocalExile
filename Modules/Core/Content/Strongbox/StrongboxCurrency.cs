@@ -98,10 +98,10 @@ public static partial class StrongboxManager
             }
             case CurrencyEffects.OrbOfScouring:
                 return box.Rarity == 0 ? Fail("already a normal box") : With(0, []);
-            // Corrupted boxes cannot be modified again (the Vaal Orb's own text). What else corruption does to a box
-            // (an outcome table, Vaal Vessels) is not in the data; the box keeps its rarity and mods.
+            // A Vaal Orb corrupts the box: no currency changes it again (the Vaal Orb's own text), and its contents drop
+            // corrupted (an official-forum account; StrongboxLoot). No outcome table for boxes is in the data.
             case CurrencyEffects.VaalOrb:
-                return (box with { Corrupted = true }, null);
+                return (box with { Corrupted = true, VaalOrb = true }, null);
             // Boxes are created identified (the map mod that makes them unidentified is not consumed): nothing to identify.
             case ScrollOfWisdom: return Fail("the box is identified");
             // CurrencyItems: "This item is no longer usable." / "Formerly improved the quality of a Strongbox".

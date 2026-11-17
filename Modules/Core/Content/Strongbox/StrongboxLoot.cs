@@ -37,8 +37,10 @@ public static class StrongboxLoot
     };
 
     /// <param name="boxStat">A stat of the box's own mods (its implicits and rolled explicits).</param>
+    /// <param name="corrupted">A Vaal Orb corrupted the box: its contents drop corrupted (the items that can be; stackable
+    /// currency, cards and scarabs do not). Only the Corrupted flag is set: no corruption implicit or outcome is rolled.</param>
     public static List<ItemDrops.Drop> Roll(ClientState conn, Entry box, Func<string, int> boxStat, int level,
-        IReadOnlyDictionary<uint, int> stats, Random rng)
+        IReadOnlyDictionary<uint, int> stats, Random rng, bool corrupted = false)
     {
         int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var catalog = ItemsFor(conn);
@@ -150,6 +152,9 @@ public static class StrongboxLoot
             for (int i = 0; i < result.Count; i++)
                 if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Mirrored = true } };
         result.AddRange(copies.Select(c => mirrored && c.Type.MaxStack <= 1 ? c with { Item = c.Item with { Mirrored = true } } : c));
+        if (corrupted)
+            for (int i = 0; i < result.Count; i++)
+                if (result[i].Type.MaxStack <= 1) result[i] = result[i] with { Item = result[i].Item with { Corrupted = true } };
         return result;
 
         ItemDrops.Drop? One()
