@@ -964,8 +964,33 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,
   sequence 0xffff.
-  Its busy period covers the full attack duration from the actual action send; contact still occurs halfway through:
+  Its busy period covers the full attack duration from the actual action send:
   the hit lands if the monster lives and the player is still within reach + 2 (0x1af, then 0x1b1 on the player).
+  Ordinary `Melee` contacts follow the native animation clock, not a fraction of the whole attack interval.
+  Actor setup `0x141ea0c60` starts with clip length / integer attack duration. When that is below 1,
+  `slow_animations_go_to_idle` (Actor resource +0x58, inherited from Monster.ot) clamps it to 1 for animation
+  categories whose Animation.dat column 2 is false (`Melee` and `OffMelee`). `ZombieBite` has a 1766 ms clip,
+  contact at 1099 ms and no slow span: its 2400 ms attack plays contact at 1099 ms, then recovers. The old linear
+  calculation was about 0.39 s late. Its 1388 ms Quick attack plays at 1.272334, so the linear calculation happened
+  to match.
+  Player damage and TakeHit arrived together; the error preceded both (3.29.3c hotfix, 2026-11-16).
+
+  Slow-span setup `0x141b0d690` / `0x141b0d420` uses length L, requested duration T, budget B (ACT `attack_time`,
+  else L), span S, and budgeted span E = B*S/L. With T <= B it restores linear playback. Otherwise the span takes
+  min(8*E, T-B+E); outside takes the remaining time, except a clamped Actor keeps natural outside speed and leaves
+  an idle tail after the cap. Body +0x1f8 independently multiplies progress by published `virtual_action_speed_+%`
+  (`0x141ea3840` / `0x141dc16b0`), including changes during a swing. The server settles elapsed action time before
+  applying each new published rate, and retimes pending contact and recovery. Freeze retains its separate
+  cancellation/contact-suppression path; a changed attack-duration stat does not replace an already admitted clip.
+
+  The variety's actual AOFiles can differ from the AO named by its ACT: `ZombieMummy` uses `Mummy_no_amb.ao`
+  without a slow span, while `IntMissionRaisedZombieMummy` uses `Mummy.ao` with one. The latter's 1166 ms clips have
+  spans 327..502 / 387..526 ms and contacts 566 / 632 ms. New `monster_melee_clocks` rows preserve that separate
+  source and leave the existing projectile/boss contact tables unchanged. Unknown AO composition, incomplete
+  clocks, dual wield and other native actions retain their previous timing. ACT options other than a single
+  `attack_time` (including `max_slow_time`, the explicit cap override parsed at `0x142a0a645`) are excluded from
+  known pools. Another category needs its actual AO, selected clip and native event clock verified at fast,
+  natural, slow and capped durations, then action-speed changes, in predictive and lockstep modes.
   A mortar skill (Sand Spitter: `monster_mortar_attack`, GrantedEffects SkillID 183 → MonsterMortar 183 →
   `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) is drawn by the client, as from GGG, whose server
   creates no mortar object: the mortar action's constructor (`0x141b6c390`) takes its MonsterMortar row from the

@@ -368,7 +368,7 @@ public static partial class Game
                 }
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsProfane(conn, skillId, release: false));
+                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
                 bool critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, player: player)
                     && EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);

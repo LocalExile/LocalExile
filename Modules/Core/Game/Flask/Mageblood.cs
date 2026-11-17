@@ -77,7 +77,8 @@ public static partial class Game
         CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
             .Concat(KillOnslaughtSources(conn, character))
             .Concat(CatOnslaughtSources(conn, character))
-            .Concat(ChargeOnslaughtSources(conn, character)),
+            .Concat(ChargeOnslaughtSources(conn, character))
+            .Concat(conn.RecoveryFlaskStats.Sources(conn.FlaskEffects)),
             MagebloodSources(conn, character, playerLevel));
 
     /// <summary>Whether any modelled source currently grants Onslaught. Cat's owned effect is independent of the

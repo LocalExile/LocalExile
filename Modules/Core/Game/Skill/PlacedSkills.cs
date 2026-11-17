@@ -305,11 +305,16 @@ public static partial class Game
     static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
+        bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
+        bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
             && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
+        if (bear) target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
+            .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
         var aim = target.Value?.Walk.Position(now) ?? placed.At;
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
-        double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
             var playerSources = CharacterPlayerStats(conn);
@@ -331,11 +336,11 @@ public static partial class Game
         double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
         var player = placed.Offense?.Caster ?? CharacterPlayerStats(conn);
-        bool spell = placed.Offense?.Spell ?? true;
+        bool spell = placed.Offense?.Spell ?? spellDamage;
         foreach (var (id, m) in conn.Monsters.ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || conn.AsleepMonsters.Contains(id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || bear && id != target.Key || conn.AsleepMonsters.Contains(id) || Dist(m.Walk.Position(now), placed.At) > radius
                 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = placed.Offense is { } captured
                 ? Blinded(conn, id) ? captured.Blinded : captured.Normal
