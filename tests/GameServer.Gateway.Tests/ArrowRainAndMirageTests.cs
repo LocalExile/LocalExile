@@ -419,9 +419,69 @@ public class ArrowRainAndMirageTests
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Different_weapon_mastery_reaches_shared_damage();
         Physical_dot_taken_combines_real_curse_and_debuff_increases();
+        Maim_settles_elapsed_bleeding_before_changing_target_damage();
         Monster_elemental_modifiers_reach_damage_over_time();
         Righteous_fire_uses_player_damage_modifiers();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Maim_settles_elapsed_bleeding_before_changing_target_damage()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        foreach (bool projectile in new[] { false, true })
+        foreach (bool previousMaim in new[] { false, true })
+        {
+            using var b = new Battle("Rain of Arrows", "Maim Support");
+            var c = b.Conn;
+            var m = b.Enemy;
+            var gem = Game.GemSkillEffects(c).Single();
+            var own = Game.SupportedSkill(c, gem.Id);
+            Assert.True(own.RequirementsMet);
+            Assert.Equal(30, own.Stats[Key("maim_on_hit_%")]);
+            Assert.Equal(10, own.Stats[Key("support_maimed_enemies_physical_damage_taken_+%")]);
+            void Apply(double at) => Game.HitDebuffsOnHitLocked(m, n => n == "maim_on_hit_%" ? 100
+                : Program.Stats.Key(n) is uint key ? own.Stats.GetValueOrDefault(key) : 0,
+                spell: false, critical: false, now: at);
+            if (previousMaim) Apply(0); // Its expiry coincides with Rupture's at t=4.
+            int dps = projectile ? 101 : 100; // Keep the fractional landing away from an integer damage boundary.
+            Assert.True(m.Bleeds.Add(1, dps, 10)); // Controlled final DPS isolates target changes.
+            m.Ruptures.Add(1, 25);
+            m.Bleeds.SetExpiryRate(1, Game.BleedingExpiryRate(m, 1));
+            double contact = 5;
+            if (projectile)
+            {
+                // The native support supplies30; guarantee only the chance, retaining its real target10.
+                c.PlayerStats[Key("maim_on_hit_%")] = 70;
+                c.PlayerStats[Key("global_cannot_crit")] = 1;
+                b.Session.AdvanceTo(ProjectileRuntime.Time(5));
+                Game.ReleaseArrowRain(b.Session, gem.Id, gem, (120, 100), new(0), 5);
+                b.Session.AdvanceTo(ProjectileRuntime.Time(5.35)); // Only the first, centered landing.
+                Assert.True(m.Life < m.MaxLife);
+                contact = m.MaimedUntil - Game.MaimSeconds;
+                Assert.Equal(5.35, contact, 6);
+                Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+                Assert.Equal(double.NegativeInfinity, b.Ally.MaimedUntil);
+            }
+            else
+            {
+                Apply(contact);
+                Assert.Null(Game.BleedOnHitLocked(c, 200, m, new(0, 0, 0, 0, 0, 0), critical: false, now: contact));
+            }
+            Assert.Equal(10, Game.MaimedPhysicalTaken(m, contact));
+            Assert.Empty(m.Ruptures.Active);
+            // Only the old Maim can affect the three ruptured seconds; t=4 to contact has no Maim.
+            double earned = 3 * dps * 1.25 * (previousMaim ? 1.1 : 1) + (contact - 4) * dps;
+            Assert.Equal((int)Math.Floor(earned), m.Bleeds.Advance(contact, 1)); // First control: 475, not 522.
+
+            // The new Maim still increases subsequent bleed damage, through the normal life-update tick.
+            const double nextTick = 6.125;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(nextTick));
+            uint before = m.Life, playerLife = c.PlayerLife;
+            Game.BleedMonsters("maim-bleed-order", b.Stream, b.Ciphers, c).GetAwaiter().GetResult();
+            Assert.Equal((uint)(Math.Floor(earned + (nextTick - contact) * dps * 1.1) - Math.Floor(earned)), before - m.Life);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(playerLife, c.PlayerLife);
+        }
     }
 
     static void Physical_dot_taken_combines_real_curse_and_debuff_increases()

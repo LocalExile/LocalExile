@@ -59,6 +59,8 @@ public static partial class Game
             m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
         if (RandomRolls.Chance(get("maim_on_hit_%"), 100, Random.Shared))
         {
+            // The hit's bleed callback can revisit older Rupture expiries; its elapsed damage uses the old Maim.
+            SettleBleeding(m, now);
             m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
             m.MaimedPhysicalTakenPct = Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%"));
         }

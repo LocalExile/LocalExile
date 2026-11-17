@@ -84,7 +84,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     Righteous Fire's supported-skill modifiers, conditional DoT multipliers, remaining more scopes and native checks
     remain open; the player's increases and generic/fire DoT multipliers now reach its enemy burn.
     Physical/per-element target increases and Maim now add with general DoT damage taken; hit target composition,
-    other target-modifier scopes and native comparison remain open.
+    ordinary-Maim qualification, overlapping source expiry, other target scopes and native comparison remain open.
+    Hit Maim application now settles pending bleeding before changing target damage taken.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.

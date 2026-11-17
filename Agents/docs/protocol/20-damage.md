@@ -67,6 +67,9 @@ Vulnerability's BuffDefinitions 79 carries `physical_damage_taken_+%` (15 at gem
 GrantedEffectStatSetsPerLevel 11135/11154). Maim Support's stat set 7844 grants 10 increased physical damage taken
 while maimed, separately from its source-side more physical damage. Both target increases add to general damage
 taken for physical DoT; Pride remains a separate more multiplier. Hit target composition is still a separate audit.
+The hit pipeline applies Maim before its bleeding callback. Pending bleeding therefore settles before Maim changes,
+including earlier Rupture expiry points; a newly applied Maim must not increase damage earned before that hit.
+This ordering does not establish general sub-tick integration of every damage-taken expiry or native timing parity.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
