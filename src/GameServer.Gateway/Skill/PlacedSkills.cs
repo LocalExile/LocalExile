@@ -22,6 +22,8 @@ public sealed class PlacedSkills
         public readonly Dictionary<uint, double> Carry = [];
     }
     public readonly List<Ground> Grounds = [];
+    // Traps and mines that have gone off, until their object is removed (the Game module's RetirePlacedLocked).
+    public readonly List<(uint Object, double At)> Leaving = [];
     public double NextSkitter;
     public double NextChain;
     public int Chain;

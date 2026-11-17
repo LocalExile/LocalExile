@@ -2795,6 +2795,8 @@ Trap Support). Under a 0.75 s cast-time wait every held throw but the last was d
 throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
 A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
 It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
+that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
 (250) after the one before, at 10% more detonation speed per mine already in the sequence.
 Held cadence was 5/6 of the computed throw time for both kinds (0.39 s against 0.45 s, 0.246 s against 0.275 s).

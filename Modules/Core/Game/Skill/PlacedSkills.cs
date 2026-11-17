@@ -65,8 +65,8 @@ public static partial class Game
     // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
     // throw_traps_in_circle_radius when the support gives one (Cluster Traps, Swift Assembly), otherwise (Multiple
     // Traps, Minefield) within a small radius that grows with their number, 4 cells and 2 more for each. They cluster
-    // near the aim with a few outliers: the distance is the radius times a squared uniform roll, so about seven in ten
-    // land within half of it. The growing radius and the clustering are a player's description of the live game, not a
+    // near the aim with a few outliers: the distance is the radius times a uniform roll to the power 1.5, so about
+    // five in eight land within half of it. The growing radius and the clustering are a player's description of the live game, not a
     // client measurement.
     public static double PlacedScatterRadius(int count, int circle) => count <= 1 ? 0 : circle > 0 ? circle : 4 + 2 * count;
 
@@ -74,7 +74,7 @@ public static partial class Game
     {
         double radius = PlacedScatterRadius(count, circle);
         if (radius <= 0) return aim;
-        double angle = random.NextDouble() * Math.Tau, roll = random.NextDouble(), distance = radius * roll * roll;
+        double angle = random.NextDouble() * Math.Tau, distance = radius * Math.Pow(random.NextDouble(), 1.5);
         return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 
@@ -89,6 +89,26 @@ public static partial class Game
         var gem = SupportedSkill(conn, skill); var kind = PlacedKind(gem);
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
+        // Decided once per use: the supports' extra traps or mines, and Swift Assembly's chance of more.
+        int count = PlacedSkillCount(conn, gem, kind.Mine) + SwiftAssemblyExtra(Get, Random.Shared);
+        int circle = Get("throw_traps_in_circle_radius");
+        // The oldest traps or mines over the limit go when the throw starts, in a packet of their own. Removed in the
+        // packet that created the new one, the client showed the old object moving to the new place (live 2026-11-17).
+        await SendWorldBatch(conn, [], admission =>
+        {
+            lock (conn.Monsters)
+            {
+                var bytes = new WorldRecordBuilder(conn, admission);
+                int limit = PlacedSkillLimit(conn, gem, kind.Mine);
+                while (limit > 0 && conn.Placed.All.Values.Count(p => p.Mine == kind.Mine) + count > limit
+                    && conn.Placed.All.Values.Where(p => p.Mine == kind.Mine).MinBy(p => p.Armed) is { } oldest)
+                    RemovePlacedLocked(conn, oldest, bytes);
+                if (bytes.Count == 0) return null;
+                ClampReservedResources(conn);
+                PlacedResourcesLocked(conn, bytes);
+                return bytes.Build();
+            }
+        });
         double started = AreaTime(conn);
         double seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine,
             ChargesOf(conn).Effective(ChargeType.Frenzy)) / PlayerActionFactor(conn));
@@ -115,9 +135,6 @@ public static partial class Game
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
-        // Decided once per use: the supports' extra traps or mines, and Swift Assembly's chance of more.
-        int count = PlacedSkillCount(conn, gem, kind.Mine) + SwiftAssemblyExtra(Get, Random.Shared);
-        int circle = Get("throw_traps_in_circle_radius");
         for (int i = 0; i < count; i++)
         {
         var point = PlacedThrowPoint(aim, count, circle, Random.Shared);
@@ -203,6 +220,16 @@ public static partial class Game
         if (!conn.Placed.All.Remove(placed.Id)) return;
         if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
+        conn.Placed.Dirty = true;
+        conn.Minions.StatRevision++;
+    }
+
+    // A trap or mine that has gone off stays for its activation to play, then is removed (0.6 s, a local value):
+    // removed in the packet that started the action, it vanished without showing it.
+    static void RetirePlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now)
+    {
+        if (!conn.Placed.All.Remove(placed.Id)) return;
+        if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id)) conn.Placed.Leaving.Add((placed.Id, now + .6));
         conn.Placed.Dirty = true;
         conn.Minions.StatRevision++;
     }
@@ -430,7 +457,12 @@ public static partial class Game
                         placed.SkitterTriggered = true; placed.DetonateAt = double.PositiveInfinity;
                         conn.Placed.All[placed.Id] = placed with { Armed = now + .5 };
                     }
-                    else RemovePlacedLocked(conn, placed, bytes);
+                    else RetirePlacedLocked(conn, placed, now);
+                }
+                foreach (var leaving in conn.Placed.Leaving.Where(l => now >= l.At || conn.PlayerLife == 0).ToArray())
+                {
+                    bytes.Remove(leaving.Object);
+                    conn.Placed.Leaving.Remove(leaving);
                 }
                 if (conn.Placed.Dirty) PlacedResourcesLocked(conn, bytes);
                 bool detonation = CanDetonateMines(conn);
