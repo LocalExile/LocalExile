@@ -131,11 +131,13 @@ public static partial class Game
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
-        bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
-        MonsterRarity rarity = MonsterRarity.Normal)
+        bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true,
+        MonsterModSet? inheritedMods = null, MonsterRarity rarity = MonsterRarity.Normal,
+        IReadOnlyDictionary<uint, int>? retainedStats = null)
     {
         var gem = SupportedSkill(conn, source);
         if (definition.Family == "Phantasm") gem = PhantasmGem(conn, gem);
+        if (retainedStats is not null) gem = gem with { Stats = MergeSummonStats(gem.Stats, retainedStats) };
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
         int limit = SummonLimit(conn, definition, gem);
         if (limit < 1) return 0;
@@ -169,14 +171,14 @@ public static partial class Game
         }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
-        if (actorLevel <= 0 && definition.Family.StartsWith("Dominating", StringComparison.Ordinal))
+        if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         var player = CharacterPlayerStats(conn);
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = gem.Stats, Player = new(player), Limit = limit,
-            InheritedMods = inheritedMods ?? MonsterModSet.None,
+            InheritedMods = inheritedMods ?? MonsterModSet.None, RetainedSkillStats = retainedStats is null ? [] : new(retainedStats),
             SourceIdentity = gem.SourceGem is null ? null : PlayerInventories.GemIdentity(gem.SourceGem) };
         if (animated is not null)
         {
@@ -290,12 +292,13 @@ public static partial class Game
                 if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(conn, gem);
                 if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, "base_number_of_support_ghosts_allowed") <= 0)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
-                if (fighter.SourceIdentity is not null && (fighter.Definition.Kind is "Absolution" or "Phantasm" || fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal))
+                if (fighter.SourceIdentity is not null && (fighter.Definition.Kind == "Phantasm" || SentinelNativeType(fighter.Definition.Kind) != 0)
                     && (gem.SourceGem is null || !ReferenceEquals(fighter.SourceIdentity, PlayerInventories.GemIdentity(gem.SourceGem)))
                     || SkillsFor(conn).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
+                gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
-                if (actorLevel <= 0 && fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal))
+                if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)
                 { rescaled.Add((fighter, state.Definitions[fighter.Id])); continue; }
@@ -308,7 +311,7 @@ public static partial class Game
             if (await SummonFighterCore(remote, stream, ciphers, conn, old.Source, definition, old.Monster.Walk.Position(now),
                 restoredVariety: old.Monster.Variety!.Id, life: old.Monster.Life / (double)old.Monster.MaxLife,
                 restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now), replacing: old.Id,
-                inheritedMods: old.InheritedMods, rarity: old.Monster.Rarity) != 0)
+                inheritedMods: old.InheritedMods, rarity: old.Monster.Rarity, retainedStats: old.RetainedSkillStats) != 0)
                 lock (conn.Monsters)
                 { if (state.Fighters.ContainsKey(old.Id)) RemoveSummonLocked(conn, old, now); changed = true; }
         if (changed) SaveSummons(conn);
@@ -321,6 +324,8 @@ public static partial class Game
                 lock (conn.Monsters) stats[count] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "Dominating" + rarity && !g.Monster.Dead);
         lock (conn.Monsters)
         {
+            if (Stats.Key("number_of_dominated_vaal_monsters") is uint ascended)
+                stats[ascended] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "VaalDomination" && !g.Monster.Dead);
             if (Stats.Key("number_of_dominated_monsters") is uint dominated)
                 stats[dominated] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
         }
@@ -330,6 +335,6 @@ public static partial class Game
             if (Stats.Key("number_of_active_" + name) is uint key)
                 stats[key] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
     }
-    static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
+    static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["VaalAbsolution"] = "vaal_absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
             ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
 }

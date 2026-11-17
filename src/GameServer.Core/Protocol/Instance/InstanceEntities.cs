@@ -321,6 +321,17 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
+    /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
+    /// other entries append, so changing a source/type first requires a removal.</summary>
+    public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
+        bool canDetonateMines = false)
+    {
+        var w = new BlobWriter().U16(canDetonateMines ? (ushort)0x180 : (ushort)0x100)
+            .U16(checked((ushort)changes.Count));
+        foreach (var change in changes) w.U32(change.Id).U16(change.Source).U16(change.Type);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
     /// <summary>Actor 0x40's cooldown trailer (0x14219e694..0x14219e948), without replacing any skill.
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
     /// The first entry retains progress; later spent uses have a full base budget and recover in sequence.
@@ -1096,6 +1107,9 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     /// (and crashed, live 2026-10-23).</summary>
     public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
+
+/// <summary>One native Actor ownership update; Source zero removes the object.</summary>
+public readonly record struct MinionOwnershipChange(uint Id, ushort Source, ushort Type);
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,

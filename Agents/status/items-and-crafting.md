@@ -55,6 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
+- Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
 - Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire and abyss jewels; most uniques' own mechanics
   are missing.
   Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
