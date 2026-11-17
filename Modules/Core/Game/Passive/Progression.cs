@@ -929,12 +929,7 @@ public static partial class Game
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
-        // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
-        // Bite's conditional base critical chance becomes qualified only once the exact root owner exists.
-            snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
-        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
-            sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + 0);
         AddGolemStats(conn, sources);
         AddSelfOfferingStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
@@ -1063,7 +1058,7 @@ public static partial class Game
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
-                + FlickerMovementPct(conn)
+                + FlickerMovementPct(conn) + ElusiveMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.

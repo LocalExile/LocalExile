@@ -149,30 +149,16 @@ public static partial class Game
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = CreateTrackedItemRecentEvents();
-    static HashSet<string> CreateTrackedItemRecentEvents()
+    // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
     {
-        var tracked = new HashSet<string>
-        {
-            StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
-            StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
-            StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
-            StatConditions.BeenFrozen,
-            StatConditions.SpentMana,
-            StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
-            StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
-            StatConditions.UsedMovementSkill, StatConditions.UsedFireSkill, StatConditions.UsedColdSkill,
-            StatConditions.UsedSkill, StatConditions.UsedVaalSkill,
-            StatConditions.UsedDash, StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask,
-            StatConditions.UsedTopazFlask, StatConditions.UsedAmethystFlask,
-            StatConditions.NonCrit, StatConditions.Crit8Seconds,
-            StatConditions.ChangedStance,
-            StatConditions.DetonatedMine,
-            StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
-        };
-        tracked.UnionWith(TrackedCurseCastEvents());
-        return tracked;
-    }
+        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
+        StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
+        StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
+        StatConditions.BeenFrozen,
+        StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+        StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
+    };
     sealed class ConditionalItemPoolState
     {
         public StatSourcesResult? Applied;
