@@ -16,6 +16,8 @@ public sealed class GolemState
         public ushort Source = source;
         public readonly GemSourceLifetimes.SourceLifetime? GemSource = gemSource;
         public int GemLevel, Quality, Limit;
+        public MonsterModSet InheritedMods = MonsterModSet.None;
+        public object? SourceIdentity;
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
         public double Regeneration;
         public readonly EnergyShield ShieldPool = new();
