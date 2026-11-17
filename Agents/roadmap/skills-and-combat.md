@@ -153,8 +153,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   costs, death/resurrection and slow destination loading ([27](../docs/protocol/27-vaal-souls.md)).
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) natively; other Vaal executors and official
   distribution/capacity parity remain open.
-  Vaal Absolution/Domination need native activation verification.
-  Vaal Animate Weapon and minion stance targeting remain open.
+  Vaal Animate Weapon, full ascended special attacks and minion stance targeting remain open.
 
 ### Death screen variants
 

@@ -148,7 +148,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
-- Animated equipment, source recovery/repeats, Absolution and Dominating sentinels, Phantasms and Vaal Skeletons.
+- Animated equipment, source recovery/repeats, Absolution/Dominating sentinels, Phantasms and Vaal armies/ascensions.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.

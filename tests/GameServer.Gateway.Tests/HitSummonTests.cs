@@ -245,6 +245,10 @@ public sealed class HitSummonTests
                 Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 var owned = Assert.Single(f.Conn.Summons.PresentedOwnership).Value;
                 Assert.Equal((ushort)(0xc000 | vaal.Id), owned.Source);
+                var proxy=Game.PlayerSkills(f.Conn).Single(s=>s.Id==owned.Source);
+                var active=Game.PlayerSkills(f.Conn).Single(s=>s.Id==vaal.Id);
+                Assert.Equal(absolution?0:1, active.Stats!.Single(s=>s.Key==Program.Stats.Key("skill_behaviour_variation")).Value);
+                Assert.Equal(((uint)0x1000, source), proxy.Parent!.Value);
                 Assert.Equal(absolution ? 50 : 3, owned.Type);
                 Assert.Null(Game.SentinelOwnershipPresentation(f.Conn));
                 normal.Monster.Life = normal.Monster.MaxLife / 2;
@@ -252,6 +256,7 @@ public sealed class HitSummonTests
                 Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),normal.Id));
                 var ascended = Assert.Single(f.Conn.Summons.Fighters).Value;
                 Assert.NotEqual(normal.Id,ascended.Id); Assert.Equal(vaalId,ascended.Definition.Kind);
+                Assert.Equal(normal.Monster.Level,ascended.Monster.Level);
                 Assert.Equal(source,ascended.Source); Assert.Same(normal.InheritedMods,ascended.InheritedMods);
                 Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 Assert.Equal(absolution ? 51 : 4,Assert.Single(f.Conn.Summons.PresentedOwnership).Value.Type);
@@ -259,6 +264,25 @@ public sealed class HitSummonTests
                 Assert.Equal(-70,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_taken_+%_final")!.Value]);
                 clock.Time++; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
                 Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                if (!absolution)
+                    for (uint extra=941;extra<=942;extra++)
+                    {
+                        var next=Target(f,extra,MonsterRarity.Rare); Mark(f,next,source,clock.Time); Kill(f,extra,next,clock.Time);
+                        await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                        var body=f.Conn.Summons.Fighters.Values.Single(g=>g.Definition.Kind=="DominatingRare");
+                        for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                        Assert.True(Admit());
+                        Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),body.Id));
+                    }
+                int count=f.Conn.Summons.Fighters.Count;
+                Assert.Equal(absolution?1:3,count);
+                uint life=ascended.Monster.Life; double oldUntil=f.Conn.Summons.Until[ascended.Id]; clock.Time++;
+                for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                Assert.True(Admit());
+                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),ascended.Id));
+                Assert.Equal(count,f.Conn.Summons.Fighters.Count); Assert.Same(ascended,f.Conn.Summons.Fighters[ascended.Id]);
+                Assert.Equal(life,ascended.Monster.Life); Assert.True(f.Conn.Summons.Until[ascended.Id]>oldUntil);
+                _ = Game.SentinelOwnershipPresentation(f.Conn);
                 clock.Time+=35; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
                 Assert.Empty(f.Conn.Summons.Fighters); Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
                 Assert.Empty(f.Conn.Summons.PresentedOwnership); f.Conn.NextAttackAt=0;

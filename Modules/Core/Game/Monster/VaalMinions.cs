@@ -24,17 +24,17 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-        bool absolution = SkillsFor(conn).EffectId(gem.Effect) == "VaalAbsolution";
-        string regular = absolution ? "Absolution" : "Dominating";
-        string family = absolution ? "VaalAbsolution" : "VaalDomination";
-        int limit = GolemStat(gem.Stats, absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance");
-        var player = CharacterPlayerStats(conn);
-        string cap = absolution ? "absolution_sentinels" : "dominated_monsters";
-        limit = Math.Clamp(limit + GolemStat(player, "base_max_number_of_vaal_" + cap) + GolemStat(player, "max_number_of_vaal_" + cap), 0, 200);
-        var living = conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0 && SameSummonGem(conn,g,gem)).ToArray();
-        var ascended = living.Where(g => g.Definition.Kind == family).ToArray();
-        return (living.OrderByDescending(g => g.Id == target).FirstOrDefault(g => absolution ? g.Definition.Kind == regular : g.Definition.Kind.StartsWith(regular,StringComparison.Ordinal)),
-            ascended.Length >= limit ? ascended.MinBy(g => conn.Summons.Until[g.Id]) : null, family,limit);
+            bool absolution = SkillsFor(conn).EffectId(gem.Effect) == "VaalAbsolution";
+            string regular = absolution ? "Absolution" : "Dominating";
+            string family = absolution ? "VaalAbsolution" : "VaalDomination";
+            int limit = GolemStat(gem.Stats, absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance");
+            var player = CharacterPlayerStats(conn);
+            string cap = absolution ? "absolution_sentinels" : "dominated_monsters";
+            limit = Math.Clamp(limit + GolemStat(player, "base_max_number_of_vaal_" + cap) + GolemStat(player, "max_number_of_vaal_" + cap), 0, 200);
+            var living = conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0 && SameSummonGem(conn,g,gem)).ToArray();
+            var ascended = living.Where(g => g.Definition.Kind == family).ToArray();
+            return (living.OrderByDescending(g => g.Id == target).FirstOrDefault(g => absolution ? g.Definition.Kind == regular : g.Definition.Kind.StartsWith(regular,StringComparison.Ordinal)),
+                ascended.Length >= limit ? ascended.MinBy(g => conn.Summons.Until[g.Id]) : null, family,limit);
         }
     }
 

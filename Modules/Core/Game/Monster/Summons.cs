@@ -171,7 +171,7 @@ public static partial class Game
         }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
-        if (actorLevel <= 0 && definition.Family.StartsWith("Dominating", StringComparison.Ordinal))
+        if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal) || definition.Family == "VaalDomination"))
             actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
@@ -298,7 +298,7 @@ public static partial class Game
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 gem = gem with { Stats = MergeSummonStats(gem.Stats, fighter.RetainedSkillStats) };
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
-                if (actorLevel <= 0 && fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal))
+                if (actorLevel <= 0 && (fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) || fighter.Definition.Kind == "VaalDomination"))
                     actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)
                 { rescaled.Add((fighter, state.Definitions[fighter.Id])); continue; }

@@ -41,6 +41,7 @@ public static partial class Game
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
             var skills = new List<GrantedSkill>([.. PlayerDefaultSkills(conn, player, character),
                 .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
+            skills.AddRange(SentinelSourceSkills(conn, skills).ToArray());
             conn.PlayerSkillsCache = skills;
             conn.PlayerSkillsAt = now;
             PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
@@ -841,6 +842,7 @@ public static partial class Game
             if (SkillsFor(conn).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
                 or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
             {
+                Publish("skill_behaviour_variation", SkillsFor(conn).BehaviourVariation(effect));
                 bool absolution = SkillsFor(conn).EffectId(effect)!.Contains("Absolution", StringComparison.Ordinal);
                 string family = absolution ? "absolution_sentinels" : "dominated_monsters";
                 string display = absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance";
