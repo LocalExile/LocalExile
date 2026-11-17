@@ -86,6 +86,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   rejecting extra inputs before consumption (verified in the 3.29.3d client with both inputs preserved); in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
+  A run whose device instance is gone (a hideout's instance expires six minutes after its last player leaves) moves to
+  the instance the character enters, so its portals left stand at the new device (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).

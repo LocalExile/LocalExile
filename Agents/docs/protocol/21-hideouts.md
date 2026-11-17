@@ -285,6 +285,13 @@ ship as whole portal objects (`Metadata/Effects/Microtransactions/Town_Portals/â
 Positioned, BaseEvents, StateMachine, Animated, Portal, Transitionable, MinimapIcon, InteractionAction, ControlZone);
 the variation route above covers the ones that are effect rigs only.
 
+**The device's instance.** A hideout's instance is gone six minutes after its last player leaves
+(`InstanceRegistry.Lifetime`), and the device and the portals standing at it go with it. Coming back into a new
+instance of the same area, the character's open run moves to it (the old instance is no longer in Auth's list): the
+portals left come up at the new device, and the map's portal back leads there rather than to an instance that is gone
+(live 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
+device with no portals, while the map's own instance was still alive).
+
 **Taking a portal** (Câ†’S 0x24): the player walks there, the portal is sent with area 0 in 0x008f and removed (0x2bd),
 and the player changes area into the map: the first portal makes a new instance (Auth "transfer" New), the others enter
 that one (`MapDevice.Entered`). The open map is kept per character in the Gateway (`MapDevice.OpenOf`; lost on a Gateway

@@ -108,4 +108,21 @@ static partial class PortalsRules
                 $"0x008f map device 0x{deviceId:x}: {ids.Count} portal(s) closed");
         foreach (uint id in ids) await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
     }
+
+    // A hideout's instance is gone six minutes after its last player leaves (InstanceRegistry.Lifetime), and the device
+    // and the portals standing at it go with it. The character comes back into a new instance of the same area: the run
+    // follows them there, so the portals left come up at the new device instead of the run becoming unreachable (live
+    // 2026-11-18: a disconnect inside the Simulacrum after the hideout had stood empty for six minutes came back to a
+    // device with no portals, while the map's own instance was still alive).
+    internal static async Task FollowDeviceToThisInstance(string remote, ClientState conn)
+    {
+        if (MapDevice.OpenOf(CharacterName(conn)) is not { PortalsLeft: > 0 } open
+            || (open.Entrance ?? open.ReturnTo) is not { } origin
+            || origin.Area != conn.Layout.Hash || origin.Instance == 0 || origin.Instance == conn.InstanceNumber) return;
+        var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = origin.Area });
+        if (!PortalsFeature.OriginExpired(response, origin.Instance)) return;
+        if (MapDevice.Rebind(CharacterName(conn), origin.Area, conn.InstanceNumber) is not { } moved) return;
+        Console.WriteLine($"[gateway] {remote} map run of {moved.Area.Id} follows the device into instance {conn.InstanceNumber} " +
+            $"(instance {origin.Instance} of {moved.Area.Name} is gone)");
+    }
 }
