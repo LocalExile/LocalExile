@@ -26,9 +26,10 @@ public static class SupportedAttackDamage
         return sources.ToFrozenDictionary();
     }
 
-    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
+    public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types,
+        AttackAccuracyProfile accuracy)
     {
-        return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
+        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), get, new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120));
     }
@@ -38,12 +39,17 @@ public static class SupportedAttackDamage
     /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables);
     /// a wand's attacks take the corresponding wand ranges.
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
-    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get,
+    public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get, AttackAccuracyProfile accuracy,
         int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
     {
         var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
             new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        // Use the hand/skill's resolved rating, before target-conditional hit-chance modifiers.
+        long accuracyGroups = Math.Max(0, accuracy.Rating) / 200;
+        added = added.Add(DamageType.Lightning, new(
+            accuracyGroups * (double)get("attack_minimum_added_lightning_damage_per_200_accuracy_rating"),
+            accuracyGroups * (double)get("attack_maximum_added_lightning_damage_per_200_accuracy_rating")));
         double lightRadiusIncrease = Math.Max(0, get("light_radius_+%"));
         added = added.Add(DamageType.Fire, new(
             lightRadiusIncrease * get("minimum_added_fire_damage_to_attacks_per_1%_light_radius"),

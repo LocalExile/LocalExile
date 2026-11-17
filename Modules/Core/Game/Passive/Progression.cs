@@ -958,7 +958,8 @@ public static partial class Game
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
-        var pools = CharacterStats.For(classInfo, level, bonus);
+        var pools = CharacterStats.For(classInfo, level, bonus,
+            (basis, increased) => PlayerAccuracyModifiers.Calculate(basis, increased, (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore)));
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with

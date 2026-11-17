@@ -364,16 +364,16 @@ public class ArrowRainAndMirageTests
             weapon with { LocalAdded = DamagePacket.Of(DamageType.Cold, 1000, 1000) },
         })
         {
-            var packet = SupportedAttackDamage.Raw(localWeapon, Get, basis, added);
+            var packet = SupportedAttackDamage.Raw(localWeapon, Get, new(0), basis, added);
             Assert.Equal(expected, packet[DamageType.Physical].Min, 6);
             Assert.Equal((1000L * basis + 300L * added) / 10000d, packet[DamageType.Cold].Min, 6);
             Assert.Equal(910L * added / 10000d, packet[DamageType.Fire].Min, 6);
             Assert.Equal(60L * added / 10000d, packet[DamageType.Lightning].Min, 6);
-            var ordinary = SupportedAttackDamage.Raw(localWeapon, Get);
+            var ordinary = SupportedAttackDamage.Raw(localWeapon, Get, new(0));
             Assert.Equal(15000, ordinary[DamageType.Physical].Min);
             Assert.Equal(1300, ordinary[DamageType.Cold].Min);
             Assert.Equal(5000L * added / 10000d,
-                SupportedAttackDamage.Raw(localWeapon, Get, 0, added)[DamageType.Physical].Min, 6);
+                SupportedAttackDamage.Raw(localWeapon, Get, new(0), 0, added)[DamageType.Physical].Min, 6);
         }
         // Attack coefficients never scale a spell's own base, and attack/pool/bow additions stay out of spells.
         var spell = SpellDamage.Packet(DamagePacket.Of(DamageType.Cold, 100, 100), Get, addedEffectiveness: 3);
@@ -414,6 +414,7 @@ public class ArrowRainAndMirageTests
         Spellblade_takes_weapon_damage_without_global_attack_inputs();
         Spellblade_requires_an_active_one_hand_melee_weapon();
         Spellblade_transfers_each_active_weapon_before_spell_scaling();
+        Accuracy_boots_use_resolved_skill_and_hand_inputs();
     }
 
     static void Weapon_cold_per_dexterity_stays_with_its_source()
@@ -449,7 +450,7 @@ public class ArrowRainAndMirageTests
             Assert.Equal(0, weapon.LocalDamage![DamageType.Cold].Max);
             var character = Game.CharacterPlayerStats(c);
             int Get(string name) => Program.Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-            Assert.Equal(new DamageRange(200, 400), SupportedAttackDamage.Raw(weapon, Get)[DamageType.Cold]);
+            Assert.Equal(new DamageRange(200, 400), SupportedAttackDamage.Raw(weapon, Get, new(0))[DamageType.Cold]);
             Assert.Equal(200, character[Program.Stats.Key("main_hand_minimum_cold_damage")!.Value]);
             Assert.Equal(400, character[Program.Stats.Key("main_hand_maximum_cold_damage")!.Value]);
             // A globally summed raw pair or an inactive set cannot supply another copy of this weapon's grant.
@@ -544,7 +545,7 @@ public class ArrowRainAndMirageTests
         var character = Game.CharacterPlayerStats(c);
         Assert.Equal(1, character[Key("attack_minimum_added_lightning_damage")]);
         Assert.Equal(5, character[Key("attack_maximum_added_lightning_damage")]);
-        Assert.Equal(new DamageRange(2, 10), Game.AttackHit(Game.WeaponFor(c), character, melee: true)[DamageType.Lightning]);
+        Assert.Equal(new DamageRange(2, 10), Game.AttackHit(Game.WeaponFor(c), character, melee: true, accuracy: new(Game.PlayerAccuracy(c, character)))[DamageType.Lightning]);
         Assert.Equal(localContribution, Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
         Assert.Equal(localPanel, PanelMaximum());
         items.Remove(6, ring.Id);
@@ -732,6 +733,132 @@ public class ArrowRainAndMirageTests
         Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, 18u, 36u);
         Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
         Assert.Equal(expected, shot.Hit[DamageType.Cold]);
+    }
+
+    static void Accuracy_boots_use_resolved_skill_and_hand_inputs()
+    {
+        using var b = new Battle("Kinetic Blast", "Additional Accuracy Support", "Fireball", "Spellblade Support");
+        var c = b.Conn;
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+        c.PlayerStats[Key("spell_damage_+%")] = 0;
+        c.PlayerStats[Key("accuracy_rating_+%")] = 100;
+        c.PlayerStats[Key("attack_speed_+%_per_200_accuracy_rating")] = 1;
+        var items = Game.ItemsOf(c);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        var sockets = host.Item.Sockets.ToArray();
+        foreach (int index in new[] { 0, 1 })
+        {
+            var socketGem = sockets[index].Gem!;
+            sockets[index] = sockets[index] with { Gem = socketGem with
+            { GemExperience = Program.Items.Gem(Program.Items.ByHash(socketGem.TypeHash)!)!.ExperienceFor(2) } };
+        }
+        var body = items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        { ItemLevel = 100, Sockets = sockets, Links = [2, 2] })!;
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(456, Game.PlayerAccuracy(c));
+        Assert.Equal(3, c.Pools.AttackSpeedPct); // This existing stat grants speed per complete 150 accuracy.
+        Item Boots(string name, string mod) => ItemCatalog.Create(Program.Items.Find(name)!) with
+        { ItemLevel = 100, Mods = [new(ModSection.Implicit, Program.Items.Mods.ById(mod)!.Hash, [-25, 1, 6])] };
+        var boots = items.Add(PlayerInventories.Boots, 0, 0,
+            Boots("Cloudwhisper Boots", "AddedLightningDamagePerAccuracyReducedAccuracyImplicitR1_"))!;
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(342, Game.PlayerAccuracy(c));
+        Assert.Equal(2, c.Pools.AttackSpeedPct);
+        c.PlayerStats.Remove(Key("attack_speed_+%_per_200_accuracy_rating"));
+        c.Pools = Game.PoolsFor(c, 100);
+        var gem = Game.GemSkillEffects(c).Single(g => g.Name == "Kinetic Blast");
+        var spell = Game.GemSkillEffects(c).Single(g => g.Name == "Fireball");
+        Assert.Equal(2, gem.Level);
+        Assert.Equal(100, Game.SupportedSkill(c, gem.Id).Stats[Key("accuracy_rating")]);
+        Assert.Equal(492, Game.SupportedAccuracy(c, gem.Id).Rating); // (228 + 100) * 2 * .75.
+        Assert.Equal(new DamageRange(2.82, 16.92), Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        Assert.Equal(0, Game.SupportedHitInputsFor(c, spell.Id)!.Raw[DamageType.Lightning].Max);
+        // An eligible Spellblade weapon still does not transfer this global attack-only grant.
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(0, Game.SupportedHitInputsFor(c, spell.Id)!.Raw[DamageType.Lightning].Max);
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        items.Change(PlayerInventories.BodyArmour, body.Id, item => item with
+        { Sockets = [item.Sockets[0], item.Sockets[1] with { Gem = item.Sockets[1].Gem! with { Quality = 20 } }, .. item.Sockets.Skip(2)] });
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(20, Game.SupportedSkill(c, gem.Id).Stats[Key("accuracy_rating_+%")]);
+        Assert.Equal(541, Game.SupportedAccuracy(c, gem.Id).Rating); // floor(328 * 2.2 * .75).
+        var player = Game.CharacterPlayerStats(c);
+        int Get(string name) => Program.Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        foreach (var (rating, expected) in new[]
+        {
+            (199, new DamageRange(0, 0)), (200, new DamageRange(1, 6)),
+            (399, new DamageRange(1, 6)), (400, new DamageRange(2, 12)),
+        })
+        {
+            // Target modifiers and cannot-evade do not supply extra rating to the grant.
+            var accuracy = new AttackAccuracyProfile(rating, MoreVsUnique: 100, MoreInCloseRange: 100, CannotBeEvaded: true);
+            Assert.Equal(expected, SupportedAttackDamage.Raw(Game.WeaponFor(c), Get, accuracy)[DamageType.Lightning]);
+            Assert.Equal(expected.Scale(1.5), SupportedAttackDamage.Raw(Game.WeaponFor(c), Get, accuracy, 20_000, 15_000)[DamageType.Lightning]);
+        }
+        Item AccurateWand() => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
+        {
+            ItemLevel = 100, Rarity = ItemRarity.Magic,
+            Mods = [new(ModSection.Explicit, Program.Items.Mods.ById("LocalIncreasedAccuracy5")!.Hash, [153])],
+        };
+        items.Add(PlayerInventories.Weapon2, 0, 0, AccurateWand());
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(541, Game.SupportedAccuracy(c, gem.Id).Rating);
+        items.Add(PlayerInventories.Offhand1, 0, 0, AccurateWand());
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(541, Game.SupportedAccuracy(c, gem.Id).Rating);
+        var off = Game.OffhandWeaponFor(c)!;
+        Assert.Equal(793, Game.WeaponAccuracyFor(c, off, Game.CharacterPlayerStats(c), Game.SupportedSkill(c, gem.Id).Stats));
+        Assert.Equal(new DamageRange(4.23, 25.38), Game.SupportedHitInputsFor(c, gem.Id, weapon: off)!.Raw[DamageType.Lightning]);
+        var panel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal(541, panel[Key("main_hand_accuracy_rating")]);
+        Assert.Equal(793, panel[Key("off_hand_accuracy_rating")]);
+        Assert.Equal(16, panel[Key("main_hand_maximum_lightning_damage")]);
+        Assert.Equal(25, panel[Key("off_hand_maximum_lightning_damage")]);
+        items.Change(PlayerInventories.Boots, boots.Id,
+            _ => Boots("Stormrider Boots", "AddedLightningDamagePerAccuracyReducedAccuracyImplicitR3"));
+        c.Experience = CharacterStats.ExperienceFor(50);
+        c.Pools = Game.PoolsFor(c, 50);
+        Assert.True(Game.IsInactive(c, boots.Id));
+        Assert.Equal(0, Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning].Max);
+        c.Experience = CharacterStats.ExperienceFor(100);
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(new DamageRange(2.82, 16.92), Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        c.PlayerStats[Key("lightning_damage_+%")] = 100;
+        var expectedHit = new DamageRange(5.64, 33.84);
+        var use = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        Assert.Equal(541, shot.AccuracyProfile!.Value.Rating);
+        Assert.Equal(expectedHit, shot.Hit[DamageType.Lightning]);
+        Assert.Equal(expectedHit, shot.AreaHit![DamageType.Lightning]);
+        b.Session.Runtime.Release(use);
+        items.SwapWeaponSets();
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(gem.Id, Game.GemSkillEffects(c).Single(g => g.Name == "Kinetic Blast").Id);
+        Assert.Equal(793, Game.SupportedAccuracy(c, gem.Id).Rating);
+        Assert.Equal(new DamageRange(4.23, 25.38), Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        // Preserve the fraction until both more multipliers are applied: floor(381 * .75 * .7) = 200, not 199.
+        c.PlayerStats.Remove(Key("accuracy_rating_+%"));
+        items.Change(PlayerInventories.BodyArmour, body.Id, item => item with { Links = [1, 1, 2] });
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(285, Game.PlayerAccuracy(c));
+        // The fixture's clock is paused; seed the timed effect without exercising live-action admission.
+        var effects = Game.ResourceEffectsOf(c);
+        Assert.True(Game.ResourceEffectsCurrent(c, effects));
+        Assert.True(effects.PlayerBlind.Inflict(Game.ResourceEffectsTime(c), 10, effectPercent: 50, immune: false));
+        Assert.Equal(200, Game.PlayerAccuracy(c));
+        Assert.Equal(200, Game.SupportedAccuracy(c, gem.Id).Rating);
+        Assert.Equal(new DamageRange(1.41, 8.46), Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        items.Remove(PlayerInventories.Boots, boots.Id);
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(0, Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning].Max);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(1));
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, 5u, 33u);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        Assert.Equal(expectedHit, shot.Hit[DamageType.Lightning]);
     }
 
     [Theory]

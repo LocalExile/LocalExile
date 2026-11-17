@@ -55,6 +55,7 @@ public sealed class AttackAddedInputTests : IDisposable
     [Fact]
     public void Equipped_wand_and_light_radius_inputs_preserve_attack_scope_and_added_effectiveness()
     {
+        Accuracy_boots_apply_their_less_rating_before_the_attack_grant();
         var items = Game.ItemsOf(conn);
         items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"));
         items.Add(PlayerInventories.Belt, 0, 0, Make("Stygian Vise"));
@@ -83,10 +84,10 @@ public sealed class AttackAddedInputTests : IDisposable
             int Get(string name) => Program.Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
             var local = weapon.LocalDamage![type];
             Assert.Equal(new DamageRange(local.Min + minimum, local.Max + maximum),
-                SupportedAttackDamage.Raw(weapon, Get)[type]);
+                SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)))[type]);
             Assert.Equal(new DamageRange(local.Min * 2 + minimum * 1.5, local.Max * 2 + maximum * 1.5),
-                SupportedAttackDamage.Raw(weapon, Get, 20_000, 15_000)[type]);
-            var hit = Game.AttackHit(weapon, character, melee: false)[type];
+                SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)), 20_000, 15_000)[type]);
+            var hit = Game.AttackHit(weapon, character, melee: false, accuracy: new(Game.PlayerAccuracy(conn)))[type];
             string slug = type.ToString().ToLowerInvariant();
             Assert.Equal(baseline.GetValueOrDefault(Key($"main_hand_minimum_{slug}_damage")) + minimum,
                 character[Key($"main_hand_minimum_{slug}_damage")]);
@@ -94,8 +95,8 @@ public sealed class AttackAddedInputTests : IDisposable
                 character[Key($"main_hand_maximum_{slug}_damage")]);
             Assert.Equal(new DamageRange(local.Min + minimum, local.Max + maximum), hit);
             Assert.Equal(local, Game.WeaponFor(conn).LocalDamage![type]);
-            Assert.Equal(local, SupportedAttackDamage.Raw(weapon with { WieldingWand = false }, Get)[type]);
-            Assert.Equal(local, SupportedAttackDamage.Raw(weapon with { WieldingWand = false, Bow = true }, Get)[type]);
+            Assert.Equal(local, SupportedAttackDamage.Raw(weapon with { WieldingWand = false }, Get, new(Game.PlayerAccuracy(conn)))[type]);
+            Assert.Equal(local, SupportedAttackDamage.Raw(weapon with { WieldingWand = false, Bow = true }, Get, new(Game.PlayerAccuracy(conn)))[type]);
             Assert.Equal(0, DamageStats.RawAdded(DamagePacket.Empty, Get, spell: true)[type].Max);
         }
 
@@ -106,7 +107,7 @@ public sealed class AttackAddedInputTests : IDisposable
         Assert.True(bow.Bow);
         Assert.False(bow.WieldingWand);
         Assert.Equal(9, swapped[Key("attack_maximum_added_cold_damage_with_wand")]);
-        Assert.Equal(0, Game.AttackHit(bow, swapped, melee: false)[DamageType.Cold].Max);
+        Assert.Equal(0, Game.AttackHit(bow, swapped, melee: false, accuracy: new(Game.PlayerAccuracy(conn)))[DamageType.Cold].Max);
         Assert.Equal(0, swapped.GetValueOrDefault(Key("main_hand_maximum_cold_damage")));
         items.SwapWeaponSets();
         Assert.True(Game.WeaponFor(conn).WieldingWand);
@@ -124,7 +125,7 @@ public sealed class AttackAddedInputTests : IDisposable
         Assert.Equal(2, equipped[Key(minimumFire)]);
         Assert.Equal(5, equipped[Key(maximumFire)]);
         Assert.All(Program.Items.Mods.ById("AddedFireDamageFromLightRadiusUnique__1")!.Stats, s => Assert.False(s.Local));
-        Assert.Equal(new DamageRange(40, 100), Game.AttackHit(solaris, equipped, melee: false)[DamageType.Fire]);
+        Assert.Equal(new DamageRange(40, 100), Game.AttackHit(solaris, equipped, melee: false, accuracy: new(Game.PlayerAccuracy(conn)))[DamageType.Fire]);
         Assert.Equal(0, solaris.LocalDamage![DamageType.Fire].Max);
 
         foreach (var (radius, expected) in new[]
@@ -136,13 +137,13 @@ public sealed class AttackAddedInputTests : IDisposable
             Set(light, radius);
             var character = Game.CharacterPlayerStats(conn);
             int Get(string name) => Program.Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris, Get)[DamageType.Fire]);
+            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris, Get, new(Game.PlayerAccuracy(conn)))[DamageType.Fire]);
             Assert.Equal(new DamageRange(expected.Min * 1.5, expected.Max * 1.5),
-                SupportedAttackDamage.Raw(solaris, Get, 20_000, 15_000)[DamageType.Fire]);
-            Assert.Equal(expected, Game.AttackHit(solaris, character, melee: false)[DamageType.Fire]);
+                SupportedAttackDamage.Raw(solaris, Get, new(Game.PlayerAccuracy(conn)), 20_000, 15_000)[DamageType.Fire]);
+            Assert.Equal(expected, Game.AttackHit(solaris, character, melee: false, accuracy: new(Game.PlayerAccuracy(conn)))[DamageType.Fire]);
             Assert.Equal((int)expected.Min, character.GetValueOrDefault(Key("main_hand_minimum_fire_damage")));
             Assert.Equal((int)expected.Max, character.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
-            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris with { WieldingWand = false }, Get)[DamageType.Fire]);
+            Assert.Equal(expected, SupportedAttackDamage.Raw(solaris with { WieldingWand = false }, Get, new(Game.PlayerAccuracy(conn)))[DamageType.Fire]);
             Assert.Equal(0, DamageStats.RawAdded(DamagePacket.Empty, Get, spell: true)[DamageType.Fire].Max);
         }
         conn.PlayerStats.Remove(Key(light));
@@ -151,6 +152,32 @@ public sealed class AttackAddedInputTests : IDisposable
         var inactive = Game.CharacterPlayerStats(conn);
         Assert.Equal(0, inactive.GetValueOrDefault(Key(maximumFire)));
         Assert.Equal(0, inactive.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
+    }
+
+    void Accuracy_boots_apply_their_less_rating_before_the_attack_grant()
+    {
+        var previousPools = conn.Pools;
+        var items = Game.ItemsOf(conn);
+        var weapon = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"))!;
+        Set("accuracy_rating_+%", 100);
+        conn.Pools = Game.PoolsFor(conn, 100);
+        // Native class row 0 has 14 Dexterity: (100 * 2 + 14 * 2) * 2 = 456.
+        Assert.Equal(456, Game.PlayerAccuracy(conn));
+        var implicitMod = Program.Items.Mods.ById("AddedLightningDamagePerAccuracyReducedAccuracyImplicitR1_")!;
+        var boots = items.Add(PlayerInventories.Boots, 0, 0, Make("Cloudwhisper Boots") with
+        { ItemLevel = 100, Mods = [new(ModSection.Implicit, implicitMod.Hash, [-25, 1, 6])] })!;
+        conn.Pools = Game.PoolsFor(conn, 100);
+        var character = Game.CharacterPlayerStats(conn);
+        Assert.Equal(-25, character[Key("boots_implicit_accuracy_rating_+%_final")]);
+        Assert.Equal(1, character[Key("attack_minimum_added_lightning_damage_per_200_accuracy_rating")]);
+        Assert.Equal(6, character[Key("attack_maximum_added_lightning_damage_per_200_accuracy_rating")]);
+        // 456 * 75% = 342, one complete group of 200. Both halves of the same implicit must apply.
+        Assert.Equal((342, new DamageRange(1, 6)),
+            (Game.PlayerAccuracy(conn), Game.AttackHit(Game.WeaponFor(conn), character, melee: false, accuracy: new(Game.PlayerAccuracy(conn)))[DamageType.Lightning]));
+        items.Remove(PlayerInventories.Boots, boots.Id);
+        items.Remove(PlayerInventories.Weapon1, weapon.Id);
+        conn.PlayerStats.Remove(Key("accuracy_rating_+%"));
+        conn.Pools = previousPools;
     }
 
     [Fact]

@@ -861,6 +861,9 @@ static partial class SurvivorsSkills
         int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
         double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         var skillKeys = SurvivorsKeyStats(skillStats);
+        var accuracy = spell ? new AttackAccuracyProfile(int.MaxValue)
+            : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, weapon.LocalSources)
+            with { Rating = WeaponAccuracyFor(conn, weapon, playerKeys, skillKeys) };
         var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
         List<(string Name, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
@@ -899,7 +902,7 @@ static partial class SurvivorsSkills
             }
             else if (armedAttack)
             {
-                own = SupportedAttackDamage.Raw(weapon, Get, coefficients.Base, coefficients.Added);
+                own = SupportedAttackDamage.Raw(weapon, Get, accuracy, coefficients.Base, coefficients.Added);
             }
             else
             {
@@ -968,7 +971,7 @@ static partial class SurvivorsSkills
             : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
         string hand = spell ? "spell" : "main_hand";
         var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell), raw, conversion, Get);
-        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : conn.Pools.Accuracy,
+        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : accuracy.Rating,
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
             AreaHit = areaHit,
@@ -978,7 +981,7 @@ static partial class SurvivorsSkills
             SkillStats = skillKeys,
             Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
             ResistanceMods = HitResistMods(playerKeys, skillKeys),
-            AccuracyProfile = spell ? null : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, local),
+            AccuracyProfile = spell ? null : accuracy,
             AlwaysHits = Get("global_always_hit") != 0,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local),

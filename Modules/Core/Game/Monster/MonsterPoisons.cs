@@ -26,7 +26,7 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         var weapon = WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            SupportedAttackDamage.Raw(weapon, Get, new(PlayerAccuracy(conn, player))), DamageStats.Conversion(player, Stats, attack: true), Get),
             "main_hand", Get, weapon.LocalSources);
     }
 

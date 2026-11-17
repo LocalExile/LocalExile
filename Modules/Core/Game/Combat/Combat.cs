@@ -512,7 +512,7 @@ public static partial class Game
                 var pen = Penetration.Of(player, Stats, attack: true, ownPenetration, weapon.LocalSources);
                 var resistanceMods = HitResistMods(player, ownPenetration);
                 var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
-                    ConversionFor(conn, attackEffect, 1, attack: true));
+                    ConversionFor(conn, attackEffect, 1, attack: true), accuracy);
                 if (WeaponProfileFor(conn, activeSet: true).Melee)
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);

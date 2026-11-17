@@ -58,7 +58,8 @@ public static partial class Game
                     PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
                 bool wand = projectileId == OrdinaryRangedAttack.Wand;
                 var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false),
-                    SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
+                    SupportedAttackDamage.Raw(WeaponFor(conn), Get, new(PlayerAccuracy(conn, character))),
+                    DamageStats.Conversion(character, Stats, attack: true), Get);
                 var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
                     captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
                 { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),

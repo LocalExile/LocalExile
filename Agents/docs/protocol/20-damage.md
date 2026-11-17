@@ -287,6 +287,16 @@ Native stat description 9405 applies the range per 1% light radius **above base*
 corroborates the nonnegative sum of increases/reductions; current Life/ES light presentation is separate.
 Native panel/hit parity and conditional light-radius sources remain unverified.
 
+Cloudwhisper, Windbreak and Stormrider Boots share the Ritual implicit's attack-lightning pair (Stats 13539-13540,
+description 4952: per 200 Accuracy Rating) and `boots_implicit_accuracy_rating_+%_final` (Stat 13577, description 5359).
+The native rolls are 1 to 5-6 lightning and 25% less accuracy. The grant uses complete 200-rating groups before added
+effectiveness. [PoB's per-stat parser](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/ModParser.lua#L1499)
+and [accuracy calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L2213-L2221)
+use the hand/skill's accuracy, separately from target-conditional accuracy. Its
+[blind calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcPerform.lua#L858-L865)
+puts blind in the same more bucket: floor(381 * .75 * .7) is 200; flooring before blind would give 199 and lose a group.
+These are native-description/reference-model findings; native panel, rounding and hit parity remain unverified.
+
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
