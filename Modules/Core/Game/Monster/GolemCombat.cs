@@ -388,7 +388,14 @@ public static partial class Game
             || !supported.RequirementsMet || supported.Level <= 0 || supported.Quality < 0
             || supported.Effect != g.Definition.Effect) return false;
         if (g.Abilities.FirstOrDefault(current => current.Effect == a.Effect) is not { } current) return false;
-        a = current;
+        if (a.Effect == 306)
+        {
+            var element = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning }
+                .First(type => GolemStat(a.Stats, $"elemental_hit_cannot_roll_{type.ToString().ToLowerInvariant()}_damage") == 0);
+            current = GolemAbilities(conn, g.Monster.Variety!, g.Monster.Level, g, currentPlayer, now,
+                prismatic: element).Single(ability => ability.Effect == a.Effect);
+        }
+        a = CurrentMinionHit(a, current);
         if (!a.Attack.Spell)
         {
             int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
