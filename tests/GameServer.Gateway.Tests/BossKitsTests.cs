@@ -30,20 +30,21 @@ public sealed class BossKitsTests
         InGame(conn =>
         {
             // Brutus, Lord Incarcerator (The Upper Prison): a bar of his own, six effects, three the client plays as a
-            // hit of his own. The other three are shapes and triggers that answer to objects the server never creates,
-            // and they are left out: a swing that hits for nothing only makes him stand still.
+            // hit of his own, then his Spiked Ground, a ground the server lays (shaped by its skill types). The other two
+            // are shapes and triggers that answer to objects the server never creates, and they are left out: a swing
+            // that hits for nothing only makes him stand still.
             var brutus = Game.Monsters.Find("Metadata/Monsters/Brute/BossBrute");
             Assert.NotNull(brutus);
             Assert.True(brutus.BossHealthBar);
             Assert.True(BossKits.IsCampaignBoss(brutus));
             int defaultEffect = brutus.GrantedEffects![0];
             var kit = BossKits.Kit(conn, brutus, 9, defaultEffect);
-            Assert.Equal([2395, 4003, 491, 9282], kit.Select(k => k.Effect));
+            Assert.Equal([2395, 4003, 491, 9282, 3971], kit.Select(k => k.Effect));
             // The effect his default attack already used stays first: a kit adds the rest of the list, it does not
             // replace the attack he had (Dominus' LightningSlam is live-verified).
             Assert.Equal(defaultEffect, kit[0].Effect);
             ushort[] ids = [.. kit.Select(k => k.Attack.SkillId)];
-            ushort[] slots = [0x4000, 0x4001, 0x4002, 0x4003];
+            ushort[] slots = [0x4000, 0x4001, 0x4002, 0x4003, 0x4004];
             Assert.Equal<ushort>(slots, ids);
             Assert.Equal(kit.Count, kit.Select(k => k.Effect).Distinct().Count());
             // Each of them reaches the actor under the id the order will name: what 0x1ab can point at.
@@ -51,7 +52,7 @@ public sealed class BossKitsTests
             Assert.Equal<ushort>(ids, granted);
             // The specials the tables give a cooldown keep it: the hook and the ground slam before the swings.
             Assert.Equal([6d, 6d], kit.Take(2).Select(k => k.CooldownSeconds));
-            Assert.All(kit.Skip(2), k => Assert.Equal(0, k.CooldownSeconds));
+            Assert.All(kit.Skip(2).SkipLast(1), k => Assert.Equal(0, k.CooldownSeconds));
 
             // Fire Fury (The Coast) has no life bar and is still one of the campaign's bosses: the small ones are the
             // ones that walked up and swung one attack for the whole game.
