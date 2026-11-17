@@ -45,11 +45,20 @@ public class ArrowRainAndMirageTests
             if (variant.Contains("Prismatic", StringComparison.Ordinal))
             {
                 Assert.Equal(306, Assert.Single(clone.Abilities).Effect);
+                foreach (string type in new[] { "fire", "chaos" })
+                    foreach (string bound in new[] { "minimum", "maximum" })
+                        clone.Gear[$"global_{bound}_added_{type}_damage"] = 100;
+                clone.Own[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
                 foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
                 {
                     var attack = Assert.Single(Game.GolemAbilities(c, clone.Monster.Variety!, clone.Monster.Level, clone, clone.Player, element));
                     Assert.True(attack.Attack.Damage.MaxTotal > 0);
                     Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
+                    var ailmentTarget = new SpawnedMonster("ailment target", new(120, 100, 0), 100, 3, 100000) { Hostile = true };
+                    typeof(Game).GetMethod("MinionAilmentsLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                        .Invoke(null, [c, clone, attack, 999u, ailmentTarget, true, 1d]);
+                    Assert.False(ailmentTarget.Poisons.Poisoned);
+                    Assert.Equal(element == DamageType.Fire, ailmentTarget.Ignites.Burning);
                 }
             }
         }

@@ -90,6 +90,9 @@ public static partial class Game
                 foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
                     if (Stats.Key($"elemental_hit_cannot_roll_{element.ToString().ToLowerInvariant()}_damage") is uint key)
                         raw[key] = element == prismatic ? 0 : 1;
+                foreach (var type in DamageTypes.ConversionOrder)
+                    if (type != prismatic && Stats.Key($"base_deal_no_{type.ToString().ToLowerInvariant()}_damage") is uint prohibited)
+                        raw[prohibited] = 1;
             }
             int Raw(string name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
@@ -161,7 +164,7 @@ public static partial class Game
             var modified = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
-                if (effect == 306 && path.Type != prismatic && path.Type != DamageType.Chaos) continue;
+                if (effect == 306 && path.Type != prismatic) continue;
                 if (GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
                 double increase = mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
                     + (Raw("is_area_damage") != 0 ? mods["area_damage_+%"] : 0);
