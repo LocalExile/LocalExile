@@ -6,13 +6,25 @@ using static Program;
 
 static class UniqueBeltsFeature
 {
-    /// <summary>Headhunter's kill: the rare's affixes as stacks (StolenMods), when the killer has its stat.</summary>
+    /// <summary>On Replica Headhunter's GainMagicMonsterModsOnKillUnique__1_: the chance a magic monster's kill steals.</summary>
+    const string MagicSourceStat = "gain_magic_monster_mods_on_kill_%_chance";
+
+    /// <summary>Headhunter's kill: the rare's affixes as stacks (StolenMods), when the killer has its stat. Replica
+    /// Headhunter's: a magic monster's affixes, on its chance ("X% chance when you Kill a Magic Monster to gain its
+    /// Modifiers for 60 seconds"), as the same 60 s stacks.</summary>
     internal static void StealMonsterMods(ClientState conn, SpawnedMonster m)
     {
-        if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
+        if (m.Rarity is not (MonsterRarity.Rare or MonsterRarity.Magic) || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
         var stats = CharacterPlayerStats(conn);
         var catalog = ItemsFor(conn).Mods;
         double now = conn.Clock.Elapsed.TotalSeconds;
+        if (m.Rarity == MonsterRarity.Magic)
+        {
+            if (Stats.Key(MagicSourceStat) is uint replica
+                && RandomRolls.Chance(stats.GetValueOrDefault(replica), 100, Random.Shared))
+                conn.StolenMods.Steal(m.Mods, catalog, now);
+            return;
+        }
         if (Stats.Key(StolenMods.SourceStat) is uint belt && stats.GetValueOrDefault(belt) > 0)
             conn.StolenMods.Steal(m.Mods, catalog, now);
         if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
@@ -30,12 +42,19 @@ static class UniqueBeltsFeature
         return stats;
     }
 
-    /// <summary>A rolled hit with Headhunter's "increased damage with hits against rare monsters". It joins the character's
-    /// global increased damage; the hit's other increases (physical, spell …) are already in the roll and are not separated
-    /// here, so with those it counts for a little more than the game's sum would.</summary>
+    /// <summary>A rolled hit with Headhunter's "increased damage with hits against rare monsters" (Replica Headhunter's
+    /// against magic monsters). It joins the character's global increased damage; the hit's other increases (physical,
+    /// spell …) are already in the roll and are not separated here, so with those it counts for a little more than the
+    /// game's sum would.</summary>
     internal static DamagePacket WithDamageVsRarity(IReadOnlyDictionary<uint, int> player, SpawnedMonster m, DamagePacket rolled)
     {
-        if (m.Rarity != MonsterRarity.Rare || Stats.Key("damage_+%_vs_rare_monsters") is not uint key
+        string? stat = m.Rarity switch
+        {
+            MonsterRarity.Rare => "damage_+%_vs_rare_monsters",
+            MonsterRarity.Magic => "damage_+%_vs_magic_monsters",
+            _ => null,
+        };
+        if (stat is null || Stats.Key(stat) is not uint key
             || player.GetValueOrDefault(key) is not (> 0 and var against)) return rolled;
         int increased = Stats.Key("damage_+%") is uint general ? player.GetValueOrDefault(general) : 0;
         return rolled.Scale((100.0 + Math.Max(0, increased) + against) / (100 + Math.Max(0, increased)));

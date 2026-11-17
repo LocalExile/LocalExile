@@ -490,7 +490,10 @@ time without counting twice. One `stolen_mods_buff` (BuffDefinitions 269) shows 
 time left, replaced at each change by the same ticker. Death and an area change end them. A stat with no consumer on the
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
-the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter's
+`gain_magic_monster_mods_on_kill_%_chance` (20) steals a magic monster's affixes on that chance into the same 60 s stacks
+and `stolen_mods_buff` (the description says 60 s; BuffDefinitions has no magic-monster row), and its
+`damage_+%_vs_magic_monsters` scales hits on magic monsters as the rare one does.
 
 **Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
 its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack
