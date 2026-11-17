@@ -12,7 +12,7 @@ namespace GameServer.Modules.Strongbox;
 /// An opened box is created again under a new id with its Chest opened and its StateMachine <c>opened</c> set (Chest has
 /// no update reader, as for the quest chests), and the box's ambush and loot follow.
 /// </summary>
-public static class StrongboxManager
+public static partial class StrongboxManager
 {
     const string PlanKey = "Strongbox/plan";
 
@@ -20,8 +20,9 @@ public static class StrongboxManager
     /// <param name="Guards">The ambush's monster ids, while its loot waits for them (<paramref name="Pending"/>).</param>
     /// <param name="Looted">The opened box dropped its loot.</param>
     /// <param name="Reopened">The box closed again after an opening.</param>
+    /// <param name="Corrupted">No currency changes it any more (map_strongboxes_are_corrupted, a Vaal Orb).</param>
     sealed record Box(int Row, int X, int Y, float Rotation, uint Id, bool Opened, byte Rarity = 0, RolledMod[]? Mods = null,
-        uint[]? Guards = null, bool Pending = false, bool Looted = false, bool Reopened = false)
+        uint[]? Guards = null, bool Pending = false, bool Looted = false, bool Reopened = false, bool Corrupted = false)
     {
         public IReadOnlyList<ItemMod> Explicits => [.. (Mods ?? []).Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))];
     }
@@ -90,7 +91,10 @@ public static class StrongboxManager
             if (StrongboxRules.Pick(StrongboxCatalog.All, hardMode, level, stats, rng) is not { } type) break;
             byte rarity = type.Rollable ? StrongboxMods.RollRarity(StatOf(stats), rng) : (byte)0;
             var mods = StrongboxMods.Roll(ItemsFor(conn).Mods, type, rarity, level, StatOf(stats), rng);
-            boxes.Add(new Box(type.Row, x, y, (float)(rng.NextDouble() * Math.Tau), conn.TakeObjectId(), false, rarity, Kept(mods)));
+            boxes.Add(new Box(type.Row, x, y, (float)(rng.NextDouble() * Math.Tau), conn.TakeObjectId(), false, rarity, Kept(mods))
+            {
+                Corrupted = StatOf(stats)("map_strongboxes_are_corrupted") != 0,
+            });
         }
         Console.WriteLine($"[gateway] {conn.Wire.Remote} strongboxes: {conn.Layout.Id} seed {conn.Seed} level {level}" +
             $"{(hardMode ? " (HardMode weights)" : "")}: Ambush roll {roll} → {count}; {spots.Count} spot(s), {boxes.Count} box(es)" +
@@ -126,7 +130,7 @@ public static class StrongboxManager
         var catalog = ItemsFor(conn).Mods;
         string mods = string.Join(", ", (box.Mods ?? []).Select(m => catalog.ByHash(m.Hash) is { } mod
             ? $"{mod.Id}[{string.Join("/", m.Values)}]" : $"0x{m.Hash:x4}"));
-        return $"{RarityNames[Math.Min(box.Rarity, (byte)3)]} {StrongboxCatalog.ByRow(box.Row)?.Name} (row {box.Row})" + (mods.Length > 0 ? $" {{{mods}}}" : "");
+        return $"{RarityNames[Math.Min(box.Rarity, (byte)3)]}{(box.Corrupted ? " corrupted" : "")} {StrongboxCatalog.ByRow(box.Row)?.Name} (row {box.Row})" + (mods.Length > 0 ? $" {{{mods}}}" : "");
     }
 
     /// <summary>The box this object id is in the instance's plan, with its index.</summary>

@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Strongbox;
@@ -18,6 +19,7 @@ public sealed class StrongboxModule : IModule
         GameEvents.ObjectUse.Add(id, StrongboxManager.Use);
         GameEvents.ChestsOpened.Add(id, StrongboxManager.OpenNear);
         GameEvents.Tick.Add(id, (conn, _) => StrongboxManager.Tick(conn));
+        GameEvents.Packet(InstanceItems.UseItemOnObjectId).Add(id, StrongboxManager.UseItemOn);
         module.Lifetime.Own(StrongboxManager.Lifetime());
     }
 }

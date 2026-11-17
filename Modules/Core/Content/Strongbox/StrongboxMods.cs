@@ -43,30 +43,34 @@ public static class StrongboxMods
     /// <summary>The explicit mods of a box of this rarity, at this area level, scaled by the mod effect.</summary>
     public static List<ItemMod> Roll(ModCatalog catalog, StrongboxCatalog.Entry box, byte rarity, int level, Func<string, int> stat, Random rng)
     {
-        var rolled = new List<ItemMod>();
-        if (rarity == 0 || !box.Rollable || !Counts.Value.TryGetValue(rarity, out var limits) || limits.Max <= 0) return rolled;
-        int count = rng.Next(Math.Max(1, limits.Min), limits.Max + 1);
+        if (rarity == 0 || !box.Rollable || !Counts.Value.TryGetValue(rarity, out var limits) || limits.Max <= 0) return [];
+        return Add(catalog, box, [], rarity, rng.Next(Math.Max(1, limits.Min), limits.Max + 1), level, stat, rng);
+    }
+
+    /// <summary>The box's mods with up to <paramref name="more"/> more rolled onto them (within the rarity's prefix and
+    /// suffix limits and the families the mods already take; fewer when the pool runs out), prefixes first.</summary>
+    public static List<ItemMod> Add(ModCatalog catalog, StrongboxCatalog.Entry box, IReadOnlyList<ItemMod> mods, byte rarity, int more,
+        int level, Func<string, int> stat, Random rng)
+    {
+        var result = mods.ToList();
+        if (!box.Rollable || !Counts.Value.TryGetValue(rarity, out var limits)) return result;
+        var have = mods.Select(m => catalog.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         var pool = catalog.All.Where(m => m.Domain == ChestDomain && m.GenerationType is 1 or 2 && !m.EssenceOnly
             && m.Level <= level && m.Stats.Count > 0 && m.WeightFor(box.Tags) > 0).ToList();
-        int prefixes = 0, suffixes = 0;
-        var families = new HashSet<int>();
-        var chosen = new List<ModCatalog.Mod>();
-        while (chosen.Count < count)
+        int prefixes = have.Count(m => m.GenerationType == 1), suffixes = have.Count(m => m.GenerationType == 2);
+        var families = have.SelectMany(m => m.Families).ToHashSet();
+        int effect = stat("map_strongbox_mod_effect_+%");
+        for (int added = 0; added < more && result.Count < limits.Max; added++)
         {
-            var open = pool.Where(m => !chosen.Contains(m) && !m.Families.Any(families.Contains)
+            var open = pool.Where(m => !have.Contains(m) && !m.Families.Any(families.Contains)
                 && (m.GenerationType == 1 ? prefixes < limits.Prefixes : suffixes < limits.Suffixes)).ToList();
             long total = open.Sum(m => (long)m.WeightFor(box.Tags));
             if (total <= 0) break;
             long pick = (long)(rng.NextDouble() * total);
             var mod = open.FirstOrDefault(m => (pick -= m.WeightFor(box.Tags)) < 0) ?? open[^1];
-            chosen.Add(mod);
+            have.Add(mod);
             families.UnionWith(mod.Families);
             if (mod.GenerationType == 1) prefixes++; else suffixes++;
-        }
-        int effect = stat("map_strongbox_mod_effect_+%");
-        // Prefixes first, as an item lists them.
-        foreach (var mod in chosen.OrderBy(m => m.GenerationType))
-        {
             var item = mod.Roll(ModSection.Explicit, rng);
             if (effect != 0)
                 item = item with
@@ -74,10 +78,14 @@ public static class StrongboxMods
                     Values = [.. item.Values.Select((v, i) => mod.RangeAt(i) is var (min, max) && min != max
                         ? (int)Math.Clamp((long)v * Math.Max(0, 100 + effect) / 100, int.MinValue, int.MaxValue) : v)],
                 };
-            rolled.Add(item);
+            result.Add(item);
         }
-        return rolled;
+        // Prefixes first, as an item lists them.
+        return [.. result.OrderBy(m => catalog.ByHash(m.Hash)?.GenerationType ?? 0)];
     }
+
+    /// <summary>The rarity's most mods (the Rarity table's MaxMods), 0 for normal.</summary>
+    public static int MaxMods(byte rarity) => Counts.Value.TryGetValue(rarity, out var l) ? l.Max : 0;
 
     /// <summary>A box's own mods (its Chests implicits at their values, then its rolled explicits), each with its values.</summary>
     public static IEnumerable<(ModCatalog.Mod Mod, IReadOnlyList<int> Values)> Lines(ModCatalog catalog, StrongboxCatalog.Entry box,
