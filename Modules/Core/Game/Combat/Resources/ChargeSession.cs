@@ -82,7 +82,7 @@ public sealed class ChargeSession(Charges.State? state = null)
         int Record(string name) => seen[name] = get(name);
         foreach (var type in Charges.Types)
         {
-            limits[(int)type] = Charges.LimitsOf(type, Record, State.Held(type));
+            limits[(int)type] = ChargeMaxima.LimitsOf(type, Record, State.Held(type));
             Record(ChargeGains.ToMaximumStat(type));
             Record(Charges.ConversionFlag(type));
             Record(Charges.MinimumConversionFlag(type));
@@ -166,7 +166,7 @@ public sealed class ChargeSession(Charges.State? state = null)
     {
         if (!CanSpend(type)) return false;
         var (_, left) = State.Lose(type, 1, limits[(int)type]);
-        limits[(int)type] = Charges.LimitsOf(type, Observed, left);
+        limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
         return true;
     }
 
@@ -204,14 +204,14 @@ public sealed class ChargeSession(Charges.State? state = null)
         {
             // A per-second loss (Replica Fragility, Replica Pacifism, Replica Powerlessness).
             var (lost, left) = State.Lose(gain.Type, -gain.Count, current);
-            limits[(int)gain.Type] = Charges.LimitsOf(gain.Type, Observed, left);
+            limits[(int)gain.Type] = ChargeMaxima.LimitsOf(gain.Type, Observed, left);
             log.Add($"{gain.Source}: {Charges.Name(gain.Type)} charges {lost} -> {left}/{limits[(int)gain.Type].Maximum}");
             return;
         }
         int after = Math.Min(current.Maximum, State.Effective(gain.Type, current) + gain.Count);
         // The duration of charges counted per Frenzy Charge (frenzy_charge_duration_+%_per_frenzy_charge) uses the count
         // the gain leaves.
-        var l = Charges.LimitsOf(gain.Type, Observed, after);
+        var l = ChargeMaxima.LimitsOf(gain.Type, Observed, after);
         limits[(int)gain.Type] = l;
         bool toMaximum = ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
