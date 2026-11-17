@@ -174,7 +174,7 @@ Current code: `ItemDrops.Card(Random rng)` does not check `DropLevel`, area,
 map tier, boss or league; it picks uniformly from every supported card. A
 correct `Card` needs the area id, map tier and monster level (and a boss/league
 flag for the special hooks), then the intersection of the area table,
-`DropLevel <= monster level` and the special source. `MapRun.CardDropChance` and
+`DropLevel <= monster level` and the special source. `MapMods.CardDropFactor` and
 `PacksDropCards` only change the chance, not the pool.
 
 Boss unique pools and the known chances are in [boss-drops.md](boss-drops.md);

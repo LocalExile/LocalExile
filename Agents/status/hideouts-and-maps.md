@@ -40,7 +40,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   as they are. The active preset is saved (module data `atlas.active`), picked with a tab (C→S 0x2a8) and sent last
   so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
   spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
-  ([15](../docs/protocol/15-progression.md) §2; not yet tried live).
+  ([15](../docs/protocol/15-progression.md) §2; not yet tried live). A map's area stats take the active preset's
+  nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
+  Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
+  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
+  drop factors act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).

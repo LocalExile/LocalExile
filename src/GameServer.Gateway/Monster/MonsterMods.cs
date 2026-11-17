@@ -73,10 +73,12 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
-    /// map_hidden_monster_life_+%_final, a map tier's).</summary>
+    /// map_hidden_monster_life_+%_final, a map tier's) × the Atlas keystones' more life.</summary>
     public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
         * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0)));
+        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(MonsterModCatalog.AtlasLifeStats)));
+
+    double More(IEnumerable<string> stats) => stats.Aggregate(1.0, (factor, id) => factor * Math.Max(0, 1 + this[id] / 100.0));
 
     /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
     /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
@@ -87,7 +89,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     {
         double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
             * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
-            * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0)
+            * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(MonsterModCatalog.AtlasDamageStats)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var gains = new DamageConversion()
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
@@ -210,6 +212,9 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     public const string RarityTableLifeStat = "monster_life_+%_final_from_rarity_table";
     /// <summary>A map tier's more life and damage for its monsters (the area stats' tier block, MapAreaStats).</summary>
     public const string MapHiddenLifeStat = "map_hidden_monster_life_+%_final", MapHiddenDamageStat = "map_hidden_monster_damage_+%_final";
+    /// <summary>The vital and deadly Atlas keystones' more life and damage (the area's map_ stats of the same name).</summary>
+    public static readonly string[] AtlasLifeStats = ["monster_life_+%_final_from_vital_atlas", "monster_life_+%_final_from_deadly_atlas"],
+        AtlasDamageStats = ["monster_damage_+%_final_from_vital_atlas", "monster_damage_+%_final_from_deadly_atlas"];
     /// <summary>The area level from which rare monsters have the maps' mod counts (the first map level).</summary>
     public const int MapLevel = 68;
 
@@ -237,7 +242,8 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
         "reflect_non_damaging_ailments_%_chance", "monster_chance_to_not_flee_%", "immune_to_culling_strike",
-        MapHiddenLifeStat, MapHiddenDamageStat,
+        MapHiddenLifeStat, MapHiddenDamageStat, "monster_life_+%_final_from_vital_atlas", "monster_life_+%_final_from_deadly_atlas",
+        "monster_damage_+%_final_from_vital_atlas", "monster_damage_+%_final_from_deadly_atlas",
     };
 
     /// <summary>Stats that only stop something the server does not do to monsters yet (curses, wither): true as they

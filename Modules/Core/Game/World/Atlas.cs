@@ -12,9 +12,12 @@ public static partial class Game
     public const string AtlasActiveKey = "atlas.active", AtlasRespecKey = "atlas.respec";
 
     /// <summary>The preset the client's tree shows and allocates into (C→S 0x2a8 picks it).</summary>
-    public static int AtlasActivePreset(ClientState conn) =>
-        int.TryParse(CharacterSaves.ModuleData(CharacterName(conn), AtlasActiveKey), out int preset)
-        && preset >= 0 && preset < conn.AtlasPassives.Length ? preset : 0;
+    public static int AtlasActivePreset(ClientState conn) => AtlasActivePreset(CharacterName(conn), conn.AtlasPassives.Length);
+
+    /// <summary>A saved character's active preset of <paramref name="presets"/>, -1 when it has none.</summary>
+    public static int AtlasActivePreset(string character, int presets) =>
+        presets <= 0 ? -1 : int.TryParse(CharacterSaves.ModuleData(character, AtlasActiveKey), out int preset)
+        && preset >= 0 && preset < presets ? preset : 0;
 
     public static void SetAtlasActivePreset(ClientState conn, int preset) =>
         CharacterSaves.ChangeModuleData(CharacterName(conn), AtlasActiveKey, _ => preset.ToString());

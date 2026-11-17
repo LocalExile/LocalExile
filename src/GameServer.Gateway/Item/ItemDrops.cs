@@ -185,19 +185,18 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         return new Drop(ItemCatalog.Create(type) with { StackSize = 1 }, type);
     }
 
-    /// <summary>Extra drops from any MapFragmentMods / map-quality stats: card packs, card/scarab/currency drop chances.
-    /// New scarabs that use those stat name patterns are included without an Id list.</summary>
+    /// <summary>Extra drops from a map's mods: a card from each monster of the card-dropping magic packs, and the map's card
+    /// and scarab drop factors on the base map chances (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>): a
+    /// factor f adds the base chance × (f − 1).</summary>
     public IEnumerable<Drop> FromMapMods(MapMods mods, int monsterLevel, MonsterRarity rarity, Random rng)
     {
         if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && Card(rng, monsterLevel) is { } packCard)
             yield return packCard;
-        if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && Card(rng, monsterLevel) is { } card)
+        if (mods.CardDropFactor > 1 && MapExtra("drop_card_chance_pct", mods.CardDropFactor - 1, rng) && Card(rng, monsterLevel) is { } card)
             yield return card;
-        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && Scarab(rng, monsterLevel) is { } scarab)
+        if (mods.ScarabDropFactor > 1 && MapExtra("drop_scarab_chance_pct", mods.ScarabDropFactor - 1, rng)
+            && Scarab(rng, monsterLevel) is { } scarab)
             yield return scarab;
-        if (mods.CurrencyDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CurrencyDropChance, 0, 80)
-            && Pick(_pools.Value.Currency.Where(c => c.Type.DropLevel <= monsterLevel).ToList(), rng) is { } currency)
-            yield return new Drop(ItemCatalog.Create(currency) with { StackSize = 1 }, currency);
     }
 
     /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>

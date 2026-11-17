@@ -5,14 +5,16 @@ using GameServer.Core;
 /// <summary>
 /// The 3.29 Atlas passive tree's nodes. PassiveSkills.dat holds the Atlas nodes next to the character's tree; their Ids
 /// start with <c>atlas_</c>. The client supplies the tree's geometry and connectivity, so the server needs the node ids
-/// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests.
+/// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests. A HardMode catalog
+/// holds the HardMode stat vectors (PassiveTree's rule: a row with HasHardmodeAlternate replaces its whole vector).
 /// </summary>
-public sealed class AtlasPassives(string folder = "data")
+public sealed class AtlasPassives(string folder = "data", bool hardMode = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
-        IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false, int SkillPoints = 0, int SkillPointsHardMode = 0);
+        IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false, int SkillPoints = 0, int SkillPointsHardMode = 0,
+        bool IsWormhole = false);
 
-    readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder));
+    readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder, hardMode));
 
     public IReadOnlyCollection<Node> Nodes => _nodes.Value.Values;
 
@@ -72,7 +74,7 @@ public sealed class AtlasPassives(string folder = "data")
 
     public Node? FindById(string id) => _nodes.Value.Values.FirstOrDefault(n => n.Id == id);
 
-    static Dictionary<ushort, Node> LoadNodes(string folder)
+    static Dictionary<ushort, Node> LoadNodes(string folder, bool hardMode)
     {
         var nodes = new Dictionary<ushort, Node>();
         if (!ClientTables.Has("PassiveSkills")) return nodes;
@@ -82,13 +84,15 @@ public sealed class AtlasPassives(string folder = "data")
             if (!id.StartsWith("atlas_", StringComparison.Ordinal)) continue;
             int graphId = row.Int("PassiveSkillGraphId");
             if (graphId is <= 0 or > ushort.MaxValue) continue;
+            bool alternate = hardMode && row.BoolOrNull("HasHardmodeAlternate") == true;
             var stats = new List<(uint Key, int Value)>();
-            var keys = row.Ints("Stats").ToList();
+            var keys = row.Ints(alternate ? "StatsHardmode" : "Stats").ToList();
             for (int i = 0; i < keys.Count && i < 5; i++)
-                stats.Add(((uint)keys[i] + 1, row.Int($"Stat{i + 1}Value")));
+                stats.Add(((uint)keys[i] + 1, row.Int($"Stat{i + 1}Value{(alternate ? "Hardmode" : "")}")));
             nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, id, row.Text("Name") ?? "",
                 row.Bool("IsNotable"), row.Bool("IsKeystone"), stats, row.Bool("IsJustIcon"), row.Int("SkillPointsGranted"),
-                row.Int(row.BoolOrNull("HasHardmodeAlternate") == true ? "SkillPointsGrantedHardmode" : "SkillPointsGranted")));
+                row.Int(row.BoolOrNull("HasHardmodeAlternate") == true ? "SkillPointsGrantedHardmode" : "SkillPointsGranted"),
+                row.Bool("IsAtlasWormhole")));
         }
         return nodes;
     }
