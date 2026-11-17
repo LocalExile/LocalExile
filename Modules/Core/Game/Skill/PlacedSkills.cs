@@ -58,14 +58,27 @@ public static partial class Game
         var gem = SupportedSkill(conn, skill); var kind = PlacedKind(gem);
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-        double release = AreaTime(conn) + Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine) / PlayerActionFactor(conn));
+        double started = AreaTime(conn);
+        double seconds = Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine) / PlayerActionFactor(conn));
+        double release = started + seconds;
+        Console.WriteLine($"[gateway] {(kind.Mine ? "mine" : "trap")} throw of skill 0x{skill:x4}: {seconds:0.000} s");
         var lifetime = CombatLifetime;
+        // While the button is held the client starts its next throw when its own throw has finished, which can be before
+        // this wait ends. A throw replaced after at least half its time has left the hand, so it still lands; before that
+        // it was cancelled.
+        bool replaced = false;
         while (true)
         {
             lock (conn.Monsters)
             {
-                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed || conn.LeavingArea
-                    || conn.PlayerLife == 0 || recovery != conn.ActionInterruptionGeneration) return false;
+                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || conn.Closed || conn.LeavingArea
+                    || conn.PlayerLife == 0) return false;
+                if (!current() || recovery != conn.ActionInterruptionGeneration)
+                {
+                    if (AreaTime(conn) - started < seconds / 2) return false;
+                    replaced = true;
+                    break;
+                }
                 if (!conn.Paused && AreaTime(conn) >= release) break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
@@ -78,7 +91,7 @@ public static partial class Game
         {
             lock (conn.Monsters)
             {
-                if (!current() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
+                if ((!replaced && !current()) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
                 var context = ReservationContext(conn, skill);
                 var reserve = kind.Mine ? SupportedReservation(conn, skill) : null;
                 uint id = conn.TakeObjectId();
@@ -135,7 +148,7 @@ public static partial class Game
             {
                 lock (conn.Monsters)
                 {
-                    if (!current() || conn.Closed || conn.LeavingArea || !conn.Placed.All.ContainsKey(born)) return null;
+                    if ((!replaced && !current()) || conn.Closed || conn.LeavingArea || !conn.Placed.All.ContainsKey(born)) return null;
                     List<byte[]> records = [];
                     if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
                         records.Add(InstanceProtocol.ActionStarted(born, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
@@ -212,6 +225,26 @@ public static partial class Game
             .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
         var aim = target.Value?.Walk.Position(now) ?? placed.At;
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
+        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
+        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
+        // does a triggered spell's: no local input action predicts it.
+        var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
+        if (!bear && target.Value is not null && Dist(aim, placed.At) >= 1 && payload.Name is not null
+            && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
+            && ResolveProjectileDefinition(placed.Effect) is not null)
+        {
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            var lifetime = CombatLifetime;
+            var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
+            var at = placed.At;
+            session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
+            {
+                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, aim, critical, from: at);
+                use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
+            });
+            return;
+        }
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
             var playerSources = CharacterPlayerStats(conn);

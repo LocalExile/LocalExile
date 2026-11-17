@@ -2789,6 +2789,11 @@ Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` 
 `BeThrown` (`0x141c11350`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
 followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
+A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
+With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
+Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
+throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
+A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
 
 ## 10i. Warcry release: timing and release effects
 
