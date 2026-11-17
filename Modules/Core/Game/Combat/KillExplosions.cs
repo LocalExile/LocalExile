@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageType = GameServer.Core.World.DamageType;
 
@@ -125,10 +126,17 @@ public static partial class Game
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
         var effectBytes = showArt ? InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()) : null;
-        await SendKillExplosionBatch(remote, stream, ciphers, conn, effect, effectBytes, at, art,
-            removeCorpse, corpseId, corpse.Label, hits);
-        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);
-        if (showArt)
+        try
+        {
+            await SendKillExplosionBatch(remote, stream, ciphers, conn, effect, effectBytes, at, art,
+                removeCorpse, corpseId, corpse.Label, hits);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // One admission problem must not end the projectile session that queued this explosion.
+            Console.WriteLine($"[gateway] {remote} kill explosion send failed: {ServerLog.Describe(ex)}");
+        }
+        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);        if (showArt)
             SendAfter(ArtMs(art) / 1000.0, async () =>
             {
                 if (conn.Closed || conn.LeavingArea) return;
@@ -179,7 +187,10 @@ public static partial class Game
             await Send(remote, stream, ciphers, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
             return;
         }
-        await SendWorldBatch(conn, [], admission =>
+        var requires = new List<WorldObject>();
+        if (removeCorpse) requires.Add(conn.WorldOutput.PublishedObject(corpseId));
+        foreach (var (id, _, _) in hits) requires.Add(conn.WorldOutput.PublishedObject(id));
+        await SendWorldBatch(conn, [.. requires.Distinct()], admission =>
         {
             var records = new List<OutputRecord>();
             if (effect != 0 && effectBytes is not null)
