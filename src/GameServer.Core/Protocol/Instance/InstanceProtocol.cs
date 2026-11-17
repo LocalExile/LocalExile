@@ -266,6 +266,12 @@ public static class InstanceProtocol
         return new((int)r.U32(), (int)r.U32(), r.U16(), r.U16(), r.U16());
     }
 
+    /// <summary>S→C 0x1ac (read 0x141f988f0): the world object header only. The historical name is not a generic
+    /// stop command: Actor 0x14219aa10 decrements its pending-action counter, then in Predictive releases an eligible
+    /// server-created action (including its walk-up/swing gate). It does not stop the local player's predicted
+    /// nonnegative-sequence action; Lockstep skips the Predictive release branch. See protocol/07 §5.</summary>
+    public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
+
     /// <summary>
     /// S→C 0x1ab (world group, class 0x1435ccc18, read 0x141fe4290; Actor handler 0x14219aa10): an object starts an
     /// action. Object header (u16 id, u32 object id, u32 +0x14, u16 +0x18), u16 flags (+0x38 → action +0x122; bit 0x80 adds
@@ -276,10 +282,6 @@ public static class InstanceProtocol
     /// (live 2026-10-16: sending the target in that pair teleported the player on long clicks, onto unwalkable cells).
     /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ef0050 → 0x141e937b0).
     /// </summary>
-    /// <summary>S→C 0x1ac "action ended" (read 0x141f988f0): the world object header only (u32 object id, u32 0, u16 0);
-    /// the object's current action stops. Ignored for the local player's predicted actions (07 §5).</summary>
-    public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
-
     public static byte[] ActionStarted(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence, ushort flags,
         uint? targetObjectId = null, ushort header = 0)
     {

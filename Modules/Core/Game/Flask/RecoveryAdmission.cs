@@ -5,7 +5,8 @@ public static partial class Game
     // Called only inside SpendFlask's accepted charge transaction, under Monsters and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
     static void AcceptRecoveryFlaskLocked(string remote, ClientState conn, uint slot, InventoryItem flask,
-        ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife)
+        ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
+        IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
         var state = Automation(conn);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
@@ -28,6 +29,14 @@ public static partial class Game
             conn.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
         var effects = Flasks.RecoveryEffects(recovery, (byte)slot, now, () => conn.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
         StartRecoveryEffectsLocked(conn, effects, copyLife);
+        if (during is { Count: > 0 } && effects.Count > 0)
+        {
+            conn.RecoveryFlaskStats.Start(effects, during);
+            RecomputePoolsAndSpeed(conn);
+            state.StatRevision++;   // PublishFlaskChanges sends the character's stats
+            Console.WriteLine($"[gateway] {remote} flask {slot} ({type.Name}) during effect: " +
+                string.Join(", ", during.Select(s => $"{s.Stat} {s.Value}")));
+        }
         // IsRecovery rows carry one u32 recovery-per-minute value, duration as f32 seconds (+0x68),
         // and the flask-bar source cell (+0x60). Preserve the existing native timer/sound payloads.
         bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";

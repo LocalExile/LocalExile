@@ -426,19 +426,23 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
    message ids; its report needs reading line by line, since stat keys, offsets after another id (`0x22 + 0x2b9`) and
    ClientStrings rows share the range. Re-check every script's code signature against the new executable.
 
-**The 3.29.3.5 hotfix needs no port.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
-sections and all 148,967 `.pdata` functions at the same addresses; every `.text` difference is a RIP-relative
-displacement, because `.rdata` and `.data` moved by a few bytes (mostly -0x30, +0x10, -0x80). Code addresses and
-message ids are unchanged; addresses of globals, vtables and strings are not, so a script that uses one needs the
+**The already-supported 3.29.3.5 hotfix.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
+sections and all 148,967 `.pdata` functions at the same addresses. Most `.text` differences reference moved data,
+but a fresh comparison also reports four changed immediates (`0x140e61a01`, `0x14182f300`, `0x142e15d25`,
+`0x142e15d49`) and two changed fields outside `.pdata` spans (`0x1420f4065`, `0x1420f4071`). Their semantics remain
+unresolved; the comparator reports **not proven equal**, not unconditional whole-program equivalence.
+Selected network contracts are checked separately below. Globals, vtables and strings move, so a script needs the
 hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
 (`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
 
-**3.29.3d needs no port either** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+**The already-supported 3.29.3d** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
 sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
 (`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
 offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
 the 132,753 files `game-pack pack` takes are identical.
+The changed offsets are observed; equivalence of the affected TLS state is unresolved. Equal selected network
+contracts below do not resolve these whole-program comparator exceptions or change the admission rule.
 
 **A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
 LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
@@ -474,3 +478,38 @@ changes which of several identical functions a class table's entry names, so a c
 byte-equal between two builds with the same code.
 
 A moved function or a changed table is a port: the first list of this section.
+
+### Network contract evidence
+
+`scripts/re/port/network_contracts.json` pins the originals by full SHA-256: historical 3.29.3b, 3.29.3c release,
+3.29.3.5 hotfix and 3.29.3d. It retains function spans, field-reading instructions, the correction/teleport/removal
+switch routes and build-specific data targets for the Predictive investigation. Labels are analyst names.
+Structural matches normalize calls and RIP-relative operands; they do not prove every callee or referenced datum
+equivalent. The manifest distinguishes selected callee checks and unresolved comparator exceptions.
+
+From the checkout root, with Python and Capstone installed (`python -m pip install capstone`), run:
+
+```powershell
+python -I scripts/re/port/verify_network_contracts.py --client "C:\clients\3.29.3b\PathOfExile.exe" --client "C:\clients\3.29.3c\PathOfExile.exe" --client "C:\clients\3.29.3.5\PathOfExile.exe" --client "C:\clients\3.29.3d\PathOfExile.exe" --require-all
+```
+
+Replace the four paths with retained **unpatched originals**. The command reads them without writing; each result
+must have an empty `errors` list, `missing_builds` must be empty, and exit status must be 0. A single `--client`
+checks that build only; omit `--require-all` for that case. Unknown hashes are refused. Byte/span checks reproduce
+the retained observations; they are not whole-program or live gameplay parity tests.
+
+The 0x128 route maps from 3.29.3b `0x14214ef81` to `0x1421558d1` in all three later executables. The client skips
+it in Lockstep; Predictive applies its distance tests to the player-first snapshot, as described in
+[07 §5](../protocol/07-latency-visibility-movement.md). Actor 0x1ac decrements `+0x22c` before the mode branch;
+the Predictive branch releases an eligible server-created action. It is not a generic action stop.
+
+The native manifest records the position-tracking field evidence for the three supported originals:
+message kind `+8`, object id `+0x10`, Actor local flag `+0x1c8`, Actor `+8` → entity `+0x98` → Positioned,
+grid coordinates `+0x294/+0x298`, and movement-step duration `+0x240`. Position tracking reads no absolute globals.
+The world handler takes its message in the second argument; the third register is not a second candidate message.
+The sampled movement indicator means nonzero step duration, not independently measured velocity.
+
+Review of GGG/retail Predictive behavior supports player-first correction ordering. This finding does not establish
+a universal correction radius or send timer. The executable checks above independently verify the selected
+client-side contracts; they do not reproduce GGG's server implementation or prove gameplay parity.
+These findings concern 3.29; message-id mappings must follow the relevant build rather than importing 3.30 mappings.

@@ -76,7 +76,7 @@ public static partial class Game
     }
 
     public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
+        GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, DamageType prismatic = DamageType.Fire)
     {
         var catalog = SkillsFor(conn); var result = new List<GolemState.Ability>();
         var mods = GolemModifiers(golem, player).Effects;
@@ -85,12 +85,26 @@ public static partial class Game
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
+            if (effect == 306)
+            {
+                foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
+                    if (Stats.Key($"elemental_hit_cannot_roll_{element.ToString().ToLowerInvariant()}_damage") is uint key)
+                        raw[key] = element == prismatic ? 0 : 1;
+                foreach (var type in DamageTypes.ConversionOrder)
+                    if (type != prismatic && Stats.Key($"base_deal_no_{type.ToString().ToLowerInvariant()}_damage") is uint prohibited)
+                        raw[prohibited] = 1;
+            }
             int Raw(string name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             double seconds = (spell || Raw("cast_time_overrides_attack_duration") != 0) && catalog.CastTimeMs(effect) > 0
                 ? catalog.CastTimeMs(effect) / 1000.0 : (golem.Weapon?.AttackMs ?? variety.AttackMs) / 1000.0;
             double speed = 1 + (spell ? mods["cast_speed_+%"] + mods["attack_and_cast_speed_+%"] : mods["attack_speed_+%"] + Raw("attack_speed_+%")) / 100.0;
             speed *= Math.Max(.01, 1 + Raw(spell ? "active_skill_cast_speed_+%_final" : "active_skill_attack_speed_+%_final") / 100.0);
+            speed *= Math.Max(.01, 1 + Own(spell ? "active_skill_minion_cast_speed_+%_final" : "active_skill_minion_attack_speed_+%_final") / 100d);
+            bool multistrike = MinionSupportMatches(effect, "SupportMultistrike");
+            if (!spell && catalog.IsMelee(effect))
+                speed *= (multistrike ? Math.Max(.01, 1 + Own("support_multiple_attacks_melee_attack_speed_+%_final") / 100d) : 1)
+                    * Math.Max(.01, 1 + Own("support_melee_physical_attack_speed_+%_final") / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
@@ -117,13 +131,15 @@ public static partial class Game
                 double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
                 damage = damage.Add(DamageType.Chaos, new(added, added));
             }
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string slug = type.ToString().ToLowerInvariant();
-                int min = mods[$"global_minimum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage"];
-                int max = mods[$"global_maximum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage"];
-                if (max != 0) damage = damage.Add(type, new(min, max));
-            }
+            // Flat damage augments an existing hit; it must not turn movement, auras or DoTs into attacks.
+            if (damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+                foreach (var type in DamageTypes.ConversionOrder)
+                {
+                    string slug = type.ToString().ToLowerInvariant();
+                    int min = mods[$"global_minimum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage"];
+                    int max = mods[$"global_maximum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage"];
+                    if (max != 0) damage = damage.Add(type, new(min, max));
+                }
             var conversion = new DamageConversion();
             foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical))
             {
@@ -132,6 +148,7 @@ public static partial class Game
                 conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
+            if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             var rawDamage = damage;
             double more = Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
@@ -140,13 +157,16 @@ public static partial class Game
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(player, "damage") / 100.0) : 1);
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(player, "active_skill_non_reaper_minion_damage_+%_final") / 100d);
             var types = new HashSet<int>();
-            if (spell) types.Add(1); else { types.Add(0); types.Add(19); }
+            if (spell) types.Add(1);
+            else { types.Add(0); if (catalog.IsMelee(effect) && golem.Weapon is not { Melee: false }) types.Add(19); }
             if (Raw("is_area_damage") != 0) types.Add(7);
             if (Raw("base_is_projectile") != 0) types.Add(2);
-            var supportStats = golem.Own.Select(p => (Name: Stats.Name(p.Key) ?? "", p.Value)).ToArray();
+            var supportStats = golem.Own.Select(p => (Name: Stats.Name(p.Key) ?? "", p.Value))
+                .Where(p => multistrike || p.Name != "support_multiple_attack_damage_+%_final").ToArray();
             var modified = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
+                if (effect == 306 && path.Type != prismatic) continue;
                 if (GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
                 double increase = mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
                     + (Raw("is_area_damage") != 0 ? mods["area_damage_+%"] : 0);
@@ -178,7 +198,7 @@ public static partial class Game
             var projectile = catalog.MonsterProjectile(effect);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
-            if (!spell && golem.Weapon is { Melee: false } ranged)
+            if (effect != 9511 && !spell && golem.Weapon is { Melee: false } ranged)
                 projectile ??= new(ranged.WieldingWand ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
@@ -220,7 +240,7 @@ public static partial class Game
         foreach (var ability in abilities)
         {
             var row = GolemData.Skill(SkillsFor(conn), ability.Effect, level);
-            var stats = new Dictionary<uint, int>(row.Stats);
+            var stats = new Dictionary<uint, int>(ability.Stats);
             foreach (var (key, value) in ability.Attack.InPlaceSkillStats()) stats[key] = value;
             foreach (var (type, range) in ability.Attack.Damage.Components)
             {

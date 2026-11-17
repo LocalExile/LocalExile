@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 static partial class Game
 {
     internal static bool MinionUtility(string? effect) => effect is "ConvocationOld" or "Convocation"
-        or "FleshOffering" or "BoneOffering" or "SpiritOffering";
+        or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "SignalPrey";
 
     static IEnumerable<GolemState.Golem> UtilityFighters(ClientState conn) =>
         conn.Golems.All.Values.Concat(conn.Summons.Fighters.Values).Concat(conn.Reservations.Fighters.Values)
@@ -16,7 +16,7 @@ static partial class Game
         string? effect = SkillsFor(conn).EffectId(gem.Effect);
         if (!MinionUtility(effect)) return false;
         bool recall = effect is "Convocation" or "ConvocationOld";
-        double release = AreaTime(conn) + (recall ? 0 : (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
+        double release = AreaTime(conn) + (recall || effect == "SignalPrey" ? 0 : (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
         while (true)
         {
@@ -27,6 +27,7 @@ static partial class Game
                     || !SameTriggerSource(gem, SupportedSkill(conn, source))) return false;
                 if (!conn.Paused && AreaTime(conn) >= release)
                 {
+                    if (effect == "SignalPrey") return SignalPreyLocked(conn, source, gem, aim, target, release);
                     if (recall) RecallMinionsLocked(conn, gem, release);
                     else StartOfferingLocked(conn, source, gem, effect!, aim, target, release);
                     return true;
@@ -76,6 +77,7 @@ static partial class Game
         foreach (var (id, corpse) in corpses)
         {
             corpse.CorpseConsumed = true;
+            NoteCorpseConsumedLocked(conn, corpse);
             conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
         }
@@ -129,6 +131,7 @@ static partial class Game
     internal static void MinionUtilityTick(ClientState conn, double now)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
+        MinionTacticsTick(conn, now);
         if (conn.PlayerLife == 0) conn.Summons.Offerings.Clear();
         conn.Summons.Offerings.RemoveAll(o => now >= o.Until);
         var player = CharacterPlayerStats(conn);
