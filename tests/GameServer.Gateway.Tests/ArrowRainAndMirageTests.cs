@@ -411,6 +411,7 @@ public class ArrowRainAndMirageTests
         Assert.Equal(100000u - 14620, b.Enemy.Life);
         Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
         Weapon_cold_per_dexterity_stays_with_its_source();
+        Spellblade_takes_weapon_damage_without_global_attack_inputs();
     }
 
     static void Weapon_cold_per_dexterity_stays_with_its_source()
@@ -505,6 +506,73 @@ public class ArrowRainAndMirageTests
             Assert.True(Game.SupportedHitInputsFor(c, attack.Id, weapon: Game.OffhandWeaponFor(c))!.Raw[DamageType.Cold].Max > 0);
             Assert.Equal(0, Game.SupportedHitInputsFor(c, spell.Id)!.Raw[DamageType.Cold].Max);
         }
+    }
+
+    static void Spellblade_takes_weapon_damage_without_global_attack_inputs()
+    {
+        using var b = new Battle("Fireball", "Spellblade Support");
+        var c = b.Conn;
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+        c.PlayerStats[Key("base_deal_no_fire_damage")] = 1;
+        var items = Game.ItemsOf(c);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        var local = Program.Items.Mods.ById("LocalAddedLightningDamage1")!;
+        items.Change(PlayerInventories.Weapon1, host.Id, item => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!) with
+        {
+            Rarity = ItemRarity.Magic, Sockets = item.Sockets, Links = item.Links,
+            Mods = [new(ModSection.Explicit, local.Hash, [1, 5])],
+        });
+        var gem = Game.GemSkillEffects(c).Single();
+        Assert.Equal(40, Game.SupportedSkill(c, gem.Id).Stats[Key(
+            "support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage")]);
+        Assert.Equal(new DamageRange(1, 5), Game.WeaponFor(c).LocalDamage![DamageType.Lightning]);
+        var localContribution = Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning];
+        Assert.True(localContribution.Max > 0);
+        int PanelMaximum() => Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!
+            .Single(s => s.Key == Key("main_hand_maximum_lightning_damage")).Value;
+        int localPanel = PanelMaximum();
+
+        // This real ring prefix adds lightning to attacks, not to the weapon or to Spellblade's spell.
+        var attackOnly = Program.Items.Mods.ById("AddedLightningDamage1")!;
+        Assert.All(attackOnly.Stats, stat => Assert.False(stat.Local));
+        var ring = items.Add(6, 0, 0, ItemCatalog.Create(Program.Items.Find("Coral Ring")!) with
+        { Rarity = ItemRarity.Magic, Mods = [new(ModSection.Explicit, attackOnly.Hash, [1, 5])] })!;
+        var character = Game.CharacterPlayerStats(c);
+        Assert.Equal(1, character[Key("attack_minimum_added_lightning_damage")]);
+        Assert.Equal(5, character[Key("attack_maximum_added_lightning_damage")]);
+        Assert.Equal(new DamageRange(2, 10), Game.AttackHit(Game.WeaponFor(c), character, melee: true)[DamageType.Lightning]);
+        Assert.Equal(localContribution, Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        Assert.Equal(localPanel, PanelMaximum());
+        items.Remove(6, ring.Id);
+
+        // Circle of Regret's generic global lightning already enters an unsupported spell once.
+        var generic = new UniqueCatalog(Program.Items).Create("Circle of Regret", new Random(17))!;
+        var circle = items.Add(6, 0, 0, generic)!;
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [1, 1] });
+        var globalContribution = Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning];
+        Assert.True(globalContribution.Max > 0);
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [2] });
+        var expected = localContribution.Add(globalContribution);
+        Assert.Equal(expected, Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        Assert.Equal((int)expected.Max, PanelMaximum());
+        Assert.Equal(new DamageRange(1, 5), Game.WeaponFor(c).LocalDamage![DamageType.Lightning]);
+
+        var use = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        Assert.Equal(expected, shot.Hit[DamageType.Lightning]);
+        Assert.Equal(expected, shot.AreaHit![DamageType.Lightning]);
+        Assert.Equal(expected.Min, shot.Hit.MinTotal);
+        Assert.Equal(expected.Max, shot.Hit.MaxTotal);
+        b.Session.Runtime.Release(use);
+        items.Remove(6, circle.Id);
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [1, 1] });
+        Assert.Equal(0, Game.SupportedHit(c, gem.Id)[DamageType.Lightning].Max);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(1));
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, (uint)expected.Min, (uint)expected.Max);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        Assert.Equal(expected, shot.Hit[DamageType.Lightning]);
     }
 
     [Theory]

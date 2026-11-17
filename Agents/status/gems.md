@@ -90,10 +90,12 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
+  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
+  Spellblade takes weapon-local damage without importing global attack-only additions or counting generic additions twice;
+  native validation, one-hand eligibility, dual wield and transfer rounding remain open ([25](../docs/protocol/25-gem-supports.md)).
   Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
   keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
   ([25](../docs/protocol/25-gem-supports.md)).
