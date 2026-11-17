@@ -246,7 +246,7 @@ public static partial class Game
             if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) player[k] = v;
-            int radius = SkillArea.Radius(WarcryRadius, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, spell: false);
+            int radius = SkillRadius(conn, WarcryRadius, own, spell: false, effect);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int power, taunted;
             (int X, int Y) here;

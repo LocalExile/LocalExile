@@ -82,6 +82,21 @@ public static class SkillArea
         return mod;
     }
 
+    /// <summary>The ActiveSkillTypes a skill's type-scoped increased area follows (<see cref="TypedIncrease"/>).</summary>
+    public readonly record struct Types(bool Melee, bool Attack, bool Warcry, bool Vaal, bool Totem, bool Trap, bool Mine);
+
+    /// <summary>The increased area scoped to a skill's types (passives and items: "increased Area of Effect for Melee
+    /// Skills", "... for Attacks" and so on), which the panel total skill_area_of_effect_+% does not hold. A Herald has
+    /// no such stat in this build.</summary>
+    public static int TypedIncrease(Func<string, int> get, Types types) =>
+        (types.Melee ? get("melee_skills_area_of_effect_+%") : 0) + (types.Attack ? get("attack_area_of_effect_+%") : 0)
+        + (types.Warcry ? get("warcry_skill_area_of_effect_+%") : 0) + (types.Vaal ? get("vaal_skills_area_of_effect_+%") : 0)
+        + (types.Totem ? get("totem_skill_area_of_effect_+%") : 0) + (types.Trap ? get("trap_skill_area_of_effect_+%") : 0)
+        + (types.Mine ? get("mine_area_of_effect_+%") : 0) + (types.Trap || types.Mine ? get("trap_and_mine_area_of_effect_+%") : 0);
+
+    /// <summary>The panel total of increased area, where <see cref="TypedIncrease"/> is added for a skill.</summary>
+    public const string Increase = "skill_area_of_effect_+%";
+
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
     public static int Radius(int baseRadius, Func<string, int> get, bool spell)
     {
