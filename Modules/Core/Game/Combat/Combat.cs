@@ -1161,7 +1161,8 @@ public static partial class Game
     }
 
     public static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
-        AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect));
+        AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect),
+            aura.AffectsSelf ? null : (byte?)0);
 
     public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string name)
