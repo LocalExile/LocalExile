@@ -10,6 +10,14 @@ public static partial class Game
         (int X, int Y) aim, uint target, Dictionary<byte, Item>? restored)
     {
         if (restored is not null) return new(0, null, new(restored));
+        if (definition.Id == "AnimateWeaponAltX")
+        {
+            if (ActiveMainHand(conn) is not { Type: { } type } hand
+                || WeaponIn(conn, hand) is not { Melee: true }
+                || ItemModStats.LevelRequirement(hand.Item, type.DropLevel, ItemsFor(conn).Mods)
+                    > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return null;
+            return new(0, null, new() { [2] = hand.Item });
+        }
         if (definition.Family == "Clone")
         {
             if (ActiveMainHand(conn) is not { Type.Class: "Bow" } bow) return null;

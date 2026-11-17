@@ -76,7 +76,7 @@ public static partial class Game
     }
 
     public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
+        GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, DamageType prismatic = DamageType.Fire)
     {
         var catalog = SkillsFor(conn); var result = new List<GolemState.Ability>();
         var mods = GolemModifiers(golem, player).Effects;
@@ -85,6 +85,12 @@ public static partial class Game
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
             var (skillLevel, raw, multiplier, crit) = GolemData.Skill(catalog, effect, level);
+            if (effect == 306)
+            {
+                foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
+                    if (Stats.Key($"elemental_hit_cannot_roll_{element.ToString().ToLowerInvariant()}_damage") is uint key)
+                        raw[key] = element == prismatic ? 0 : 1;
+            }
             int Raw(string name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             double seconds = (spell || Raw("cast_time_overrides_attack_duration") != 0) && catalog.CastTimeMs(effect) > 0
@@ -132,6 +138,7 @@ public static partial class Game
                 conversion.AddGlobal(DamageType.Physical, type, mods[$"physical_damage_%_to_convert_to_{slug}"]);
                 conversion.AddGain(DamageType.Physical, type, mods[$"physical_damage_%_to_add_as_{slug}"]);
             }
+            if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
             var rawDamage = damage;
             double more = Math.Max(0, 1 + Own("active_skill_minion_damage_+%_final") / 100.0)
                 * Math.Max(0, 1 + Own("support_minion_damage_+%_final") / 100.0)
@@ -147,6 +154,7 @@ public static partial class Game
             var modified = DamagePacket.Empty;
             foreach (var path in conversion.Trace(damage))
             {
+                if (effect == 306 && path.Type != prismatic && path.Type != DamageType.Chaos) continue;
                 if (GemSupportDamage.Prohibited(path.Type, supportStats)) continue;
                 double increase = mods["damage_+%"] + (spell ? mods["spell_damage_+%"] : mods["attack_damage_+%"])
                     + (Raw("is_area_damage") != 0 ? mods["area_damage_+%"] : 0);
@@ -178,7 +186,7 @@ public static partial class Game
             var projectile = catalog.MonsterProjectile(effect);
             // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
             projectile ??= GolemProjectile(effect, catalog);
-            if (!spell && golem.Weapon is { Melee: false } ranged)
+            if (effect != 9511 && !spell && golem.Weapon is { Melee: false } ranged)
                 projectile ??= new(ranged.WieldingWand ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(conn, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
@@ -220,7 +228,7 @@ public static partial class Game
         foreach (var ability in abilities)
         {
             var row = GolemData.Skill(SkillsFor(conn), ability.Effect, level);
-            var stats = new Dictionary<uint, int>(row.Stats);
+            var stats = new Dictionary<uint, int>(ability.Stats);
             foreach (var (key, value) in ability.Attack.InPlaceSkillStats()) stats[key] = value;
             foreach (var (type, range) in ability.Attack.Damage.Components)
             {

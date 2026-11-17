@@ -11,19 +11,48 @@ public class ArrowRainAndMirageTests
     [InlineData("Mirror Arrow", false)]
     public async Task Arrow_clone_and_owner_land_at_their_respective_positions(string name, bool blink)
     {
-        using var b = new Battle(name);
-        var c = b.Conn;
-        c.Clock.Start();
-        var gem = Game.GemSkillEffects(c).Single();
-        Assert.False(Game.LandsAtAim(c, gem.Effect));
-        var origin = c.Walk.Position(Game.AreaTime(c));
-        var aim = (origin.X + 24, origin.Y);
-        Assert.True(Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, Game.CooldownForSkill(c, gem.Id), false,
-            () => c.ActionCount++, out var paid));
-        Assert.True(await Game.CastGemSkill("clone", b.Stream, b.Ciphers, c, gem.Id, origin, aim, cooldownUse: paid));
-        var clone = Assert.Single(c.Summons.Fighters.Values);
-        Assert.Equal(blink ? origin : aim, clone.Monster.Walk.Position(Game.AreaTime(c)));
-        Assert.Equal(blink ? aim : origin, c.Walk.Position(Game.ProjectileWorldTime(c)));
+        foreach (string variant in new[] { name, name + " of Bombarding Clones", name + " of Prismatic Clones" })
+        {
+            using var b = new Battle(variant);
+            var c = b.Conn;
+            c.Clock.Start();
+            var gem = Game.GemSkillEffects(c).Single();
+            Assert.False(Game.LandsAtAim(c, gem.Effect));
+            var origin = c.Walk.Position(Game.AreaTime(c));
+            var aim = (origin.X + 24, origin.Y);
+            Assert.True(Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, Game.CooldownForSkill(c, gem.Id), false,
+                () => c.ActionCount++, out var paid));
+            Assert.True(await Game.CastGemSkill("clone", b.Stream, b.Ciphers, c, gem.Id, origin, aim, cooldownUse: paid));
+            var clone = Assert.Single(c.Summons.Fighters.Values);
+            Assert.Equal(blink ? origin : aim, clone.Monster.Walk.Position(Game.AreaTime(c)));
+            Assert.Equal(blink ? aim : origin, c.Walk.Position(Game.ProjectileWorldTime(c)));
+            if (variant.Contains("Bombarding", StringComparison.Ordinal))
+            {
+                var rain = Assert.Single(clone.Abilities);
+                Assert.Equal(9511, rain.Effect); Assert.Null(rain.Projectile);
+                typeof(Game).GetMethod("GolemAbilityContactLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null, ["test", b.Stream, b.Ciphers, c, clone,
+                        new GolemState.Action(rain, 200, b.Enemy, (120, 100), 0, clone.Monster.ActionGeneration), 1d]);
+                Assert.Equal(11, clone.Pulses.Count);
+                Assert.All(clone.Pulses, p => Assert.True(p.Next >= 1.35));
+                clone.Monster.Mods = MonsterModSet.None with
+                    { Effects = new(new Dictionary<string, int> { ["accuracy_rating"] = 1000000 }) };
+                uint life = b.Enemy.Life;
+                Game.GolemStepLocked("test", b.Stream, b.Ciphers, c, clone, 1.36);
+                Assert.True(b.Enemy.Life < life);
+                Assert.Equal(100000u, b.Ally.Life);
+            }
+            if (variant.Contains("Prismatic", StringComparison.Ordinal))
+            {
+                Assert.Equal(306, Assert.Single(clone.Abilities).Effect);
+                foreach (var element in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning })
+                {
+                    var attack = Assert.Single(Game.GolemAbilities(c, clone.Monster.Variety!, clone.Monster.Level, clone, clone.Player, element));
+                    Assert.True(attack.Attack.Damage.MaxTotal > 0);
+                    Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
+                }
+            }
+        }
     }
 
     sealed class Battle : IDisposable
@@ -58,7 +87,11 @@ public class ArrowRainAndMirageTests
             Conn.Walk.Teleport(100, 100, 0);
             Conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;
             var items = Game.ItemsOf(Conn);
-            var sockets = gems.Select(name => new ItemSocket(SocketColour.White, ItemCatalog.Create(Program.Items.FindGem(name)!.Value.Type))).ToArray();
+            var sockets = gems.Select(name =>
+            {
+                var gem = Program.Items.FindGem(name)!.Value;
+                return new ItemSocket(SocketColour.White, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index });
+            }).ToArray();
             items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!) with
             { Sockets = sockets, Links = [(byte)sockets.Length] });
             Conn.Monsters[200] = Enemy;

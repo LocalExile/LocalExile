@@ -26,7 +26,20 @@ public static partial class Game
         if (conn.PlayerLife == 0 || InTown(conn)) return;
         foreach (var relic in conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == "HolyRelic" && !g.Monster.Dead && g.Pending is null))
             if (relic.Abilities.FirstOrDefault(a => a.Effect is 9927 or 9928) is { } nova && GolemReady(relic, nova, now))
+            {
+                if (GolemStat(relic.Own, "holy_relic_targets_nearest_enemy") != 0)
+                {
+                    var at = relic.Monster.Walk.Position(now);
+                    var nearest = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
+                            && !p.Value.Invulnerable && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key))
+                        .Where(p => Dist(at, p.Value.Walk.Position(now)) <= nova.Attack.Range)
+                        .MinBy(p => Dist(at, p.Value.Walk.Position(now)));
+                    if (nearest.Value is not null)
+                        GolemReserveLocked(conn, relic, nova, nearest.Key, nearest.Value, nearest.Value.Walk.Position(now), now);
+                    continue;
+                }
                 GolemReserveLocked(conn, relic, nova, target, victim, victim.Walk.Position(now), now);
+            }
     }
 
     public static void HolyRelicRegenerationLocked(ClientState conn, GolemState.Golem relic, GolemState.Ability nova, double now)

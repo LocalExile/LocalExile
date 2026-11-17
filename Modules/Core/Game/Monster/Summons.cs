@@ -74,14 +74,23 @@ public static partial class Game
             .MinBy(m => Dist(m.Walk.Position(AreaTime(conn)), aim));
     }
 
+    internal static int SummonCount(SummonCatalog.Definition definition, SupportedGem gem)
+    {
+        if (definition.Family == "Skeleton")
+            return Math.Max(1, new[] { "number_of_melee_skeletons_to_summon", "number_of_archer_skeletons_to_summon",
+                "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n)));
+        if (definition.Family == "RagingSpirit")
+            return Random.Shared.Next(100) < Math.Clamp(GolemStat(gem.Stats, "summoned_raging_spirit_chance_to_spawn_additional_minion_%"), 0, 100) ? 2 : 1;
+        return Math.Max(1, GolemStat(gem.Stats, "number_of_monsters_to_summon"));
+    }
+
     internal static Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
         bool triggered = false) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(conn, source);
-            int count = definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
-                "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n))) : 1;
+            int count = SummonCount(definition, gem);
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -92,7 +101,7 @@ public static partial class Game
                             GolemReserveLocked(conn, reaper, ultimate, target, conn.Monsters.GetValueOrDefault(target), aim, AreaTime(conn));
                             return true;
                         }
-                if (definition.Id == "BlinkArrow")
+                if (definition.Id is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY")
                 {
                     var origin = conn.Walk.Position(AreaTime(conn));
                     var landing = MovementLanding(conn, gem.Effect, origin, aim);
@@ -139,8 +148,14 @@ public static partial class Game
             }
         }
         if (definition.Id == "SummonSkeletonsAltY") path = $"Metadata/Monsters/RaisedSkeletons/RaisedSkeletonSpellcaster{Random.Shared.Next(1, 4)}Jewel";
+        if (definition.Id == "SummonHolyRelicAltX") path = "Metadata/Monsters/Relic/HolyRelicSkull";
         if (definition.Family == "Clone" && restoredVariety is null)
-            path = "Metadata/Monsters/Clone/" + (conn.ClassRow switch { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" }) + "CloneImmobile";
+        {
+            string variant = definition.Id.EndsWith("AltX", StringComparison.Ordinal) ? "RainOfArrows"
+                : definition.Id.EndsWith("AltY", StringComparison.Ordinal) ? "ElementalShot" : "";
+            path = "Metadata/Monsters/Clone/" + (conn.ClassRow switch { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" })
+                + "CloneImmobile" + variant + (conn.ClassRow == 2 && variant.Length > 0 ? "__" : "");
+        }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
@@ -176,8 +191,10 @@ public static partial class Game
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 if (replacing is uint oldId && conn.Summons.Fighters.TryGetValue(oldId, out var old))
                     RemoveSummonLocked(conn, old, AreaTime(conn));
-                while (conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
-                    RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead)
+                bool SameLimit(GolemState.Golem g) => g.Definition.Kind == definition.Family && !g.Monster.Dead
+                    && (definition.Family != "Clone" || conn.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
+                while (conn.Summons.Fighters.Values.Count(SameLimit) >= limit)
+                    RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(SameLimit)
                         .MinBy(g => g.SummonedAt)!, AreaTime(conn));
                 fighter.Id = id; fighter.Monster = monster; fighter.SummonedAt = fighter.LastStep = AreaTime(conn);
                 fighter.Shield = fighter.MaximumShield = GolemShield(fighter, player);
