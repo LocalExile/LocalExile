@@ -683,7 +683,7 @@ public static partial class Game
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
             if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
                 && Stats.Key("active_skill_secondary_area_of_effect_radius") is uint secondaryRadius)
-                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
+                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
             // Hammerfalls' controller times its waves by the skill's combined_main_hand_attack_speed_+% (0x141b1a270); with
             // none sent its waves kept 0.7 s whatever the attack speed (live 2026-11-11). The server's waves read the same.
             if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stats.Key("combined_main_hand_attack_speed_+%") is uint combinedSpeed)

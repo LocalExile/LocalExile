@@ -295,7 +295,7 @@ public static partial class Game
                 targets.Add((eid, em, true));
 
             var splashMore = new Dictionary<uint, double>();
-            var merged = SupportedStats(conn, skillId);
+            var merged = SkillAreaStats(conn, SupportedSkill(conn, skillId).Stats, gem.Effect);
             int SplashStat(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
             if (targets.Count > 0 && MeleeSplash.Settings(SplashStat) is { } splash)
                 foreach (var (_, strikeMonster, _) in targets.ToArray())
@@ -495,7 +495,7 @@ public static partial class Game
                 Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
+        var areaStats = SkillAreaStats(conn, own, gem.Effect);
         int AreaGet(string name) => name == SkillArea.BaseIncreased
             ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + (Stats.Key("molten_strike_radius_+%") is uint mk ? areaStats.GetValueOrDefault(mk) : 0)
             : Stats.Key(name) is uint ak ? areaStats.GetValueOrDefault(ak) : 0;

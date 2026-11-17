@@ -51,8 +51,8 @@ public static partial class Game
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
             + (toxic ? Get("toxic_rain_num_of_additional_projectiles") : 0)
             + (mirage ? Get("mirage_archer_number_of_additional_projectiles") : 0), 1, 256);
-        int radius = SkillArea.Radius(toxic ? 18 : blast ? 20 : 10, Get, false);
-        double spread = blast ? radius * .85 : SkillArea.Radius(24, Get, false);
+        int radius = SkillRadius(conn, toxic ? 18 : blast ? 20 : 10, own, false, gem.Effect, player);
+        double spread = blast ? radius * .85 : SkillRadius(conn, 24, own, false, gem.Effect, player);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
         var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, Random.Shared);

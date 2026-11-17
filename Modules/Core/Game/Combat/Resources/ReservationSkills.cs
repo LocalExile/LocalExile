@@ -110,10 +110,8 @@ public static partial class Game
     static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback)
     {
         var skill = SupportedSkill(conn, aura.SkillId);
-        var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
         int basis = ReservationStat(conn, aura, "active_skill_base_area_of_effect_radius");
-        return SkillArea.Radius(basis > 0 ? basis : fallback, Get, spell: false);
+        return SkillRadius(conn, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect);
     }
 
     static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

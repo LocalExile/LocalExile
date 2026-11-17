@@ -1159,8 +1159,7 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int Own(string name) => GolemStat(own, name);
         int Player(string name) => GolemStat(player, name);
-        int Area(string name) => Own(name) + Player(name);
-        int groundRadius = SkillArea.Radius(16, Area, spell: true);
+        int groundRadius = SkillRadius(conn, 16, own, spell: true, gem.Effect, player);
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var crit = CaptureSkillCriticalRoll(conn, gem.Id);
         var sacrifice = new SacrificeUse(conn, gem.Id, gem.Effect, gem.Gem);
@@ -1610,16 +1609,16 @@ public static partial class Game
     // (SkillArea). The radius stat is in cells (Righteous Fire's 18 is its 1.8 m, verified against the real game 2026-10-23).
     public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
     {
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+        var areaStats = SkillAreaStats(conn, skillStats, effect);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
     // A gem skill's secondary radius in cells (active_skill_base_secondary_area_of_effect_radius: Holy Sweep's hammers'
     // 12), grown by the player's area stats as the main one is; 0 for a skill without one.
-    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell)
+    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
     {
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+        var areaStats = SkillAreaStats(conn, skillStats, effect);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
         int baseRadius = Get("active_skill_base_secondary_area_of_effect_radius");
         return baseRadius > 0 ? SkillArea.Radius(baseRadius, Get, spell) : 0;
@@ -1850,7 +1849,7 @@ public static partial class Game
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
             if (!spell && hammer is null)
             {
-                var merged = SupportedStats(conn, skillId);
+                var merged = SkillAreaStats(conn, SupportedSkill(conn, skillId).Stats, gem.Effect);
                 int SplashStat(string name) => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
                 if (MeleeSplash.Settings(SplashStat) is { } splash)
                     foreach (var (_, m) in targets.ToArray())
@@ -2165,7 +2164,7 @@ public static partial class Game
         {
             int epoch = conn.ProjectileEpoch;
             double start = conn.Clock.Elapsed.TotalSeconds;
-            var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+            var areaStats = SkillAreaStats(conn, skillStats, gem.Effect);
             int Area(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
             int radius = SkillArea.Radius(hammers.BaseRadius, Area, spell: false);
             var waves = new List<(double At, List<(int X, int Y)> Points)>();

@@ -44,8 +44,9 @@ public static partial class Game
 
     public static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
-        var own = (captured ?? SupportedSkill(conn, skill)).Stats; var player = sources ?? CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(player, n) + GolemStat(own, n);
+        var gem = captured ?? SupportedSkill(conn, skill);
+        var area = SkillAreaStats(conn, gem.Stats, gem.Effect, sources ?? CharacterPlayerStats(conn));
+        int Get(string n) => GolemStat(area, n);
         // Hexes retain their own base radius when Blasphemy converts them to auras.
         return SkillArea.Radius(22,
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get("curse_area_of_effect_+%") : 0), spell: true);

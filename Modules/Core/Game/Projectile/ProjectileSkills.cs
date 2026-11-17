@@ -46,7 +46,7 @@ public static partial class Game
             {
                 // Player base increased area is already included in the panel total. Lay the skill's own
                 // supported stats over the area-specific player snapshot, then scale each base radius once.
-                var areaStats = MergeSkillStats(AreaPlayerStats(context.Conn), SupportedSkill(context.Conn, context.SkillId).Stats);
+                var areaStats = SkillAreaStats(context.Conn, SupportedSkill(context.Conn, context.SkillId).Stats, context.Gem.Effect);
                 int Get(string key) => Stats.Key(key) is uint id ? areaStats.GetValueOrDefault(id) : 0;
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
