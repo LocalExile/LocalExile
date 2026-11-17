@@ -864,7 +864,7 @@ public static partial class Game
             {
                 // Per gem, every time a stat rebuild walks the bar: 1264 lines (up to 64 in one second) in a 3-minute
                 // fight, ~45 KB/s of log, which the rebuild then waited on. Only under Game_TRACE=skills.
-                if (ServerTrace.Enabled("skills"))
+                if (ServerTrace.Skills)
                     Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
                         $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
                 yield return skill with { Supports = [.. supported.Supports.Select(s => SkillsFor(conn).FindByRow(0, s.Effect.Row, s.Gem.Level))

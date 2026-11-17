@@ -123,7 +123,7 @@ public static partial class Game
         }
         // Per corpse and per monster hit: a pack kill wrote about 900 lines a second from inside the combat lock
         // (2026-11-17). Only under Game_TRACE=combat.
-        if (ServerTrace.Enabled("combat"))
+        if (ServerTrace.Combat)
             Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
                 $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
                 (showArt ? "" : ", no art (burst budget)"));
@@ -149,7 +149,7 @@ public static partial class Game
             });
         foreach (var (id, m, hit) in hits)
         {
-            if (ServerTrace.Enabled("combat"))
+            if (ServerTrace.Combat)
                 Console.WriteLine($"[gateway] {remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
