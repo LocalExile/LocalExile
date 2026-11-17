@@ -12,6 +12,14 @@ public static partial class Game
         return result;
     }
 
+    static string? VaalMinionProxyDisabled(ClientState conn, int effect, ushort? source)
+    {
+        if (!IsVaalMinion(SkillsFor(conn).EffectId(effect)) || source is not ushort skill) return null;
+        var gem = SupportedSkill(conn, skill);
+        return gem.Effect == effect && (GolemStat(gem.Stats, "is_totem") != 0 || PlacedKind(gem) is not (false, false))
+            ? "Vaal minion skills through totems, traps or mines are not implemented" : null;
+    }
+
     static bool SameSummonGem(ClientState conn, GolemState.Golem minion, SupportedGem vaal)
     {
         var regular = SupportedSkill(conn,minion.Source);
@@ -63,7 +71,8 @@ public static partial class Game
     {
         var gem=SupportedSkill(conn,source);
         bool Live() => current() && SameTriggerSource(gem, SupportedSkill(conn, source));
-        if (!gem.RequirementsMet || !Live()) return false;
+        if (!gem.RequirementsMet || !IsVaalMinion(SkillsFor(conn).EffectId(gem.Effect))
+            || VaalMinionProxyDisabled(conn, gem.Effect, source) is not null || !Live()) return false;
         double now=AreaTime(conn);
         double duration=SkillDurationModifiers.Seconds(GolemStat(gem.Stats,"base_skill_effect_duration"),
             n=>GolemStat(CharacterPlayerStats(conn),n),n=>GolemStat(gem.Stats,n));

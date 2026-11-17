@@ -421,16 +421,23 @@ public static partial class Game
         var to = nova ? from + new ProjectileVector(1, 0) : ProjectileSession.Vector(aim);
         double distance = Math.Max(1, (to - from).Length);
         var owner = session.ActorKey(g.Id, g.Monster);
+        var mods = g.Monster.Mods.Effects;
+        int SpeedStat(string name) => GolemStat(a.Stats, name)
+            + (name == "support_slower_projectiles_projectile_speed_+%_final" ? mods[name] : 0);
         var profile = new ProjectileProfile(p.Metadata)
         {
-            Speed = ProjectileSpeed.CellsPerSecond(p.Speed, _ => 0, _ => 0), Radius = p.CollisionRadius,
+            Speed = ProjectileSpeed.CellsPerSecond(p.Speed,
+                _ => mods["projectile_speed_+%"] + mods["base_projectile_speed_+%"], SpeedStat), Radius = p.CollisionRadius,
             Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
             Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
-            Pierce = a.Effect == 2378 || GolemStat(a.Stats, "always_pierce") != 0 ? int.MaxValue : Math.Max(0, GolemStat(g.Own, "number_of_additional_projectiles_to_pierce")),
+            Pierce = a.Effect == 2378 || GolemStat(a.Stats, "always_pierce") != 0 ? -1 : 0,
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };
+        // The profile already contains the native skill's quantity; the minion's own modifiers add to it once.
+        profile = GatewayProjectileModifiers.Resolve(profile, name => mods[name], attack: !a.Attack.Spell,
+            arrows: g.Weapon is { Bow: true }, skillPierce: mods["number_of_additional_projectiles_to_pierce"]);
         var offense = new ObjectProjectileOffense(a.Id, (s, contact) =>
         {
             if (!CurrentGameWork || conn.Monsters.GetValueOrDefault(contact.Target.Id) is not { Hostile: true } victim) return ProjectileHitResult.Miss;

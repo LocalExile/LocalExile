@@ -1,4 +1,6 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Projectiles;
+using System.Reflection;
 
 namespace GameServer.Gateway.Tests;
 
@@ -75,6 +77,7 @@ public sealed class HitSummonTests
     public async Task Rare_and_unique_hits_roll_without_consuming_corpses_and_invalidated_sources_or_shattered_deaths_do_not_spawn()
     {
         await PhantasmRegression();
+        await PhantasmProjectileRegression();
         using var f = new MinionUtilityTests.Fixture();
         var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
@@ -188,6 +191,52 @@ public sealed class HitSummonTests
         finally { Game.AreaUpdateContext.Value=outer; }
     }
 
+    static async Task PhantasmProjectileRegression()
+    {
+        double baselineSpeed = 0;
+        foreach (bool supported in new[] { false, true })
+        {
+            using var f = new MinionUtilityTests.Fixture();
+            var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+            try
+            {
+                f.Equip(supported
+                    ? [("Fireball", 20), ("Summon Phantasm Support", 1), ("Greater Multiple Projectiles Support", 20), ("Faster Projectiles Support", 20)]
+                    : [("Fireball", 20), ("Summon Phantasm Support", 1)]);
+                var host = Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
+                Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [(byte)item.Sockets.Count] });
+                ushort source = Game.GemSkillEffects(f.Conn).Single().Id;
+                var target = Target(f, 940, MonsterRarity.Rare);
+                target.Walk.Teleport(140, 100, 1);
+                Game.PhantasmsOnHitLocked(f.Conn, target, source, 1, new ZeroRandom());
+                await Game.HitSummonsTick("test", f.Stream, f.Ciphers, f.Conn, 1);
+                var ghost = Assert.Single(f.Conn.Summons.Fighters).Value;
+                f.Conn.Clock.Reset();
+                ghost.Monster.Walk.Teleport(100, 100, 1);
+                var ability = ghost.Abilities.First(a => a.Effect is 9427 or 9428);
+                Assert.NotNull(ability.Projectile);
+                typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Static | BindingFlags.NonPublic)!
+                    .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, ghost,
+                        new GolemState.Action(ability, 940, target, (140, 100), 1, ghost.Monster.ActionGeneration), 1d]);
+                var session = Game.ProjectilesFor("test", f.Stream, f.Ciphers, f.Conn);
+                session.AdvanceTo(ProjectileRuntime.Time(1));
+                var shots = session.Runtime.Projectiles.ToArray();
+                Assert.Equal(supported ? 5 : 1, shots.Length);
+                Assert.All(shots, shot => Assert.True(shot.Use.Profile.Pierce < 0 || shot.Use.Profile.Pierce == int.MaxValue));
+                if (!supported) baselineSpeed = Assert.Single(shots).Speed;
+                else
+                {
+                    Assert.Equal(5, shots.Select(shot => shot.Direction).Distinct().Count());
+                    int speed = ghost.Own[Program.Stats.Key("base_projectile_speed_+%")!.Value];
+                    Assert.True(speed > 0);
+                    Assert.Equal(baselineSpeed * (1 + speed / 100d), shots[0].Speed, 3);
+                }
+            }
+            finally { Game.AreaUpdateContext.Value = outer; }
+        }
+    }
+
     static async Task VaalRegression()
     {
         using var f = new MinionUtilityTests.Fixture();
@@ -213,6 +262,40 @@ public sealed class HitSummonTests
             Game.GolemStepLocked("test",f.Stream,f.Ciphers,f.Conn,archer,clock.Time);
             Assert.Equal(930u,archer.Target);
             clock.Time=22; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time); Assert.Empty(f.Conn.Summons.Fighters);
+
+            // The native supports apply, but Vaal proxy use budgets are not implemented. Reject before payment.
+            foreach (string support in new[] { "Spell Totem Support", "Trap Support", "Blastchain Mine Support" })
+            {
+                f.Equip(("Vaal Summon Skeletons",1),(support,1));
+                var host = Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
+                Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1,host.Id,item=>item with { Links=[2] });
+                vaal = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="VaalSummonSkeletons");
+                var supported = Game.SupportedSkill(f.Conn,vaal.Id);
+                Assert.True(Game.IsTotemSkill(f.Conn,vaal.Id) || Game.PlacedKind(supported) is not (false,false));
+                Assert.Equal("Vaal Summon Skeletons through totems, traps or mines is not implemented",
+                    Game.GemSkillInstanceDisabled(f.Conn,vaal.Effect,vaal.Id));
+                var ordinary = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="SummonSkeletons");
+                Assert.Null(Game.ActorSkillInstanceDisabled(f.Conn,ordinary.Effect,ordinary.Id));
+                Game.RefreshVaalSouls(f.Conn);
+                while (Assert.Single(f.Conn.VaalSouls.Read()).Current < 50) Assert.True(f.Conn.VaalSouls.Gain());
+                int action = f.Conn.ActionCount, cooldowns = f.Conn.SingleUseCooldowns.Count;
+                var deadlines = f.Conn.SkillReadyAt.ToArray();
+                uint mana = f.Conn.PlayerMana;
+                double prevention = f.Conn.VaalPreventionUntil;
+                var admission = f.Conn.VaalUse;
+                Assert.False(Admit());
+                Assert.False(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100)));
+                Assert.Equal(50u,Assert.Single(f.Conn.VaalSouls.Read()).Current);
+                Assert.Equal(action,f.Conn.ActionCount);
+                Assert.Equal(mana,f.Conn.PlayerMana);
+                Assert.Equal(prevention,f.Conn.VaalPreventionUntil);
+                Assert.Same(admission,f.Conn.VaalUse);
+                Assert.Equal(cooldowns,f.Conn.SingleUseCooldowns.Count);
+                Assert.Equal(deadlines,f.Conn.SkillReadyAt.ToArray());
+                Assert.Empty(f.Conn.Summons.Fighters);
+                Assert.Empty(f.Conn.Totems.All);
+                Assert.Empty(f.Conn.Placed.All);
+            }
 
         }
         finally { Game.AreaUpdateContext.Value=outer; }
