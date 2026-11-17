@@ -32,7 +32,8 @@ public sealed class HeldBackMonsterTests
         // the show distance (the last ones placed are the nearest), and one created monster as far away as the first.
         var far = Hold(100, 290);
         var never = Hold(290, 290);
-        SavedMonster[] ring = [.. Enumerable.Range(0, 8).Select(i => Hold(100, 255 - i))];
+        // Two of the ring stand on one cell: equal records, and still two monsters.
+        SavedMonster[] ring = [.. Enumerable.Range(0, 8).Select(i => Hold(100, 255 - (i == 2 ? 1 : i)))];
         const uint standing = 0x08000000 - 1;
         world.Monsters[standing] = new SpawnedMonster("standing", new PlayerWalk(110, 290, 30), 60, 8, 1000) { Hostile = true };
         world.MonsterOrigins[standing] = new(InstanceEntities.ObjectTypeHash(variety.Id),

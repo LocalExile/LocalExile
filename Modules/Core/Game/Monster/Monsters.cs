@@ -161,21 +161,33 @@ public static partial class Game
             List<(SavedMonster Held, double Distance)> ring = [];
             foreach (var h in held)
             {
-                double d = players.Min(p => Dist((h.X, h.Y), p));
+                double d = double.MaxValue;
+                foreach (var player in players) d = Math.Min(d, Dist((h.X, h.Y), player));
                 if (d <= PopulationRevealCells) due.Add(h);
                 else if (d <= PopulationShowCells) ring.Add((h, d));
             }
             due.AddRange(ring.OrderBy(r => r.Distance).Take(PopulationShownPerPass).Select(r => r.Held));
             if (due.Count == 0) return;
-            held.RemoveAll(due.Contains);
+            // By identity: two planned monsters of one kind on one cell are equal records.
+            var leaving = new HashSet<SavedMonster>(due, ReferenceEqualityComparer.Instance);
+            held.RemoveAll(leaving.Contains);
         }
-        // They leave the roster before they are among the monsters: the overlay's count waits for the last of them.
-        using var recount = HoldMonstersRemaining(conn);
-        foreach (var h in due)
-            if (Monsters.Find(h.Variety.ToString()) is not { } variety
-                || await RestoreMonster(remote, stream, ciphers, conn, variety, h, bulk: true) == 0)
-                // Not created (this connection is going): the next runner's pass creates it.
-                lock (conn.Monsters) held.Add(h);
+        int created = 0;
+        try
+        {
+            // They leave the list before they are among the monsters: the overlay's count waits for the last of them.
+            using var recount = HoldMonstersRemaining(conn);
+            for (; created < due.Count; created++)
+                if (Monsters.Find(due[created].Variety.ToString()) is { } variety
+                    && await RestoreMonster(remote, stream, ciphers, conn, variety, due[created], bulk: true) == 0) break;
+        }
+        finally
+        {
+            // What was not created (this connection is going) stays the instance's: the next runner's pass creates it.
+            if (created < due.Count) lock (conn.Monsters) held.AddRange(due.Skip(created));
+        }
+        // A kill counted while the count was held.
+        await SendRemainingMonsters(remote, stream, ciphers, conn);
     }
 
     public static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
