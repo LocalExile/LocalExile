@@ -18,6 +18,7 @@ public sealed class SummonCatalog(string folder = "data")
         var definitions = new Definition[] {
             new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", "base_number_of_zombies_allowed", "active_zombie_count", true, true),
             new("RaiseSpectre", "Spectre", "", "base_number_of_spectres_allowed", "active_spectre_count", true, true),
+            new("VaalSummonSkeletons", "VaalSkeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonMelee1Army", "base_number_of_skeletons_allowed", "", Follows: false),
             new("SummonSkeletons", "Skeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard", "base_number_of_skeletons_allowed", "active_skeleton_count", Follows: false),
             new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Follows: false, Targetable: false),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", "base_number_of_reapers_allowed", "active_reaper_count", true),
@@ -73,7 +74,7 @@ public sealed class SummonedMinions
         GameServer.Core.Protocol.Instance.Item? Gem, double Until);
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse);
+        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "");
     public readonly List<HitSummon> HitSummons = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
     public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null, uint? Host = null, int? Socket = null);
