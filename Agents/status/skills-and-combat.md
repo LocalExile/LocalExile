@@ -164,7 +164,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   decaying debuff remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
+- Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons, Holy Flame Totem's native piercing bolts and ballistas;
+  placement validates the linked source again at release. Holy Flame Totem's consecrated ground remains open.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
