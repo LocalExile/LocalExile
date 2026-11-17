@@ -75,6 +75,31 @@ public sealed class CombatCacheTests
         finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
     }
 
+    [Fact]
+    public void An_adorned_jewel_is_scaled_once_so_the_stat_sources_cache_still_matches()
+    {
+        // The Adorned scales a corrupted magic jewel at every stat build; a new copy each time made every lookup miss.
+        var jewel = new Item(1, [], 0) { Rarity = ItemRarity.Magic, Corrupted = true, Mods = [new(ModSection.Explicit, 1, [10])] };
+        var catalog = Program.Items;
+        var masteries = new Dictionary<ushort, ushort>();   // the key compares these by reference
+        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], [], 0, false, 1,
+            null, [], 0, [], new HashSet<string>(), new HashSet<string>(), null, 0, 0, 0, 100, 100, Catalog: catalog);
+
+        var scaled = Game.AdornedJewel(jewel, 100);
+        Assert.Equal([20], scaled.Mods[0].Values);
+        Assert.Same(scaled, Game.AdornedJewel(jewel, 100));
+        Assert.True(Key(scaled).Matches(Key(Game.AdornedJewel(jewel, 100))));
+        // Another percentage, or another jewel, is scaled from its own values.
+        var half = Game.AdornedJewel(jewel, 50);
+        Assert.Equal([15], half.Mods[0].Values);
+        Assert.False(Key(half).Matches(Key(scaled)));
+        Assert.Equal([20], Game.AdornedJewel(jewel, 100).Mods[0].Values);
+        Assert.Equal([60], Game.AdornedJewel(jewel with { Mods = [new(ModSection.Explicit, 1, [30])] }, 100).Mods[0].Values);
+        Assert.Same(jewel, Game.AdornedJewel(jewel, 0));
+        var uncorrupted = jewel with { Corrupted = false };
+        Assert.Same(uncorrupted, Game.AdornedJewel(uncorrupted, 100));
+    }
+
     sealed class Arena : IProjectileWorld
     {
         public readonly List<ProjectileActor> Targets = [];
