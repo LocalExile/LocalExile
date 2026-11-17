@@ -94,6 +94,14 @@ public sealed class PlayerWalk
     /// through bodies until its first free step; terrain still stops it (0x141e35a50).</summary>
     public bool WalksThrough { get; set; }
 
+    /// <summary>A monster's charge is running: the client's run passes other bodies, so the step pass lets it; terrain
+    /// still stops it. Set and cleared by the charge.</summary>
+    public bool ChargesThrough { get; set; }
+
+    /// <summary>A <see cref="Slide"/> is under way: its steps cross gaps and bodies, so the step pass checks none of them.
+    /// Any other order or a teleport ends it.</summary>
+    public bool Slides { get; private set; }
+
     /// <summary>The steps of the current walk after <paramref name="from"/> up to <paramref name="to"/>: when each cell is
     /// entered, in order, as <see cref="Position"/> reports them. A hold delays them.</summary>
     public List<(double At, (int X, int Y) Cell)> Steps(double from, double to)
@@ -245,6 +253,8 @@ public sealed class PlayerWalk
     {
         if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
         _speed = speed;
+        // A slide keeps its own time: the walking speed is not what carries it.
+        if (Slides) return;
         // On frames the message takes effect at the frame's start, on the cell the walker stands on then.
         now = Frame(now);
         var here = At(now, out double fraction);
@@ -343,6 +353,7 @@ public sealed class PlayerWalk
     /// <summary>Puts the walker at a cell (a teleport, e.g. S→C 0x1b7): no walk in progress.</summary>
     public void Teleport(int x, int y, double now)
     {
+        Slides = false;
         _segments = [];
         _rest = (x, y);
         _restSince = now;
@@ -511,8 +522,32 @@ public sealed class PlayerWalk
     }
 
     // `kept`: the time since the last step that a walk from a stand starts with.
+    /// <summary>A straight run to a cell, evenly over <paramref name="seconds"/> from <paramref name="now"/>, that no gap or
+    /// body stops (<see cref="Slides"/>): a travel skill whose client action carries the mover along the line in its own
+    /// time, not at the walking speed.</summary>
+    public void Slide(int x, int y, double seconds, double now)
+    {
+        var here = At(now, out _);
+        var cells = ClientPathfinder.Line(here, (x, y)).Skip(1).ToArray();
+        if (cells.Length == 0 || seconds <= 0)
+        {
+            Teleport(x, y, now);
+            return;
+        }
+        (_target, _maxRange, _tolerance) = ((x, y), 0, -1);
+        _kept = default;
+        _rest = here;
+        _restSince = now;
+        _segments = [new Segment(here, cells, now, (float)(seconds / cells.Length))];
+        Reached = true;
+        _goalReached = true;
+        WalksThrough = false;
+        Slides = true;
+    }
+
     private void Follow(IReadOnlyList<(int X, int Y)> path, (int X, int Y) here, double fraction, double kept, double now)
     {
+        Slides = false;
         bool standing = !Moving(now);
         var walk = new List<Segment>();
         double t = now;

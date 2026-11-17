@@ -35,6 +35,23 @@ public static partial class MonsterSkills
     /// <summary>The radius a travel's landing hits within, and where it lands short of the player (cells, ours).</summary>
     const double LandingRadius = 12, LandShort = 4;
 
+    /// <summary>The GrantedEffects rows of the Dash action (ActiveSkills <c>dash</c>): the player's Dash and the monsters'
+    /// (ExileQuickDodge, DashMercenary, MonsterQuickDodgeRun …).</summary>
+    static readonly Lazy<HashSet<int>> Dashes = new(() =>
+    {
+        var skills = ClientTables.Table("ActiveSkills");
+        int dash = skills.Select(r => r.Text("Id")).ToList().IndexOf("dash");
+        return [.. ClientTables.Table("GrantedEffects").Where(e => dash >= 0 && e.IntOrNull("ActiveSkill") == dash).Select(e => e.Index)];
+    });
+
+    static bool IsDash(int effect) => Dashes.Value.Contains(effect);
+
+    /// <summary>The skill's own skill_travel_distance_+% at the monster's level (ExileQuickDodge's 20: its Dash goes 36
+    /// cells, where the player's base Dash goes 30). StatsOf leaves skill_ stats out of a use's stats.</summary>
+    static int TravelPct(ClientState conn, int effect, byte level) =>
+        Stats.Key("skill_travel_distance_+%") is uint key
+            ? GolemData.Skill(SkillsFor(conn), effect, level).Stats.GetValueOrDefault(key) : 0;
+
     /// <summary>What the skill does beyond a hit; null for a plain hit and for an aura (which is up from the spawn).</summary>
     public static MonsterSkillShape? ShapeOf(SkillCatalog skills, int effect)
     {
@@ -311,10 +328,23 @@ public static partial class MonsterSkills
             from = order.From;
             target = use.Shape switch
             {
+                // A Dash goes its own distance toward the aim, as the player's does (Resync.DashLanding): Ainsley Varrich's
+                // ExileQuickDodge, landed short of the player, ran on 14 cells past that on the client and snapped back at
+                // his next order, or stood where the client's line stopped while the server had him at the end (sync trace
+                // 2026-11-17).
+                MonsterSkillShape.Travel when a.Effect is int effect && IsDash(effect) => Game.DashLanding(conn.Layout, conn.Barrier, from,
+                    order.Player, TravelPct(conn, effect, m.Level), false, m.Variety?.ObjectSize ?? 1),
                 MonsterSkillShape.Travel => Landing(conn, from, order.Player),
                 MonsterSkillShape.Self => from,
                 _ => order.Player,
             };
+            // The client's action carries its copy to the target once it starts, whatever the server does after: the
+            // estimate goes there with the order, not at the contact a retarget or a death can skip.
+            // A Dash's copy crosses its line over the action's time, not at once: Ainsley Varrich's 36 cells take the
+            // 0.25 s action on the client (sync trace 2026-11-17: a slide over the action is 6 cells RMS off the drawn
+            // position mid-Dash, the jump at the order 17).
+            if (use.Shape == MonsterSkillShape.Travel && a.Effect is int dash && IsDash(dash)) m.Walk.Slide(target.X, target.Y, seconds, startedAt);
+            else if (use.Shape == MonsterSkillShape.Travel) m.Walk.Teleport(target.X, target.Y, startedAt);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags,
                 targetObjectId: use.Shape == MonsterSkillShape.Curse ? PlayerId : null);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4}, {seconds:0.00} s")) return;
@@ -322,8 +352,6 @@ public static partial class MonsterSkills
         switch (use.Shape)
         {
             case MonsterSkillShape.Travel:
-                // The client's action carries its copy to the target; the server's goes with it.
-                lock (conn.Monsters) m.Walk.Teleport(target.X, target.Y, conn.Clock.Elapsed.TotalSeconds);
                 if (!a.Damage.IsZero)
                     await MonsterContact(remote, stream, ciphers, conn, id, m, action, seq, a with { Range = LandingRadius, Use = null });
                 break;
@@ -391,6 +419,9 @@ public static partial class MonsterSkills
     /// <summary>A charge's farthest run and the radius its end hits within (cells; the player's: ShieldCharge.cs).</summary>
     const int ChargeDistance = 75, ChargeEndRadius = 16;
 
+    /// <summary>How much later than its order a lockstep client's monster starts its charge (seconds, measured).</summary>
+    const double ChargeStartDelay = .085;
+
     /// <summary>A charge (Shield Charge): the client runs it as a walk at the actor's own movement speed (0x141e827a0
     /// reads movement_velocity_+% from its Stats), so its length is the distance over that speed, not the attack time.
     /// The skill's movement bonus goes to the client as the monster's movement_velocity_+% (0xf5) while it runs, the
@@ -416,16 +447,39 @@ public static partial class MonsterSkills
             (startedAt, seq) = (order.StartedAt, order.Sequence);
             from = order.From;
             target = Landing(conn, from, order.Player);
-            m.Walk.SetSpeed(chargeSpeed, startedAt);
-            m.Walk.Charge(target.X, target.Y, ChargeDistance, startedAt);
-            arrives = Math.Max(m.Walk.ArrivesAt, startedAt);
+            // The client drops a charge whose straight line meets terrain: its monster stays where it stands, so there is
+            // no charge to send (sync trace 2026-11-17: Jonah Unchained stood still on five lines past a pillar that the
+            // server's run stopped at, 1 to 10 cells along).
+            foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, target))
+                if (cell != from && !m.Walk.Floor(cell.X, cell.Y)) return null;
+            // A lockstep client starts the run later than the order (ten charges, sync trace 2026-11-17: it left its cell
+            // and arrived 85 ms after the server's walk on average, 12-169 ms), so the walk and the impact wait for it.
+            double runsFrom = startedAt + (conn.LockstepClient ? ChargeStartDelay : 0);
+            m.Walk.SetSpeed(chargeSpeed, runsFrom);
+            m.Walk.Charge(target.X, target.Y, ChargeDistance, runsFrom);
+            // The client runs a monster's charge past other bodies; terrain still ends it (sync traces 2026-11-17, Jonah
+            // Unchained: with walk body checks 22 of 23 charges ended 2-25 cells from the client's, run through 15 of 19
+            // matched and the rest were within 4 cells but one).
+            m.Walk.ChargesThrough = true;
+            arrives = Math.Max(m.Walk.ArrivesAt, runsFrom);
             m.BusyUntil = Math.Max(m.BusyUntil, arrives + conn.LockstepActionTail);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, conn.MonsterOrderFlags);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) charges with skill 0x{a.SkillId:x4} at {ownPct + bonusPct:+0;-0}% movement speed");
         if (sent)
             Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) charge from {from} to {target}: arrives in {arrives - startedAt:0.00} s");
         bool arrived = sent && await WaitMonsterActionTime(conn, id, m, action, arrives);
-        lock (conn.Monsters) m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds);
+        // The step pass runs on frames, so the walk can be a cell or two short at its arrival time; it ends as a charge only
+        // once the pass has stepped past the arrival, or a body next to the end stops its last step (sync traces
+        // 2026-11-17: 2 cells short of the client's beside the player; then, waiting only for the walk's own clock, 1 to 3
+        // cells short a second after 8 of 29 charges, until the next action).
+        for (double until = AreaTime(conn) + .25; arrived && !conn.Closed;)
+        {
+            lock (conn.Monsters)
+                if (!MonsterActionCurrent(conn, id, m, action) || conn.WalkersSteppedTo >= m.Walk.ArrivesAt
+                    || AreaTime(conn) >= until) break;
+            await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+        }
+        lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds); m.Walk.ChargesThrough = false; }
         if (!conn.Closed && !m.Dead)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, ownPct)]), null);
         if (arrived && !a.Damage.IsZero)

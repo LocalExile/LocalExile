@@ -134,9 +134,13 @@ public static partial class Game
 
     // Dash crosses open gaps. Only the landing needs walking clearance. If the direct landing fails,
     // the native fallback keeps the last standable cell until its stricter sight test fails (07 §5).
+    // The thresholds are a size-1 player's (07 §5); a bigger walker (a size-2 Rogue Exile's Dash) needs its own size of
+    // standing room at the end and along the line, and one more of clearance for the fallback: Ainsley Varrich's
+    // stopped 4-5 cells short of the size-1 landing at both ends of an open line (sync trace 2026-11-17).
     public static (int X, int Y) DashLanding(AreaLayout layout, IReadOnlySet<(int X, int Y)> barriers,
-        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse)
+        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size = 1)
     {
+        size = Math.Max(1, size);
         if (from == aim) return from;
         float dx = (float)aim.X - from.X, dy = (float)aim.Y - from.Y;
         long distance = Math.Max(0L, 30L * (100L + travelPercent) / 100);
@@ -145,7 +149,7 @@ public static partial class Game
         var end = (X: from.X + direction * (int)MathF.Floor(dx * scale + .5f),
                    Y: from.Y + direction * (int)MathF.Floor(dy * scale + .5f));
         bool floor(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH
-            && layout.WalkableFor(x, y, 1) && !barriers.Contains((x, y));
+            && layout.WalkableFor(x, y, size) && !barriers.Contains((x, y));
         var last = from;
         if (layout.Sight is not { } sight)
         {
@@ -162,8 +166,8 @@ public static partial class Game
         foreach (var cell in ClientPathfinder.Line(from, end))
         {
             int clearance = sight(cell.X, cell.Y);
-            if (clearance < 1 || barriers.Contains(cell)) return last;
-            fallback &= clearance >= 2;
+            if (clearance < size || barriers.Contains(cell)) return last;
+            fallback &= clearance >= size + 1;
             if (fallback && floor(cell.X, cell.Y)) last = cell;
             if (!fallback && !direct) break;
         }

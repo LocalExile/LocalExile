@@ -536,10 +536,13 @@ public static partial class Game
     // One step of a walk, as the client checks it: false when it was blocked and ended the walk.
     static bool Step(ClientState conn, ClientState.MonsterBlockerFrame bodies, uint id, GameServer.Core.World.PlayerWalk walk, double at, (int X, int Y) cell)
     {
-        bool floor = walk.Floor(cell.X, cell.Y);
+        // A Dash's slide crosses gaps and bodies (PlayerWalk.Slide): none of its steps is checked.
+        bool floor = walk.Slides || walk.Floor(cell.X, cell.Y);
         bool body = floor && ClientPathfinder.ObjectBlocks(id == PlayerId ? bodies.ForPlayer : bodies.For(id),
             cell.X, cell.Y, walk.Size + 1, walk.Size + 4);
-        if (!floor || body && !walk.WalksThrough)
+        // A monster's charge runs through bodies (sync trace 2026-11-17: Jonah Unchained's ran past monsters on its line,
+        // also ones beside its start).
+        if (!floor || body && !walk.WalksThrough && !walk.ChargesThrough && !walk.Slides)
         {
             walk.StopAt(at);
             return false;
