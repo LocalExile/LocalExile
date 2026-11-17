@@ -76,6 +76,9 @@ public sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
 
+    /// <summary>Builds the life tables and the take-hit animations at startup: the first monsters placed read them.</summary>
+    public void Warm() { _ = _life.Value; _ = _takeHit.Value; }
+
     /// <summary>
     /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
     /// remove_collidability event; client.db's monster_takehit death_unblock), null when it has none: the client then
