@@ -304,7 +304,7 @@ public static partial class Game
                 // stayed below full after a cast, the server's last update being full with no rate).
                 bool active = conn.EnergyShield.Recharging || Get("keystone_eldritch_battery") != 0
                     && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
-                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 ? 0 : (int)Math.Round(
+                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 || conn.IncomingAilments.Bleeding(conn.Clock.Elapsed.TotalSeconds) ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
                     return null;
@@ -593,6 +593,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncPhasing(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
@@ -616,6 +618,39 @@ public static partial class Game
                 await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
                 ailments = nextAilments;
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
+            IncomingDamagingAilments.State nextIncoming;
+            IncomingDamagingAilments.State presented;
+            int incomingEpoch;
+            lock (conn.Monsters)
+            {
+                nextIncoming = conn.IncomingAilments.Snapshot(tickNow);
+                presented = conn.PresentedIncomingAilments ??
+                    new(false, double.NegativeInfinity, 0, double.NegativeInfinity, 0, 0);
+                incomingEpoch = conn.IncomingHitEpoch;
+            }
+            if (nextIncoming != presented)
+            {
+                foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, tickNow))
+                    await Send(remote, stream, ciphers, [], log, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                        {
+                            if (conn.Closed || conn.LeavingArea || conn.IncomingHitEpoch != incomingEpoch
+                                || conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != nextIncoming)
+                                return null;
+                            return packet;
+                        }
+                    });
+                lock (conn.Monsters)
+                    if (!conn.Closed && !conn.LeavingArea && conn.IncomingHitEpoch == incomingEpoch
+                        && conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) == nextIncoming)
+                    {
+                        conn.PresentedIncomingAilments = nextIncoming;
+                        conn.PresentedIncomingAilmentEpoch = incomingEpoch;
+                    }
+                await SendCharacterStats(remote, stream, ciphers, conn, "incoming damaging ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
@@ -831,7 +866,7 @@ public static partial class Game
                 if (dead)
                 {
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
-                    conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
+                    conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.LifeRecoup.Clear();
@@ -1113,14 +1148,20 @@ public static partial class Game
     };
 
     // Damage immunities as the damage model sees them, from the same sources the panel's "Immune to X" rows use.
-    public static HashSet<DamageType> PlayerImmunities(ClientState conn)
+    public static HashSet<DamageType> PlayerImmunities(ClientState conn) => PlayerImmunities(conn, null);
+
+    public static HashSet<DamageType> PlayerImmunities(ClientState conn, IReadOnlyDictionary<uint, int>? prepared)
     {
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         var baseStats = new Dictionary<uint, int>();
-        foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
-        lock (conn.Monsters)
-            foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
-        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        if (prepared is null)
+        {
+            foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
+            lock (conn.Monsters)
+                foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
+            prepared = baseStats;
+        }
+        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? prepared.GetValueOrDefault(key) : 0);
         if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;
     }

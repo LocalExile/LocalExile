@@ -32,7 +32,14 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     public sealed partial record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
-        RollGroup[]? RollGroups = null, int JewelLimit = 0);
+        RollGroup[]? RollGroups = null, int JewelLimit = 0)
+    {
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? CreationVariant { get; init; }
+        public Variant[]? Variants { get; init; }
+    }
+
+    public sealed record Variant(string Name, string? BaseTypeId, string[] Mods, int Weight = 0);
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -88,11 +95,21 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
         NessaMapStock.Build(items, folder).FirstOrDefault(e => e.Item.Rarity == ItemRarity.Unique
             && NameKey(e.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase)) is { } entry ? entry.Item : null;
 
-    public Definition? Find(string name) =>
-        All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
-        ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
-            && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
-        ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+    public Definition? Find(string name)
+    {
+        int variantStart = name.LastIndexOf(" (", StringComparison.Ordinal);
+        if (variantStart > 0 && name.EndsWith(')'))
+        {
+            string parent = NameKey(name[..variantStart]), wanted = name[(variantStart + 2)..^1];
+            if (All.FirstOrDefault(d => NameKey(d.Name).Equals(parent, StringComparison.OrdinalIgnoreCase)) is { Variants: not null } definition)
+                return definition.Variants.FirstOrDefault(v => v.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase)) is { } selected
+                    ? definition with { CreationVariant = selected.Name } : null;
+        }
+        return All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
+            ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
+                && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
+            ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>The word-list word a unique's name resolves to, or null when the client data has no such name. The
     /// survivors pool uses it to skip a unique the character already wears without rolling a whole item.</summary>
@@ -105,6 +122,23 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     /// <summary>The item of one definition, which tells apart the bases of a unique with several.</summary>
     public Item? Create(Definition definition, Random random)
     {
+        if (definition.Variants is { Length: > 0 } variants)
+        {
+            Variant? selected;
+            if (definition.CreationVariant is { } wanted)
+                selected = variants.FirstOrDefault(v => v.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase));
+            else
+            {
+                int total = variants.Sum(v => Math.Max(0, v.Weight));
+                int roll = total > 0 ? random.Next(total) : -1;
+                selected = total > 0 ? variants.First(v => (roll -= Math.Max(0, v.Weight)) < 0)
+                    : variants.FirstOrDefault(v => v.BaseTypeId == definition.BaseTypeId) ?? variants[0];
+            }
+            if (selected is null) throw new InvalidOperationException("Unknown unique item variant");
+            var variantMods = variants.SelectMany(v => v.Mods).ToHashSet(StringComparer.Ordinal);
+            definition = definition with { BaseTypeId = selected.BaseTypeId ?? definition.BaseTypeId,
+                Mods = [.. definition.Mods.Where(id => !variantMods.Contains(id)), .. selected.Mods] };
+        }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
         if (Identity(definition) is not { } unique) return null;
         var item = ItemCatalog.Create(type) with
@@ -155,9 +189,10 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
-        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
-            definition = definition with { Mods = [variant] };
-        mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
+        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } spectrumVariant)
+            definition = definition with { Mods = [spectrumVariant] };
+        string[] explicitMods = definition.Mods;
+        mods.AddRange(Rolled(definition, explicitMods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         if (!RollEncounterModifiers(definition, random, mods)) return null;

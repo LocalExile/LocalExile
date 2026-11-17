@@ -690,7 +690,8 @@ public static partial class Game
                 name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
             canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerUnreservedLife, conn.PlayerMana, (uint)UnreservedMana(conn))
-                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife;
+                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife
+                || ConditionalFlaskAilmentProtectionTriggered(conn, local, AreaTime(conn));
         }
         bool CurrentRecovery()
         {
@@ -721,7 +722,7 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, during));
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local, during));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
