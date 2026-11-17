@@ -156,9 +156,8 @@ public static class ChargeEffects
     /// consumer gating on unsupported stats must not refuse it: PlayerHitRecovery's stun threshold and recovery).</summary>
     public static bool Expands(string stat) => Expanded.Contains(stat);
 
-    /// <summary>Stats that apply while the character has none of a type, or at least one; × <paramref name="Scale"/> into
-    /// the targets (−1: a "reduced extra damage taken" stat into the "-%" form).</summary>
-    public sealed record Condition(string Stat, ChargeType Type, bool WhenNone, string[] Targets, int Scale = 1);
+    /// <summary>Stats that apply while the character has none of a type, or at least one.</summary>
+    public sealed record Condition(string Stat, ChargeType Type, bool WhenNone, string[] Targets);
 
     /// <summary>The "with no … charges" / "while you have any … charges" stats whose effect the server models.</summary>
     public static readonly IReadOnlyList<Condition> Conditional =
@@ -178,12 +177,12 @@ public static class ChargeEffects
     /// which the charges add to) and <c>additional_elemental_damage_reduction_%</c>.
     /// <paramref name="converted"/>: the types whose charges are their special type's now (<see cref="Charges.Converted"/>;
     /// null: none). A converted type's charges count for its special rules only: the standard per-charge and "no
-    /// charges" stats see none of them (pinned PoB CalcPerform zeroes the standard count). <paramref name="rules"/> and
-    /// <paramref name="conditions"/>: a caller's own rules after these; <paramref name="maximum"/>: the maxima its
-    /// <see cref="Rule.PerMaximum"/> rules count (none without it).
+    /// charges" stats see none of them (pinned PoB CalcPerform zeroes the standard count). <paramref name="rules"/>: a
+    /// caller's own rules after these; <paramref name="maximum"/>: the maxima its <see cref="Rule.PerMaximum"/> rules
+    /// count (none without it).
     /// </summary>
     public static Dictionary<string, int> Expand(Func<string, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
-        IEnumerable<Rule>? rules = null, IEnumerable<Condition>? conditions = null, Func<ChargeType, int>? maximum = null)
+        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null)
     {
         var added = new Dictionary<string, int>(StringComparer.Ordinal);
         void Add(string stat, long value)
@@ -202,9 +201,9 @@ public static class ChargeEffects
             if (rule.Cap is int cap) value = Math.Min(value, cap);
             foreach (string target in rule.Targets) Add(target, value);
         }
-        foreach (var c in conditions is null ? Conditional : Conditional.Concat(conditions))
+        foreach (var c in Conditional)
             if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
-                foreach (string target in c.Targets) Add(target, (long)value * c.Scale);
+                foreach (string target in c.Targets) Add(target, value);
         Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
         return added;
     }

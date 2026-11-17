@@ -54,24 +54,23 @@ public sealed class ChargeRulesTests
     [Fact]
     public void PerChargeStatsScaleWithTheChargesHeldOrTheMaximum()
     {
-        // 5% reduced extra damage taken from critical strikes per Endurance Charge, Deathmarked's 10% Mark effect per
-        // maximum Power Charge, Ahn's Contempt's 50% reduced extra damage from critical strikes with no Power Charges.
+        // 5% reduced extra damage taken from critical strikes per Endurance Charge and Deathmarked's 10% Mark effect per
+        // maximum Power Charge.
         var raw = new Dictionary<string, int>
         {
             ["self_critical_strike_multiplier_-%_per_endurance_charge"] = 5,
             ["mark_skills_curse_effect_+%_per_maximum_power_charge"] = 10,
-            ["extra_damage_taken_from_crit_while_no_power_charges_+%"] = -50,
         };
         // power: the Endurance and Power Charges held.
         Dictionary<string, int> Expand(int power, int maximum) => ChargeEffects.Expand(name => raw.GetValueOrDefault(name),
-            t => t == ChargeType.Frenzy ? 0 : power, null, ChargeScaling.Rules, ChargeScaling.Conditions,
+            t => t == ChargeType.Frenzy ? 0 : power, null, ChargeScaling.Rules,
             t => t == ChargeType.Power ? maximum : 3);
         var held = Expand(power: 3, maximum: 4);
         Assert.Equal(15, held["base_self_critical_strike_multiplier_-%"]);
         Assert.Equal(40, held["mark_skills_curse_effect_+%"]);
         var none = Expand(power: 0, maximum: 4);
         Assert.Equal(40, none["mark_skills_curse_effect_+%"]);
-        Assert.Equal(50, none["base_self_critical_strike_multiplier_-%"]);
+        Assert.False(none.ContainsKey("base_self_critical_strike_multiplier_-%"));
         // Badge of the Brotherhood: the Frenzy maximum is the Power one; with Masterful Form the Endurance one follows.
         var badge = new Dictionary<string, int>
         {

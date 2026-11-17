@@ -185,7 +185,7 @@ public static partial class Game
             slot.Last = new(new(stats), dev, heldNow, convertedNow, added);
         }
         Dictionary<string, int> Expand() => ChargeEffects.Expand(Coefficient, t => counted[t], t => converted[t],
-            ChargeScaling.Rules, ChargeScaling.Conditions, t => limits[t].Maximum);
+            ChargeScaling.Rules, t => limits[t].Maximum);
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
         Dictionary<string, int> Verified(Dictionary<string, int> reused)
         {
