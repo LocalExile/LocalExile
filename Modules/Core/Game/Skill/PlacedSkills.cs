@@ -32,13 +32,33 @@ public static partial class Game
         return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(player, additional), 1, 200);
     }
 
+    // Throwing takes its own time, not the supported spell's cast time: 0.6 s for a trap and 0.3 s for a mine (PoB
+    // CalcOffence TrapThrowingTime and MineLayingTime; PoE Wiki "Trap", "Mine"), over the summed throwing speed and
+    // each support's "more" throwing speed. The caller applies action speed.
+    static readonly string[] TrapThrowFinal =
+        ["support_trap_and_mine_damage_trap_throwing_speed_+%_final", "active_skill_trap_throwing_speed_+%_final"];
+    static readonly string[] MineThrowFinal =
+        ["support_trap_and_mine_damage_mine_throwing_speed_+%_final", "support_minefield_mine_throwing_speed_+%_final"];
+    public static double PlacedThrowSeconds(Func<string, int> get, bool mine)
+    {
+        double speed = Math.Max(0, 1 + (get(mine ? "mine_laying_speed_+%" : "trap_throwing_speed_+%")
+            + get("trap_and_mine_throwing_speed_+%")) / 100d);
+        foreach (string name in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(name) / 100d);
+        return (mine ? .3 : .6) / Math.Max(.01, speed);
+    }
+
+    // A trap goes off for a hostile monster within this many cells of it: the existing 10, scaled by the trap's and the
+    // player's trap_trigger_radius_+%.
+    public static double TrapTriggerRadius(Func<string, int> get) =>
+        10 * Math.Max(0, 1 + get("trap_trigger_radius_+%") / 100d);
+
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skill, (int X, int Y) from, (int X, int Y) aim, int recovery, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skill); var kind = PlacedKind(gem);
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-        double release = AreaTime(conn) + Math.Max(.05, (CastMs(conn, gem.Effect, skill) ?? 500) / 1000d);
+        double release = AreaTime(conn) + Math.Max(TickSeconds, PlacedThrowSeconds(Get, kind.Mine) / PlayerActionFactor(conn));
         var lifetime = CombatLifetime;
         while (true)
         {
@@ -69,7 +89,8 @@ public static partial class Game
                     land + Math.Max(0, Get(kind.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : kind.Mine ? 5 : 4)
                         * Math.Max(.01, 1 + Get(kind.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                     SupportedHitFor(conn, skill, suppress: false), new Dictionary<uint, int>(gem.Stats),
-                    reserve?.Flat ?? 0, reserve?.Percent ?? 0, context.Life, context.Efficiency) { LandAt = land, Landed = false };
+                    reserve?.Flat ?? 0, reserve?.Percent ?? 0, context.Life, context.Efficiency)
+                    { LandAt = land, Landed = false, TriggerRadius = TrapTriggerRadius(Get) };
                 conn.Placed.All.Add(id, placed);
                 if (!ReservationBudgetFits(conn)) { conn.Placed.All.Remove(id); return null; }
                 var bytes = new WorldRecordBuilder(conn, admission);
@@ -281,7 +302,7 @@ public static partial class Game
                         }
                     }
                     bool nearby = !placed.Mine && conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(m.Walk.Position(now), placed.At) <= 10);
+                        && Dist(m.Walk.Position(now), placed.At) <= placed.TriggerRadius);
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
                     PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");

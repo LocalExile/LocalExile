@@ -196,6 +196,14 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, Use(3, Plain));
             Assert.False(counts.ContainsKey(3));
         }
+        // Trap and mine throwing: 0.6 s and 0.3 s over the summed throwing speed and each support's more.
+        Assert.Equal(.6, Game.PlacedThrowSeconds(Get(), mine: false), 9);
+        Assert.Equal(.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 19), ("trap_and_mine_throwing_speed_+%", 1)), mine: false), 9);
+        Assert.Equal(.6 / (1.2 * .9), Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
+            ("support_trap_and_mine_damage_trap_throwing_speed_+%_final", -10)), mine: false), 9);
+        Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get(("mine_laying_speed_+%", 50),
+            ("support_minefield_mine_throwing_speed_+%_final", -55)), mine: true), 9);
+        Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
         // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
         foreach (var (name, value) in new[] { ("support_trap_damage_+%_final", -20),
             ("support_trap_and_mine_damage_+%_final", 30), ("support_clustertrap_damage_+%_final", -61),

@@ -11,6 +11,8 @@ public sealed class PlacedSkills
         public int Chain;
         public double LandAt;
         public bool Landed = true;
+        // How near a hostile monster sets a trap off, in cells (the Game module's TrapTriggerRadius).
+        public double TriggerRadius = 10;
     }
     public readonly Dictionary<uint, Placed> All = [];
     public sealed record Ground(uint Object, ushort Source, (int X, int Y) At, double Radius,
