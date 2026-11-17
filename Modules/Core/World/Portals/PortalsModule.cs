@@ -22,7 +22,7 @@ public sealed class PortalsModule : IModule
             await SpawnTownPortals(remote, stream, ciphers, conn);
             // Everyone in this exact device instance sees and spends the same run's portals.
             if (MapDevice.AtEntrance(conn.Layout.Hash, conn.InstanceNumber) is { PortalsLeft: > 0 } open)
-                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
+                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs, standing: true);
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>
         {
