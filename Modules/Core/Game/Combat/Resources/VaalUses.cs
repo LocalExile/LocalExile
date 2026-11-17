@@ -32,7 +32,7 @@ public static partial class Game
     static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
     {
         var gem = SupportedSkill(conn, id);
-        if (!gem.RequirementsMet || WeaponRestricted(conn, gem.Effect) is not null
+        if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
             || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
         var player = CharacterPlayerStats(conn);
         int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);

@@ -609,6 +609,7 @@ public static partial class Game
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, use.SkillId) is not null) return;
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
+        if (gem.Name is not null && !VaalMinionTargetAvailable(conn, use.SkillId, use.TargetId)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
@@ -996,7 +997,7 @@ public static partial class Game
             return await CastCurse(remote, stream, ciphers, conn, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && IsVaalMinion(SkillsFor(conn).EffectId(gem.Effect)))
             return await RepeatSummonCast(conn, skillId, recoveryGeneration, Current, false,
-                () => ReleaseVaalMinions(remote, stream, ciphers, conn, skillId, to, Current));
+                () => ReleaseVaalMinions(remote, stream, ciphers, conn, skillId, to, Current, targetId));
         if (gem.Name is not null && MinionUtility(SkillsFor(conn).EffectId(gem.Effect)))
             return await CastMinionUtility(conn, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(conn, skillId) && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
