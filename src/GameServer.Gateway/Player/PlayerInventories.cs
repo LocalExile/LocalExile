@@ -676,7 +676,38 @@ public sealed class PlayerInventories
         }
     }
 
-    Stacking StackInto(byte row, List<InventoryItem> items, Item item, Func<Item, Shape?> shapeOf, ref uint nextId)
+    /// <summary>Stacks across the requested grids before using their empty cells. A preview changes nothing.</summary>
+    public IReadOnlyDictionary<byte, Stacking> StackAcross(IReadOnlyList<byte> rows, Item item,
+        Func<Item, Shape?> shapeOf, bool preview = false)
+    {
+        Dictionary<byte, Stacking> result;
+        lock (_lock)
+        {
+            var grids = rows.Distinct().ToDictionary(row => row, row => ItemsIn(row).ToList());
+            var before = grids.ToDictionary(p => p.Key, p => p.Value.ToDictionary(i => i.Id));
+            uint next = _nextItemId;
+            int left = item.StackSize;
+            foreach (bool stacksOnly in new[] { true, false })
+                foreach (var (row, grid) in grids)
+                {
+                    if (left == 0) break;
+                    left = StackInto(row, grid, item with { StackSize = (ushort)left }, shapeOf, ref next, stacksOnly).Left;
+                }
+            result = grids.ToDictionary(p => p.Key, p => new Stacking(
+                p.Value.Where(i => before[p.Key].TryGetValue(i.Id, out var old) && old != i).ToArray(),
+                p.Value.Where(i => !before[p.Key].ContainsKey(i.Id)).ToArray(), left));
+            if (!preview)
+            {
+                foreach (var (row, grid) in grids) _items[row] = grid;
+                _nextItemId = next;
+            }
+        }
+        if (!preview && result.Values.Any(s => s.Any)) Persist();
+        return result;
+    }
+
+    Stacking StackInto(byte row, List<InventoryItem> items, Item item, Func<Item, Shape?> shapeOf, ref uint nextId,
+        bool stacksOnly = false)
     {
         var shape = shapeOf(item) ?? new(1, 1, "");
         int max = Math.Max((int)shape.MaxStack, 1), left = item.StackSize;
@@ -692,7 +723,7 @@ public sealed class PlayerInventories
                 items[items.IndexOf(s)] = grown;
                 changed.Add(grown);
             }
-        while (left > 0 && FreeCellIn(row, items, shape.Width, shape.Height, shapeOf) is { } cell)
+        while (!stacksOnly && left > 0 && FreeCellIn(row, items, shape.Width, shape.Height, shapeOf) is { } cell)
         {
             int take = Math.Min(left, max);
             left -= take;

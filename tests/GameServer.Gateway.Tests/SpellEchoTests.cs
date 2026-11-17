@@ -129,6 +129,22 @@ public sealed class SpellEchoTests
                 Assert.True(conn.LockstepSkill.Due(free: true));
                 Game.BeginPaidChannel(conn, skill.Id, skill.Effect, 0, 0x8001);
                 Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.Channel);
+                var previousRules = Game.CombatLifetime;
+                var rules = new ModuleLifetime("Game");
+                Game.CombatLifetime = rules;
+                try
+                {
+                    int generation = Game.BeginPaidChannel(conn, skill.Id, Program.Skills.EffectRow("LightningTendrils"), conn.ActionCount, 0x8001);
+                    conn.LastChannelUpdateAt = -10;
+                    Assert.True(Game.ChannelCurrent(conn, skill.Id, conn.ActionCount, generation));
+                    Game.ChannelReleased(conn, 0);
+                    Assert.False(Game.ChannelCurrent(conn, skill.Id, conn.ActionCount, generation));
+                    generation = Game.BeginPaidChannel(conn, skill.Id, skill.Effect, conn.ActionCount, 0x8001);
+                    conn.LastChannelUpdateAt = -10;
+                    Assert.False(Game.ChannelCurrent(conn, skill.Id, conn.ActionCount, generation));
+                }
+                finally { rules.Stop(_ => { }); Game.CombatLifetime = previousRules; }
+                Game.BeginPaidChannel(conn, skill.Id, skill.Effect, 0, 0x8001);
                 conn.LockstepSkill.Release();
                 Assert.Equal(lockstep ? (ushort?)0x8001 : null, conn.LockstepSkill.ChannelReleased());
                 if (lockstep)

@@ -598,8 +598,13 @@ public static partial class Game
                     }, remove: true);
                 }
             }
-            else if (value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
-                Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            else if (value.Kind == ProjectileEventKind.Area)
+            {
+                Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
+                    + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
+                if (p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
+                    Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            }
         }
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,

@@ -141,7 +141,8 @@ predicted player (sequence ≥ 0) the handler compares the position pair with wh
 **teleports** the player there when they are ≥ 92 grid cells apart (`|Δ|² ≥ 0x2110`); otherwise the echo is just a
 confirmation (`InstanceProtocol.ActionStarted`), so any smaller error stays until a walk ends on its target. Live
 2026-10-31: an echo 13 cells off moved nothing. Clicks do not wait for the echo: the client sends them as they come.
-0x1ac ends an action, but is ignored for predicted local actions; it still counts for the resync request below.
+0x1ac decrements the pending-action counter and, in Predictive, releases an eligible server-created action's
+walk-up/swing gate. It does not stop the local player's predicted nonnegative-sequence action (see §5).
 An echo with a negative sequence for the local player is not a confirmation: the client builds and runs that action
 itself, as for any other object's (live 2026-11-11: the bridge's 0x24 with sequence 0xfffe made it run Holy Sweep's
 hammer code, 11 §9a; with sequence 0 it never ran).
@@ -464,15 +465,25 @@ Positioned handler calls `0x141e37460` with duration = distance / speed. With sp
 and crawled (~1 cell per 1.5 s), so it is not sent for the local player (`Game_MOVE_MODE=move` to test).
 **S→C 0x1b7** teleport: header, `i32 x, i32 y, u32 → +0x290, u32 → +0x2b4`; works (`Game_MOVE_MODE=teleport`).
 
-**Resync: S→C 0x128** (`InstanceProtocol.Resync`, `Resync.cs`): compact count, then u32 object, u32 x, u32 y in grid
+**Resync: S→C 0x128** (`InstanceProtocol.Resync`): unsigned compact count, then u32 object, i32 x, i32 y in grid
 cells, big-endian, with the player first. Ignored in lockstep. When the player is 20 or more cells from the first
 record the client puts it there, and then every listed object on its record; otherwise only the objects 20 or more
-cells from theirs. Under 20 cells nothing moves, so sending one costs nothing. Live 2026-10-31: the player jumped 30
-and 25 cells onto the records and went on playing. GGG sends it with every stun of the player and with no other hit,
-listing the player and the monsters within 23.4 cells; the Gateway does the same.
+cells from theirs. This tolerance is not shared by an explicit Positioned teleport (0x1b7).
+The handler is case 0x50 of `0x142150ae0`; its 0x128 switch branch starts at `0x1421558d1`.
+The packet reader `0x1421ace20` calls unsigned `0x14089dc40` for the count, unlike 0x1ab's signed coordinates.
+For example, count byte 0x40 means 64 records, not -64. The current server helper's signed writer still produces
+valid positive counts, sometimes with an extra byte; that is separate from the monster-teleport substitution below.
+Review of retail Predictive behavior supports player-first corrections associated with incoming hit results, but does
+not establish a universal trigger or selection radius. It does not prove that every recovery is a standalone 0x1d1 followed
+by 0x128. The [build contract manifest](../re/tooling.md#network-contract-evidence) pins the native branch.
 
-GGG sends no timed 0x128: every drift above 20 cells it leaves alone, and a timed one is seen as objects, the player
-included, jumping 20 cells or more. A gap closes when a walk ends on its target.
+The Gateway currently differs: `ResyncPacketLocked` sends an unconditional 0x1b7 for each selected nearby monster
+and omits the player, to avoid correcting the player to an inaccurate server estimate. `/oos`, recovery and the other
+resync callers use that substitution. It can move monsters that the native thresholded snapshot would leave alone;
+restoring player-first snapshots requires validating the server's player estimate as well.
+
+The reviewed retail behavior does not establish a periodic 0x128 policy. A distance above the threshold alone does not
+imply that a correction is sent; the threshold governs what the client does when a snapshot arrives.
 
 In a crowd the two copies of the player can part for longer. A monster's estimate a couple of cells off closes a narrow
 gap, so the server's player stands while the client's walks on, and the server's monsters stay round the one it has
@@ -481,15 +492,18 @@ gap, so the server's player stands while the client's walks on, and the server's
 the server the two cases look alike, so the Gateway leaves bodies blocking; lockstep (§6) has no second copy to part.
 
 **The wake zone.** Monsters more than about 171 cells from the player leave it (S→C 0x1aa) and stop ticking on the client,
-so a chase the server gave up does not run on there. They come back with 0x1a9 and a 0x128 for their cell (`KeepWakeZone`).
+so a chase the server gave up does not run on there. The historical trace below used 0x1a9 with a 0x128 snapshot on return.
+Current `KeepWakeZone` uses 0x1a9 with individual 0x1b7 relocations in Predictive and `LockstepPlace` in Lockstep.
 The server's copy stands out there too: its walk ends where it is and the AI gives it no order until it is back. Chased
 on instead, an estimate walked 162 cells while the client's copy stood frozen, and the return's 0x128 put the copy there
 in one jump (live 2026-11-03, a Rhoa pack outrun on the Mud Flats: three such jumps of 95–162 cells in one packet).
 
 **The client asks for it.** Each commenced action other than Move adds one to a counter, each 0x1ac takes one off and
 5 s take one off; above 3 it sends C→S 0x16 command 8 (`InstanceItems.ForceResyncCommand`) and starts again. The
-Gateway answers with a 0x128, and `/oos` does the same by hand. GGG ends non-Move actions with a 0x1ac in the same tick,
-so its clients do not ask, and the Gateway does the same.
+Gateway routes the request to `SendResync`, currently the monster-teleport substitution above; `/oos` requests it by hand.
+The native 0x1ac handler decrements the pending counter, then in Predictive releases an eligible server-created action.
+It does not stop the local player's predicted nonnegative-sequence action. For an action walking into range, the release
+permits its swing; the historical `ActionEnded` helper name must not be read as a generic stop instruction.
 
 **Predictive Leap Slam acknowledgement.** The 3.29.3c Actor dispatcher (`0x14219aa10`) treats a local predictive
 actor's nonnegative-sequence 0x1ab as a source-cell check, not an action start: squared error at least `0x2110`
@@ -650,13 +664,15 @@ Actor `+0x1c8` is set only outside lockstep (`0x14215d6d0`). What else changes i
 
 - Each action start puts the actor on the 0x1ab's position pair at any distance (`0x141e95080`; predictive: 46+ cells).
   That is what holds the two copies together; between action starts the client still walks its own.
-- 0x1ac does nothing (the handler returns unless `0x1416502e0` gives 1), and a queued action starts without waiting
+- 0x1ac still decrements the pending-action counter, but skips the Predictive release branch (the handler returns
+  unless `0x1416502e0` gives 1), and a queued action starts without waiting
   for one (`0x141e9afc0`). 0x128 is skipped (case 0x50 of `0x142150ae0`).
 - S→C **0x1ad** (object header, u16 sequence, i32 x, i32 y, `InstanceProtocol.ActionTarget`) reaches only an active
   channelled action with that sequence. The sequence is the server's own, so a walk gets a new 0x1ab instead.
 - A skill's pay check runs for every actor (`0x141ea41e0`, `0x141ea44c0`), not only the local one.
 
-**What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac and 0x128, which do nothing here;
+**What GGG sends a lockstep client.** What it sends a predictive one, including 0x1ac (no Predictive release here)
+and 0x128 (skipped here);
 no 0x2b8. A click gets its 0x1ab with key 0 at the next frame start. Its target is the client's cell when it clicked plus
 (dx, dy), that is, where the cursor was, not the server's cell by then. 0x192 only
 updates a held target: the player's own tick starts the Move (key = the player, u16 0x9001), about one per 0x192 while
@@ -996,7 +1012,7 @@ another player's attack on a monster; the copy stands until that player's next o
 | Sends 0x2b8 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
 | No resync with a stun, a freeze, a movement skill or the client's request | Its 0x128, which the client skips | Ours for a predictive client is one 0x1b7 per monster (0x128 would move the player too), and a 0x1b7 zeroes a walker's step accumulator (`0x141e34b40`): after one, 8–12 % of the next 3 s of monster orders were off the client's cell, against 0.2 % otherwise |
-| No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
+| No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client skips 0x1ac's Predictive release; the swing starts by its own goal test |
 | A corpse's 0x2b2 goes out the frame after the client's own clear (5 frames after a 150 ms death, 0 after one without the event, 56 after Hillock's) | 4 or 5 frames after a 150 ms death, 0 without the event, 54 or 55 after Hillock's (its world's own count of the clip) | The client clears the body itself from the death clip; sent after that, the message changes nothing, so the estimate needs only the client's count |
 | A monster's or a minion's hit (0x1af) and the life update after it are written at the frame's start (key 0) | In the attacker's own turn: key = the attacker or its projectile, the hit at checkpoint 0x7000 or 0x7001, the life update on the same key two checkpoints up | The player's own are written GGG's way (`HitOrder`); the others have not been seen to share a frame with their attacker's order |
 | A step due exactly on a frame's end can fall a frame apart (about 1 walker-frame in 40 000, for one frame) | Never: one simulation | The client counts a walker's step time in a float accumulator; the estimate keeps times as doubles |
