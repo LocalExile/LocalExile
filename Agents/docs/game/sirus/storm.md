@@ -1,154 +1,156 @@
-# 转阶段风暴与死亡区（`InvisibleFireOrionDeathZone` / `deathzone.ao`）
+# The death zones and the shockwaves (`InvisibleFireOrionDeathZone` / `deathzone.ao`)
 
-## 一句话结论
+## In one line
 
-风暴/黑圈在官方**不是特效，是一个怪物实体**：`InvisibleFireOrionDeathZone` 的四个变体都用 `Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionDeathZone.ao`，客户端自己把它画出来（5 条粒子 + 3 条声音）。本体的 `create_deathzone` 事件（`Emerge2` = `throne_activate_01` @**2.3439 s**）**在客户端没有任何处理器** ⇒ 收到也不画。风暴光环（ActiveSkill 1116）走 `AddBuffToTarget` 动作类，**零覆写、无造物** ⇒ **上 buff 不产生任何可见物**，光环的伤害与减速全在服务端。
-⇒ 正路：服务端生成 `InvisibleFireOrionDeathZone*` 怪物实体 + 按 `GrantedEffectsKeys` 原顺序发布它的 12 个效果 + 逐级发冲击波 action；`Fx(... "deathzone.ao")` 是绕路（见文末）。
+In the official game the storm / black circle is **not an effect, it is a monster entity**: all four variants of `InvisibleFireOrionDeathZone` use `Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionDeathZone.ao`, and the client draws it by itself (5 particles + 3 sounds). The body's `create_deathzone` event (`Emerge2` = `throne_activate_01` @**2.3439 s**) **has no handler in the client at all** ⇒ it draws nothing even when it receives it. The storm aura (ActiveSkill 1116) goes through the `AddBuffToTarget` action class, **zero overrides, no object creation** ⇒ **applying the buff produces nothing visible**; the aura's damage and slow are entirely the server's.
+⇒ The right way: the server spawns the `InvisibleFireOrionDeathZone*` monster entity, publishes its 12 effects in the original `GrantedEffectsKeys` order and sends the shockwave actions one level at a time; `Fx(... "deathzone.ao")` is a detour (see the end of the page).
 
 ---
 
-## 客户端数据（观察）
+## Client data (observed)
 
-| 项 | 值 |
+| Item | Value |
 |---|---|
-| 怪物变体 | `data/tables/MonsterVarieties.json` 行 **3282–3285**（0 基索引） |
-| 美术 | `Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionDeathZone.ao`（同名 `.act`） |
-| 基型（决定尺寸与脚本） | 3282 = `AtlasExile5DeathZoneMobile`、3283 = `AtlasExile5DeathZone`、3284 = `AtlasExile5DeathZoneApparition`、3285 = `AtlasExile5DeathZoneMobileSupporter` |
-| 效果（`GrantedEffectsKeys` 原顺序） | 3282：`6833, 6834, 10981, 10982, 7074–7081`；3283：`6833, 6834, 10981, 10982, 4858`；3284：`6833, 6835, 7074–7081`；3285：`6836, 6837, 10983, 10984, 7074–7081` |
-| 光环效果 | `AtlasOrionDeathZoneAura`(6833) / `…AuraCore`(6834) / `…AuraCoreApparition`(6835) / `…AuraSupporter`(6836) / `…AuraCoreSupporter`(6837) + `…Minion`(10981–10984) = ActiveSkill **1116** `add_buff_to_target_triggered`，ActionType **720** = `AddBuffToTarget`，CastTime 2000，**Animation 空** |
-| 冲击波 | `AtlasOrionDeathZoneShockwave`(7074) … `…Shockwave8`(7081) = ActiveSkill **1242** `geometry_spell`（ActionType 807），CastTime 1000，`active_skill_area_of_effect_radius_+%_final` 0, 50, … 350（逐级放大） |
-| 召唤 | `SSMOrionApparitionSummonDeathZone`(3629) = ActiveSkill 499 `summon_specific_monsters_on_self` |
-| 几何动作动画槽 | `data/tables/Animation.json` 行 **22** = `SpellAreaOfEffect` |
-| 尺寸 | `deathzone.sm` BoundingBox `±1500.5`（100 模型单位 = 1 格）⇒ scale 1 时**直径 30 格**、地下深 4.6 格 |
-| 房间道具 | `Tools/re/out/sirusnum/arena/fountain.arm` 摆 **6 个** `InvisibleFireOrionDeathZoneStationary`： (375,463) (513,223) (374,273) (223,350) (181,538) (536,441) |
+| monster variants | `data/tables/MonsterVarieties.json` rows **3282–3285** (0-based index) |
+| art | `Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionDeathZone.ao` (a `.act` of the same name) |
+| base type (decides the size and the script) | 3282 = `AtlasExile5DeathZoneMobile`, 3283 = `AtlasExile5DeathZone`, 3284 = `AtlasExile5DeathZoneApparition`, 3285 = `AtlasExile5DeathZoneMobileSupporter` |
+| effects (`GrantedEffectsKeys`, original order) | 3282: `6833, 6834, 10981, 10982, 7074–7081`; 3283: `6833, 6834, 10981, 10982, 4858`; 3284: `6833, 6835, 7074–7081`; 3285: `6836, 6837, 10983, 10984, 7074–7081` |
+| aura effects | `AtlasOrionDeathZoneAura`(6833) / `…AuraCore`(6834) / `…AuraCoreApparition`(6835) / `…AuraSupporter`(6836) / `…AuraCoreSupporter`(6837) + `…Minion`(10981–10984) = ActiveSkill **1116** `add_buff_to_target_triggered`, ActionType **720** = `AddBuffToTarget`, CastTime 2000, **Animation empty** |
+| shockwaves | `AtlasOrionDeathZoneShockwave`(7074) … `…Shockwave8`(7081) = ActiveSkill **1242** `geometry_spell` (ActionType 807), CastTime 1000, `active_skill_area_of_effect_radius_+%_final` 0, 50, … 350 (growing step by step) |
+| summon | `SSMOrionApparitionSummonDeathZone`(3629) = ActiveSkill 499 `summon_specific_monsters_on_self` |
+| geometry action animation slot | `data/tables/Animation.json` row **22** = `SpellAreaOfEffect` |
+| size | `deathzone.sm` BoundingBox `±1500.5` (100 model units = 1 cell) ⇒ at scale 1 a **diameter of 30 cells**, 4.6 cells deep underground |
+| room props | `Tools/re/out/sirusnum/arena/fountain.arm` places **6** `InvisibleFireOrionDeathZoneStationary`: (375,463) (513,223) (374,273) (223,350) (181,538) (536,441) |
 
-光环每分钟伤害（每种元素各一份，见 `Agents/docs/game/sirus.md` 的 storms 一节）：6833 = 35,476（591/s ×4）、6834 = 354,762（5,913/s ×4）、6835 = 570,087（9,501/s ×4）、10981/10982 = 83/s / 887/s（×4）。
+The aura's damage per minute (one figure per element, see the storms section of `Agents/docs/game/sirus.md`): 6833 = 35,476 (591/s ×4), 6834 = 354,762 (5,913/s ×4), 6835 = 570,087 (9,501/s ×4), 10981/10982 = 83/s / 887/s (×4).
 
-### 两份 deathzone 美术（观察）
+### The two deathzone arts (observed)
 
-| | 怪物版 `OrionDeathZone.ao` | 特效版 `deathzone.ao` |
+| | monster version `OrionDeathZone.ao` | effect version `deathzone.ao` |
 |---|---|---|
-| 路径 | `Metadata/Monsters/AtlasExiles/OrionArenaObjects/` | `Metadata/Effects/Spells/monsters_effects/AtlasExiles/Orion/` |
-| rig / 网格 | `…/death_zone/rig.amd` + `…/death_zone/deathzone.sm`（同一套） | 同 |
-| `default_animation` | 无（动画由 `.act` 的 `Idle = "idle"` 给） | **有** `"idle"` |
-| 声音 | `DeathCloud.loop.ogg`(root)、`EarthCrumble.loop.ogg`(aux_up_circle)、`DeathCloudStart.once.ogg`(aux_cyl2) | **无** |
-| 骨骼组 | 多 `root` / `frameupper` | 无 |
-| 粒子（都 t=0） | `cloud.pet`(line)、`death_core.pet`(sphere_core)、`lightning_circle.pet`(up_circle)、`grd_rocks.pet`(center_circle)、`grd_shockwaves.pet`(shockwave) | 同五条 |
+| path | `Metadata/Monsters/AtlasExiles/OrionArenaObjects/` | `Metadata/Effects/Spells/monsters_effects/AtlasExiles/Orion/` |
+| rig / mesh | `…/death_zone/rig.amd` + `…/death_zone/deathzone.sm` (the same set) | same |
+| `default_animation` | none (the animation comes from the `.act`'s `Idle = "idle"`) | **has** `"idle"` |
+| sound | `DeathCloud.loop.ogg`(root), `EarthCrumble.loop.ogg`(aux_up_circle), `DeathCloudStart.once.ogg`(aux_cyl2) | **none** |
+| bone groups | many `root` / `frameupper` | none |
+| particles (all at t=0) | `cloud.pet`(line), `death_core.pet`(sphere_core), `lightning_circle.pet`(up_circle), `grd_rocks.pet`(center_circle), `grd_shockwaves.pet`(shockwave) | the same five |
 
-⇒ 怪物版才有声音与根骨骼；特效版能独立播但**没有声音**。`…DeathZone.act`：`Idle = "idle"`、`Taunt`/`Run` = `@Idle`、`Death = "idle"`、`movement_speed 10.0`、`action_set minion`。
+⇒ Only the monster version has sound and the root bone; the effect version can play on its own but **has no sound**. `…DeathZone.act`: `Idle = "idle"`, `Taunt`/`Run` = `@Idle`, `Death = "idle"`, `movement_speed 10.0`, `action_set minion`.
 
-### 旧记录更正
+### Corrections to the old notes
 
-1. 风暴的圈是**怪物版** `OrionDeathZone.ao`（有声音），`deathzone.ao` 是特效版（无声音）——旧记录把两者混为一谈。
-2. 我们生成的 `InvisibleFireOrionDeathZone` 用的是 **Mobile** 基型（`base_actor_scale_+% = -80`）⇒ 不是 30 格大圈；满尺寸的是 `…DeathZoneStationary`（基型 `AtlasExile5DeathZone` 没有 -80）。
-3. `…Supporter` 同样是 Mobile 基型（也带 -80）外加 `ModelSizeMultiplier 50`；两个乘数怎么叠加**未解**。
-4. 房间里是 **6 个** `…DeathZoneStationary`（旧记录写 4 个）。
-5. 冲击波是 8 级 `7074–7081`，名字是 `…Shockwave`…`…Shockwave8`（没有 `Shockwave1`）。
-6. `Fx(... "deathzone.ao", scale: 2f)` 是**绕路**，正路是生成怪物实体（见文末）。
+1. The storm's circle is the **monster version** `OrionDeathZone.ao` (with sound); `deathzone.ao` is the effect version (no sound) — the old notes mixed the two up.
+2. The `InvisibleFireOrionDeathZone` we spawn uses the **Mobile** base type (`base_actor_scale_+% = -80`) ⇒ not the 30-cell circle; the full-size one is `…DeathZoneStationary` (its base type `AtlasExile5DeathZone` has no -80).
+3. `…Supporter` is also a Mobile base type (it carries -80 as well) plus `ModelSizeMultiplier 50`; how the two multipliers combine is **unresolved**.
+4. The room holds **6** `…DeathZoneStationary` (the old notes said 4).
+5. The shockwaves are 8 levels, `7074–7081`, named `…Shockwave`…`…Shockwave8` (there is no `Shockwave1`).
+6. `Fx(... "deathzone.ao", scale: 2f)` is a **detour**; the right way is to spawn the monster entity (see the end of the page).
 
-## 客户端自己画什么 / 服务端必须画什么
+## What the client draws by itself / what the server must draw
 
-- **客户端画**：① 怪物实体自己的 `OrionDeathZone.ao`（粒子 + 声音 + `idle` 循环 250 ms）；② 冲击波（`geometry_spell` 动作，客户端自建 584 字节 Effect）；③ 本体 `Emerge2` 的动作与 `flashbang` 闪白；④ 玩家身上的光环贴图（本体 `.ot` 的 `client.Preload` 预载了 `preload_buff = "atlas_orion_death_zone"` / `"atlas_orion_death_zone_core"` 与 `preload_animated_object = "…/dz_debuff.ao"`）。
-- **客户端不画**：① `create_deathzone` 事件（本体 `atlasexile5.ot` 全文搜 `deathzone` 只有两行 `preload_buff`，**没有 client 处理器**）；② 上 buff 本身（`AddBuffToTarget` 无造物）。
-- **服务端必须做**：生成风暴实体（带官方 stat）、发布它的 12 个效果、按时发 8 级冲击波 action、算光环伤害与减速。
+- **The client draws**: ① the monster entity's own `OrionDeathZone.ao` (particles + sound + an `idle` loop of 250 ms); ② the shockwaves (a `geometry_spell` action, the client builds its own 584-byte Effect); ③ the body's `Emerge2` action and the `flashbang` white flash; ④ the aura texture on the player (the body's `.ot` `client.Preload` preloads `preload_buff = "atlas_orion_death_zone"` / `"atlas_orion_death_zone_core"` and `preload_animated_object = "…/dz_debuff.ao"`).
+- **The client does not draw**: ① the `create_deathzone` event (searching the whole of the body's `atlasexile5.ot` for `deathzone` gives only two `preload_buff` lines, **there is no client handler**); ② the buff itself (`AddBuffToTarget` creates nothing).
+- **The server has to do**: spawn the storm entity (with the official stats), publish its 12 effects, send the 8-level shockwave actions on time, and compute the aura's damage and slow.
 
-## 当前服务端实现
+## The server implementation at the time of writing (2026-11-17)
 
-- 变体名 `Sirus.Native.cs:12-13`，特效目录前缀 `:14`；`Effects(v)` 只认本体与分身（`Sirus.Native.cs:33`）⇒ **风暴一个技能都没发布**（`SkillsFor` `:46-48` 返回 null）；技能号约定 `SkillBase = 0x4000`（`:35`），号 = `0x4000 + GrantedEffectsKeys` 的下标。
-- 生成：`Sirus.cs:274`（stage 5→6）`uint storm = await Actor(c, Storm, Position(now)); RegisterStorm(storm, c.Monsters[storm], now);`；开场道具 `Sirus.cs:181-184`。
-- 转阶段 `Sirus.cs:306-341` `Ascend()`：本体/分身瞬移到 `scene.Centre` → 生成王座 → 本体 `("throne",1),("norendering",1)` → `Basic(c, id, "Emerge2", now, 10)` → **`:337-338` `stormAt = now; stormArt = await Fx(c, scene.Centre, Art + "deathzone.ao", now + 13, clip: null, scale: 2f);`（绕路）** → 语音 `5681 + min(2, Round)` → `stage = 5; deadline = now + 8`。
-- 收尾 `Sirus.cs:278-305` `Descend()`：撤掉 `stormArt`（`:283-287`）、`ClearNearbyStorms(c, Position(now), 70)`（`:304`）。
-- 伤害 `Sirus.Damage.cs:62-74` `Dot()` 读 `base_*_damage_to_deal_per_minute / 60`；`:81-82` 38 格用 6833（minion 10981）、13 格用 6834（minion 10982）；`:106-110` 圈内 `action_speed_-% 25`。
-- 冲击波 `Sirus.Combat.cs:782-789`：移动风暴 `Born + 3` 之后每 0.2 s 一次（**没有发 action**）。
+This section describes the branch of 2026-11-17, which is not in this repository: the repository's own code is the reference for what ships today.
 
-## 客户端实现（反编译）
+- The variant names are at `Sirus.Native.cs:12-13`, the effect directory prefix at `:14`; `Effects(v)` only knows the body and the clone (`Sirus.Native.cs:33`) ⇒ **the storm has not published a single skill** (`SkillsFor` `:46-48` returns null); the skill number convention is `SkillBase = 0x4000` (`:35`), the number = `0x4000` + the index into `GrantedEffectsKeys`.
+- Spawning: `Sirus.cs:274` (stage 5→6) `uint storm = await Actor(c, Storm, Position(now)); RegisterStorm(storm, c.Monsters[storm], now);`; the opening props `Sirus.cs:181-184`.
+- The phase change `Sirus.cs:306-341` `Ascend()`: the body/clone teleports to `scene.Centre` → spawns the throne → the body gets `("throne",1),("norendering",1)` → `Basic(c, id, "Emerge2", now, 10)` → **`:337-338` `stormAt = now; stormArt = await Fx(c, scene.Centre, Art + "deathzone.ao", now + 13, clip: null, scale: 2f);` (a detour)** → voice `5681 + min(2, Round)` → `stage = 5; deadline = now + 8`.
+- The wrap-up `Sirus.cs:278-305` `Descend()`: removes `stormArt` (`:283-287`), `ClearNearbyStorms(c, Position(now), 70)` (`:304`).
+- Damage `Sirus.Damage.cs:62-74` `Dot()` reads `base_*_damage_to_deal_per_minute / 60`; `:81-82` uses 6833 for 38 cells (minion 10981) and 6834 for 13 cells (minion 10982); `:106-110` applies `action_speed_-% 25` inside the circle.
+- Shockwaves `Sirus.Combat.cs:782-789`: for a moving storm, once every 0.2 s after `Born + 3` (**no action is sent**).
 
-### 动作类 `AddBuffToTarget`（光环 1116 用的就是它）
+## Client implementation (decompiled)
 
-**类卡片**（观察）
+### The action class `AddBuffToTarget` (the aura 1116 uses it)
 
-| 项 | 值 |
+**Class card** (observed)
+
+| Item | Value |
 |---|---|
-| 类名 / HASH16 | `AddBuffToTarget` / **0x6DE2 (28130)** = `ActionTypes.json` 行 720 |
-| 工厂 / 分配 | `sub_14198E350` / **792 字节**（最小的那几个 Action 之一） |
-| 主 vtable | `off_1434CB088` |
-| 覆写 | **零**：28 个槽全部落在基类代码区 `0x14193xxxx`/`0x14194xxxx` |
-| 读 ctx 属性 | **12731**（动画播放速度倍率）；基类 ctor 另读 2322/48/12674/9080/876/22504/2495 |
-| 造物 | **无**：没有 `sub_142C8CB50(584)` + `Metadata/Effects/Effect`，没有 `sub_141F6A910` |
-| dat 表 / 目标选择 | **无** / **无**（不遍历目标、不取位置参数） |
+| Class name / HASH16 | `AddBuffToTarget` / **0x6DE2 (28130)** = `ActionTypes.json` row 720 |
+| Factory / allocation | `sub_14198E350` / **792 bytes** (one of the smallest Actions) |
+| Main vtable | `off_1434CB088` |
+| Overrides | **zero**: all 28 slots land in the base class's code area `0x14193xxxx`/`0x14194xxxx` |
+| ctx attributes read | **12731** (the animation playback speed multiplier); the base class ctor reads 2322/48/12674/9080/876/22504/2495 as well |
+| Object creation | **none**: no `sub_142C8CB50(584)` + `Metadata/Effects/Effect`, no `sub_141F6A910` |
+| dat table / target selection | **none** / **none** (it does not walk the targets and does not take position arguments) |
 
-**状态机**：本类没有自己的状态，全部行为 = 基类启动 `sub_1419E9840`（712 B）：
+**State machine**: the class has no state of its own; all the behaviour is the base class's start-up `sub_1419E9840` (712 B):
 
-1. `sub_1419E71C0()` 复位；`+488 != 0`（已在"准备中"）直接 return。
-2. 选动画编号：虚槽 528/1232/1248 → `sub_14193E130(a1,&anim,v5)`；`idx = (anim != 0) ? (anim - *table)/77 : 179` —— **取不到时默认 179**，而 `Animation.json` 只有 179 行（索引 0–178）⇒ 179 越界（推断：什么也不播；客户端的动画表与这份抽取是否同一份未核）。
-3. 装参数：`args[0]=idx`、`args[1]=vtable[792]`（动作 id）、`args[2]=*(u32*)(a1+720) + *(u16*)(a1+282)`（起始帧 + 时长）、`args[3]=sub_141944680(a1)`（朝向）。
-4. 速度：ctx 12731 非 0 ⇒ `vtable[1176]/100 + 1`；否则 `vtable[1192]` 真则 `vtable[1184]`；再否则 1.0。
-5. 播：`sub_141EA0C60(ent,args)`（`anim+27 != 0` 时改走 `sub_141EA2420`）—— **在施法者实体上播一段动画**，这是它唯一的副作用。
+1. `sub_1419E71C0()` resets; if `+488 != 0` (already "preparing") it returns straight away.
+2. Choosing the animation number: virtual slots 528/1232/1248 → `sub_14193E130(a1,&anim,v5)`; `idx = (anim != 0) ? (anim - *table)/77 : 179` — **179 is the default when nothing is found**, and `Animation.json` has only 179 rows (index 0–178) ⇒ 179 is out of range (inferred: nothing is played; whether the client's animation table is the same table as this extraction was not checked).
+3. Filling in the arguments: `args[0]=idx`, `args[1]=vtable[792]` (the action id), `args[2]=*(u32*)(a1+720) + *(u16*)(a1+282)` (start frame + duration), `args[3]=sub_141944680(a1)` (facing).
+4. Speed: if ctx 12731 is not 0 ⇒ `vtable[1176]/100 + 1`; otherwise, if `vtable[1192]` is true then `vtable[1184]`; otherwise 1.0.
+5. Playing: `sub_141EA0C60(ent,args)` (when `anim+27 != 0` it takes `sub_141EA2420` instead) — **it plays one animation on the caster entity**, and that is its only side effect.
 
-**序列化（客户端收到什么）**
+**Serialisation (what the client receives)**
 
-- 这个动作**不读包里的任何资源串**（对比 `GeometrySpell`：它读 2 个资源串 + 2 个 u32）。客户端只拿到"技能 id + 坐标"的 ActionStarted。
-- 结论（观察）：服务端发 `add_buff_to_target_triggered`，客户端最多"抬一次手"，**不会创建任何新对象**。
+- This action **reads no resource string out of the packet** (compare `GeometrySpell`: it reads 2 resource strings + 2 u32). The client only gets an ActionStarted with "skill id + coordinates".
+- Conclusion (observed): the server sends `add_buff_to_target_triggered`, the client at most "raises its hand once", **it creates no new object**.
 
-**命中与伤害**
+**Hit tests and damage**
 
-- 客户端**不判定命中**：没有目标列表、没有范围、没有 `contact`；目标完全由服务端解析。光环伤害 100% 服务端算：6833/6834/6835/10981/10982 的 `base_{物理,火焰,闪电,混沌}_damage_to_deal_per_minute`。
-- 我们就是这么做的（`Sirus.Damage.cs:62-82`）：38 格 rim（6833 / minion 10981）、13 格 core（6834 / minion 10982），圈外无；圈内 `action_speed_-% 25`。
+- The client **does not decide hits**: no target list, no radius, no `contact`; the targets are resolved entirely by the server. The aura's damage is 100% the server's: the `base_{physical,fire,lightning,chaos}_damage_to_deal_per_minute` of 6833/6834/6835/10981/10982.
+- That is what we do (`Sirus.Damage.cs:62-82`): a 38-cell rim (6833 / minion 10981), a 13-cell core (6834 / minion 10982), nothing outside the circle; inside it `action_speed_-% 25`.
 
-**客户端表现**
+**What the client shows**
 
-- 官方风暴的可见部分只有三样：① 怪物实体的 `OrionDeathZone.ao`；② 冲击波 action 自己建的 Effect；③ 玩家身上的光环贴图（buff 自己的特效 / 预载的 `dz_debuff.ao`）。
-- **结论（观察）**：上 buff 不造任何可见物；**风暴光环 1116 上 buff 时客户端也不造可见物**。
+- The visible part of the official storm is only three things: ① the monster entity's `OrionDeathZone.ao`; ② the Effect the shockwave action builds itself; ③ the aura texture on the player (the buff's own effect / the preloaded `dz_debuff.ao`).
+- **Conclusion (observed)**: applying the buff creates nothing visible; **when the storm aura 1116 applies its buff, the client creates nothing visible either**.
 
-### 造可见物只有两个入口（客户端全局通用）
+### Only two entry points create anything visible (client-wide)
 
-| 入口 | 说明 |
+| Entry point | What it does |
 |---|---|
-| `Effect` | **584 字节**实例；资源入口固定串 `Metadata/Effects/Effect`（23 字符）；内容由 ActionData 属性 `0x7A39632A`（2050581290）或包里的两个资源串灌入 |
-| `sub_141F6A910(owner, attrId, pos, mode2)` | 按属性实例化对象 |
+| `Effect` | a **584-byte** instance; the resource entry is the fixed string `Metadata/Effects/Effect` (23 characters); the content is filled in by the ActionData attribute `0x7A39632A` (2050581290) or by the two resource strings in the packet |
+| `sub_141F6A910(owner, attrId, pos, mode2)` | instantiates an object from an attribute |
 
-⇒ 判断"客户端会不会自己画出某个东西"：先看技能是不是几何类动作（807 `GeometrySpell` ⇒ 客户端自建 Effect），再看有没有属性驱动的实例化。`AddBuffToTarget` **两个入口都不走**。
+⇒ To decide whether "the client will draw something by itself": first check whether the skill is a geometry action (807 `GeometrySpell` ⇒ the client builds the Effect itself), then whether there is any attribute-driven instantiation. `AddBuffToTarget` **takes neither entry point**.
 
-### 落点标记：`GeometryTrigger`（备选路径，官方风暴没用）
+### Ground markers: `GeometryTrigger` (an alternative path, not used by the official storm)
 
-`GeometryTrigger` = HASH16 **0x27ED (10221)**，968 字节，主 vtable `off_1434480E8`；用 ctx 属性 **6433** 选 `Data/GeometryTrigger.dat` 的行；启动槽 `sub_141516100` 自己建 584 字节 Effect + **随机挑一个 `GroundMarker`** + **随机 yaw** + 播 `start`/`loop`；收尾 `sub_1415159E0` 播 `end` 并释放。
-⇒ 想让风暴在地面画落点标记，**服务端只要发这个动作并带上属性 6433，客户端自己画**（细节见 `logs/tmp/re/GeometryTrigger.md`）。但官方风暴的冲击波走 `geometry_spell`（1242），**不是** `GeometryTrigger`。
+`GeometryTrigger` = HASH16 **0x27ED (10221)**, 968 bytes, main vtable `off_1434480E8`; it uses ctx attribute **6433** to pick the row in `Data/GeometryTrigger.dat`; the start slot `sub_141516100` builds a 584-byte Effect itself + **picks a random `GroundMarker`** + **a random yaw** + plays `start`/`loop`; the wrap-up `sub_1415159E0` plays `end` and releases it.
+⇒ To have the storm draw ground markers, **the server only has to send this action with attribute 6433 and the client draws it** (details in `logs/tmp/re/GeometryTrigger.md`). But the official storm's shockwaves go through `geometry_spell` (1242), **not** `GeometryTrigger`.
 
-### 服务端该发什么（摘要）
+### What the server should send (summary)
 
-1. 生成 `InvisibleFireOrionDeathZone` 实体并给官方 stat（`base_actor_scale_+% = -80` 等）—— 见文末。
-2. 按 `GrantedEffectsKeys` 顺序把这 12 个效果发布成它的技能（`0x4000 + 下标`）—— 现在一个都没有。
-3. 逐级发 8 个冲击波 action（`0x4004..0x400B`），半径 0 → 350 %。
-4. 光环伤害与减速全部服务端算，**不要**指望客户端。
+1. Spawn the `InvisibleFireOrionDeathZone` entity and give it the official stats (`base_actor_scale_+% = -80` and the rest) — see the end of the page.
+2. Publish these 12 effects as its skills in the `GrantedEffectsKeys` order (`0x4000` + the index) — right now there is not one.
+3. Send the 8 shockwave actions one level at a time (`0x4004..0x400B`), radius 0 → 350 %.
+4. The aura's damage and slow are all computed by the server, **do not** expect anything from the client.
 
-### 未解
+### Still open
 
-见文末「## 未解 / 待办」；本节最要紧的一条：**没有实机截帧证明客户端画出了风暴实体**。
+See the "## Still open" section at the end of the page; the most important line here is: **there is no live frame that proves the client drew the storm entity**.
 
-## 服务端该发什么
+## What the server should send
 
-1. **实体**：`Actor(c, Storm, pos)`（已在 `Sirus.cs:274`），但要补官方 `.ot`（`atlasexile5deathzonemobile.ot`）的 stat：
-   - `base_actor_scale_+% = -80`（Mobile 基型；**不补就是 30 格大圈**；服务端把 `base_actor_scale_+%` 当 `actor_scale_+%` 下发，见 `src/GameServer.Gateway/Monster/MonsterMods.cs:183-184`；`ModelSizeMultiplier` 由 `src/GameServer.Gateway/Monster/MonsterCatalog.cs:354` 单独给）。
-   - `base_cannot_be_damaged`、`base_cannot_be_stunned`、`cannot_be_knocked_back`、`untargetable_by_monster_ai`、`immune_to_curses`、`immune_to_auras_from_other_entities`、`set_item_drop_slots = 0`、`corpse_usable = false`；客户端状态 `Targetable { no_highlight = true; targetable = false }`。
-   - 存活时间：`DiesAfterTime {}` 是空的 ⇒ **官方时长不由数据决定**（推断：由施法者/技能控制）⇒ 服务端自己定（我们的 intermission 8 s）。
-2. **技能发布**：把这 12 个效果按 `GrantedEffectsKeys` 的**原顺序**编号（`SkillBase = 0x4000`，`Sirus.Native.cs:35`）：`0x4000=6833`、`0x4001=6834`、`0x4002=10981`、`0x4003=10982`、`0x4004..0x400B = 7074..7081`。现在 `Effects(v)` 对风暴返回空（`Sirus.Native.cs:33`）⇒ 风暴没有任何技能，客户端也就无从跑冲击波。
-3. **冲击波**：每级一个 `geometry_spell` action，客户端自己画（几何类动作会自建 Effect）。半径按 `active_skill_area_of_effect_radius_+%_final` 0, 50, … 350 逐级放大；级间隔数据里没有，我们的 0.2 s（`Sirus.Combat.cs:782-789`）是猜的 ⇒ 需实机校。
-4. **光环**：官方路径是"怪物施放 1116 → 服务端给玩家上 `atlas_orion_death_zone` buff"；我们现在是**纯服务端 DoT**（`Sirus.Damage.cs:81-82`）+ `action_speed_-% 25`（`:106-110`），玩家身上没有官方那圈贴图。要还原观感就得给玩家上 buff（视觉走客户端的 buff 特效）。
-5. **撤掉绕路**：`Sirus.cs:337-338` 的 `Fx(... "deathzone.ao", scale: 2f)` 换成上面 1–4。绕路的三处硬伤：特效版 `deathzone.ao` **没有声音**（怪物版才有 `DeathCloud.loop.ogg` / `EarthCrumble.loop.ogg` / `DeathCloudStart.once.ogg`）；没有实体自带的 5 条粒子绑定；不随实体消失，也不会被 `ClearNearbyStorms`（`Sirus.cs:304`）按距离清掉。过渡期可以保留 `Fx`，但要在提交说明里写明是临时做法。
+1. **The entity**: `Actor(c, Storm, pos)` (already at `Sirus.cs:274`), but it needs the stats of the official `.ot` (`atlasexile5deathzonemobile.ot`):
+   - `base_actor_scale_+% = -80` (the Mobile base type; **without it the circle is 30 cells wide**; the server sends `base_actor_scale_+%` as `actor_scale_+%`, see `src/GameServer.Gateway/Monster/MonsterMods.cs:183-184`; `ModelSizeMultiplier` is given separately by `src/GameServer.Gateway/Monster/MonsterCatalog.cs:354`).
+   - `base_cannot_be_damaged`, `base_cannot_be_stunned`, `cannot_be_knocked_back`, `untargetable_by_monster_ai`, `immune_to_curses`, `immune_to_auras_from_other_entities`, `set_item_drop_slots = 0`, `corpse_usable = false`; client state `Targetable { no_highlight = true; targetable = false }`.
+   - Lifetime: `DiesAfterTime {}` is empty ⇒ **the official duration is not decided by the data** (inferred: it is controlled by the caster / the skill) ⇒ the server decides it itself (our intermission is 8 s).
+2. **Publishing the skills**: number these 12 effects in the **original** `GrantedEffectsKeys` order (`SkillBase = 0x4000`, `Sirus.Native.cs:35`): `0x4000=6833`, `0x4001=6834`, `0x4002=10981`, `0x4003=10982`, `0x4004..0x400B = 7074..7081`. Right now `Effects(v)` returns nothing for the storm (`Sirus.Native.cs:33`) ⇒ the storm has no skills at all, so the client has no way to run the shockwaves.
+3. **The shockwaves**: one `geometry_spell` action per level, drawn by the client itself (a geometry action builds its own Effect). The radius grows step by step, 0, 50, … 350, following `active_skill_area_of_effect_radius_+%_final`; the interval between the levels is not in the data, so our 0.2 s (`Sirus.Combat.cs:782-789`) is a guess ⇒ it has to be checked in the live client.
+4. **The aura**: the official route is "the monster casts 1116 → the server puts the `atlas_orion_death_zone` buff on the player"; right now we have a **pure server-side DoT** (`Sirus.Damage.cs:81-82`) + `action_speed_-% 25` (`:106-110`), and the player has none of the official circle's texture. To get the official look back the player has to get the buff (the visuals then run through the client's buff effect).
+5. **Drop the detour**: replace the `Fx(... "deathzone.ao", scale: 2f)` at `Sirus.cs:337-338` with points 1–4 above. The detour has three hard faults: the effect version `deathzone.ao` **has no sound** (only the monster version has `DeathCloud.loop.ogg` / `EarthCrumble.loop.ogg` / `DeathCloudStart.once.ogg`); it has none of the entity's 5 particle bindings; it does not go away with the entity and is not cleared by distance through `ClearNearbyStorms` (`Sirus.cs:304`). `Fx` can stay during the transition, but the commit message has to say that it is a temporary measure.
 
-## 玩家反馈时间线
+## What the player saw, in order
 
-| 时间 | 反馈 |
+| Time | What the player saw |
 |---|---|
-| 2026-11-16 | 交接文档：「转阶段的风暴和不断扩大的中心崩解黑圈都还没做」 |
-| 2026-11-17 | m01489「继续做转阶段风暴」——尚未修好 |
+| 2026-11-16 | Handover document: "the phase-change storm and the growing central collapse circle are both still not done" |
+| 2026-11-17 | m01489 "carry on with the phase-change storm" — not fixed yet |
 
-## 未解 / 待办
+## Still open
 
-1. **客户端到底画没画风暴实体**：服务端已经在 `Sirus.cs:274` 生成 `InvisibleFireOrionDeathZone`，但**没有任何实机截图**证明客户端画出了 `OrionDeathZone.ao`。旧记录里"地板是空的"是 `create_deathzone` 的结论，不是这个实体的结论 ⇒ 下一步先实机截帧。
-2. **模型实际直径**：`base_actor_scale_+% = -80`（20 %）与 `ModelSizeMultiplier`（Supporter = 50）怎么叠加，未解；推算 Mobile = 6 格、Supporter = 3 格，需实机量。
-3. **冲击波的节奏**：`active_skill_area_of_effect_radius_+%_final` 只给半径，级与级之间隔多久没有数据 ⇒ 0.2 s 是猜的。
-4. **几何动作取哪个 Effect 资产**：`GeometrySpell` 走 `flag == 0` 分支时读客户端本地技能数据，取到哪个资产**未解**（`body-beam.md` 记了同一条）—— 冲击波用的就是它。
-5. **风暴的墙**：官方有把人挡在场内的风墙；四个 `.ot` 都是 `collision_hull_type = "projectile"`（Supporter 是 `"walk"`）、`blocking = false` ⇒ 风暴本身不挡人 ⇒ 那道墙是别的东西，未解。
-6. **被召唤的变体**：`SSMOrionApparitionSummonDeathZone`(3629) 的 `alternate_minion` **611** 在 `MonsterVarieties` 里对不上行（行 611 是 Bonewarped Archer）⇒ 分身召出的到底是哪个变体，未解（`Agents/docs/game/sirus.md` 的 storms 一节记了同一个死胡同）。
-7. **房间里的 6 个 StationaryStorm**：开局就在（`fountain.arm`），现在由 `Sirus.cs:181-184` 生成；它们该不该在开战时就存在，需要跟玩家确认。
+1. **Did the client draw the storm entity at all**: the server already spawns `InvisibleFireOrionDeathZone` at `Sirus.cs:274`, but **there is no live screenshot** proving the client drew `OrionDeathZone.ao`. The old note's "the floor is empty" is a conclusion about `create_deathzone`, not about this entity ⇒ the next step is a live frame.
+2. **The model's real diameter**: how `base_actor_scale_+% = -80` (20 %) and `ModelSizeMultiplier` (Supporter = 50) combine is unresolved; the estimate is Mobile = 6 cells, Supporter = 3 cells, and it has to be measured in the live client.
+3. **The shockwave rhythm**: `active_skill_area_of_effect_radius_+%_final` only gives the radius; there is no data on the interval between the levels ⇒ 0.2 s is a guess.
+4. **Which Effect asset a geometry action takes**: when `GeometrySpell` takes the `flag == 0` branch it reads the client's local skill data, and which asset it ends up with is **unresolved** (`body-beam.md` records the same line) — the shockwaves use exactly that.
+5. **The storm's wall**: officially there is a wind wall that keeps the player inside the arena; all four `.ot` have `collision_hull_type = "projectile"` (the Supporter has `"walk"`) and `blocking = false` ⇒ the storm itself blocks nobody ⇒ that wall is something else, unresolved.
+6. **The summoned variant**: the `alternate_minion` **611** of `SSMOrionApparitionSummonDeathZone`(3629) does not match any row in `MonsterVarieties` (row 611 there is a Bonewarped Archer) ⇒ which variant the clone summons is unresolved (the storms section of `Agents/docs/game/sirus.md` records the same dead end).
+7. **The 6 StationaryStorms in the room**: they are there from the start (`fountain.arm`), and `Sirus.cs:181-184` spawns them now; whether they should already exist when the fight starts has to be confirmed with the player.

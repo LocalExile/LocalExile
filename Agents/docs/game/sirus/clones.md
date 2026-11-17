@@ -1,93 +1,95 @@
-# 克隆体 Die Beam（8100 `EmptyActionSpellOrionCloneBeam`）
+# The clones' Die Beam (8100 `EmptyActionSpellOrionCloneBeam`)
 
-## 一句话结论
+## In one line
 
-本体站到玩家外围半径 35 格的某一方向，念 "DIE"，播 `trap_beam_01`（GE 8100 绑定的 clip，5330 ms）。
-这个 clip 里有 **6 次 `clone_beam_blast` 事件**（4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s，每个事件都带一个模型坐标），
-圆周上的 **12 个克隆体**依次朝玩家打元素光束。
+The body stands on one of the directions of a circle of radius 35 around the player, says "DIE" and plays `trap_beam_01` (the clip bound to GE 8100, 5330 ms).
+That clip holds **6 `clone_beam_blast` events** (4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s, every event carries a model coordinate),
+and the **12 clones** on the circle fire elemental beams at the player one after another.
 
-**客户端动作类 `EmptyActionSpell2`（ActionType 811）只播动画、不画光束**（观察：`vtnear` 在它的 vtable 区间里找不到任何绘图方法）；
-6 次 `clone_beam_blast` **没有任何客户端美术**（`.act` 没绑 effect、`.ot` 没监听）⇒ 幻影与光束都必须服务端画。
+The client action class `EmptyActionSpell2` (ActionType 811) **only plays the animation, it draws no beam** (observed: `vtnear` finds no drawing method anywhere in its vtable range);
+the 6 `clone_beam_blast` have **no client art at all** (the `.act` binds no effect, the `.ot` listens for nothing) ⇒ both the clones and the beams must be drawn by the server.
 
-> **更正 1**：旧文写"伤害技能是 7019–7031 十二个效果"。实际 **十二个元素光束是 7019–7030**
-> （`AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}`），**7031 是第 13 个 `AtlasExileOrionCloneBeam`**
-> （独立效果，SkillID 359、StatSet1 7036）。服务端固定用 7031 名字没错，但"官方随机 7019–7031"应改成"7019–7030 随机"。
-> **更正 2**：旧文猜"幻影可能用第 12 号 clip `clone_beam_01`"——`clone_beam_01` / `clone_beam_end_01`
-> **在任何 `.ao` 里都不存在**（只在 `atlasexile5.act` / `atlasexile5influencewild.act` 里被绑定 ⇒ 死绑定，客户端播不出来）。
+> **Correction 1**: the old text says "the damage skills are 7019–7031, twelve effects". In fact **the twelve elemental beams are 7019–7030**
+> (`AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}`), and **7031 is a 13th one, `AtlasExileOrionCloneBeam`**
+> (a separate effect, SkillID 359, StatSet1 7036). The server using the fixed name 7031 is not wrong, but "the official picks 7019–7031 at random" has to read "7019–7030 at random".
+> **Correction 2**: the old text guessed "the clones may use clip 12, `clone_beam_01`" — `clone_beam_01` / `clone_beam_end_01`
+> **exist in no `.ao` at all** (they are only bound in `atlasexile5.act` / `atlasexile5influencewild.act` ⇒ a dead binding, the client cannot play them).
 
 ---
 
-## 客户端数据（观察）
+## Client data (observed)
 
-| 项 | 值 |
+| Item | Value |
 |---|---|
-| 技能 | GE **8100** `EmptyActionSpellOrionCloneBeam` → ActiveSkill **1246**，CastTime **5330 ms**，`Animation` **35 = `SpellAreaOfEffectChaos`** → 本体 `.act` `"trap_beam_01"`，StatSet1 8092 |
-| 终极 | GE **8101** `EmptyActionSpellOrionCloneBeamUber`（1246 / 5330 / 槽 **31 = `SpellProjectileUpwardChaos`** → `trap_beam_uber_01`，StatSet1 8093） |
-| 拉幻影 | GE **10147** `AtlasExilesOrionCreateClones`（ActiveSkill 1449 / CastTime 2000 / 槽 **35** → `trap_beam_01`，SkillID 101） |
-| 元素光束 | **7019–7030** `AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}`（ActiveSkill 1242，CastTime 1000，**`Animation` 为空**）；**7031** = `AtlasExileOrionCloneBeam`（同 AS/CastTime，无动画槽） |
-| 本体 GE 列表 | 8376 `AtlasExile5` 的 `GrantedEffectsKeys` 含 **10147 / 8100 / 8101 / 8098 / 8099 / 7019–7031 / 10948–10953 / 10973 / 10141 / 10945 / 10991 / 10974 / 7013 / 7014 / 9851 / 9690 / 7008 / 7012 / 6809** |
-| 本体 `.act` | `SpellAreaOfEffectChaos = "trap_beam_01"`、`SpellProjectileUpwardChaos = "trap_beam_uber_01"`、`SpellProjectileUpwardFire = "clone_beam_start_01"`、`SpellBuffChaos = "clone_beam_start_uber_01"`、`SpellProjectile = "beam_01" then "beam_02"`、`SpellProjectileFire = "beam_03" effect "…/on_act/beam_03/on_act_beam_03.ao"`、`SpellAreaOfEffect = "beam_barrage_01"` |
-| 本体 `.ot` | `on_event_identify_for_EmptyActionSpell2 = { AddEffectPack('…/body_fx/Trap_Beam_Signal.epk'); PlayEffect('…/body_fx/flash_beam.ao'); }`、`on_end_EmptyActionSpell2 = { RemoveEffectPack('…/Trap_Beam_Signal.epk'); }`、`on_clone_beam_start_01 = { Call(start_clone_teleport); }` / `on_event_teleport_for_clone_beam_start_01` / `on_end_clone_beam_start_01` |
-| clip 事件 | `atlasexile5.ao` → `trap_beam_01`：`start_face` @0.0（`StartFaceEventType`，data `"0 0"`；`trap_beam_uber_01` 是 `"80 0"`）、`dialogue` @2.0、`end_face` @3.74214、**`identify` @3.74214**、**6 × `clone_beam_blast`** @4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722；六个 position 全是 x=0、y=−2.9576，z = −223.047 / −216.277 / −214.625 / −212.387 / −213.061 / −211.552（模型单位 ⇒ 正前约 2.1–2.2 格、齐胸高） |
-| 同一组事件在克隆体上 | `atlasexile5influence.ao`（**Character rig**）的 `clone_beam_start_01` 里也有 **同样 6 个 `clone_beam_blast`、时间完全一致**；另有 `rocks_off/pointlight_off/eyes_off` @0.0、`contact`+`teleport` @0.5、`rocks_on/pointlight_on/eyes_on` @0.55125、`contact` @0.5667/0.6386/0.72807/1.45 ⇒ **这 6 次爆破事件本来就长在"克隆体"模型上** |
-| 幻影模型 | `atlasexile5_beamclone.ao`：**13** 个 clip，`default_animation = "trap_beam_01"`，rig = `Art/Models/MONSTERS/AtlasExiles/TheOrion/Character/rig.amd`（与本体同 rig），SkinMesh `TheOrionExile.sm`；`beam_01` 的 contact 位置 (−9.4614, −91.9149, −173.767)，本体 `beam_01` 是 (−9.46, −106.94, −209.72)（**不同**） |
-| 候选光束美术 | `…/monsters_effects/atlasexiles/orion/clone_trap_beam.ao`：client effect object，rig `…/clone_trap_beam/rig.amd`、`default_animation clonetrap_beam`、SkinMesh `clonebeam.sm`、骨组 `beam_length false jntBnd_beam aux_beam`、粒子 `clone_trap_beam_length.pet` 挂 `beam_length`、声音 `Audio/…/Sirus/Effects/Beam/TripleBeam3`、ScreenShake 13 / 0.4 s |
+| Skill | GE **8100** `EmptyActionSpellOrionCloneBeam` → ActiveSkill **1246**, CastTime **5330 ms**, `Animation` **35 = `SpellAreaOfEffectChaos`** → the body's `.act` `"trap_beam_01"`, StatSet1 8092 |
+| Ultimate | GE **8101** `EmptyActionSpellOrionCloneBeamUber` (1246 / 5330 / slot **31 = `SpellProjectileUpwardChaos`** → `trap_beam_uber_01`, StatSet1 8093) |
+| Spawning the clones | GE **10147** `AtlasExilesOrionCreateClones` (ActiveSkill 1449 / CastTime 2000 / slot **35** → `trap_beam_01`, SkillID 101) |
+| Elemental beams | **7019–7030** `AtlasExileOrionSpammableBeam{Physical,Cold,Fire,Lightning}{1,2,3}` (ActiveSkill 1242, CastTime 1000, **`Animation` empty**); **7031** = `AtlasExileOrionCloneBeam` (same AS/CastTime, no animation slot) |
+| Body GE list | the `GrantedEffectsKeys` of 8376 `AtlasExile5` hold **10147 / 8100 / 8101 / 8098 / 8099 / 7019–7031 / 10948–10953 / 10973 / 10141 / 10945 / 10991 / 10974 / 7013 / 7014 / 9851 / 9690 / 7008 / 7012 / 6809** |
+| Body `.act` | `SpellAreaOfEffectChaos = "trap_beam_01"`, `SpellProjectileUpwardChaos = "trap_beam_uber_01"`, `SpellProjectileUpwardFire = "clone_beam_start_01"`, `SpellBuffChaos = "clone_beam_start_uber_01"`, `SpellProjectile = "beam_01" then "beam_02"`, `SpellProjectileFire = "beam_03" effect "…/on_act/beam_03/on_act_beam_03.ao"`, `SpellAreaOfEffect = "beam_barrage_01"` |
+| Body `.ot` | `on_event_identify_for_EmptyActionSpell2 = { AddEffectPack('…/body_fx/Trap_Beam_Signal.epk'); PlayEffect('…/body_fx/flash_beam.ao'); }`, `on_end_EmptyActionSpell2 = { RemoveEffectPack('…/Trap_Beam_Signal.epk'); }`, `on_clone_beam_start_01 = { Call(start_clone_teleport); }` / `on_event_teleport_for_clone_beam_start_01` / `on_end_clone_beam_start_01` |
+| Clip events | `atlasexile5.ao` → `trap_beam_01`: `start_face` @0.0 (`StartFaceEventType`, data `"0 0"`; `trap_beam_uber_01` is `"80 0"`), `dialogue` @2.0, `end_face` @3.74214, **`identify` @3.74214**, **6 × `clone_beam_blast`** @4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722; all six positions are x=0, y=−2.9576, z = −223.047 / −216.277 / −214.625 / −212.387 / −213.061 / −211.552 (model units ⇒ about 2.1–2.2 cells ahead, chest height) |
+| The same events on the clone | `atlasexile5influence.ao` (**Character rig**) has the **same 6 `clone_beam_blast`** in its `clone_beam_start_01`, at exactly the same times; it also has `rocks_off/pointlight_off/eyes_off` @0.0, `contact`+`teleport` @0.5, `rocks_on/pointlight_on/eyes_on` @0.55125, `contact` @0.5667/0.6386/0.72807/1.45 ⇒ **those 6 blast events belong to the "clone" model in the first place** |
+| Clone model | `atlasexile5_beamclone.ao`: **13** clips, `default_animation = "trap_beam_01"`, rig = `Art/Models/MONSTERS/AtlasExiles/TheOrion/Character/rig.amd` (the same rig as the body), SkinMesh `TheOrionExile.sm`; the contact position of `beam_01` is (−9.4614, −91.9149, −173.767), the body's `beam_01` is (−9.46, −106.94, −209.72) (**different**) |
+| Candidate beam art | `…/monsters_effects/atlasexiles/orion/clone_trap_beam.ao`: a client effect object, rig `…/clone_trap_beam/rig.amd`, `default_animation clonetrap_beam`, SkinMesh `clonebeam.sm`, bone group `beam_length false jntBnd_beam aux_beam`, particle `clone_trap_beam_length.pet` on `beam_length`, sound `Audio/…/Sirus/Effects/Beam/TripleBeam3`, ScreenShake 13 / 0.4 s |
 
 ---
 
-## 客户端实现（反编译）
+## Client implementation (decompiled)
 
-### 类卡片（观察）
+### Class card (observed)
 
-| 项 | 值 |
+| Item | Value |
 |---|---|
-| 类 | `EmptyActionSpell2`（ActionType 811，`HASH16` **7582 = 0x1D9E**；旧笔记写 0x1F5B，**错**） |
-| 同族 | `EmptyActionSpell`(732, 18594)、`…3`(812, 7583)、`…4`(813, 7576)、`…5`(814, 7577) —— **共用同一个类与同一张 vtable `off_1434BBFC8`** |
-| 类型号怎么来的 | ctor `sub_1419C6500` **不写死类型号**，而是运行时算哈希：把 `"EmptyActionSpell"` 与一个数字拼成字符串（`sub_1404D0650` → `sub_140148EC0(v20, 0, "EmptyActionSpell", 16)`），再跑 `for (i = len; i; --i) v6 = *(char*)v11 ^ (16777619 * v6);` → `sub_1419CF930(a1, (unsigned short)(v6 ^ HIWORD(v6)), a2, a3)`，即 **FNV-1 变体（basis 0、乘 16777619、折 16 位）** |
+| Class | `EmptyActionSpell2` (ActionType 811, `HASH16` **7582 = 0x1D9E**; the old note says 0x1F5B, **wrong**) |
+| Family | `EmptyActionSpell`(732, 18594), `…3`(812, 7583), `…4`(813, 7576), `…5`(814, 7577) — **one shared class and one shared vtable `off_1434BBFC8`** |
+| Where the type number comes from | the ctor `sub_1419C6500` **does not hardcode the type number**, it hashes at runtime: it joins `"EmptyActionSpell"` with a number into a string (`sub_1404D0650` → `sub_140148EC0(v20, 0, "EmptyActionSpell", 16)`), then runs `for (i = len; i; --i) v6 = *(char*)v11 ^ (16777619 * v6);` → `sub_1419CF930(a1, (unsigned short)(v6 ^ HIWORD(v6)), a2, a3)`, that is **an FNV-1 variant (basis 0, multiply 16777619, fold to 16 bits)** |
 
-### 状态机
+### State machine
 
-**无**。这个类没有自己的状态机、没有自己的绘图方法（观察：`vtnear 0x1434BBFC8 0x1419A000 0x1419E000` 返回 **0**）。
+**None**. This class has no state machine of its own and no drawing method of its own (observed: `vtnear 0x1434BBFC8 0x1419A000 0x1419E000` returns **0**).
 
-### 序列化（客户端收到什么）
+### Serialisation (what the client receives)
 
-- 槽 86 / 87 `sub_1419CF9B0` / `sub_1419CFA20`：**只读写 `*(a1+472)` 一个字节**（与 MoveDaemon 同款 1 字节载荷）。
-- 服务端下发的是**动作 + 动画槽**；客户端回传 1 字节。
-- 槽 31 启动 `sub_1419CFAB0`：把 `*(a1+816)` 的字符串加上 `"_start"` 后缀，调 `sub_1419CFCF0(a1+792, str)` **按名字播动画**，然后转基类 `sub_1419E9840`。⇒ 它播的是一条**按名字拼出来**的 clip。
+- Slots 86 / 87 `sub_1419CF9B0` / `sub_1419CFA20`: **they read and write a single byte, `*(a1+472)`** (the same 1-byte payload as MoveDaemon).
+- What the server sends is the **action plus the animation slot**; the client sends 1 byte back.
+- Slot 31 starts `sub_1419CFAB0`: it appends the suffix `"_start"` to the string in `*(a1+816)`, calls `sub_1419CFCF0(a1+792, str)` to **play the animation by name**, then goes to the base class `sub_1419E9840`. ⇒ it plays a clip **assembled by name**.
 
-### 命中与伤害
+### Hits and damage
 
-**无**。`EmptyActionSpell2` 不产生命中、不判定伤害；6 次 `clone_beam_blast` 客户端侧也没有伤害。伤害完全在服务端。
+**None**. `EmptyActionSpell2` produces no hits and no damage; the 6 `clone_beam_blast` carry no damage on the client side either. All the damage is on the server.
 
-### 客户端表现
+### What the client shows
 
-只有三样（观察）：
+Only three things (observed):
 
-1. `trap_beam_01` 这条动画本身（本体念 DIE、抬手）。
-2. `identify` @3.742：本体 `.ot` 的 `on_event_identify_for_EmptyActionSpell2` 挂上 `Trap_Beam_Signal.epk` 并 `PlayEffect('…/body_fx/flash_beam.ao')`；`on_end_EmptyActionSpell2` 撤掉 effect pack ⇒ **这是官方"克隆体要开火了"的唯一客户端信号**。
-3. `dialogue` @2.0 的语音。
+1. The `trap_beam_01` animation itself (the body says DIE and raises its arm).
+2. `identify` @3.742: the body's `.ot` hook `on_event_identify_for_EmptyActionSpell2` attaches `Trap_Beam_Signal.epk` and `PlayEffect('…/body_fx/flash_beam.ao')`; `on_end_EmptyActionSpell2` removes the effect pack ⇒ **this is the only client signal that the "clones are about to fire"**.
+3. The voice line of `dialogue` @2.0.
 
-**没有**的东西：12 个幻影的显示体、6 条光束、6 次 `clone_beam_blast` 的美术（`.act` 没绑 effect、`.ot` 没监听这些事件）——全部要服务端给。
+What is **not** there: the display bodies of the 12 clones, the 6 beams, the art of the 6 `clone_beam_blast` (the `.act` binds no effect, the `.ot` does not listen for those events) — all of it has to come from the server.
 
-### 服务端该发什么（要点）
+### What the server should send (key points)
 
-动画 + 本体上的 `identify` 事件（客户端自己闪）+ 12 个幻影 + 6 条光束与 6 次伤害结算。光束本身必须服务端画（详见文末 §服务端该发什么）。
+The animation + the `identify` event on the body (the client flashes it by itself) + the 12 clones + the 6 beams and the 6 damage resolutions. The beams themselves must be drawn by the server (see §What the server should send at the end).
 
-### 未解
+### Still open
 
-1. **客户端到底播哪条 clip**：槽 31 拼的是 `*(a1+816) + "_start"`；而 8100 的 `Animation` 槽 35 绑的是 `SpellAreaOfEffectChaos` → `trap_beam_01`。`*(a1+816)` 的来源没确认（若它就是绑定名，拼出来会是 `trap_beam_01_start`，而 `.ao` 里没有这条 clip）⇒ **播 `trap_beam_01` 还是 `clone_beam_start_01` 未决**。
-2. **12 个幻影的官方模型**：`atlasexile5_beamclone.ao`（13 clip、`default_animation trap_beam_01`、Character rig）与 `atlasexile5influence.ao`（Character rig、带那 6 个 `clone_beam_blast`）都像官方克隆体，但 **没有任何 MonsterVarieties 行引用它们**（`AtlasExile5Influence.act/.ao`、`atlasexile5_beamclone.ao` 都没有）⇒ 幻影到底是"本体 `.ao` 的一条 clip"还是独立模型，未解。
-3. **谁生成 12 个幻影**：`AtlasExilesOrionCreateClones`（10147）没有数量/半径参数（CastTime 2000、Animation 35），数量 12、半径 35 格都是估的。
-4. **`clone_trap_beam.ao` 是给谁用的**：它是最像"两骨之间光束"的客户端 effect object（`beam_length` 骨组 + 拉长粒子 + TripleBeam3 音 + 震屏 13/0.4 s），但**全 orion 树没有任何 `.ot`/`.ao` 引用它** ⇒ 未解。
-5. **发散角度**：官方截图里是三条从不同方向发散、在玩家附近交叉的巨型光束；数据里找不到角度参数。
+1. **Which clip the client actually plays**: slot 31 builds `*(a1+816) + "_start"`; and the `Animation` slot 35 of 8100 binds `SpellAreaOfEffectChaos` → `trap_beam_01`. The source of `*(a1+816)` is not confirmed (if it is the binding name, the result would be `trap_beam_01_start`, and no such clip exists in the `.ao`) ⇒ **whether the client plays `trap_beam_01` or `clone_beam_start_01` is still open**.
+2. **The official model of the 12 clones**: both `atlasexile5_beamclone.ao` (13 clips, `default_animation trap_beam_01`, Character rig) and `atlasexile5influence.ao` (Character rig, carries those 6 `clone_beam_blast`) look like the official clone, but **no MonsterVarieties row references them** (`AtlasExile5Influence.act/.ao` and `atlasexile5_beamclone.ao` neither do) ⇒ whether the clones are "a clip of the body's `.ao`" or an independent model is still open.
+3. **Who spawns the 12 clones**: `AtlasExilesOrionCreateClones` (10147) has no count or radius parameter (CastTime 2000, Animation 35); the count 12 and the radius of 35 cells are estimates.
+4. **What `clone_trap_beam.ao` is for**: it is the client effect object that looks most like "a beam between two bones" (the `beam_length` bone group + the stretching particle + the TripleBeam3 sound + the screen shake 13/0.4 s), but **nothing in the whole orion tree references it** in a `.ot`/`.ao` ⇒ still open.
+5. **The divergence angles**: in the official screenshots three huge beams diverge from different directions and cross close to the player; the data holds no angle parameter.
 
 ---
 
-## 当前服务端实现与反馈（`Modules/Core/Game/Monster/Sirus.Combat.cs` `Clones()`）
+## The server implementation at the time of writing (2026-11-17), and what the play showed
+
+This section describes the branch of 2026-11-17, which is not in this repository; the repository's own code is the reference for what ships today. The code below is `Clones()` in `Modules/Core/Game/Monster/Sirus.Combat.cs`.
 
 ```csharp
 special = 3; specialUntil = ready = now + 5.33; var aim = c.Walk.Position(now);
-int real = Random.Shared.Next(12);                       // 本体站在圆周上的某一向
+int real = Random.Shared.Next(12);                       // the body stands on one of the directions of the circle
 await Teleport(c, id, at, now);
 await Cast(c, id, 8100, aim, now); await Voice(5688);
 for (int i = 0; i < 12; i++) { … await Fx(c, clone, Root + "AtlasExile5.ao", specialUntil, clip: 7, rotation: …); }
@@ -96,23 +98,23 @@ hits.Add(new(now + blasts[i], body!.ActionGeneration, ++group, 7031, from, Exten
     Beam: true, Track: c, CloneHit: shooters.Count > 0));
 ```
 
-- 幻影按圆周 12 等分、半径 35 格，不可走的位置跳过（`c.Layout.WalkableFor`）；射击者乱序轮转（`shooters`），保证 6 条光束来自不同幻影。
-- 幻影显示体 = **本体 `AtlasExile5.ao` 的第 7 条 clip**（观察：`.ao` 里 animation 条目按序第 7 条是 `clone_beam_start_01`；客户端的 clip 序号是否与文件文本顺序一致未验证）。
-- 光束画法：`Beam()` 用 `FireBeam`（行 37）；命中 `Beam: true` → `KitavaActTen.LineDistance(...) <= 6`（`Damage()`，`:951`）。
-- `clone_beam_blast` 的模型坐标（正前 2.1–2.2 格、齐胸高）**目前没有用**，光束起点直接用本体位置。
+- The clones are 12 equal parts of a circle of radius 35 cells, positions that cannot be walked are skipped (`c.Layout.WalkableFor`); the shooters rotate in a random order (`shooters`), so the 6 beams come from different clones.
+- The display body of a clone = **the 7th clip of the body's `AtlasExile5.ao`** (observed: the 7th animation entry in the `.ao` is `clone_beam_start_01`; whether the client's clip index matches the order in the file is not verified).
+- How the beams are drawn: `Beam()` uses `FireBeam` (line 37); a hit with `Beam: true` → `KitavaActTen.LineDistance(...) <= 6` (`Damage()`, `:951`).
+- The model coordinates of `clone_beam_blast` (2.1–2.2 cells ahead, chest height) are **not used yet**; the beam starts at the body's position.
 
-| 时间 | 反馈 |
+| Time | Feedback |
 |---|---|
-| 2026-11-16 | 早期版本是 6 条平行紫蓝色光束（`logs/shots/user-report/beams-parallel.jpg`），被指为"Die Beam 应该是三条发散的元素光束" |
-| 2026-11-17 | 未再单独反馈过克隆体 |
+| 2026-11-16 | the early version was 6 parallel purple-blue beams (`logs/shots/user-report/beams-parallel.jpg`), and it was called out that "the Die Beam should be three diverging elemental beams" |
+| 2026-11-17 | no separate feedback about the clones since then |
 
 ---
 
-## 服务端该发什么
+## What the server should send
 
-1. **动作**：对本体发 8100 的 `AnimationUpdate`（槽 35 → `trap_beam_01`），并在 3.742 s 触发 `identify`（客户端会自己闪 `flash_beam.ao`、挂 `Trap_Beam_Signal.epk`）。
-2. **幻影**：12 个可见体。首选官方模型 `atlasexile5_beamclone.ao`（13 clip，`default_animation trap_beam_01`）——但它**没有 MonsterVarieties 引用**，得先确定怎么生成；当前先用 effect object + 本体 `.ao` 第 7 条 clip 兜底。
-3. **光束**：客户端动作类画不出来（`EmptyActionSpell2` 无绘图方法），所以光束**必须服务端画**：`ServerBeamEffect` / `MiscBeams` 行，或走 daemon 实体。6 次 `clone_beam_blast` 的模型坐标（z = −223.047 … −211.552，即正前 2.1–2.2 格、齐胸高）应该作为**光束起点/落点**，而不是用本体位置。
-4. **元素**：官方在 7019–7030（十二个元素光束）里随机，代码现在固定 7031（`AtlasExileOrionCloneBeam`）——名字没错，但元素/颜色多样性缺失。
-5. **伤害**：6 次结算（4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s），每次一条光束；`CloneHit` 只影响 `BeamBombBeam`（行 240）的历史分支。
-6. **未实现**：`dialogue` @2.0 的语音（现在用 5688）、`identify` 的客户端闪光事件、发散角度（当前 6 条光束全部穿过玩家同一点）。
+1. **Action**: send an `AnimationUpdate` for 8100 on the body (slot 35 → `trap_beam_01`), and fire `identify` at 3.742 s (the client flashes `flash_beam.ao` and attaches `Trap_Beam_Signal.epk` by itself).
+2. **Clones**: 12 visible bodies. The official model `atlasexile5_beamclone.ao` (13 clips, `default_animation trap_beam_01`) is the first choice — but it has **no MonsterVarieties reference**, so how to spawn it has to be settled first; for now an effect object plus the 7th clip of the body's `.ao` is the fallback.
+3. **Beams**: the client action class cannot draw them (`EmptyActionSpell2` has no drawing method), so the beams **must be drawn by the server**: `ServerBeamEffect` / `MiscBeams` rows, or a daemon entity. The model coordinates of the 6 `clone_beam_blast` (z = −223.047 … −211.552, that is 2.1–2.2 cells ahead, chest height) should be the **start/end points of the beams**, not the body's position.
+4. **Elements**: the official picks at random among 7019–7030 (the twelve elemental beams); the code now uses the fixed 7031 (`AtlasExileOrionCloneBeam`) — the name is not wrong, but the element/colour variety is missing.
+5. **Damage**: 6 resolutions (4.141 / 4.282 / 4.388 / 4.500 / 4.597 / 4.722 s), one beam each; `CloneHit` only affects the historical branch of `BeamBombBeam` (line 240).
+6. **Not implemented**: the voice line of `dialogue` @2.0 (now 5688), the client's flash event for `identify`, the divergence angles (all 6 beams currently pass through the same point on the player).

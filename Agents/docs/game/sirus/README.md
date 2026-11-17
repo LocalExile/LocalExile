@@ -9,9 +9,9 @@ The two pages beside this folder are the summary:
 - [../sirus.md](../sirus.md) — the data side: the effect rows, the arena, the clips, the storms.
 - [../sirus-client.md](../sirus-client.md) — the code side: the client classes behind the `Orion*` action types.
 
-This folder goes one skill at a time. The per-skill pages are written in the working language of the session that
-produced them (Chinese); the index, the tables and the mechanisms below are English. The evidence markers are the
-repository's:
+This folder goes one skill at a time: one page per skill, each with the class card, the state machine, the
+serialisation, the hit test and what the server should send. Everything here is English. The evidence markers are
+the repository's:
 
 - **observed** — read straight out of the client's code or data, or seen in a live client.
 - **inferred** — follows from the context, without direct evidence.
@@ -76,13 +76,13 @@ has length zero and only the muzzle ring is drawn.
 
 | Row | Name | Art |
 |---|---|---|
-| 3623 | `AtlasExileOrionMeteorRain` | `.../Orion/destruction_assets/meteors/Meteor_Rain.ao` (the small meteor, 1.92 s) |
+| 3622 | `AtlasExileOrionMeteorRain` | `.../Orion/destruction_assets/meteors/Meteor_Rain.ao` (the small meteor, 1.92 s) |
 | 3690 | `AtlasExileOrionMazeMeteor` | `.../Orion/maze_meteor.ao` (the big meteor) |
 | 3691 | `AtlasExileOrionMazeMeteorImpact` | `.../Orion/maze_meteor_impact.ao` (the corridor orb's burst) |
-| 3693 | `AtlasExileOrionCorridorNuke` | `.../Orion/corridor_slash_01.ao` (the corridor's slash) |
+| 3692 | `AtlasExileOrionCorridorNuke` | `.../Orion/corridor_slash_01.ao` (the corridor's slash) |
 | 3701 | `OrionBeamHitEffects` | `.../Orion/Hit_FX_beam.ao` |
-| 3714 | `AtlasExileOrionMeteorImpact` | `.../Orion/destruction_assets/meteors/impact_Large.ao` |
-| 3735 | `AtlasExileOrionCircleMazeMeteorMarker` | `.../Orion/maze_meteor_incoming.ao` (the warning circle) |
+| 3623 | `AtlasExileOrionMeteorImpact` | `.../Orion/destruction_assets/meteors/impact_Large.ao` |
+| 3734 | `AtlasExileOrionCircleMazeMeteorMarker` | `.../Orion/maze_meteor_incoming.ao` (the warning circle) |
 | 3779-3781 | `AtlasExileOrionMazeMeteor1Ring/2Rings/3Rings` | `.../Orion/meteor/meteor_100.150.200.ao` (the maze's ring walls) |
 
 And the geometry rows that select them:
@@ -112,15 +112,15 @@ they differ in material, default animation and particles. Both carry the bone gr
 | [beam-bomb.md](beam-bomb.md) | the beam bomb (10973/10974) |
 | [storm.md](storm.md) | the death zones and the shockwaves |
 
-Each page ends with **服务端该发什么** ("what the server should send"): the messages, the effect entities and the hit
-shapes that make the skill behave like it does on the official server.
+Each page ends with **What the server should send**: the messages, the effect entities and the hit shapes that make
+the skill behave like it does on the official server.
 
 ## Scope
 
-The pages were written while the module was being changed, so their **当前服务端实现** ("the current server
-implementation") sections describe a working branch that is not in this repository: the repository's own code is the
-reference for what ships today. The client findings, the tables, the class cards and the hit shapes are the durable
-part, and they are what the rest of this folder is for.
+The pages were written while the module was being changed, so their **The server implementation at the time of
+writing (2026-11-17)** sections describe a working branch that is not in this repository: the repository's own code
+is the reference for what ships today. The client findings, the tables, the class cards and the hit shapes are the
+durable part, and they are what the rest of this folder is for.
 
 ## Still open
 
