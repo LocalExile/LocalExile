@@ -4015,8 +4015,9 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   takes charges away: Replica Fragility, Replica Pacifism and Replica Powerlessness store `-1` ("Lose an
   Endurance Charge each second") and lose one each second, never below the minimum; every other use of
   the stat is positive. Skills: the Frenzy gem's hit gives a Frenzy Charge once per use (ActiveSkills `frenzy`;
-  it fires the weapon's projectile, and only the volley's first enemy hit counts), Power Siphon's
-  killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
+  it fires the weapon's projectile, and only the volley's first enemy hit counts), Flicker Strike's and Power
+  Siphon's own on-hit chances count (Power Siphon's ActiveSkills text names a kill grant no 3.29 stat carries;
+  its stats give 20% on hitting a rare or unique enemy), and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
   its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
@@ -4073,11 +4074,10 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   skills and effects that consume or remove
   charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
   need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
-  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
-  soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
+  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
   low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
   server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
-  mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  mana cost, buff duration, Flicker Strike's own per-charge damage).
 
 **Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
 lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges

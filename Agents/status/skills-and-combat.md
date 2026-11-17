@@ -150,6 +150,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
+  Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.

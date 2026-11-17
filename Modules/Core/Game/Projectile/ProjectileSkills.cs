@@ -48,7 +48,33 @@ public static partial class Game
         string bow = Row(OrdinaryRangedAttack.Arrow, "Arrow"), wandRow = Row(OrdinaryRangedAttack.Wand, "Wand", "Projectile");
         var parameters = new ProjectileSkillParameters((get, speed, fromBow) => GatewayProjectileSkillProfiles.Resolve(id,
             arrows && (fromBow || !wand) ? bow : wandRow, get, speed, attack: true, fromBow));
-        return SkillProjectileDefinition(id, arrows ? bow : wandRow, parameters);
+        var definition = SkillProjectileDefinition(id, arrows ? bow : wandRow, parameters);
+        var specialize = definition.SpecializeRelease!;
+        return definition with { SpecializeRelease = (context, use) => AtNearbyTargets(context, specialize(context, use)) };
+    }
+
+    // Power Siphon (power_siphon_base_fire_at_x_targets, projectiles_are_not_fired, number_of_projectiles_override 1):
+    // one projectile at each of the nearest enemies in front of or beside the caster, up to the stat's count; with
+    // none in range, one along the aim. Each aims at its enemy's cell at release.
+    // shortcut: "nearby" is the projectile's flight range and "in front" the half-plane of the aim; neither is read
+    // from the client.
+    static ProjectileUse AtNearbyTargets(ProjectileReleaseContext context, ProjectileUse use)
+    {
+        int most = context.Get("power_siphon_base_fire_at_x_targets");
+        if (most <= 0) return use;
+        var conn = context.Conn;
+        double now = context.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+        var caster = ProjectileSession.Vector(conn.Walk.Position(now));
+        var aim = use.Aim - caster;
+        var targets = conn.Monsters.Values
+            .Where(m => m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && !m.WorldHidden)
+            .Select(m => ProjectileSession.Vector(m.Walk.Position(now)))
+            .Where(at => (at - caster).Length <= use.Profile.Range && (at - caster).X * aim.X + (at - caster).Y * aim.Y >= 0)
+            .OrderBy(at => (at - caster).Length).Take(most).Select(at => at - use.Origin).ToArray();
+        if (targets.Length == 0) return use with { Profile = use.Profile with { Count = 1, NativeVolley = new() { Angles = [0] } } };
+        double along = Math.Atan2(use.Aim.Y - use.Origin.Y, use.Aim.X - use.Origin.X);
+        return use with { Profile = use.Profile with { Count = targets.Length,
+            NativeVolley = new() { Angles = [.. targets.Select(to => Math.Atan2(to.Y, to.X) - along)] } } };
     }
 
     // A variant's base gem: Royale and transfigured effects share the base effect's skill shape and art.
