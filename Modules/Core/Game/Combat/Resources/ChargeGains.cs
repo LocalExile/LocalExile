@@ -112,14 +112,12 @@ public static class ChargeGains
         new("chance_to_gain_power_charge_when_block_%", ChargeType.Power, (e, _) => e is ChargeEvent.Block),
         new("power_charge_on_spell_block_%_chance", ChargeType.Power, (e, _) => e is ChargeEvent.Block { Spell: true }),
         new("gain_random_charge_on_block", null, (e, _) => e is ChargeEvent.Block, Flag: true),
-        // More on hit, by the target's or the player's state ("% chance to gain a Power Charge on Hit", Malachai's Loop)
-        new("add_power_charge_on_skill_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+        // More on hit, by the target's or the player's state
         new("add_endurance_charge_on_skill_hit_%", ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit),
         new("gain_frenzy_charge_on_hitting_unique_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Rarity: MonsterRarity.Unique }),
         new("gain_power_charge_on_hit_%_chance_against_frozen_enemy", ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Frozen: true }),
         new("chance_to_gain_endurance_charge_on_hit_%_vs_bleeding_enemy", ChargeType.Endurance, (e, _) => e is ChargeEvent.Hit { Bleeding: true }),
         new("gain_frenzy_charge_on_hitting_marked_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { Marked: true }),
-        new("gain_frenzy_charge_on_hit_while_bleeding", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new("gain_power_charge_on_hit_while_bleeding", ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfBleeding: true }, Flag: true),
         new("add_power_charge_on_hit_while_poisoned_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit { SelfPoisoned: true }),
         // One skill's own (the enchantments): Holy Sweep on hit, Ice Spear on critical strike, Power Siphon's

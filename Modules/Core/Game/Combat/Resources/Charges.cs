@@ -439,7 +439,7 @@ public static partial class Game
     }
 
     // Under the Monsters lock, after a step: the Life the loss triggers granted (Kingsguard), recovered as instant leech
-    // is and sent with the next vitals update, and the gains for "if you've gained a … Charge recently".
+    // is and sent with the next vitals update.
     static void ChargeSideEffectsLocked(ClientState conn, ChargeSession session)
     {
         int life = session.TakeLifeGained();
@@ -450,8 +450,6 @@ public static partial class Game
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, before, life, ref leech.LifeInstantCarry, minimum: 1);
             leech.InstantLifeChanged |= before != conn.PlayerLife;
         }
-        foreach (var (type, at) in session.TakeGains())
-            conn.RecentEvents.Record(StatConditions.GainedCharge(Charges.Name(type)), at);
     }
 
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in

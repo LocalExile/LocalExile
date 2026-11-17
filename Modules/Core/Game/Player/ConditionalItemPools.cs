@@ -65,7 +65,6 @@ public static partial class Game
         StatConditions.BeenFrozen,
         StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
         StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
-        StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
     };
     sealed class ConditionalItemPoolState
     {

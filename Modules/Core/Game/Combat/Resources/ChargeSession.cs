@@ -31,7 +31,6 @@ public sealed class ChargeSession(Charges.State? state = null)
     readonly int[] expected = new int[3];
     readonly double[] lastLost = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
     int pendingLife;
-    readonly List<(ChargeType Type, double At)> pendingGains = [];
 
     static readonly Charges.Limits Default = new(ChargePanelStats.BaseMaximumCharges, 0, Charges.BaseDurationMs);
 
@@ -133,14 +132,6 @@ public sealed class ChargeSession(Charges.State? state = null)
         int life = pendingLife;
         pendingLife = 0;
         return life;
-    }
-
-    /// <summary>The charge gains since the last call, for the "if you have gained a … Charge recently" conditions.</summary>
-    public List<(ChargeType Type, double At)> TakeGains()
-    {
-        var gains = new List<(ChargeType, double)>(pendingGains);
-        pendingGains.Clear();
-        return gains;
     }
 
     /// <summary>What one step did: whether the charges the stats count changed, and lines for the log.</summary>
@@ -294,7 +285,6 @@ public sealed class ChargeSession(Charges.State? state = null)
         bool toMaximum = gain.ToMaximum || ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
         expected[(int)gain.Type] = State.Held(gain.Type);
-        if (l.Maximum > 0 && pendingGains.Count < 16) pendingGains.Add((gain.Type, now));
         log.Add($"{gain.Source}: {Charges.Label(gain.Type, Converted(gain.Type))} charges {before} -> {now2}/{l.Maximum}" +
             (toMaximum ? " (to maximum)" : "") + $", {l.DurationMs / 1000.0:0.###} s");
         // "On reaching maximum" (Tulfall, Malachai's Loop, The Eternal Apple): only the gain that reaches it.
