@@ -192,11 +192,20 @@ public static partial class Game
         bytes.AddRange(records.Bytes());
     }
 
+    // One use detonates every mine in sequence, 0.2 s apart in the order they arm. A mine that is not armed yet goes off
+    // once it is, and a mine already in the sequence keeps its place when the skill is used again: before, a use took
+    // only the armed mines and restarted the sequence, so mines thrown just before it needed another use.
     public static void DetonateMinesLocked(ClientState conn, double now)
     {
-        conn.Placed.Chain = 0; conn.Placed.NextChain = now;
-        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && p.Armed <= now).OrderBy(p => p.Armed))
-            mine.DetonateAt = now + .2 * conn.Placed.Chain++;
+        double next = Math.Max(now, conn.Placed.NextChain);
+        foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
+            .OrderBy(p => p.Armed).ThenBy(p => p.Id))
+        {
+            next = Math.Max(next, mine.Armed);
+            mine.DetonateAt = next;
+            next += .2;
+        }
+        conn.Placed.NextChain = next;
     }
 
     public static bool CanDetonateMines(ClientState conn) =>
