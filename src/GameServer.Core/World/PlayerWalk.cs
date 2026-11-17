@@ -377,6 +377,16 @@ public sealed class PlayerWalk
         return walk.Count > 0 && walk[0].T0 <= now && now < walk[^1].End;
     }
 
+    /// <summary>The exact part of an interval the walker is under way, with holds and arrival boundaries included.</summary>
+    public double MovingSeconds(double from, double until)
+    {
+        if (!(until > from)) return 0;
+        double seconds = 0;
+        foreach (var segment in _segments)
+            seconds += Math.Max(0, Math.Min(segment.End, until) - Math.Max(segment.T0, from));
+        return Math.Min(until - from, seconds);
+    }
+
     /// <summary>Where the current walk ends.</summary>
     public (int X, int Y) Destination => _segments.Count == 0 ? _rest : _segments[^1].Cells[^1];
 
