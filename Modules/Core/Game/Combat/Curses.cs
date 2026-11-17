@@ -178,7 +178,7 @@ public static partial class Game
                 double rate = RecipientEffectTime.Rate(2, n => m.Effects[n]);
                 if (rate != oldRate)
                 {
-                    SettleBleeding(m, now, conn.PeerId);
+                    SettleBleeding(m, now);
                     m.Ignites.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
                     m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                     m.Ruptures.SetExpiryRate(now, rate);

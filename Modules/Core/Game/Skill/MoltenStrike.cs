@@ -373,7 +373,7 @@ public static partial class Game
                     && EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
-                    gambler.InvertsResistance(Random.Shared), conn.PeerId);
+                    gambler.InvertsResistance(Random.Shared));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);

@@ -146,7 +146,7 @@ public static partial class Game
                     : 150 + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+");
                 var rolled = packet.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, source: conn.PeerId);
+                int damage = MonsterTakesMitigated(m, mitigated, spell);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
@@ -219,7 +219,7 @@ public static partial class Game
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
         await ReservationFightersTick(remote, stream, ciphers, conn, now);
         await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,
-            (m, t) => MonsterDotTaken(m, DamageType.Fire, t, conn.PeerId), "burnt to death by Herald of Ash");
+            (m, t) => MonsterDotTaken(m, DamageType.Fire, t), "burnt to death by Herald of Ash");
         await PublishMinionOutcomes(remote, stream, ciphers, conn);
     }
 

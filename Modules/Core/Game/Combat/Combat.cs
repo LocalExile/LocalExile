@@ -525,7 +525,7 @@ public static partial class Game
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
-                    gambler.InvertsResistance(Random.Shared), conn.PeerId);
+                    gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
                     HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
@@ -1996,7 +1996,7 @@ public static partial class Game
                 int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
-                    gambler.InvertsResistance(Random.Shared), conn.PeerId);
+                    gambler.InvertsResistance(Random.Shared));
                 hitCode = HitCode(mitigated);
                 var taken = MonsterTakenComponents(m, mitigated, spell, at);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -2305,7 +2305,7 @@ public static partial class Game
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
-        bool invertElemental = false, uint source = 0)
+        bool invertElemental = false)
     {
         var described = new List<string>();
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
@@ -2316,7 +2316,7 @@ public static partial class Game
             double effective = HitResistances.FinalValue(type, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
-        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now, source),
+        return (MonsterTakesMitigated(m, mitigated, spell: !attack, now),
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 

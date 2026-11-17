@@ -172,7 +172,7 @@ public static partial class Game
                 foreach (var (id, m) in conn.Monsters)
                 {
                     // Rupture outlives short bleeds and the attacker; only its own timers or the target's death end it.
-                    SettleBleeding(m, now, conn.PeerId);
+                    SettleBleeding(m, now);
                     if (conn.MonsterViews.ContainsKey(id))
                         foreach (var packet in PresentRupturesLocked(conn, id, m, now)) bytes.AddRange(packet);
                     bool living = alive && !m.Dead && m.Life > 0 && m.Hostile;

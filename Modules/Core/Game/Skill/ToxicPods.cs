@@ -77,7 +77,7 @@ public static partial class Game
                         lock (vines) vines.Add(pod);
                     }
                     var carry = dotRemainders.GetValue(monster, _ => new PodDamage());
-                    double total = carry.Fraction + seconds * dps * MonsterDotTaken(monster, DamageType.Chaos, at, Conn.PeerId);
+                    double total = carry.Fraction + seconds * dps * MonsterDotTaken(monster, DamageType.Chaos, at);
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     carry.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;

@@ -83,7 +83,7 @@ public static partial class Game
                 if (m.Poisons.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
-                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, conn.PeerId), m.Life);
+                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now), m.Life);
                 if (damage > 0)
                 {
                     (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);

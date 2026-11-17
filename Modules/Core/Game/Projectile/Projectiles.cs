@@ -454,7 +454,7 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
             int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
-                shot.Penetration, gambler.InvertsResistance(random), Conn.PeerId);
+                shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             bool immune = target.Invulnerable;
             LeechOnHitLocked(Conn, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage, shot.Leech);
@@ -463,7 +463,7 @@ public static partial class Game
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
-                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, Conn.PeerId));
+                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
             uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,

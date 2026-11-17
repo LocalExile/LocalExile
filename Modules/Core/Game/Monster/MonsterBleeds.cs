@@ -93,7 +93,7 @@ public static partial class Game
         MonsterIgnites.Settings settings, bool critical, double now)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
-        SettleBleeding(target, now, conn.PeerId);
+        SettleBleeding(target, now);
         target.Bleeds.Stacks = settings.Stacks;
         if (target.Bleeds.Burning
             && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, conn.IgniteRandom))
@@ -124,8 +124,8 @@ public static partial class Game
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
     /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
     /// stacks.</summary>
-    public static double BleedTaken(SpawnedMonster m, double now, uint source = 0) =>
-        MonsterDotTaken(m, DamageType.Physical, now, source) * m.Ruptures.More(now)
+    public static double BleedTaken(SpawnedMonster m, double now) =>
+        MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
         * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
@@ -140,20 +140,19 @@ public static partial class Game
 
     // Settle at each stack's expiry, even if a delayed tick crosses several. Damage is committed by the normal DoT
     // tick; changing the rate or adding another bleed must not discard damage already earned by an expired instance.
-    public static void SettleBleeding(SpawnedMonster target, double now, uint source = 0)
+    public static void SettleBleeding(SpawnedMonster target, double now)
     {
         while (target.Ruptures.NextExpiry is var end && end <= now)
         {
             double before = Math.BitDecrement(end);
-            target.Bleeds.Accrue(end, BleedTaken(target, before, source), AggravatedExtra(target, before));
+            target.Bleeds.Accrue(end, BleedTaken(target, before), AggravatedExtra(target, before));
             target.Bleeds.SetExpiryRate(end, BleedingExpiryRate(target, end));
         }
-        target.Bleeds.Accrue(now, BleedTaken(target, now, source), AggravatedExtra(target, now));
+        target.Bleeds.Accrue(now, BleedTaken(target, now), AggravatedExtra(target, now));
     }
 
     // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
     public static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds,
-            (m, now) => BleedTaken(m, now, conn.PeerId), "bled to death", AggravatedExtra, (m, now) => SettleBleeding(m, now, conn.PeerId));
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra, SettleBleeding);
 }

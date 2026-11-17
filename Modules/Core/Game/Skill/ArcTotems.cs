@@ -38,7 +38,7 @@ public static partial class Game
                 SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
             bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                GamblerFor(caster).InvertsResistance(Random.Shared), conn.PeerId);
+                GamblerFor(caster).InvertsResistance(Random.Shared));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage) is not { } accepted) return;
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),

@@ -231,7 +231,7 @@ public static partial class Game
     // Fire's burn (BurnAround) commits them. They burn on while the player is dead (the kill then gives no experience,
     // MonsterKilled).
     public static Task BurnIgnited(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        TickStrongestDots(remote, stream, ciphers, conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now, conn.PeerId),
+        TickStrongestDots(remote, stream, ciphers, conn, m => m.Ignites, (m, now) => MonsterDotTaken(m, DamageType.Fire, now),
             "burnt to death by ignite");
 
     // One tick of a strongest-only set (ignites, bleeds: <paramref name="of"/>), <paramref name="factor"/> the monster's

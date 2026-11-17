@@ -1064,7 +1064,7 @@ public static partial class Game
                     continue;
                 }
                 if (!rf.Auras.ContainsKey(id)) { rf.Auras[id] = conn.NextBuff; entered.Add((id, conn.NextBuff++)); }
-                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now, conn.PeerId);   // its fire resistance, its shock
+                var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its fire resistance, its shock
                 m.Burn = carry;
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);

@@ -9,21 +9,19 @@ public static partial class Game
     /// <summary>The factor on damage a monster takes: its mods' increased damage taken, its shock, Glacial Wave's chill and
     /// the player's debuffs on it (his taunt's on every type, his enemy auras' on <paramref name="elemental"/> damage, his
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
-    /// ChaosDamageTaken INC), then a spell's less damage taken. <paramref name="source"/> is the PeerId of the player
-    /// whose damage this is (0: not known), for the debuffs that apply only to their owner's damage
-    /// (<see cref="PerAilmentTypeTaken"/>).</summary>
+    /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
-        bool chaos = false, uint source = 0) =>
+        bool chaos = false) =>
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
-            + (source == 0 ? 0 : m.SourceValue(source, PerAilmentTypeTaken) is var perType and not 0 ? perType * AilmentTypesOn(m, now) : 0)
+            + (m.SourceTotal(PerAilmentTypeTaken) is var perType and not 0 ? perType * AilmentTypesOn(m, now) : 0)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
     /// <summary>Yoke of Suffering: "Enemies take X% increased Damage for each type of Ailment you have inflicted on them".
-    /// Each wearer keeps their own value on the monster (SpawnedMonster.SetSourceValue, EnemyDebuffsTick), and it counts
-    /// only for that wearer's own damage.</summary>
+    /// Each wearer keeps their own value on the monster (SpawnedMonster.SetSourceValue, EnemyDebuffsTick); the enemy
+    /// takes the sum of the wearers' increases from every source of damage.</summary>
     public const string PerAilmentTypeTaken = "ailment_types_apply_damage_taken_+%";
 
     /// <summary>The types of ailment the player's hits keep on a monster at <paramref name="now"/>: ignite, chill, freeze,
@@ -180,7 +178,7 @@ public static partial class Game
         if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
-        double factor = MonsterDamageTaken(m, spell, now, hit: true, source: conn.PeerId) * (critical ? criticalMultiplier / 100.0 : 1);
+        double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         // The physical part counts after the monster's physical reduction and its Maim, as the hit's damage does.

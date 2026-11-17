@@ -350,7 +350,13 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Values each player keeps on it, by (the player's PeerId, a stat Id): a party shares its monsters, so each source
     // sets and clears only its own entries and never another participant's. Guarded by the Monsters lock.
     readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
-    public int SourceValue(uint source, string stat) => sourceValues.GetValueOrDefault((source, stat));
+    /// <summary>The sum of every source's value of <paramref name="stat"/> on it.</summary>
+    public int SourceTotal(string stat)
+    {
+        int total = 0;
+        foreach (var ((_, key), value) in sourceValues) if (key == stat) total += value;
+        return total;
+    }
     /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
     public void SetSourceValue(uint source, string stat, int value)
     {
