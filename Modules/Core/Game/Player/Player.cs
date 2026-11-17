@@ -1398,7 +1398,7 @@ public static partial class Game
                     {
                         if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
                         ReconcileOwnAuras(conn, validateSkills: true);
-                        var player = PlayerForCreation(conn);
+                        var player = PlayerForCreation(conn) with { SkillStats = false };
                         conn.PeerTemplate = player;
                         conn.ClientSkillIds = [.. player.Skills!.Select(s => s.Id)];
                         conn.SentVaalSouls.Clear();
