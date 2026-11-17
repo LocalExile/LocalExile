@@ -60,6 +60,8 @@ public static partial class Game
                 }
                 if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
                 else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
+                foreach (var (id, _, _) in back)
+                    if (Arakaali.StanceUpdateLocked(conn, id, now) is { } stance) packets.AddRange(stance);
                 return packets.Count == 0 ? null : [.. packets];
             }
         });
@@ -94,7 +96,7 @@ public static partial class Game
     /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(ClientState conn, int effect) =>
         SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
-        && !(SkillsFor(conn).EffectId(effect) is { } id && (id is "LightningWarp" or "BlinkArrow"
+        && !(SkillsFor(conn).EffectId(effect) is { } id && (id == "LightningWarp" || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
             || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
     public static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim) =>
@@ -172,8 +174,8 @@ public static partial class Game
     const double MovementResyncSeconds = .5;
 
     /// <summary>How long a movement skill's action lasts on the client: its attack time, or its cast time.</summary>
-    public static double MovementSeconds(ClientState conn, int effect, int level) =>
-        SkillsFor(conn).IsAttack(effect) ? SkillAttackSeconds(conn, effect, level)
+    public static double MovementSeconds(ClientState conn, int effect, int level, ushort skillId = 0) =>
+        SkillsFor(conn).IsAttack(effect) ? skillId == 0 ? SkillAttackSeconds(conn, effect, level) : SupportedAttackSeconds(conn, skillId)
             : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
 
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.

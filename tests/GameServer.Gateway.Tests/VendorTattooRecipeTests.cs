@@ -32,7 +32,8 @@ public sealed class VendorTattooRecipeTests
         Assert.NotNull(entry);
         Assert.Equal(arohongui.Tribe, entry!.Tribe);
         Assert.False(entry.DropDisabled);
-        // A fourth unit in the same tribe is left over and sold normally; one recipe is still quoted once.
+        // A fourth unit in the same tribe is left over: the recipe's remainders are returned like the essence block's,
+        // not silently sold for a Scroll Fragment.
         var four = new[]
         {
             offered[0], offered[1], offered[2],
@@ -41,8 +42,25 @@ public sealed class VendorTattooRecipeTests
         var leftover = recipes.Evaluate(four, new Random(7));
         Assert.Single(leftover.Recipes, recipe => recipe == "three tattoos of one tribe");
         Assert.Equal(2, leftover.Rewards.Count);
-        Assert.Single(leftover.Rewards, reward => RewardName(reward, catalog) == "Tattoo of the Arohongui Shaman"
-            || TattooCatalogue.Find(RewardName(reward, catalog) ?? "")?.Tribe == arohongui.Tribe);
+        Assert.Contains(leftover.Rewards, reward => RewardName(reward, catalog) == "Tattoo of the Arohongui Warmonger");
+        Assert.All(leftover.Rewards, reward =>
+            Assert.Equal(arohongui.Tribe, TattooCatalogue.Find(RewardName(reward, catalog) ?? "")?.Tribe));
+        // Five units leave two remainders after one recipe; both come back.
+        var five = new[]
+        {
+            offered[0], offered[1], offered[2],
+            Tattoo(13, "Tattoo of the Arohongui Warmonger", catalog),
+            Tattoo(14, "Tattoo of the Arohongui Shaman", catalog),
+        };
+        var twoLeft = recipes.Evaluate(five, new Random(7));
+        Assert.Single(twoLeft.Recipes, recipe => recipe == "three tattoos of one tribe");
+        Assert.Equal(3, twoLeft.Rewards.Count);
+        Assert.All(twoLeft.Rewards, reward =>
+            Assert.Equal(arohongui.Tribe, TattooCatalogue.Find(RewardName(reward, catalog) ?? "")?.Tribe));
+        // Two units are not a recipe: they still sell normally and no tattoo comes back.
+        var pair = recipes.Evaluate(offered.Take(2).ToArray(), new Random(7));
+        Assert.DoesNotContain("three tattoos of one tribe", pair.Recipes);
+        Assert.DoesNotContain(pair.Rewards, reward => RewardName(reward, catalog)?.Contains("Tattoo") == true);
         // Loyalty and Makanga tattoos are tattoos of their tribe and can go in; the untagged Journey rows cannot.
         var special = new[]
         {

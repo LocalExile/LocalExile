@@ -118,12 +118,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
-  Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
+  Sins follow this instance's god kills and restore after re-entry without replaying their entrances.
+  `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
   carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); the escort uses the payload's displayed ring and current rail leg. Encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
-   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
+  The Belly side door and the four arena entrances open (the doors go when used or their guardian dies), Malachai's
+  portal returns to Highgate, and the Ossuary lever opens the passage after the Sign is taken.
+  Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).
@@ -152,7 +155,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
   barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the
   three spirits, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
-  (Bannon becomes Innocence: Oriath Docks' two stages), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
+  (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
   earned, −60% with Act 5's, before him −30%; Sin's portal home) and A11q0 (Lilly sails to Karui Shores). Every act
   7–10 quest done with every act 7–10 flag of `EpilogueAtlasDemo`, 24 quest passive points and 20 refund points.
   The exits the layouts disable and a quest gates (The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's

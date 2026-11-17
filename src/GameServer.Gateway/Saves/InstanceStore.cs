@@ -10,6 +10,12 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
+    /// <summary>Reads a retained instance without admitting another connection.</summary>
+    public InstanceState? Find(ulong id, long created, string? soloOwner = null)
+    {
+        lock (_instances) return _instances.GetValueOrDefault((id, created, soloOwner?.ToUpperInvariant()));
+    }
+
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
@@ -44,6 +50,38 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 
 public sealed partial class InstanceState
 {
+    /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
+    public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
+
+    MapDevice.Run? _map;
+
+    /// <summary>The map this instance was opened with, or null outside a map: its level, mods and owner for population,
+    /// monsters, drops and every later entry.</summary>
+    public MapDevice.Run? Map => Volatile.Read(ref _map);
+
+    /// <summary>The first connection that brings a map fixes it (<see cref="Map"/>); later ones keep that one.</summary>
+    public MapDevice.Run? OpenedWith(MapDevice.Run? run)
+    {
+        if (run is not null) Interlocked.CompareExchange(ref _map, run, null);
+        return Map;
+    }
+
+    readonly Lock _areaStatsGate = new();
+    IReadOnlyDictionary<uint, int>? _areaStats;
+
+    /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
+    /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
+    public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
+    public IReadOnlyDictionary<uint, int>? KeptAreaStats
+    {
+        get { lock (_areaStatsGate) return _areaStats; }
+    }
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();
@@ -73,6 +111,19 @@ public sealed partial class InstanceState
     public bool IsStartWeapon(string character, uint id)
     {
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
+    }
+
+    readonly Dictionary<string, (int X, int Y)> _positions = new(StringComparer.Ordinal);
+
+    /// <summary>Remembers a rule's first position in this instance, including across connection and module reloads.</summary>
+    public void RememberPosition(string key, (int X, int Y) position)
+    {
+        lock (_positions) _positions.TryAdd(key, position);
+    }
+
+    public (int X, int Y)? RememberedPosition(string key)
+    {
+        lock (_positions) return _positions.TryGetValue(key, out var position) ? position : null;
     }
 
     readonly HashSet<string> _states = new(StringComparer.Ordinal);

@@ -25,6 +25,10 @@ static partial class PortalsRules
     /// cell) and where it leads (a town's HASH16, or the hideout's). While the server runs.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenPortal> OpenPortals = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Each character's town portal standing in a map instance (it leads to the hideout, with no portal back
+    /// there): an entry through that map's device portals arrives at it. While the server runs.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, OpenPortal> MapTownPortals = new(StringComparer.OrdinalIgnoreCase);
+
     // WorldAreas' own mods (AreaModCatalog); loaded with the first Portal Scroll.
     internal static readonly Lazy<AreaModCatalog> AreaMods = new(() => AreaModCatalog.Load());
     internal const string PortalScroll = "Metadata/Items/Currency/CurrencyPortal";

@@ -245,12 +245,15 @@ public sealed class ConnectionPerformance
         long allocatedDelta = allocated - Interlocked.Exchange(ref lastAllocatedBytes, allocated);
         double cpu = Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
         double cpuDelta = cpu - Interlocked.Exchange(ref lastCpuMs, (long)cpu);
+        long reads = Saves.CharacterReads, readsDelta = reads - Interlocked.Exchange(ref lastSaveReads, reads);
         return $"gc-pause={pauseDelta:0}ms gc-alloc={allocatedDelta / (1024.0 * 1024.0) / Math.Max(.001, seconds):0}MB/s "
             + $"gc-gen2={GC.CollectionCount(2)} proc-cpu={cpuDelta / Math.Max(.001, seconds) / 10:0}% "
-            + $"tp-threads={ThreadPool.ThreadCount} tp-pending={ThreadPool.PendingWorkItemCount}";
+            + $"tp-threads={ThreadPool.ThreadCount} tp-pending={ThreadPool.PendingWorkItemCount} "
+            + $"save-reads={readsDelta / Math.Max(.001, seconds):0}/s";
     }
 
     static long lastPauseMs = (long)GC.GetTotalPauseDuration().TotalMilliseconds;
     static long lastAllocatedBytes = GC.GetTotalAllocatedBytes();
     static long lastCpuMs = (long)Process.GetCurrentProcess().TotalProcessorTime.TotalMilliseconds;
+    static long lastSaveReads;
 }

@@ -153,6 +153,10 @@ public static partial class Game
                 }
                 foreach (var (id, m) in conn.Monsters)
                 {
+                    // Rupture outlives short bleeds and the attacker; only its own timers or the target's death end it.
+                    SettleBleeding(m, now);
+                    if (conn.MonsterViews.ContainsKey(id))
+                        foreach (var packet in PresentRupturesLocked(conn, id, m, now)) bytes.AddRange(packet);
                     bool living = alive && !m.Dead && m.Life > 0 && m.Hostile;
                     bool taunted = Timed(id, living, ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
                         FlaskGrounds.TauntedBuffRow, TauntedBuffValues, m.RecipientDebuffRate);
@@ -204,7 +208,9 @@ public static partial class Game
                     int physical = fleshBlood && living && fleshPhysical > 0 && distance <= fleshRadius
                         ? (int)Math.Round(fleshPhysical * AuraCatalog.DistanceEffect(distance, fleshRadius), MidpointRounding.AwayFromZero)
                         : 0;
-                    m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental, physical);
+                    // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
+                    int consecrated = living ? conn.FlaskGrounds.ConsecratedEnemyDamageTaken(m.Walk.Position(now)) : 0;
+                    m.TakenFromPlayer = ((taunted ? config.TauntedDamageTakenPct : 0) + consecrated, elemental, physical);
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;

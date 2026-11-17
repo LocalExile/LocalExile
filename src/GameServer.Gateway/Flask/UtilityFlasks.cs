@@ -49,6 +49,7 @@ public static class UtilityFlasks
         "base_stun_recovery_+%",
         "curse_effect_on_self_+%", "chance_to_freeze_shock_ignite_%",
         "immune_to_poison", "immune_to_bleeding",
+        "light_radius_+%",   // the client draws the light radius from the stat it gets
     };
 
     static readonly IReadOnlySet<string> ElementalAilmentInputs = new HashSet<string>(StringComparer.Ordinal)
@@ -93,6 +94,38 @@ public static class UtilityFlasks
         ("local_flask_dispels_burning_and_ignite_immunity_during_effect", "base_immune_to_ignite", 1, true),
         ("local_flask_immune_to_poison_during_flask_effect", "immune_to_poison", 1, true),
         ("local_flask_immune_to_bleeding_and_corrupted_blood_during_flask_effect", "immune_to_bleeding", 1, true),
+        // Dying Sun: "(10-20)% increased Area of Effect during Effect", "Skills fire 2 additional Projectiles during
+        // Effect". Both scale with increased flask effect, rounded down (2 x 1.5 = 3 projectiles).
+        ("local_flask_area_of_effect_+%_during_flask_effect", "base_skill_area_of_effect_+%", 1, false),
+        ("local_flask_number_of_additional_projectiles_during_flask_effect", "number_of_additional_projectiles", 1, false),
+        // Oriath's End: the kill explosion's chance (KillExplosions), scaled by flask effect.
+        ("local_unique_flask_explode_enemies_for_10%_life_as_random_element_on_kill_chance_%_during_flask_effect",
+            "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%", 1, false),
+        // Divination Distillate (a hybrid flask: RecoveryDuringEffects keeps these while its recovery runs).
+        ("local_unique_flask_item_rarity_+%_while_healing", "base_item_found_rarity_+%", 1, false),
+        ("local_unique_flask_item_quantity_+%_while_healing", "base_item_found_quantity_+%", 1, false),
+        ("local_unique_flask_light_radius_+%_while_healing", "light_radius_+%", 1, false),
+        ("local_unique_flask_resist_all_elements_%_during_flask_effect", "base_resist_all_elements_%", 1, false),
+        // Bottled Faith: increased critical strike chance against enemies on consecrated ground (Game.CriticalChanceOn),
+        // and the increased damage taken that consecrated ground created during the effect applies (FlaskGrounds).
+        ("local_unique_flask_critical_strike_chance_+%_vs_enemies_on_consecrated_ground_during_flask_effect",
+            FlaskGrounds.VsConsecratedCriticalStat, 1, false),
+        ("local_flask_during_effect_enemy_damage_taken_+%_on_consecrated_ground", FlaskGrounds.EnemyDamageTakenStat, 1, false),
+        // Cinderswallow Urn: recovery on kill (KillRecovery.From reads the merged player stats), and the increased damage
+        // taken retained by each ignite applied during the effect (MonsterIgnites).
+        ("local_flask_recover_%_maximum_life_on_kill_during_flask_effect", "recover_%_maximum_life_on_kill", 1, false),
+        ("local_flask_recover_%_maximum_mana_on_kill_during_flask_effect", "recover_%_maximum_mana_on_kill", 1, false),
+        ("local_flask_recover_%_maximum_energy_shield_on_kill_during_flask_effect", "recover_energy_shield_%_on_kill", 1, false),
+        ("local_flask_enemies_ignited_during_flask_effect_damage_taken_+%", IgnitedDuringEffectTakenStat, 1, false),
+        // Rumi's Concoction and its Replica: additional chance to block attack and spell damage (the buff's own stats,
+        // BuffDefinitions unique_flask_rumis_concoction), added to the pools' block before its increases (Apply).
+        ("local_unique_flask_block_%_while_healing", "monster_base_block_%", 1, false),
+        ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%", 1, false),
+        // Stormblood (and its cold sibling): all damage from critical strikes can shock (chill, freeze) during the effect
+        // (MonsterElementalAilments.Inflicting). Sap and Brittle are not modelled.
+        ("local_unique_flask_all_damage_from_critical_strikes_can_shock_during_effect", "all_damage_from_critical_strikes_can_shock", 1, true),
+        ("local_unique_flask_all_damage_from_critical_strikes_can_chill_during_effect", "all_damage_from_critical_strikes_can_chill", 1, true),
+        ("local_unique_flask_all_damage_from_critical_strikes_can_freeze_during_effect", "all_damage_from_critical_strikes_can_freeze", 1, true),
     ];
 
     /// <summary>A buff a flask grants besides its own (BuffDefinitions row, with its stats).</summary>
@@ -111,6 +144,15 @@ public static class UtilityFlasks
         "base_movement_velocity_+%", "attack_speed_+%", "base_cast_speed_+%",
         "critical_strike_chance_+%", "base_spell_suppression_chance_%", "damage_+%",
         "physical_damage_reduction_rating_+%", "evasion_rating_+%", "base_item_found_rarity_+%", "phase_through_objects",
+        "base_skill_area_of_effect_+%", "number_of_additional_projectiles",
+        "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%",
+        "base_item_found_quantity_+%",   // ItemQuantityFactor
+        FlaskGrounds.VsConsecratedCriticalStat, FlaskGrounds.EnemyDamageTakenStat,   // Bottled Faith
+        "recover_%_maximum_life_on_kill", "recover_%_maximum_mana_on_kill", "recover_energy_shield_%_on_kill",
+        IgnitedDuringEffectTakenStat,   // Cinderswallow Urn
+        "monster_base_block_%", "base_spell_block_%",   // Rumi's Concoction (Apply)
+        "all_damage_from_critical_strikes_can_shock", "all_damage_from_critical_strikes_can_chill",
+        "all_damage_from_critical_strikes_can_freeze",   // Stormblood
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -193,10 +235,59 @@ public static class UtilityFlasks
         if (u.Extra is { } x) stats.AddRange(OnslaughtSources(x, onslaughtEffect));
         // The flask's "during effect" mods, scaled by increased effect too (poewiki, Quality: increased flask effect
         // improves "any of the mods that the flask has rolled"); flags stay as they are.
-        foreach (var (localStat, stat, sign, flag) in DuringEffect)
-            if (Get(localStat) is int value and not 0 && Applies(stat))
-                stats.Add(new Source($"mod {stat}", stat, sign * (flag ? 1 : Scale(value, effect))));
+        stats.AddRange(DuringEffectSources(local, effect));
         return (stats, Math.Max(0.1, seconds));
+    }
+
+    /// <summary>Cinderswallow Urn's "Enemies Ignited by you during Effect take X% increased Damage", as a running
+    /// effect's stat (no client stat carries it; the server reads it from the running flasks).</summary>
+    public const string IgnitedDuringEffectTakenStat = "local_flask_enemies_ignited_during_flask_effect_damage_taken_+%";
+
+    /// <summary>A flask's "during effect" mods at <paramref name="effect"/> (its increased effect): utility flasks through
+    /// <see cref="For"/>, life, mana and hybrid flasks through <see cref="RecoveryDuringEffects"/>.</summary>
+    public static List<Source> DuringEffectSources(IReadOnlyDictionary<string, int> local, double effect)
+    {
+        List<Source> stats = [];
+        foreach (var (localStat, stat, sign, flag) in DuringEffect)
+            if (local.GetValueOrDefault(localStat) is int value and not 0 && SupportOf(stat) != Support.Unsupported)
+                stats.Add(new Source($"mod {stat}", stat, sign * (flag ? 1 : Scale(value, effect))));
+        return stats;
+    }
+
+    /// <summary>The "during effect" mods of life, mana and hybrid flasks (Divination Distillate, the suffixes): each use's
+    /// stats count while any of that use's own recovery effects still runs (Flasks.Effects), so they also end when the
+    /// pools fill and the recovery stops early, at death and when the recovery is discarded. Copies of the same mod do not
+    /// stack: the strongest-per-(effect, stat) pass (CombineUtilitySources) counts one.</summary>
+    public sealed class RecoveryDuringEffects
+    {
+        readonly List<(IReadOnlyList<Flasks.Effect> Effects, IReadOnlyList<Source> Stats)> _uses = [];
+        readonly Lock _lock = new();
+
+        public void Start(IReadOnlyList<Flasks.Effect> effects, IReadOnlyList<Source> stats)
+        {
+            if (effects.Count == 0 || stats.Count == 0) return;
+            lock (_lock) _uses.Add((effects, stats));
+        }
+
+        (IReadOnlyList<Flasks.Effect> Effects, IReadOnlyList<Source> Stats)[] Snapshot()
+        {
+            lock (_lock) return [.. _uses];
+        }
+
+        static bool Running(IReadOnlyList<Flasks.Effect> effects, Flasks.Effects running) =>
+            effects.Any(e => running.Remaining(e) > 0);
+
+        public IEnumerable<Source> Sources(Flasks.Effects running) =>
+            [.. Snapshot().Where(u => Running(u.Effects, running)).SelectMany(u => u.Stats)];
+
+        /// <summary>Drops the uses whose recovery has ended: whether any were dropped (the stats changed).</summary>
+        public bool Prune(Flasks.Effects running)
+        {
+            var ended = Snapshot().Where(u => !Running(u.Effects, running)).ToList();
+            if (ended.Count == 0) return false;
+            lock (_lock) _uses.RemoveAll(u => ended.Any(e => ReferenceEquals(e.Effects, u.Effects)));
+            return true;
+        }
     }
 
     /// <summary>A value scaled by increased effect as the game rounds it (poewiki: "always rounded down"; Path of Building
@@ -330,6 +421,19 @@ public static class UtilityFlasks
             lock (_lock) return [.. _active.SelectMany(a => a.Stats)];
         }
 
+        /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>
+        public int MaximumStat(string stat)
+        {
+            lock (_lock)
+            {
+                int value = 0;
+                foreach (var effect in _active)
+                    foreach (var source in effect.Stats)
+                        if (source.Stat == stat) value = Math.Max(value, source.Value);
+                return value;
+            }
+        }
+
         /// <summary>Whether a running effect shows its own Onslaught buff (a Silver Flask's).</summary>
         public bool ShowsOnslaught
         {
@@ -385,6 +489,8 @@ public static class UtilityFlasks
             CriticalStrikeChancePct = b.CriticalStrikeChancePct + Get("critical_strike_chance_+%"),
             SpellCriticalStrikeChancePct = b.SpellCriticalStrikeChancePct + Get("critical_strike_chance_+%"),
             SpellSuppressionChance = b.SpellSuppressionChance + Get("base_spell_suppression_chance_%"),
+            BlockChance = b.BlockChance + Get("monster_base_block_%"),
+            SpellBlockChance = b.SpellBlockChance + Get("base_spell_block_%"),
         };
     }
 
@@ -403,6 +509,18 @@ public static class UtilityFlasks
                 "base_maximum_fire_damage_resistance_%" or "base_maximum_cold_damage_resistance_%"
                     or "base_maximum_lightning_damage_resistance_%" or "base_maximum_chaos_damage_resistance_%"
                     or "critical_strike_chance_+%" or "damage_+%" or "base_item_found_rarity_+%" => stat,
+                // Dying Sun: the skill area and projectile count read these from the merged player stats
+                // (SkillArea.Increased, GatewayProjectileModifiers.Resolve); the client predicts its spell
+                // projectiles from the same stat.
+                "base_skill_area_of_effect_+%" or "number_of_additional_projectiles" => stat,
+                // Oriath's End: KillExplosions.ExplodeOnKill reads it from the merged player stats.
+                "explode_enemies_for_10%_life_as_random_element_on_kill_chance_%" => stat,
+                "base_item_found_quantity_+%" => stat,   // ItemQuantityFactor reads the merged player stats
+                // Cinderswallow Urn: KillRecovery.From reads these from the merged player stats.
+                "recover_%_maximum_life_on_kill" or "recover_%_maximum_mana_on_kill" or "recover_energy_shield_%_on_kill" => stat,
+                // Stormblood: the hit's ailments read these from the merged player stats.
+                "all_damage_from_critical_strikes_can_shock" or "all_damage_from_critical_strikes_can_chill"
+                    or "all_damage_from_critical_strikes_can_freeze" => stat,
                 "base_cast_speed_+%" => "cast_speed_+%",
                 // Onslaught's attack speed is PoB's Speed INC (Attack): the attack-speed stat itself, not only the
                 // pools' timing bucket. The pools already add it through Apply, and PassiveBonus reads the passives'

@@ -6,6 +6,17 @@ using DamageType = GameServer.Core.World.DamageType;
 
 public static partial class Game
 {
+    // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
+    // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
+    internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
+        IReadOnlyDictionary<uint, int> player)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        double raw = maximumLife / 10d;
+        return PlayerHitDamage.Resolve(DamagePacket.Of(element, raw, raw), Get,
+            DamageStats.Conversion(player, Stats, attack: null), spell: false, area: true, secondary: true);
+    }
+
     /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
     /// exploded monsters 22.85 and 24.35 cells away). The native radius does not follow the character's increased area
     /// of effect; scaling our 25 by a 85% AoE build produced 37 cells and hit roughly twice the native crowd, which
@@ -15,7 +26,24 @@ public static partial class Game
     /// <summary>The explosion's art: the server effect's MiscAnimated row 2877, `HolyExplosion` (official 3.29.3b,
     /// 2026-11-05). It plays for about two seconds at the corpse.</summary>
     public const string KillExplosionAo = "Metadata/Effects/Spells/holy_explode/holy_explode.ao";
-    const int KillExplosionArtMs = 2000;
+    /// <summary>How long each explosion art plays, read from the client's own rig for it: the .ao's single animation
+    /// (`explode`, once), which is what the client plays on the EffectObject. HolyExplosion's
+    /// `Art/Models/Effects/holy_explode/holy_explode.amd` is 2000 ms, and so is ChaosExplode's
+    /// `Art/Models/Effects/chaos_explode/chaos_explode.amd`: the two share a length, but each keeps its own entry, so an
+    /// art that plays for a different time cannot inherit the other's. A value is the object's lifetime: removing it
+    /// earlier cuts the clip, later leaves it hanging at the corpse.</summary>
+    static readonly Dictionary<string, int> KillExplosionArtMs = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [KillExplosionAo] = 2000,
+        [ChaosExplosionAo] = 2000,
+    };
+
+    /// <summary>That art's clip length, for an art the table does not know (two seconds, the length of the blasts it
+    /// holds).</summary>
+    static int ArtMs(string art) => KillExplosionArtMs.GetValueOrDefault(art, 2000);
+    /// <summary>The chaos explosion the shrine stat uses instead: MiscAnimated 555/757/4312/6125
+    /// `Metadata/Effects/Spells/chaos_explode/chaos_explode.ao`, the client's own chaos blast (the purple one).</summary>
+    public const string ChaosExplosionAo = "Metadata/Effects/Spells/chaos_explode/chaos_explode.ao";
 
     /// <summary>"Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour
     /// prefix and the synthesis implicit). Every hostile living monster within the radius of the corpse takes X% of the
@@ -29,12 +57,34 @@ public static partial class Game
     {
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        int percent = Get("enemies_explode_for_%_life_as_physical_damage");
-        if (percent <= 0) return false;
-        int amount = (int)Math.Min(int.MaxValue, corpse.MaxLife * (long)percent / 100);
-        if (amount <= 0) return false;
+        int generic = Get("enemies_explode_for_%_life_as_physical_damage");
+        int bleedingPercent = Get("bleeding_enemies_explode_for_%_life_as_physical_damage");
+        bool bleeding;
+        // The killing bleed tick clears the list before the death runs (MonsterIgnites.Clear keeps DiedBurning for this).
+        lock (conn.Monsters) bleeding = corpse.Bleeds.Burning || corpse.Bleeds.DiedBurning;
+        // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
+        // are separate sources on the same kill).
+        int percent = generic + (bleeding ? bleedingPercent : 0);
+        int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
+        int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
+        // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
+        // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
+        int elementalChance = Get("explode_enemies_for_10%_life_as_random_element_on_kill_chance_%");
+        DamageType? element = elementalChance > 0 && Random.Shared.Next(100) < elementalChance
+            ? (DamageType)Random.Shared.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
+        int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
+        int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
+        int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
+        if (physical == 0 && chaos == 0 && elemental == 0) return false;
+        // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
+        var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
+            .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
+        var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, player) : DamagePacket.Empty;
+        var elementalPenetration = Penetration.Of(player, Stats, attack: false);
+        long amount = (long)physical + chaos + elemental;
+        string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
+            element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
         int radius = KillExplosionRadius;
-        var packet = DamagePacket.Of(DamageType.Physical, amount, amount);
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
         bool removeCorpse;
@@ -47,6 +97,12 @@ public static partial class Game
                 if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
                 if (Dist(m.Walk.Position(now), at) > radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false);
+                if (element is not null)
+                {
+                    var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
+                        type => MonsterHitResistance(m, type, elementalPenetration, now));
+                    damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
+                }
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }
@@ -58,16 +114,17 @@ public static partial class Game
             conn.Monsters.Remove(corpseId);
             effect = conn.TakeObjectId();
         }
-        Console.WriteLine($"[gateway] {remote} kill explosion 0x{corpseId:x} for {amount} physical within {radius} cells:" +
+        Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
+        string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
         await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
-            $"0x02bb create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
+            new EffectObject(at.X, at.Y, art).Blob()),
+            $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
         if (removeCorpse)
             await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
                 $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
-        SendAfter(KillExplosionArtMs / 1000.0, async () =>
+        SendAfter(ArtMs(art) / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
             await Game.SendWorldRemoval(remote, stream, ciphers, conn, effect, null);
@@ -75,7 +132,7 @@ public static partial class Game
         foreach (var (id, m, hit) in hits)
         {
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, hit.Life),
-                $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount}, life {hit.Life}/{m.MaxLife}");
+                $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }

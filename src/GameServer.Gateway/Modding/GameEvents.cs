@@ -39,11 +39,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     }
 
     /// <summary>The subscribers for this connection's league, with their owners (for <see cref="GameEventOwners.Guard"/>).</summary>
-    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn)
+    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn) => Subscribers(Program.LeagueFor(conn));
+
+    /// <summary>The subscribers for a league, before a connection exists (an area's inputs are decided first).</summary>
+    public IEnumerable<T> For(LeagueRuntime league)
+    {
+        foreach (var (_, run) in Subscribers(league)) yield return run;
+    }
+
+    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
-        var league = Program.LeagueFor(conn);
         foreach (var (owner, rank, run) in subscribers)
             if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
                 || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
@@ -139,6 +146,20 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>
 public static class GameEvents
 {
+    /// <summary>Adjust an entity's walking speed (cells/second) before its movement is resolved and presented.</summary>
+    public static readonly GameEvent<Func<ClientState, uint, double, double>> MovementSpeed = new();
+
+    public static double ResolveMovementSpeed(ClientState conn, uint entity, double speed)
+    {
+        foreach (var (owner, run) in MovementSpeed.Subscribers(conn))
+        {
+            double next = speed;
+            if (GameEventOwners.Guard(owner, nameof(MovementSpeed), () => next = run(conn, entity, speed))
+                && double.IsFinite(next) && next > 0) speed = next;
+        }
+        return speed;
+    }
+
     // ---- The player's connection ---------------------------------------------------------------------------------------
 
     /// <summary>Every player tick (about 4 a second while the player is in an area and not paused), with the game seconds since the last one.</summary>
@@ -146,6 +167,9 @@ public static class GameEvents
 
     /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> AreaGenerated = new();
+
+    /// <summary>The player has used an area transition to another room of this instance.</summary>
+    public static readonly GameEvent<Func<ClientState, Task>> LocalGateUsed = new();
 
     /// <summary>The player is about to leave the area or the game, with why.</summary>
     public static readonly GameEvent<Func<ClientState, string, Task>> PlayerLeaving = new();
@@ -158,6 +182,15 @@ public static class GameEvents
 
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>A map device's checked input before any item is consumed.</summary>
+    public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
+
+    public static void ResolveMapOpening(MapOpening request)
+    {
+        foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
+            GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
+    }
 
     /// <summary>A hostile monster died by the player's hand, after its kill was committed (<see cref="Kill"/> runs inside the commit).</summary>
     public static readonly GameEvent<Func<MonsterKill, Task>> MonsterKilled = new();
@@ -201,6 +234,11 @@ public static class GameEvents
     public static async Task RunAreaGenerated(ClientState conn)
     {
         foreach (var (owner, run) in AreaGenerated.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(AreaGenerated), () => run(conn));
+    }
+
+    public static async Task RunLocalGateUsed(ClientState conn)
+    {
+        foreach (var (owner, run) in LocalGateUsed.Subscribers(conn)) await GameEventOwners.Guard(owner, nameof(LocalGateUsed), () => run(conn));
     }
 
     public static async Task RunPlayerLeaving(ClientState conn, string why)

@@ -354,14 +354,22 @@ public static partial class Game
     public static Item AdornedJewel(Item item, int percent)
     {
         if (percent == 0 || item.Rarity != ItemRarity.Magic || !item.Corrupted) return item;
-        return item with
+        // One scaled copy per jewel and percentage: the stat sources' cache compares worn items by reference (and then
+        // their mod lists), so a new copy at every build missed it each time.
+        if (AdornedJewels.TryGetValue(item, out var kept) && kept.Percent == percent) return kept.Item;
+        var scaled = item with
         {
             Mods = [.. item.Mods.Select(mod => mod with
             {
                 Values = [.. mod.Values.Select(value => (int)Math.Floor(value * (100 + percent) / 100.0))],
             })],
         };
+        AdornedJewels.AddOrUpdate(item, new(percent, scaled));
+        return scaled;
     }
+
+    sealed record ScaledJewel(int Percent, Item Item);
+    static readonly RuleTable<Item, ScaledJewel> AdornedJewels = new();
 
     /// <summary>Why a held item cannot go into PassiveJewels1 at (x, y), or null: the slot must be an ordinary large
     /// jewel socket whose passive node is allocated, or a cluster jewel's expansion socket whose jewel is socketed,
@@ -709,8 +717,11 @@ public static partial class Game
             return;
         }
         if (!CurrentRecovery()) return;
+        // The flask's "during effect" mods (Divination Distillate), scaled by its increased effect.
+        var during = UtilityFlasks.DuringEffectSources(local,
+            FlaskEffectScaling.Multiplier(Get, playerLevel, local.GetValueOrDefault("local_flask_effect_+%")));
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife));
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, during));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -917,19 +928,23 @@ public static partial class Game
                 return new(InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize})");
             }
             var items = ItemsOf(conn);
-            if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf)
+            byte[] rows = ExpandedInventoryGranted(conn)
+                ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory] : [PlayerInventories.MainInventory];
+            if (items.StackAcross(rows, ground.Item, ShapeOf, preview: true).Values.Any(s => s.Left > 0)
                 || conn.Instance.Ground.Take(id, ground) is null) return null;
             var stacked = KeepOnGroundIfNotSaved(conn, ground,
-                () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf), id, origin);
+                () => items.StackAcross(rows, ground.Item, ShapeOf), id, origin);
             WorldItemObject? rest = null;
             uint restId = 0;
-            if (stacked.Left > 0)
+            int left = stacked.Values.First().Left;
+            if (left > 0)
             {
-                rest = ground with { Item = ground.Item with { StackSize = (ushort)stacked.Left } };
+                rest = ground with { Item = ground.Item with { StackSize = (ushort)left } };
                 restId = conn.Instance.Ground.Add(rest, origin.By, shared: origin.Shared, justDropped: false);
             }
-            return new(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-                items.NextRevision(PlayerInventories.MainInventory), stacked.RemovedIds, stacked.AddedItems),
+            return new([.. stacked.Where(p => p.Value.Any).SelectMany(p =>
+                InstanceItems.InventoryChange(PlayerInventories.InventoryId(p.Key),
+                    items.NextRevision(p.Key), p.Value.RemovedIds, p.Value.AddedItems))],
                 "pickup inventory", restId, rest);
         }
     }
@@ -1178,8 +1193,7 @@ public static partial class Game
                 ? CurrencyEffects.Binding(target, bindingType, RollsFor(conn), ItemsFor(conn).Requirements(bindingType), random)
                 : null,
             _ when CurrencyEffects.TaintedIds.Contains(type!.Id) => ItemsFor(conn).ByHash(target.TypeHash) is { } taintedType
-                ? CurrencyEffects.Tainted(type.Id, target, taintedType, RollsFor(conn),
-                    ItemsFor(conn).Requirements(taintedType), random)
+                ? CurrencyEffects.Tainted(type.Id, target, taintedType, RollsFor(conn), random)
                 : null,
             _ when isEssence => EssencesFor(conn).Apply(type!.Hash, target, random),
             // Rows the Id list above does not name, by their CurrencyItems.Action (CurrencyEffects.TryAction): the map
@@ -1222,15 +1236,15 @@ public static partial class Game
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
-        // A corrupted item takes no currency but a Scroll of Wisdom (no corrupted currency yet). A mirrored item takes
+        // A corrupted item takes no currency but a Scroll of Wisdom and Tainted currency (which needs one). A mirrored item takes
         // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
         // is not modelled.
         bool foreseeing = target.Item.Foreseeing;
         var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : Random.Shared;
         Item? result = type?.Id == CurrencyEffects.HinekorasLock
             ? RollsFor(conn).ApplyLock(target.Item, random)
-            : target.Item.Mirrored ? null
-            : target.Item.Corrupted && type?.Id != Wisdom ? null
+            : target.Item.Mirrored || target.Item.Vestigial ? null
+            : target.Item.Corrupted && type?.Id != Wisdom && !CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") ? null
             : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
@@ -1248,7 +1262,7 @@ public static partial class Game
                     $"sockets {target.Item.Sockets.Count}, roll cap {CurrencyEffects.MaximumSockets(target.Item, refusedType)}, " +
                     $"base cap {CurrencyEffects.SocketCapacity(target.Item, refusedType)}, gems {target.Item.Sockets.Count(s => s.Gem is not null)}");
             Console.WriteLine($"[gateway] {remote} <= 0x0071 use {type?.Name ?? $"0x{used.Item.TypeHash:x8}"} on item {use.TargetId}: " +
-                (isEssence || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
+                (isEssence || CurrencyEffects.TaintedIds.Contains(type?.Id ?? "") || type?.Id is Wisdom or FlaskEnchantments.Enkindling or FlaskEnchantments.Instilling or CurrencyEffects.ChromaticOrb or CurrencyEffects.JewellersOrb or CurrencyEffects.OrbOfFusing or CurrencyEffects.OrbOfAlchemy or CurrencyEffects.ChaosOrb or CurrencyEffects.DivineOrb or CurrencyEffects.BlessedOrb or CurrencyEffects.OrbOfScouring or CurrencyEffects.OrbOfTransmutation or CurrencyEffects.OrbOfAlteration or CurrencyEffects.OrbOfAugmentation or CurrencyEffects.RegalOrb or CurrencyEffects.ExaltedOrb or CurrencyEffects.OrbOfAnnulment or CurrencyEffects.AncientOrb or CurrencyEffects.ArmourersScrap or CurrencyEffects.SacredOrb or CurrencyEffects.BlacksmithsWhetstone or CurrencyEffects.OrbOfChance or CurrencyEffects.VaalOrb or CurrencyEffects.GlassblowersBauble or CurrencyEffects.GemcuttersPrism or CurrencyEffects.FracturingOrb or CurrencyEffects.LesserEldritchIchor or CurrencyEffects.GreaterEldritchIchor or CurrencyEffects.GrandEldritchIchor or CurrencyEffects.ExceptionalEldritchIchor or CurrencyEffects.LesserEldritchEmber or CurrencyEffects.GreaterEldritchEmber or CurrencyEffects.GrandEldritchEmber or CurrencyEffects.ExceptionalEldritchEmber
                     ? "target refused (corrupted / mirrored / identified / wrong rarity / no explicit mods / unsupported sockets / maximum sockets / socketed gems / protected links / fixed defence bases)" : $"not handled: {hex}"));
             return;
         }

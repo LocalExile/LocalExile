@@ -139,6 +139,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
+        // An Energy Shield cost (CostTypes 2: Energy Blade, Wild Strike of Extremes).
+        if (gepl >= 0 && t.EsCost[gepl] > 0) { Put("base_es_cost", t.EsCost[gepl]); Put("es_cost", t.EsCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -272,6 +274,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return row >= 0 && row < t.Effectiveness.Count ? Math.Max(0, t.Effectiveness[row]) : 0;
     }
 
+    /// <summary>The two independent GESSPL coefficients in permyriad. Missing metadata is identity;
+    /// an explicit -10000 offset resolves to zero, not the missing-data fallback.</summary>
+    public (int Base, int Added) DamageCoefficients(int effectRow, int level)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return (10000, 10000);
+        int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
+        return row >= 0 && row < t.DamageCoefficients.Count ? t.DamageCoefficients[row] : (10000, 10000);
+    }
+
     /// <summary>The inherent weapon attack-rate multiplier at the selected GEPL level, in percent.
     /// It multiplies weapon rate separately from player increased speed; absent data keeps ordinary weapon timing.</summary>
     public int AttackSpeedMultiplier(int effectRow, int level) =>
@@ -320,7 +331,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>The ActionTypes Id of a basic action's skill id (HASH16 &amp; 0x3fff: Move 0x2909), or null.</summary>
-    public string? ActionName(ushort skillId) => _actions.Value.FirstOrDefault(a => a.Id == skillId).Name;
+    public string? ActionName(ushort skillId)
+    {
+        foreach (var action in _actions.Value)
+            if (action.Id == skillId) return action.Name;
+        return null;
+    }
 
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
@@ -765,6 +781,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // name: ActiveSkills splitting_steel (+ its two transfigured variants) draws ImpactingSteelSkill.dds, and the gem's
     // ItemVisualIdentity SkillGemSplittingSteel is Art/2DItems/Gems/ImpactingSteelGem.dds (the archive has no
     // SplittingSteel art at all). Without it every use was refused (live 2026-11-09).
+    // Molten Strike fires Metadata/Projectiles/MoltenStrikeChunk (Projectiles row 107; Speed 750, 633 ms flight clip).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -803,6 +820,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["MoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltX"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["MoltenStrikeAltY"] = "Metadata/Projectiles/MoltenStrikeChunk",
+        ["VaalMoltenStrike"] = "Metadata/Projectiles/MoltenStrikeChunk",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -852,8 +873,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     });
 
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
-    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py); a flight clip also its
+    /// first "contact" in ms (its length without one), by which the client times a spell mortar's landing.</summary>
+    public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once, int? Contact = null)
+    {
+        /// <summary>The flight's candidate clips (a group, several names) land at different contacts.</summary>
+        public bool Varies { get; init; }
+    }
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
     /// if it declares one (the wand bolt's <c>projectile_01</c>: it flies by itself), the flight clip (Projectiles.dat
@@ -871,7 +897,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         {
             ProjectileClip? Clip(string key) =>
                 r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
-                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false, r.IntOrNull(key + "_contact"))
+                        { Varies = r.BoolOrNull(key + "_varies") ?? false } : null;
             result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
@@ -907,6 +934,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
     {
+        /// <summary>Every contact of a clip with several (monster_contact_clip_frames: the Iguana's five spines), in time
+        /// order; null for a clip with one or none.</summary>
+        public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
+
+        /// <summary>The merged AO/rig clock was extracted completely. False for legacy data or an unsupported span;
+        /// true with null slow bounds means the clip has no slow span.</summary>
+        public bool ClockMetadataAvailable { get; init; }
+        public int? SlowBeginMs { get; init; }
+        public int? SlowEndMs { get; init; }
+        public double? BudgetSeconds { get; init; }
+
         /// <summary>The contact as a fraction of the clip, clamped to it: an .ao event time is independent of the rig's
         /// clip length, and a release past the attack's end would miss its busy period.</summary>
         public double? ContactFraction => ContactMs is int ms && LengthMs > 0 ? Math.Clamp((double)ms / LengthMs, 0, 1) : null;
@@ -925,18 +963,65 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return pool[AnimationVariantSelector.Select(sequence, weights)];
     }
 
+    /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
+    public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
+        _monsterContacts.Value.TryGetValue(varietyId, out var pools) && pools.TryGetValue(animationKey, out var pool) ? pool : null;
+
+    /// <summary>The ordinary melee clip clock from the variety's actual AO, independent of the legacy projectile
+    /// and boss contact corpus. Null when that separate metadata has not been extracted.</summary>
+    public MonsterClipContact? MeleeClock(string varietyId, ushort sequence)
+    {
+        if (!_monsterMeleeClocks.Value.TryGetValue(varietyId, out var pool) || pool.Length == 0) return null;
+        Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
+        weights.Fill(1);
+        return pool[AnimationVariantSelector.Select(sequence, weights)];
+    }
+
+    /// <summary>Load ordinary melee timing and action identity before gameplay starts, so the first swing does not
+    /// read and index the generated tables while holding the game's simulation lock.</summary>
+    public void WarmMonsterMeleeClocks()
+    {
+        _ = _monsterMeleeClocks.Value;
+        _ = _actions.Value;
+    }
+
+    private readonly Lazy<Dictionary<string, MonsterClipContact[]>> _monsterMeleeClocks = new(() =>
+    {
+        var result = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
+        if (ClientTables.TableOrNull("monster_melee_clocks") is not { } clocks
+            || ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
+        var byVariety = clocks.By("monster");
+        foreach (var variety in varieties)
+        {
+            var pool = byVariety[variety.Index].OrderBy(c => c.Int("ord"))
+                .Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"), c.Int("length"), c.IntOrNull("contact"), null)
+                {
+                    ClockMetadataAvailable = c.BoolOrNull("clock") == true,
+                    SlowBeginMs = c.IntOrNull("slow_begin"), SlowEndMs = c.IntOrNull("slow_end"),
+                    BudgetSeconds = c.RealOrNull("budget"),
+                }).ToArray();
+            if (pool.Length > 0) result[variety.Text("variety")!] = pool;
+        }
+        return result;
+    });
+
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
         var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        var framesByClip = ClientTables.TableOrNull("monster_contact_clip_frames")?.By("clip");
+        IReadOnlyList<(int, ContactPoint?)>? Frames(int clip) => framesByClip is null ? null
+            : framesByClip[clip].OrderBy(f => f.Int("ord")).Select(f => (f.Int("ms"), AnimationContacts.Point(f, "position"))).ToArray() is { Length: > 1 } all
+                ? all : null;
         foreach (var variety in varieties)
         {
             var byKey = clipsByVariety[variety.Index]
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
                 .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
-                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position")) { Contacts = Frames(c.Index) }).ToArray(),
+                    StringComparer.Ordinal);
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
@@ -1117,7 +1202,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
         public DamagePacket? LocalDamage { get; init; }
-        /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
+        /// <summary>Raw item-local and weapon-scoped modifiers captured with this weapon, including penetration and impale chance.</summary>
         public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 
@@ -1304,8 +1389,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // StatSetBase: per GrantedEffectStatSets row its ImplicitStats and (ConstantStats, ConstantStatsValues).
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
     // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
-    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7,
-    // ManaPercentPerMinute of CostTypes 9.
+    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; LifeCost of CostTypes 1, EsCost of
+    // CostTypes 2, ManaPerMinute of CostTypes 7, ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
     // Cooldowns: per GEPL row its Cooldown (ms), StoredUses and CooldownBypassType, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
@@ -1316,7 +1401,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
-        List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
+        List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
+        List<int> EsCost)
     {
         public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
             .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
@@ -1370,6 +1456,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
             var life = new List<int>();
+            var es = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
@@ -1387,6 +1474,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 int lifeIndex = Array.IndexOf(types, 1);
                 life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
+                int esIndex = Array.IndexOf(types, 2);
+                es.Add(esIndex >= 0 && esIndex < amounts.Length ? amounts[esIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
@@ -1409,6 +1498,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var setLevels = new List<(int, int)>();
             var effectiveness = new List<int>();
+            var damageCoefficients = new List<(int Base, int Added)>();
             var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
@@ -1418,6 +1508,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
                 effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
                     ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
+                damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
@@ -1426,7 +1517,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
-                manaPercentPerMinute);
+                manaPercentPerMinute, damageCoefficients, es);
+
+            static int Coefficient(int? offset) => offset is int value
+                ? (int)Math.Clamp(10_000L + value, 0, int.MaxValue) : 10_000;
         }
     }
 }

@@ -101,11 +101,12 @@ public class SacrificeSupportTests
             var gem = Game.GemSkillEffects(conn).First(g => g.Gem != 0 && (spell == "Reap" || Game.SkillsFor(conn).EffectId(g.Effect) == spell));
             var session = fixture.Session;
             await Game.LaunchProjectile("sacrifice", fixture.Stream, fixture.Ciphers, conn, gem.Id, (100,100), (120,100), conn.ActionInterruptionGeneration);
+            long releasedAt = session.Runtime.Now;
             Assert.Equal(1000u, conn.PlayerLife);
             _ = Game.CommitGemExperience(conn, 1);
             Game.ItemsOf(conn).Add(PlayerInventories.BodyArmour, 0, 0,
                 ItemCatalog.Create(Program.Items.Find("Plate Vest")!));
-            session.AdvanceTo(ProjectileRuntime.Time(.6));
+            session.AdvanceTo(releasedAt + ProjectileRuntime.Time(.6));
             Assert.Equal(800u, conn.PlayerLife);
             var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             session.Enqueue(() => { drained.SetResult(); return Task.CompletedTask; });
@@ -119,20 +120,20 @@ public class SacrificeSupportTests
             Assert.Equal(expectedLife, published);
             var hit = Assert.IsType<ProjectileOffense>(session.Runtime.Projectiles.First().Use.Payload).Hit;
             Assert.True(hit[DamageType.Chaos].Min > 0);
-            session.AdvanceTo(ProjectileRuntime.Time(1.5));
+            session.AdvanceTo(releasedAt + ProjectileRuntime.Time(1.5));
             Assert.Equal(800u, conn.PlayerLife);
 
             // A separate original cast pays again, with live life, and shares increased/more and prohibitions.
             fixture.ResetSession();
             conn.PlayerStats[Program.Stats.Key("chaos_damage_+%")!.Value] = 200;
             await Game.LaunchProjectile("sacrifice", fixture.Stream, fixture.Ciphers, conn, gem.Id, (100,100), (120,100), conn.ActionInterruptionGeneration);
-            fixture.Session.AdvanceTo(ProjectileRuntime.Time(.6));
+            fixture.Session.AdvanceTo(fixture.Session.Runtime.Now + ProjectileRuntime.Time(.6));
             var increased = Assert.IsType<ProjectileOffense>(fixture.Session.Runtime.Projectiles.First().Use.Payload).Hit;
             Assert.Equal(hit[DamageType.Chaos].Min * 3, increased[DamageType.Chaos].Min, 6);
             fixture.ResetSession();
             conn.PlayerStats[Program.Stats.Key("base_deal_no_chaos_damage")!.Value] = 1;
             await Game.LaunchProjectile("sacrifice", fixture.Stream, fixture.Ciphers, conn, gem.Id, (100,100), (120,100), conn.ActionInterruptionGeneration);
-            fixture.Session.AdvanceTo(ProjectileRuntime.Time(.6));
+            fixture.Session.AdvanceTo(fixture.Session.Runtime.Now + ProjectileRuntime.Time(.6));
             Assert.Equal(0, Assert.IsType<ProjectileOffense>(fixture.Session.Runtime.Projectiles.First().Use.Payload).Hit[DamageType.Chaos].Min);
             conn.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
             Assert.Equal(0, Game.SupportedHitFor(conn, gem.Id, suppress: true, addedChaos: 70).MinTotal);

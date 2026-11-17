@@ -79,7 +79,7 @@ public static class StatConditions
     static readonly string[] StateSuffixes =
     [
         "_while_on_full_energy_shield", "_while_no_energy_shield", "_while_on_full_life", "_while_on_low_life",
-        "_while_on_full_mana", "_while_on_low_mana", "_while_moving", "_while_stationary", "_while_phasing",
+        "_while_on_full_mana", "_while_on_low_mana", "_while_moving", "_while_stationary", "_while_phasing", "_while_affected_by_elusive", "_while_elusive", "_while_you_have_elusive",
         "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_leeching",

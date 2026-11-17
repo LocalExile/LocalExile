@@ -27,7 +27,7 @@ public static class VaalOversoul
             catalog.EffectStats(pair.Effect, Level(catalog, pair.Effect, pair.Level)).ToDictionary(p => p.Item1, p => p.Item2));
         return Stats.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
     }
-    static MonsterAttack Attack(ClientState conn, MonsterCatalog.Variety v, byte level, int effect)
+    internal static MonsterAttack Attack(ClientState conn, MonsterCatalog.Variety v, byte level, int effect)
     {
         var catalog = Game.SkillsFor(conn);
         var damage = catalog.HitDamage(effect, Level(catalog, effect, level));
@@ -43,7 +43,11 @@ public static class VaalOversoul
         double seconds = Math.Max(.1, catalog.CastTimeMs(effect) / 1000d);
         if (effect is Summon or Laser)
             seconds /= 1 + Stat(conn, effect, level, "active_skill_cast_speed_+%_final") / 100d;
-        return new(Skill(effect), seconds, 105, effect is Travel or Ice ? DamagePacket.Empty : damage) { Spell = true, Scripted = true };
+        return new(Skill(effect), seconds, 105, effect is Travel or Ice ? DamagePacket.Empty : damage)
+        {
+            Spell = true, Scripted = true,
+            Ailments = IncomingAilmentSettings(name => Stat(conn, effect, level, name)),
+        };
     }
     public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety v, byte level)
     {
@@ -56,14 +60,6 @@ public static class VaalOversoul
             if (effect == Laser && Stats.Key("skill_repeat_count") is uint repeat) stats.Add((repeat, 0));
             return catalog.FindByRow(Skill(effect), effect, Level(catalog, effect, level), Game.WithBehaviourVariation(conn, effect, stats));
         }).OfType<GrantedSkill>()];
-    }
-    public static void LaserShock(ClientState conn, SpawnedMonster m, MonsterAttack attack, DamagePacket taken, bool blocked, double now,
-        IReadOnlyDictionary<uint, int> stats)
-    {
-        if (!IsBoss(m.Variety) || attack.SkillId != Skill(Laser) || blocked || conn.PlayerLife == 0 || InGracePeriod(conn)) return;
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        double magnitude = 50 * Math.Pow(taken[DamageType.Lightning].Min / Math.Max(1, conn.PlayerMaxLife), .4);
-        conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, magnitude, 4, now, Get, conn.IncomingHitRandom);
     }
     public static bool CannotCrit(SpawnedMonster m, MonsterAttack attack) => IsBoss(m.Variety) && attack.SkillId == Skill(Slam);
 
@@ -394,9 +390,8 @@ public static class VaalOversoul
                     {
                         var stats = CharacterPlayerStats(p);
                         int Get(string n) => Stats.Key(n) is uint k ? stats.GetValueOrDefault(k) : 0;
-                        double before = p.ElementalAilments.ActionFactor(now);
-                        p.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom);
-                        PlayerAilmentsChangedLocked(p, before, now);
+                        ApplyPlayerAilmentsLocked(p, now, ailments =>
+                            ailments.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
                     }
                     VaalGroundMinionsLocked(p, now, Stat(p, Cold, boss.Level, "base_cold_damage_to_deal_per_minute") / 60d,
                         at => cold.Any(patch => Distance(patch.At, at) <= 7.5), minionDotCarry);

@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public class SkillBarOptionTests
 {
     [Fact]
-    public void Manual_clear_survives_auto_placement_and_can_be_rebound()
+    public async Task Manual_clear_survives_auto_placement_and_a_queued_refresh_keeps_the_latest_bind()
     {
         string character = "ManualBar" + Guid.NewGuid().ToString("N");
         CharacterSaves.SetSkillBar(character, 2, "IceShot");
@@ -18,6 +18,35 @@ public class SkillBarOptionTests
         Assert.DoesNotContain(added, s => s.Slot == 2 || s.Entry == "IceShot");
         SkillBarLayout.Bind(character, 5, "IceShot");
         Assert.DoesNotContain("IceShot", SkillBarLayout.Unassigned(CharacterSaves.Load(character)));
+        var previous = Program.GameLogicOrNull;
+        var outgoing = Program.Outgoing;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = SpellTotemExecutionTests.Connection(character);
+        using var wire = new SpellTotemExecutionTests.Wire();
+        var packets = new List<byte[]>();
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, wire.Ciphers)) packets.Add(bytes.ToArray()); };
+        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+        try
+        {
+            SkillBarLayout.Bind(character, 2, "Action/Move");
+            Assert.True(gate.Wait(0));
+            Task refresh;
+            try
+            {
+                refresh = Game.SendSkillBar("bar", wire.Stream, wire.Ciphers, conn);
+                Assert.False(refresh.IsCompleted);
+                SkillBarLayout.Bind(character, 2, "");
+            }
+            finally { gate.Release(); }
+            await refresh;
+            var bar = Assert.Single(packets, p => p.Length > 2 && p[0] == 0 && p[1] == 0x53);
+            Assert.Equal(0, System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bar.AsSpan(6, 2)));
+        }
+        finally
+        {
+            Program.Outgoing = outgoing; Program.SetGameLogic(previous!);
+            PlayerInventories.Forget(character);
+        }
     }
 
     // C→S 0x4f is framed, saved per slot, and goes back in 0x53's raw (little-endian) +0x2a mask; a bar sent with 0 there

@@ -6,6 +6,50 @@ namespace GameServer.Gateway.Tests;
 // values raised, implicits do not, and the same implicits move the rare affix caps.
 public sealed class ItemModEffectTests
 {
+    [Fact]
+    public void Imported_catalysts_and_crafting_properties_survive_storage_and_native_item_encoding()
+    {
+        using var gameRules = new GameRules();
+        string path = Path.Combine(Path.GetTempPath(), $"pob-item-properties-{Guid.NewGuid():N}.db");
+        Saves.Open(path);
+        try
+        {
+            var items = new ItemCatalog("data");
+            var ring = ItemCatalog.Create(items.Find("Helical Ring")!);
+            ring = With(items, ring, "StrengthEssence7_", ModSection.Explicit, 88);
+            ring = With(items, ring, "FireResist1", ModSection.Explicit, 40);
+            ring = ring with { Quality = 20, AlternateQualityType = 6, Intangibility = 74, MemoryStrands = 27,
+                RelicStyle = 8, Vestigial = true, RequiredLevel = 65 };
+            CharacterSaves.Write("PobProperties", new(new() { [6] = [new(1, 0, 0, CharacterSaves.ToSaved(ring, items.Mods))] }));
+            var saved = CharacterSaves.Load("PobProperties")!.Inventories[6][0].Item;
+            var restored = CharacterSaves.FromSaved(saved, items);
+            Assert.Equal((byte)74, restored.Intangibility);
+            Assert.Equal((byte)27, restored.MemoryStrands);
+            Assert.Equal((byte)6, restored.AlternateQualityType);
+            Assert.Equal((byte)8, restored.RelicStyle);
+            Assert.True(restored.Vestigial);
+            Assert.Equal(65, ItemModStats.LevelRequirement(restored, 1, items.Mods));
+            Assert.Null((restored with { Mods = [.. restored.Mods] }).RequiredLevel);
+            Assert.Null((restored with { Sockets = [new(SocketColour.Red)] }).RequiredLevel);
+            Assert.Equal(149, ItemModStats.Sum([restored], items.Mods)["additional_strength"]);
+            Assert.Equal(60, ItemModStats.Sum([restored], items.Mods)["base_fire_damage_resistance_%"]); // Helical's 50%, no attribute catalyst on resistance.
+            Assert.Equal(132, ItemModStats.Sum([restored with { Quality = 0 }], items.Mods)["additional_strength"]);
+            // A Mods-only frame isolates the two documented properties after ObjectMagicProperties.
+            var frame = (new Item(1, ["Mods"], 1) with { Intangibility = 74, MemoryStrands = 27 }).Payload();
+            Assert.Equal(new byte[] { 27, 74 }, frame[^2..]);
+            var foil = (new Item(1, ["Mods"], 1) with { RelicStyle = 8, Vestigial = true }).Payload();
+            Assert.Equal(new byte[] { 0x10, 4, 8 }, foil[8..11]);
+            var quality = new BlobWriter();
+            MagicProperties.Write(quality, 0, true, [], alternateQualityType: 6, alternateQuality: 20);
+            Assert.Equal(new byte[] { 8, 2, 0, 6, 20 }, quality.ToArray());
+            Assert.Equal(355, ItemDefences.Of(new(150, 150, 0, 0),
+                new Dictionary<string, int> { ["local_physical_damage_reduction_rating_+%"] = 137 }, 0).Armour);
+            Assert.Equal(157, ItemDefences.Ward(new Item(1, [], 1) with { Quality = 20, DefenceBaseRoll = 31 },
+                new(0, 0, 0, 0, WardMin: 100, WardMax: 131), items.Mods));
+        }
+        finally { TestEnvironment.ReleaseSaves(path); }
+    }
+
     static Item With(ItemCatalog items, Item item, string id, ModSection section, params int[] values) =>
         item with { Mods = [.. item.Mods, items.Mods.ById(id)!.With(section, values, new Random(1))] };
 

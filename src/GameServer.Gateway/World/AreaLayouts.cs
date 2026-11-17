@@ -55,13 +55,14 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
 
     /// <summary>Where a player entering this area appears: next to the exit leading back to <paramref name="cameFrom"/>
     /// (the area they left through an exit), else the spawn (logins, Resurrect in Town, no exit back).</summary>
-    public (int X, int Y) Arrival(ushort? cameFrom)
+    public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
         foreach (var (_, t) in AreaTransitions)
-            if (t.DestinationHash16 == from && t.TeleportTo is null) return Near((t.GridX, t.GridY));
-        if (EntranceFrom?.Invoke(from) is { } entrance) return Near(entrance);
+            if (t.DestinationHash16 == from && t.TeleportTo is null
+                && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
+        if (EntranceFrom?.Invoke(from) is { } pointEntrance) return Near(pointEntrance);
         return (SpawnX, SpawnY);
     }
 
@@ -92,6 +93,7 @@ public static class AreaLayouts
     /// <summary>The area each transfer's destination ticket left through an exit; the new connection arrives next to the
     /// exit back (<see cref="AreaLayout.Arrival"/>). In memory: a Gateway restart drops the client to the login anyway.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ushort> CameFrom = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, int> ArrivalEntrances = new();
 
     // Lioneye's Watch is one room, Metadata/Terrain/Act1/Town/Rooms/beach_town_unique_normal.arm (18 x 30 tiles), placed
     // R270 by Graphs/beachtown.dgr ("default" "entrance2" "entrance1disabled"). Spawn (197, 261): the walkable cell farthest
@@ -117,6 +119,10 @@ public static class AreaLayouts
 
     /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel) => ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel);
+
+    /// <inheritdoc cref="PlayableSeed(ushort, uint)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats);
 
     public static AreaLayout For(ushort hash, uint seed)
     {
@@ -254,24 +260,8 @@ public static class AreaLayouts
         return null;
     }
 
-    // data/walkability/<id>_seed<seed>.bin (1 byte per cell) + .json {"w":..,"h":..}, written by scripts/walkmaps.
-    static byte[]? LoadCells(string id, uint seed, out int w, out int h)
-    {
-        (w, h) = (0, 0);
-        string bin = $"{Folder}/{id}_seed{seed}.bin", meta = Path.ChangeExtension(bin, ".json");
-        if (!File.Exists(bin) || !File.Exists(meta)) return null;
-        try
-        {
-            var m = JsonDocument.Parse(File.ReadAllText(meta)).RootElement;
-            (w, h) = (m.GetProperty("w").GetInt32(), m.GetProperty("h").GetInt32());
-            byte[] cells = File.ReadAllBytes(bin);
-            return cells.Length == w * h ? cells : null;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
+    static byte[]? LoadCells(string id, uint seed, out int w, out int h) =>
+        GameServer.Core.World.WalkMapCapture.Load(id, seed, out w, out h);
 
     /// <summary>The capture's projectile grid beside its walk map (scripts/walkmaps: <c>&lt;id&gt;_seed&lt;seed&gt;.projectile.bin</c>,
     /// one byte per cell, sized by the walk map's .json), or null without one.</summary>

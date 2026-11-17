@@ -23,9 +23,12 @@ public static partial class Game
             var stats = CharacterPlayerStats(conn);
             GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
-            // Avoidance rolls before block, as for a monster hit; an avoided hit still lands.
-            bool avoided = PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
-                conn.IncomingHitRandom);
+            // Avoidance rolls before block, as for a monster hit; an avoided hit still lands. Elusive's is one
+            // "Avoid All Damage from Hits" roll for the whole hit.
+            int elusiveAvoid = ElusiveAvoidPct(conn);
+            bool avoided = (elusiveAvoid > 0 && PlayerDamageTaken.AvoidsAll(elusiveAvoid, conn.IncomingHitRandom))
+                || PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                    conn.IncomingHitRandom);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
             bool unluckyBlock = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;
@@ -49,30 +52,17 @@ public static partial class Game
                 conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, suppression.Effect);
             uint manaBefore = conn.PlayerMana;
-            var onBlock = blocked ? BlockRecovery(conn, stats) : default;
-            int gainedLife = blocked ? conn.Pools.LifeGainedOnBlock + onBlock.Life : 0;
-            int gainedMana = blocked ? conn.Pools.ManaGainedOnBlock + onBlock.Mana : 0;
+            if (blocked) RecoverOnBlockLocked(conn, stats);
             var taken = DamagePacket.Of(type, dealt, dealt);
             RecoupHitLocked(conn, taken, now, stats);
             if (type == DamageType.Physical) PreventedDamageOf(conn).Add(now, amount - dealt);
             uint lifeBefore = conn.PlayerLife;
-            conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats,
-                    taken) + gainedLife));
-            if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
-            conn.EnergyShield.Recover(onBlock.EnergyShield);
+            int lifeDamage = DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0,
+                type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0,
+                type == DamageType.Chaos ? dealt : 0, now, stats, taken);
+            conn.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(conn);
-            conn.RecentEnemyHits.Record(now);
-            conn.RecentEvents.Record(StatConditions.BeenHit, now);
-            if (blocked)
-            {
-                conn.RecentEvents.Record(StatConditions.Blocked, now);
-                conn.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
-            }
-            if (suppressed) conn.RecentEvents.Record(StatConditions.SuppressedSpell, now);
-            if (lifeBefore > conn.PlayerLife && (long)(lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
-                conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-            if (block) ChargesWhenHit(conn, blocked, spell);
+            RecordIncomingHitLocked(conn, now, spell, blocked, suppressed, lifeDamage);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,

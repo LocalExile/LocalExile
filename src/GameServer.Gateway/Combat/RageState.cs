@@ -36,9 +36,10 @@ public sealed class RageState
     }
 
     public readonly record struct Value(int Current, int Maximum, int Effective);
-    // Version 1 policy: only a positive accepted gain refreshes activity and consumes the hit interval.
-    // A capped attempted gain does neither. Official capped-attempt behavior is still unverified.
-    public const int PolicyVersion = 1;
+    // Policy v2: a positive accepted gain refreshes activity and consumes the hit interval; a capped or blocked gain
+    // from a discrete source does neither, while a regeneration point the maximum caps refreshes activity (continuous
+    // regeneration keeps a full bar full). Official behavior for capped discrete gains is still unverified.
+    public const int PolicyVersion = 2;
     public sealed record Carried(int Current, double? ActivityAge, double? HitAge, double LossProgress, Inputs Previous,
         double RegenProgress = 0);
     int current;
@@ -140,8 +141,9 @@ public sealed class RageState
             // Rage regeneration per minute (Akoya's Leadership) is a continuous gain, independent of the loss delay:
             // it fills toward the maximum while the stat lasts, at the rate the inputs had for this interval (like the
             // loss above). "Cannot gain Rage" blocks it; a soul-gain prevention window is not part of Inputs, so this
-            // model does not stop for it. A point it adds refreshes activity like any other positive gain; a capped
-            // attempt does not (policy v1), so the stat does not postpone the loss by itself at the maximum.
+            // model does not stop for it. A point it adds refreshes activity like any other positive gain; a point
+            // that the maximum caps (no room) refreshes it too (policy v2): the regeneration is continuous, so a full
+            // bar does not fall, get refilled and fall again. Other capped or blocked gains still do not refresh.
             if (now > last && previous.RegenerationPerMinute > 0 && !previous.CannotGain)
             {
                 double gain = regenProgress + (now - last) * previous.RegenerationPerMinute / 60.0;
@@ -149,7 +151,10 @@ public sealed class RageState
                 int added = Math.Min(whole, Math.Max(0, inputs.Maximum - current));
                 current += added;
                 regenProgress = current >= inputs.Maximum ? 0 : gain - whole;
-                if (added > 0) Activity(now);
+                // A full bar stays full while regeneration is active, whatever the call cadence: a fraction below one
+                // whole point would otherwise let the loss start between two advances (live connections advance Rage
+                // on every accepted contact and every full stat snapshot, not only on the 250 ms ticker).
+                if (added > 0 || inputs.Maximum > 0 && current >= inputs.Maximum) Activity(now);
             }
         }
         current = Math.Min(current, inputs.Maximum);

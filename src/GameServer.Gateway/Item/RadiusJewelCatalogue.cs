@@ -11,6 +11,8 @@ using GameServer.Core;
 /// </summary>
 public static class RadiusJewelCatalogue
 {
+    // Item mods kept pre-3.16 radii; PSG coordinates and effect circles were enlarged by 20%.
+    public static int EffectRadius(int nativeRadius) => checked(nativeRadius * 6 / 5);
     public sealed record Variant(string Name, string ModId, int? Value = null);
     public sealed record Entry(string Name, string Base, string[] GlobalMods, string ConversionMod,
         int Limit = 0, byte Level = 1, bool Corrupted = false, int Radius = 0, Variant[]? Variants = null,
@@ -66,7 +68,7 @@ public static class RadiusJewelCatalogue
         int Ring = 0,
         bool SuppressAllocatedSmalls = false,
         bool CopyUnallocatedSmalls = false,
-        bool StrengthMeleeBonus = false, int TattooEffectPct = 0)
+        bool StrengthMeleeBonus = false, int TattooEffectPct = 0, bool KeystonesOnly = false)
     {
         public uint? From => Moves.Count > 0 ? Moves[0].From : Swap?.From;
         public uint? To => Moves.Count > 0 ? Moves[0].To : Swap?.To;
@@ -89,7 +91,8 @@ public static class RadiusJewelCatalogue
     /// <summary>Whether the jewel's allocation rule can reach this ordinary passive. Intuitive Leap accepts every
     /// passive in its disc; Thread of Hope follows the wiki and does not enable jewel sockets in its ring.</summary>
     public static bool BypassIncludes(Conversion conversion, PassiveTree.Node node) =>
-        conversion.AllocateDisconnected && !(conversion.Ring > 0 && node.IsJewelSocket);
+        conversion.AllocateDisconnected && !(conversion.Ring > 0 && node.IsJewelSocket)
+            && (!conversion.KeystonesOnly || node.IsKeystone);
 
     /// <summary>A per-node stat scaling: count <see cref="Count"/> on allocated or unallocated passives in radius,
     /// then add <see cref="Target"/> for every <see cref="Per"/> (or every <see cref="Value"/> when
@@ -182,7 +185,7 @@ public static class RadiusJewelCatalogue
         int radius = 0, effectPct = 0, ring = 0, tattooEffectPct = 0;
         bool physicalToCold = false, coldToPhysical = false, suppressNotables = false;
         bool allocateDisconnected = false, suppressAllocatedSmalls = false, copyUnallocatedSmalls = false;
-        bool strengthMeleeBonus = false;
+        bool strengthMeleeBonus = false, keystonesOnly = false;
         foreach (var mod in item.Mods)
         {
             if (mods.ByHash(mod.Hash) is not { } row) continue;
@@ -197,6 +200,12 @@ public static class RadiusJewelCatalogue
                 if (id == "local_jewel_effect_base_radius")
                 {
                     radius = mod.Values[i];
+                    continue;
+                }
+                if (id == "local_unique_jewel_nearby_disconnected_keystone_passives_can_be_allocated")
+                {
+                    allocateDisconnected |= mod.Values[i] != 0;
+                    keystonesOnly |= mod.Values[i] != 0;
                     continue;
                 }
                 if (id.StartsWith("local_jewel_nearby_passives_", StringComparison.Ordinal))
@@ -346,7 +355,7 @@ public static class RadiusJewelCatalogue
             && !allocateDisconnected && ring == 0 && !suppressAllocatedSmalls && !copyUnallocatedSmalls
             && !strengthMeleeBonus && tattooEffectPct == 0)
             return null;
-        return new(moves, swap, radius,
+        return new(moves, swap, EffectRadius(radius),
             notableStats.Count > 0 ? notableStats : null,
             additionStats.Count > 0 ? additionStats : null,
             resistance,
@@ -357,7 +366,7 @@ public static class RadiusJewelCatalogue
             ring,
             suppressAllocatedSmalls,
             copyUnallocatedSmalls,
-            strengthMeleeBonus, tattooEffectPct);
+            strengthMeleeBonus, tattooEffectPct, keystonesOnly);
     }
 
     /// <summary>Path of Building's <c>ScaleAddList</c> scales integer stats and truncates toward zero; 50% on 5
