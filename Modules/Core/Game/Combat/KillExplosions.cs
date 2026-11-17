@@ -109,9 +109,10 @@ public static partial class Game
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }
-            // An explosion that hits nothing has no art, and a burst is capped: the client still gets the corpse
-            // removal and every life update, but not a separate two-second effect object for every corpse.
-            showArt = hits.Count > 0 && TakeExplosionArt(conn, now);
+            // A corpse that explodes shows the explosion whether or not anyone stood in it: the art is the corpse's
+            // consumption, and skipping the empty ones left about 85 % of a pack's explosions invisible (live
+            // 2026-11-17: 63 of 432). The burst cap stays only as a bound on a pathological chain.
+            showArt = TakeExplosionArt(conn, now);
             effect = showArt ? conn.TakeObjectId() : 0;
             // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
             // warcry may not use a corpse that an explosion already took. When the killing blow already consumed it
@@ -120,9 +121,12 @@ public static partial class Game
             corpse.CorpseConsumed = true;
             conn.Monsters.Remove(corpseId);
         }
-        Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
-            $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
-            (showArt ? "" : hits.Count == 0 ? ", no art (no hit)" : ", no art (burst budget)"));
+        // Per corpse and per monster hit: a pack kill wrote about 900 lines a second from inside the combat lock
+        // (2026-11-17). Only under Game_TRACE=combat.
+        if (ServerTrace.Enabled("combat"))
+            Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
+                $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed" +
+                (showArt ? "" : ", no art (burst budget)"));
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
         var effectBytes = showArt ? InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()) : null;
@@ -136,7 +140,8 @@ public static partial class Game
             // One admission problem must not end the projectile session that queued this explosion.
             Console.WriteLine($"[gateway] {remote} kill explosion send failed: {ServerLog.Describe(ex)}");
         }
-        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);        if (showArt)
+        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);
+        if (showArt)
             SendAfter(ArtMs(art) / 1000.0, async () =>
             {
                 if (conn.Closed || conn.LeavingArea) return;
@@ -144,14 +149,18 @@ public static partial class Game
             });
         foreach (var (id, m, hit) in hits)
         {
-            Console.WriteLine($"[gateway] {remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
+            if (ServerTrace.Enabled("combat"))
+                Console.WriteLine($"[gateway] {remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }
         return removeCorpse;
     }
 
-    const int ExplosionArtPerWindow = 8;
+    // A volley that kills a pack explodes every corpse at once; the previous 8 per 150 ms thinned the art out of
+    // a normal chain and read as missing explosions. The queue no longer stalls per object, so the art can follow:
+    // one fight peaked at 65 explosions in 150 ms and 86 art objects alive.
+    const int ExplosionArtPerWindow = 64;
     const double ExplosionArtWindowSeconds = 0.15;
 
     static bool TakeExplosionArt(ClientState conn, double now)
