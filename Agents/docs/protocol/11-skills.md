@@ -203,6 +203,19 @@ local attack speed is already in its attack time (`SkillCatalog.Unarmed.OffHandA
 (`axe_` / `sword_` / ... `attack_speed_+%`) apply to both hands alike, as they do to the main hand's value (any equipped
 weapon of that type counts).
 
+**Which hand swings is the client's choice, from the action's sequence; no field carries it** (static RE, 3.29.3d,
+code addresses shared with 3.29.3c). The Melee action's hand selector `0x141b725a0` (vtable slot `+0x488`, the same
+rule as the projectile classes' in [hand selection](../re/projectiles/hand-selection.md) §3) asks availability
+`0x1419e7570` (slot `+0x480`): bit 0 when the main hand's weapon class fits the skill, bit 1 the off hand's
+(`0x141eeec70`, §10a: an empty hand is class 104, and a shield or quiver fits only a skill that lists it).
+Only the off hand → off hand; only the main hand or neither → main hand; both → main hand when
+`~(byte action+0x120 + low byte of the sequence at +0x11a) & 1` is 1, Barrage (`projectiles_barrage`) also comparing
+with the parity of `+0x448`. The sequence is the client's (C→S 0x24 / 0x190, echoed in 0x1ab), one more per new
+action, so held uses alternate. The server's `AttackHands` applies the same
+rule with stage 0 for a new use; skills with `skill_double_hits_when_dual_wielding` (Cleave, Dual Strike, Viper
+Strike, Riposte, Whirling Blades and their variants) swing both at once.
+Open: when `0x141b725a0` is called and what `+0x120` holds then (Multistrike repeats and channel stages may advance it).
+
 `CharacterStats`/`PassiveBonus` compute the final attack speed from the player's passives: generic
 `attack_speed_+%`, `melee_attack_speed_+%`, one-/two-handed melee, all one-handed, `axe_` / `sword_` / `mace_` /
 `claw_` / `dagger_` / `wand_` / `bow_` / `staff_attack_speed_+%`, shield and dual-wield stats. Dual wielding (and
