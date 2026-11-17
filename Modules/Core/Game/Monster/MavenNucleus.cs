@@ -60,7 +60,10 @@ public static partial class Game
             foreach (int effect in effects)
             {
                 // A corpse skill does nothing without a corpse (MonsterSkills.OnCorpse): it is never the plain attack.
-                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)) continue;
+                // Nor is a trigger on damage taken (the damage sets it off: BossKits.IsDamageTakenTrigger) or an aura (it stands on
+                // the monster: MonsterSkills.Auras).
+                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)
+                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)

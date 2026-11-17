@@ -73,7 +73,8 @@ public static partial class Game
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
-                    { Presentation = presentation, Sequence = sequence } };
+                    { Presentation = presentation, Sequence = sequence,
+                        OnEnd = a.Ground is null ? null : at => LeaveSkillGround(session.remote, conn, id, a, at) } };
     }
 
     /// <summary>The flight the server simulates for a monster's shot. A lobbed shot's range is its landing distance; a
@@ -192,6 +193,9 @@ public sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Mon
     public ushort Sequence { get; init; } = Game.MonsterActionSequence;
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }
+    /// <summary>What the shot does where it stops (a hit, a wall, its range or its landing): the ground its skill leaves
+    /// (MonsterAttack.Ground). Run after the flight's end, outside the runtime's lock.</summary>
+    public Func<(int X, int Y), Task>? OnEnd { get; init; }
 }
 
 /// <summary>A shot of a server object that is no monster (a Trial of Ascendancy's dart trap). Its own rule commits a

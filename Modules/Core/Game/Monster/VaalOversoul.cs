@@ -78,7 +78,7 @@ public static class VaalOversoul
     static void ClearExposure(ClientState conn)
     {
         if (!Exposures.TryGetValue(conn, out var exposure)) return;
-        lock (conn.Monsters) { conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - exposure.Dps); exposure.Dps = 0; }
+        lock (conn.Monsters) { conn.Degens[exposure] = 0; exposure.Dps = 0; }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
     sealed class Cleanup : IDisposable
@@ -385,7 +385,7 @@ public static class VaalOversoul
                     var exposure = Exposures.GetValue(p, _ => new());
                     double dps = inside && !PlayerImmunities(p).Contains(DamageType.Cold)
                         ? Stat(p, Cold, boss.Level, "base_cold_damage_to_deal_per_minute") / 60d * (1 - Math.Min(MaxResistance(p, DamageType.Cold), Resistance(p, DamageType.Cold)) / 100d) : 0;
-                    p.TrapDegenPerSecond = Math.Max(0, p.TrapDegenPerSecond - exposure.Dps + dps); exposure.Dps = dps;
+                    p.Degens[exposure] = dps; exposure.Dps = dps;
                     if (inside)
                     {
                         var stats = CharacterPlayerStats(p);

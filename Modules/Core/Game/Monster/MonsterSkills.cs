@@ -39,6 +39,7 @@ public static partial class MonsterSkills
     public static MonsterSkillShape? ShapeOf(SkillCatalog skills, int effect)
     {
         if (skills.IsAura(effect)) return null;
+        if (ActionClasses.OfEffect(effect)?.SelfBuff is not null) return MonsterSkillShape.Self;
         // A skill on a corpse: Bodyswap travels to one, Volatile Dead, Cremation and Detonate Dead hit from them. One that
         // raises a minion from it is no hit (the server raises none).
         if (IsCorpseSkill(effect))
@@ -57,7 +58,8 @@ public static partial class MonsterSkills
         if (ShapeOf(skills, effect) is not { } shape) return null;
         var (stats, seconds) = StatsOf(skills, effect, level);
         if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
-        ushort row = BuffRowOf(skills.EffectId(effect) ?? "", shape);
+        ushort row = ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
+            ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
         return shape switch
         {
             MonsterSkillShape.Travel => new(shape, 0, 0, stats, TravelMinRange),
@@ -135,9 +137,12 @@ public static partial class MonsterSkills
         return best;
     }
 
-    /// <summary>Whether the kit may choose this attack now (BossKits.Choose): a corpse skill only with a corpse for it.</summary>
-    public static bool Usable(ClientState conn, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Use is not { OnCorpse: true } || CorpseFor(conn, m, a, now) is not null;
+    /// <summary>Whether the kit may choose this attack now (BossKits.Choose): a corpse skill only with a corpse for it, a
+    /// summon only while its summoner has fewer of its monsters than the skill's limit (a totem is placed when there is
+    /// none, not again over the one that stands). Under the Monsters lock.</summary>
+    public static bool Usable(ClientState conn, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
+        (a.Use is not { OnCorpse: true } || CorpseFor(conn, m, a, now) is not null)
+        && (a.Summon is not { Limit: > 0 } summon || Game.LivingSummonsLocked(conn, id, summon) < summon.Limit);
 
     /// <summary>Takes the corpse and, for a skill that takes several, others within its radius: they leave the client
     /// (0x2bd) and every corpse use. Returns where each was.</summary>
@@ -486,45 +491,10 @@ public static partial class MonsterSkills
 
     // ---- Curses on the player -------------------------------------------------------------------------------------------
 
-    sealed class PlayerCurses { public readonly List<(ushort Buff, ushort Row, IReadOnlyDictionary<string, int> Stats, double Until)> Active = []; }
-    static readonly ConditionalWeakTable<ClientState, PlayerCurses> Cursed = new();
-
-    /// <summary>A curse on the player for its time: its look, and its stats on the player's sheet (PlayerStats). A curse
-    /// of the same look replaces the one there.</summary>
-    static async Task Curse(ClientState conn, uint caster, MonsterSkillUse use)
-    {
-        if (InGracePeriod(conn)) return;
-        var (remote, stream, ciphers) = conn.Wire;
-        var curses = Cursed.GetValue(conn, _ => new());
-        ushort buff, replaced = 0;
-        double until;
-        lock (conn.Monsters)
-        {
-            buff = conn.NextBuff++;
-            until = conn.Clock.Elapsed.TotalSeconds + use.Seconds;
-            int same = curses.Active.FindIndex(c => use.BuffRow > 0 && c.Row == use.BuffRow);
-            if (same >= 0) { replaced = curses.Active[same].Buff; curses.Active.RemoveAt(same); }
-            curses.Active.Add((buff, use.BuffRow, Player(use.Stats), until));
-        }
-        if (replaced != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, replaced), null);
-        if (use.BuffRow > 0)
-            await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, use.BuffRow, caster,
-                u68: BitConverter.SingleToUInt32Bits((float)use.Seconds)), $"0x01c1 the player is cursed by 0x{caster:x} (row {use.BuffRow}, {use.Seconds:0.#} s)");
-        await RefreshCursedStats(conn);
-        _ = EndCurse(conn, use, curses, buff, conn.Layout);
-    }
-
-    static async Task EndCurse(ClientState conn, MonsterSkillUse use, PlayerCurses curses, ushort buff, object area)
-    {
-        var (remote, stream, ciphers) = conn.Wire;
-        await Task.Delay(TimeSpan.FromSeconds(use.Seconds));
-        bool removed;
-        lock (conn.Monsters) removed = curses.Active.RemoveAll(c => c.Buff == buff) > 0;
-        if (!removed || conn.Closed) return;
-        // A curse outlives no area change: the new instance has none of its look to remove.
-        if (use.BuffRow > 0 && ReferenceEquals(area, conn.Layout)) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
-        await RefreshCursedStats(conn);
-    }
+    /// <summary>A curse on the player for its time: its look, and its stats on the player's sheet (Game.PlayerDebuffs). A
+    /// curse of the same look replaces the one there.</summary>
+    static Task Curse(ClientState conn, uint caster, MonsterSkillUse use) =>
+        AddPlayerDebuff(conn, use.BuffRow, caster, Player(use.Stats), use.Seconds);
 
     /// <summary>A curse's stats as the player's: the reductions a curse names for its target are the player's own
     /// (physical_damage_taken_+%, the resistances); the curse's own mechanics without a player stat are left out.</summary>
@@ -534,23 +504,5 @@ public static partial class MonsterSkills
         foreach (var (name, value) in stats)
             if (Stats.Key(name) is not null && !name.StartsWith("curse_", StringComparison.Ordinal)) player[name] = value;
         return player;
-    }
-
-    static async Task RefreshCursedStats(ClientState conn)
-    {
-        lock (conn.Monsters) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
-        var wire = conn.Wire;
-        await SendPlayerStatSnapshot(wire.Remote, wire.Stream, wire.Ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), null);
-    }
-
-    /// <summary>GameEvents.PlayerStatSources: the curses on the player add their stats.</summary>
-    public static Dictionary<uint, int> PlayerStats(ClientState conn, Dictionary<uint, int> sources)
-    {
-        if (!Cursed.TryGetValue(conn, out var curses)) return sources;
-        double now = conn.Clock.Elapsed.TotalSeconds;
-        foreach (var curse in curses.Active.Where(c => c.Until > now))
-            foreach (var (name, value) in curse.Stats)
-                if (Stats.Key(name) is uint key) sources[key] = sources.GetValueOrDefault(key) + value;
-        return sources;
     }
 }

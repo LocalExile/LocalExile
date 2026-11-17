@@ -43,7 +43,7 @@ public static class BrineKing
             {
                 lock (pair.Key.Monsters)
                 {
-                    pair.Key.TrapDegenPerSecond = Math.Max(0, pair.Key.TrapDegenPerSecond - pair.Value.Degen);
+                    pair.Key.Degens[pair.Value] = 0;
                     pair.Value.Degen = 0; pair.Value.Active = false;
                 }
                 _ = RemoveTideBuff(pair.Key, pair.Value.Buff);
@@ -89,7 +89,7 @@ public static class BrineKing
         lock (conn.Monsters)
         {
             double dps = active ? rawDps * (1 - Math.Min(MaxResistance(conn, DamageType.Cold), Resistance(conn, DamageType.Cold)) / 100.0) : 0;
-            conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - tide.Degen + dps);
+            conn.Degens[tide] = dps;
             tide.Degen = dps;
             changed = tide.Active != active;
             tide.Active = active;

@@ -929,8 +929,13 @@ public static partial class Game
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
         // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
         // darts: +19% became −52%).
-        if (Stats.Key(LabyrinthTrials.ArrowSlowStat) is uint arrowSlow && sources.GetValueOrDefault(arrowSlow) is int slowFinal and not 0)
-            bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * (100 + slowFinal) / 100) - 100 };
+        // Every such stat multiplies (a tether's tethered_movement_speed_+%_final, Bear Trap's
+        // bear_trap_movement_speed_+%_final, Toxic Rain's vines'); no_movement_speed (Bear Trap's beartrap_debuff) stops it.
+        foreach (uint finalKey in BuffRows.FinalMovementKeys)
+            if (sources.GetValueOrDefault(finalKey) is int slowFinal and not 0)
+                bonus = bonus with { MovementVelocityPct = (int)Math.Round((100.0 + bonus.MovementVelocityPct) * Math.Max(0, 100 + slowFinal) / 100) - 100 };
+        if (Stats.Key("no_movement_speed") is uint stopKey && sources.GetValueOrDefault(stopKey) > 0)
+            bonus = bonus with { MovementVelocityPct = -100 };
         // "Movement Speed cannot be modified to below Base Value" (PoB CalcDefence: max(mod, 1)). The client bounds
         // movement_velocity_+% below by 0 instead of -100 from the same raw flag (0x142523780).
         if (EquipmentInput("movement_speed_cannot_be_reduced_below_base") != 0)

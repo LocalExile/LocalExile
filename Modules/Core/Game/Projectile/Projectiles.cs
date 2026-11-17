@@ -496,6 +496,10 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
                     + $" grid={Conn.Layout.Id}_seed{Conn.Seed} blocked={ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y)?.ToString() ?? "unknown"}");
+            if (value.Kind == ProjectileEventKind.End && p.Use.Payload is HostileProjectileOffense { OnEnd: { } onEnd }
+                && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Distance
+                    or ProjectileEndReason.Lifetime or ProjectileEndReason.Landing)
+                Enqueue(() => onEnd((x, y)));
             if (valid && presentation.EventEffect?.Invoke(value) is { } eventEffect)
             {
                 bool spawn = value.Kind == ProjectileEventKind.Spawn;

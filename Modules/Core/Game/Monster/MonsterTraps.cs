@@ -7,8 +7,10 @@ using GameServer.Core.Protocol.Login;
 /// A monster's traps, for any monster whose skill is a trap (ActiveSkillTypes Trapped): the same object, throw, landing,
 /// arming and lifetime as the player's (PlacedSkills: PlacedObjectPath, PlacedFlightSeconds, PlacedArmSeconds,
 /// PlacedDurationSeconds, TrapTriggerRadius), on the monsters' team. Set off by the player or a minion of theirs within
-/// its trigger radius, it plays its skill from where it lies (MonsterAttack.Trap: an area hit or its projectiles), with
-/// its owner's stats, whatever its owner does meanwhile.
+/// its trigger radius, it plays its skill from where it lies (MonsterAttack.Trap), with its owner's stats, whatever its
+/// owner does meanwhile: its projectiles from the trap, its area around the trap, or, for a trap with neither (Bear Trap),
+/// a hit on whoever set it off. A trap whose own action draws the ground it leaves (Fire Trap's burning ground:
+/// ActionClasses.GroundAt.Trap) stays, spent, for as long as that ground lasts.
 /// </summary>
 public static partial class Game
 {
@@ -102,12 +104,14 @@ public static partial class Game
                 {
                     if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(trap.Id).IsReady) continue;
                     bool owner = ReferenceEquals(conn.Monsters.GetValueOrDefault(trap.Owner), trap.Monster);
-                    if (!owner || now >= trap.Until)
+                    // A spent trap draws its ground, which outlives its owner (Game.HostileGrounds).
+                    if (!owner && !trap.Spent || now >= trap.Until)
                     {
                         conn.MonsterPlaced.Traps.Remove(trap.Id);
                         bytes.Remove(trap.Id);
                         continue;
                     }
+                    if (trap.Spent) continue;
                     if (!trap.Landed && now >= trap.LandAt)
                     {
                         trap.Landed = true;
@@ -122,7 +126,9 @@ public static partial class Game
                             .Select(p => ((int X, int Y)?)p).FirstOrDefault();
                     if (enemy is not { } aim) continue;
                     bytes.World(trap.Id, InstanceProtocol.ActionStarted(trap.Id, trap.At.X, trap.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
-                    conn.MonsterPlaced.Traps.Remove(trap.Id);
+                    if (trap.Payload.Ground is { ClientDrawn: true } drawn)
+                        conn.MonsterPlaced.Traps[trap.Id] = trap with { Until = now + drawn.Seconds, Spent = true, Landed = true };
+                    else conn.MonsterPlaced.Traps.Remove(trap.Id);
                     fired.Add((trap, conn.Walk.Position(now)));
                 }
                 return bytes.Count > 0 ? bytes.Build() : null;
@@ -136,10 +142,11 @@ public static partial class Game
             if (trap.Payload.Projectile is { } projectile)
                 LaunchDetachedMonsterProjectile(remote, stream, ciphers, conn, trap.Owner, trap.Monster, trap.Payload, projectile,
                     trap.At, Owner, sequence);
-            else if (trap.Payload.AreaRadius > 0)
-                await MonsterDetachedAreaHit(remote, stream, ciphers, conn, trap.Owner, trap.Monster, trap.Payload,
-                    trap.Payload.AreaAtSelf ? trap.At : aim, trap.Payload.AreaRadius, sequence, Owner);
-            await SendWorldRemoval(remote, stream, ciphers, conn, trap.Id, $"0x0013 trap 0x{trap.Id:x} set off");
+            else
+                await MonsterDetachedAreaHit(remote, stream, ciphers, conn, trap.Owner, trap.Monster, trap.Payload, trap.At,
+                    trap.Payload.AreaRadius > 0 ? trap.Payload.AreaRadius : trap.TriggerRadius, sequence, Owner);
+            if (trap.Payload.Ground is not { ClientDrawn: true })
+                await SendWorldRemoval(remote, stream, ciphers, conn, trap.Id, $"0x0013 trap 0x{trap.Id:x} set off");
         }
     }
 }

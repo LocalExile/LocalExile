@@ -43,6 +43,7 @@ public static class WorldLoader
         Step("passive buffs", PassiveBuffAuras.LoadGameData);
         Step("spirit chieftains", SpiritChieftains.LoadGameData);
         Step("skill animations", SkillAnimations.LoadGameData);
+        Step("buff rows", BuffRows.LoadGameData);
         Step("bladefall volleys", BladefallVolleys.LoadGameData);
         Step("impossible escape", ImpossibleEscapeCatalogue.LoadGameData);
 

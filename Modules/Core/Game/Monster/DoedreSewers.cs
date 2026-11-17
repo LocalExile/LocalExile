@@ -66,7 +66,7 @@ public static class DoedreSewers
         if (e.Red == 0 && e.Green == 0 && e.Purple == 0 && e.Dps == 0 && e.Buffs.All(b => b == 0)) return;
         lock (c.Monsters)
         {
-            c.TrapDegenPerSecond = Math.Max(0, c.TrapDegenPerSecond - e.Dps);
+            c.Degens[e] = 0;
             e.Dps = 0; e.Red = e.Green = e.Purple = 0; e.NextStack = 0;
         }
         var w = c.Wire;
@@ -505,7 +505,7 @@ public static class DoedreSewers
                 double dps = inside && !PlayerImmunities(p).Contains(DamageType.Chaos) ? raw * (1 - Math.Min(MaxResistance(p, DamageType.Chaos), Resistance(p, DamageType.Chaos)) / 100d) : 0;
                 lock (p.Monsters)
                 {
-                    p.TrapDegenPerSecond = Math.Max(0, p.TrapDegenPerSecond - e.Dps + dps); e.Dps = dps;
+                    p.Degens[e] = dps; e.Dps = dps;
                     if (!p.Paused && !InGracePeriod(p))
                         DoedreCloudMinionsLocked(p, now, raw, at => phase == 1 && InCloud(at), minionDotCarry);
                 }

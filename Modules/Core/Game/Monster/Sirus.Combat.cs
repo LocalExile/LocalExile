@@ -19,7 +19,7 @@ static partial class Sirus
         if (!Exposures.TryGetValue(c, out var e)) return [];
         lock (c.Monsters)
         {
-            c.TrapDegenPerSecond = Math.Max(0, c.TrapDegenPerSecond - e.Dps);
+            c.Degens[e] = 0;
             e.Dps = 0; e.BeamStacks = e.BloodStacks = 0; e.BeamUntil = e.BloodUntil = 0;
             ushort[] buffs = [e.BeamBuff, e.BloodBuff]; e.BeamBuff = e.BloodBuff = 0;
             Array.Clear(e.DotCarry); return buffs;

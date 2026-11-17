@@ -2337,6 +2337,7 @@ public static partial class Game
         uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
+        if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         if (allyAt is null)
         {
             conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);

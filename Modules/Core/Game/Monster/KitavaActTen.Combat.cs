@@ -220,7 +220,7 @@ static partial class KitavaActTen
                     var e = Exposures.GetValue(p, _ => new());
                     double dps = p.PlayerLife == 0 || p.Paused || p.Immune || InGracePeriod(p) ? 0 : patches.Where(g => Active(p.Walk.Position(now), g) && !PlayerImmunities(p).Contains(g.Type))
                         .GroupBy(g => g.Type).Sum(g => g.Max(h => Dps(h) * (h.Type == DamageType.Fire ? Math.Max(0, 1 - Math.Min(Resistance(p, h.Type), MaxResistance(p, h.Type)) / 100d) : 1)));
-                    p.TrapDegenPerSecond = Math.Max(0, p.TrapDegenPerSecond - e.Dps + dps); e.Dps = dps;
+                    p.Degens[e] = dps; e.Dps = dps;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         if (!GolemCurrent(p, g) || g.Monster.Dead || g.Monster.Invulnerable || g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") continue;

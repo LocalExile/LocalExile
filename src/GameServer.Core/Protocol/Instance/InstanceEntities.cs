@@ -933,6 +933,38 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 }
 
 /// <summary>
+/// A ground effect a server object makes (a skill's burning, caustic or desecrated ground):
+/// <c>Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect</c> (Positioned, BaseEvents, GroundEffect, Buffs,
+/// Animated; its .ot names GroundEffect object_type "Server"). The GroundEffect component (read 0x141e1eb60, written by
+/// the client's own 0x141e1e9e0) is a GroundEffects row (u16; 0xdb-byte rows), a state byte (+0x38) and the seconds it
+/// has left as an f32 (+0x44: infinity, the component's default 0x7f800000, for none; at zero it plays its row's
+/// EndEffect and goes). BaseEvents reads nothing, Buffs a u16 count. The art is the row's AOFile on Animated, at the
+/// ground's size through Positioned's scale (as <see cref="EffectObject.Scale"/>).
+/// </summary>
+public sealed record GroundEffectObject(int GridX, int GridY, ushort GroundEffectRow, string AnimatedObject, float Seconds)
+{
+    public const string TypePath = "Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect";
+
+    /// <summary>The art's uniform scale (Positioned flags0 0x20); 1 sends none.</summary>
+    public float Scale { get; init; } = 1;
+
+    /// <summary>The side that made it (Positioned team: 0 the player's, 1 the monsters').</summary>
+    public ushort Team { get; init; }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                              // object flags, base data entry count
+        w.Positioned(GridX, GridY, 0, Team, scale: Scale);          // Positioned (BaseEvents reads nothing)
+        w.U16(GroundEffectRow).U8(0).F32(Seconds);                  // GroundEffect: row, state, seconds left
+        w.U16(0);                                                   // Buffs
+        w.U8(1).WStr32(AnimatedObject);                             // Animated: the row's art
+        w.U8(0);                                                    // tasks
+        return w.ToArray();
+    }
+}
+
+/// <summary>
 /// A soul line: <c>Metadata/Effects/ServerBeamEffect</c>, as the official server's Soul Eater sends it (captured from
 /// 3.29.3c). The Beam component (0x1416710c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
 /// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,

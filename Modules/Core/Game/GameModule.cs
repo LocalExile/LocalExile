@@ -64,6 +64,7 @@ public sealed class GameModule : IModule, IDisposable
         global::IzaroSkills.LoadIzaroSkillsData();
         Rules.LoadMonsterContagionsData();
         Rules.LoadMonsterMinionsData();
+        Rules.LoadHostileGroundsData();
         global::MonsterSkills.LoadMonsterSkillsData();
         // Passives and the player.
         global::ClusterJewelLayout.LoadClusterJewelLayoutData();
@@ -124,7 +125,8 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::MonsterSkills.PlayerStats);
+        // Curses, Withered, grounds and the other debuffs monsters put on the player (Game.PlayerDebuffs).
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.PlayerDebuffStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);

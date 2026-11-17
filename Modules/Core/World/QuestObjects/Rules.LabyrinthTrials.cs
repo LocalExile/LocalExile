@@ -484,7 +484,7 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial hot plates stopped: {ServerLog.Describe(ex)}"); }
-        finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
+        finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
     // A trial object used: the player walks up to it, then the trial's door (or a plain door) opens, a lever opens the nearest locked door,
@@ -2006,7 +2006,7 @@ static partial class QuestobjectsRules
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} trial roombas stopped: {ServerLog.Describe(ex)}"); }
-        finally { lock (conn.Monsters) conn.TrapDegenPerSecond = 0; }
+        finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
     // A trap's degeneration on the player while they are in it (RunResourceRecovery deals ClientState.TrapDegenPerSecond)
@@ -2029,7 +2029,7 @@ static partial class QuestobjectsRules
             {
                 was = mine > 0;
                 if (conn.PlayerLife == 0) perSecond = 0;
-                conn.TrapDegenPerSecond = Math.Max(0, conn.TrapDegenPerSecond - mine + perSecond);
+                conn.Degens[this] = perSecond;
                 mine = perSecond;
                 degen = mine > 0;
                 if (!degen) row = null;

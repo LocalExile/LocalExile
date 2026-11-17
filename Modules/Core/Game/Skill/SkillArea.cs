@@ -25,18 +25,6 @@ public static class SkillArea
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : null;
 
-    /// <summary>What an action class adds to active_skill_base_area_of_effect_radius before the area modifiers scale it,
-    /// by its ActionTypes Id, for the classes whose client code names one (3.29.3c: each calls the area scaler
-    /// FUN_14193f1f0 with stat 0x4875 + the constant: ColdSnap FUN_14130bc40 +15, CorpseErruption FUN_141adbae0 +15,
-    /// StormCall FUN_1414d2b80 +20, LightningWarp FUN_14138f120 +16). Null for any other class.</summary>
-    public static int? ActionBaseRadius(string? actionType) => actionType switch
-    {
-        "ColdSnap" or "CorpseErruption" => 15,
-        "StormCall" => 20,
-        "LightningWarp" => 16,
-        _ => null,
-    };
-
     static readonly string[] MoreArea =
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",

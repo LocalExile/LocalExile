@@ -129,7 +129,7 @@ static class KitavaActFive
     }
     public static Task Leaving(ClientState c)
     {
-        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.TrapDegenPerSecond = Math.Max(0, c.TrapDegenPerSecond - e.Dps); e.Dps = 0; }
+        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -515,7 +515,7 @@ static class KitavaActFive
                         ? patches.FirstOrDefault(g => now >= g.From && Distance(g.At, p.Walk.Position(now)) <= g.Radius) : null;
                     double dps = patch is null || p.Immune || PlayerImmunities(p).Contains(DamageType.Physical) ? 0
                         : Stat(c, patch.Effect, body.Level, "base_physical_damage_to_deal_per_minute") / 60d;
-                    p.TrapDegenPerSecond = Math.Max(0, p.TrapDegenPerSecond - e.Dps + dps); e.Dps = dps;
+                    p.Degens[e] = dps; e.Dps = dps;
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     {
                         var m = g.Monster;

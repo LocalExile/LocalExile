@@ -31,7 +31,12 @@ public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? 
 
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
-public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
+public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds)
+{
+    /// <summary>A trigger on damage taken: the damage its user takes before it is cast (0: no trigger, a skill the kit
+    /// picks).</summary>
+    public int TriggerThreshold { get; init; }
+}
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
 /// none), how long the impact art stays, and whether the strike also calls down every other marker of the same skill
@@ -47,6 +52,9 @@ public sealed class MonsterPlacedObjects
         double LandAt, double Armed, double Until, double TriggerRadius)
     {
         public bool Landed;
+        /// <summary>Set off, it stays until <see cref="Until"/> only because its action draws the ground it left
+        /// (Fire Trap's burning ground); it is set off no more.</summary>
+        public bool Spent;
     }
     public readonly Dictionary<uint, Trap> Traps = [];
 
@@ -56,6 +64,13 @@ public sealed class MonsterPlacedObjects
     public readonly Dictionary<uint, Marker> Markers = [];
     /// <summary>Impact art objects of struck markers, and when each leaves.</summary>
     public readonly Dictionary<uint, double> Impacts = [];
+
+    /// <summary>A ground a monster's skill left (Game.HostileGrounds): its object, its owner, the BuffDefinitions row it
+    /// keeps on the player standing in it with that buff's stats, where it lies, how far it reaches (cells), when it ends
+    /// (area time), the area it lies in, and whether it has an object of its own (not when the skill's action draws it).</summary>
+    public sealed record Ground(uint Id, uint Owner, ushort BuffRow, IReadOnlyDictionary<string, int> Stats, (int X, int Y) At,
+        double Radius, double Until, object Area, bool Drawn);
+    public readonly Dictionary<uint, Ground> Grounds = [];
 }
 
 /// <summary>What a kit skill does beyond a hit (BossKits, MonsterSkills.cs).</summary>
@@ -81,8 +96,28 @@ public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, do
     double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
     double PulseSeconds = 0);
 
+/// <summary>A ground a monster skill leaves where it lands (Game.HostileGrounds): its GroundEffectTypes kind and skin
+/// (<c>ground_*_art_variation</c>), the stats its buff gives whoever stands in it, how far it reaches (cells) and for how
+/// long. <paramref name="ClientDrawn"/>: the skill's own action draws it (a Fire Trap's burning ground, on the trap), so the
+/// server sends no object of its own and keeps the drawing object while it lasts.</summary>
+public sealed record MonsterGroundSpec(string Type, int ArtVariation, IReadOnlyDictionary<string, int> Stats, double Radius,
+    double Seconds, bool ClientDrawn = false);
+
+/// <summary>A debuff a monster skill puts on the player it hits (Game.PlayerDebuffs): a BuffDefinitions row, the stats it
+/// gives the player and how long it lasts.</summary>
+public sealed record MonsterDebuffSpec(ushort Row, IReadOnlyDictionary<string, int> Stats, double Seconds);
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    /// <summary>The ground the skill leaves where its area lands or its projectile ends (Game.HostileGrounds); null for
+    /// none.</summary>
+    public MonsterGroundSpec? Ground { get; init; }
+    /// <summary>The debuffs the skill puts on the player it hits, an unblocked hit's or, for a skill that deals no damage
+    /// (Wither), the player's standing in its area (Game.PlayerDebuffs).</summary>
+    public IReadOnlyList<MonsterDebuffSpec> Debuffs { get; init; } = [];
+    /// <summary>A body summoned for the skill uses it (a monster's totem): its action is sent without the totem flags,
+    /// as the player's totem proxy is, so it plays the skill rather than another summon.</summary>
+    public bool Proxy { get; init; }
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
@@ -258,6 +293,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
+    public readonly Dictionary<int, double> KitDamageTaken = [];
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
@@ -468,6 +505,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
     public int ClientSwingAction;
+    // The attack the chase order named (its 0x1ab's skill), which the walk-up's swing is: a kit may choose another while
+    // the monster walks (Game.TakeLockstepChase).
+    public MonsterAttack? ClientChaseAttack;
     // Lockstep: the start of the frame in whose tick the client ends a walk that an in-place action left going under it
     // (Game.MonsterSwingOrderLocked), the frame after its Actor ends that action; null when none is pending. The step
     // pass applies it (Game.StepFrames), and an order the client takes drops it (Game.LockstepOrderFrom).
@@ -1086,9 +1126,12 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
     // Low Life reached): Game.LoyaltyResourceStateLocked.
     public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
-    // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
-    // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
-    public double TrapDegenPerSecond;
+    /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a
+    /// debuff), points a second, energy shield first: RunResourceRecovery deals the total, and while any runs the client is
+    /// sent no recovery rates to predict a rise with. Under the Monsters lock.</summary>
+    public PlayerDegens Degens { get; } = new();
+    /// <summary>The total of <see cref="Degens"/>.</summary>
+    public double TrapDegenPerSecond => Degens.Total;
     // (MonsterVarieties row, level) pairs already registered with 0x20 on this connection.
     public readonly HashSet<(int Row, byte Level)> MonsterTypes = [];
     // The open sell window (Sell Items): what the player offered and what the NPC offers back.

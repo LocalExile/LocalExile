@@ -57,8 +57,8 @@ public static partial class Game
     /// <summary>A monster's totem skill (stats is_totem, or the SummonsTotem type: Siege Ballista) as a summon of its
     /// body, which then uses the skill (MonsterSummonInfo.Effect).
     /// <para>The body is SkillTotemVariations' row for the skill's ActiveSkills.SkillTotemId (12 for Siege Ballista's
-    /// Snipe totems) or, for a spell whose skill names none of its keys (22, as Fireball's and Wither's do), the player's
-    /// generic spell totem key 3 (Totems.Rules: TotemVariety), at the skin <c>totem_art_variation</c> names (the Rogue
+    /// Snipe totems) or, for a skill that names none of its keys (22, as Fireball's, Wither's and Ensnaring Arrow's do),
+    /// the player's generic totem of its kind (spell 3, ranged attack 2: Totems.Rules: TotemVariety), at the skin <c>totem_art_variation</c> names (the Rogue
     /// Exiles' 5: ZigguratTotem, SnipeZigguratTotem). It stands base_totem_duration (with totem_duration_+%), as many
     /// come at once as number_of_totems_summoned_in_formation, and the summoner keeps Monster.ot's one plus the skill's
     /// number_of_additional_totems_allowed. It rises where the summoner stands.</para></summary>
@@ -70,7 +70,10 @@ public static partial class Game
         int? skillKey = ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("ActiveSkill") is int active
             ? ClientTables.TableOrNull("ActiveSkills")?.Row(active)?.IntOrNull("SkillTotemId") : null;
         int skin = Get("totem_art_variation");
-        int key = skillKey is int k && TotemSkins.ContainsKey((k, skin)) ? k : catalog.IsSpell(effect) ? 3 : -1;
+        // As the player's (Totems.Rules: TotemVariety): a spell totem is the intelligence one (3), a ranged attack
+        // totem (is_ranged_attack_totem: Ensnaring Arrow's ballista) the dexterity one (2).
+        int key = skillKey is int k && TotemSkins.ContainsKey((k, skin)) ? k
+            : catalog.IsSpell(effect) ? 3 : Get("is_ranged_attack_totem") != 0 ? 2 : -1;
         if (!TotemSkins.TryGetValue((key, skin), out int body) || Monsters.Find(body.ToString()) is not { Supported: true }) return null;
         double seconds = Get("base_totem_duration") / 1000.0 * Math.Max(0, 100 + Get("totem_duration_+%")) / 100;
         return new(body, Math.Max(1, Get("number_of_totems_summoned_in_formation")), 0, true, catalog.CastTimeMs(effect) / 1000.0,
@@ -84,6 +87,10 @@ public static partial class Game
 
     /// <summary>Under the Monsters lock: the summoner's living minions of a variety beyond its limit, oldest (lowest
     /// object id) first, to make room for <paramref name="incoming"/> more.</summary>
+    /// <summary>How many of a summon's monsters its summoner has standing. Under the Monsters lock.</summary>
+    public static int LivingSummonsLocked(ClientState conn, uint summoner, SkillCatalog.MonsterSummonInfo summon) =>
+        conn.Monsters.Values.Count(m => m.SummonerId == summoner && !m.Dead && m.Life > 0 && m.Variety?.Row == summon.Variety);
+
     static List<uint> SurplusMinionsLocked(ClientState conn, uint summoner, SkillCatalog.MonsterSummonInfo summon, int incoming)
     {
         if (summon.Limit <= 0) return [];

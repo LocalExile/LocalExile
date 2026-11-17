@@ -33,6 +33,17 @@ public static partial class Game
     // not emit a shot. Keep simulated mortars on their own publication path.
     public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
+        var stats = ActionSkillStats(conn, effect, level, attack);
+        if (!attack.Proxy) return stats;
+        var totem = TotemFlags.Select(Stats.Key).OfType<uint>().ToHashSet();
+        return [.. stats.Where(s => !totem.Contains(s.Item1))];
+    }
+
+    /// <summary>The flags that make a skill a totem's summon (SpellTotems.TotemProxy clears the same).</summary>
+    static readonly string[] TotemFlags = ["is_totem", "base_skill_is_totemified", "skill_is_totemified"];
+
+    static IReadOnlyList<(uint, int)> ActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    {
         var catalog = SkillsFor(conn);
         IReadOnlyList<(uint, int)> Art(IReadOnlyList<(uint, int)> stats) =>
             catalog.ArtVariation(effect) is int art and > 0 && Stats.Key("skill_art_variation") is uint key
@@ -246,10 +257,14 @@ public static partial class Game
             .Any(s => s.Item1 == StatKeys.CastingSpell && s.Item2 != 0);
         // A ranged attack reaches its variety's MaximumAttackDistance (a Sand Spitter's 30): the monster walks up to that
         // before it shoots, as GGG's do. A ranged spell (the Maven's and the Nucleus' barrages) and a summoner keep the
-        // aggro range they were given with the map affixes; the attack distance of such a variety is its melee fallback.
-        // An encounter that knows better gives its own share of the attack distance (MonsterMovement.Reach).
+        // aggro range they were given with the map affixes, up to the farthest the spell's action reaches
+        // (ActionClasses.SpellActionDistance: Bone Lance's 90 cells); the attack distance of such a variety is its melee
+        // fallback. An encounter that knows better gives its own share of the attack distance (MonsterMovement.Reach).
+        double SpellReach() => Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, name =>
+            Stats.Key(name) is uint key ? catalog.EffectStats(effect, level).FirstOrDefault(s => s.Item1 == key).Item2 : 0));
         double reach = movement.Reach is double share ? variety.AttackRange * share
-            : summon is not null || rangedAttack && !kingActor && spell ? Math.Max(variety.AttackRange, variety.AggroRange) : variety.AttackRange;
+            : summon is not null ? Math.Max(variety.AttackRange, variety.AggroRange)
+            : rangedAttack && !kingActor && spell ? Math.Max(variety.AttackRange, SpellReach()) : variety.AttackRange;
         double swing = !kingActor && effect >= 0 && catalog.IsSpell(effect) && catalog.CastTimeMs(effect) > 0
             ? catalog.CastTimeMs(effect) / 1000.0 : variety.AttackMs / 1000.0;
         // The King's two forms carry the official MeleeAtAnimationSpeedUnique ids (0x4001 humanoid, 0x4000 treant);
@@ -638,7 +653,7 @@ public static partial class Game
                 if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
                 // while a swing still runs: the attack an order names must stay the one its hit is applied with.
-                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d, a => MonsterSkills.Usable(conn, m, a, now));
+                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d, a => MonsterSkills.Usable(conn, id, m, a, now));
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -778,6 +793,11 @@ public static partial class Game
                     {
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) swings from its walk-up at {m.Walk.Position(begun)}: "
                             + $"player ({px}, {py}) {d:0.0} away now, begun {now - begun:0.000} s ago (t={now:0.000})");
+                        // The swing is the chase order's skill, whatever the kit chose while the monster walked: it hits as
+                        // that attack, and that is what the kit records as used.
+                        if (m.ClientChaseAttack is { } chased) m.Attack = chased;
+                        if (m.Attack is { } swung) BossKits.Consume(m, swung, begun);
+                        if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) walk-up swing is skill 0x{m.Attack?.SkillId ?? 0:x4}");
                         m.BusyUntil = begun + MonsterSwingSeconds(conn, m, begun) / action + conn.LockstepActionTail;
                         m.LastTarget = null;
                         m.SwingGeneration = m.ActionGeneration;
@@ -1009,6 +1029,8 @@ public static partial class Game
         await ExpireSummonedMonsters(remote, stream, ciphers, conn);
         await MonsterTrapsTick(remote, stream, ciphers, conn);
         await MonsterMarkersTick(remote, stream, ciphers, conn);
+        await HostileGroundsTick(conn);
+        await PlayerDebuffsTick(conn);
         if (DamageTriggers.TryGetValue(conn, out _))
             ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
@@ -1258,6 +1280,7 @@ public static partial class Game
         m.LastTarget = player;
         m.ClientChase = null;
         m.ClientChaseTimerFrom = at;
+        m.ClientChaseAttack = m.Attack;
         if (m.Walk.InReachOf(here, player, (int)(m.Attack!.Range - 1), LivingCollision.PlayerSize))
             (m.ClientSwingAt, m.ClientSwingAction) = (at, action);
         else if (m.Walk.Reached && !m.Walk.ReachedGoal) m.LastTarget = null;
@@ -1743,11 +1766,27 @@ public static partial class Game
     public static async Task MonsterAreaHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, int action, (int X, int Y) aim, double radius, ushort sequence)
     {
+        if (a.Damage.IsZero)
+        {
+            await MonsterAreaDebuffs(conn, id, a, aim, radius);
+            await LeaveSkillGround(remote, conn, id, a, aim);
+            return;
+        }
         MonsterHitOutcome? outcome = null;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
             (outcome = AreaHitLocked(remote, conn, id, m, a, aim, radius, sequence))?.HitPacket,
             $"0x01af monster 0x{id:x} area hit on the player")) return;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        await LeaveSkillGround(remote, conn, id, a, aim);
+    }
+
+    /// <summary>The ground a monster skill leaves where it landed (MonsterAttack.Ground), unless its own action draws
+    /// it on another object (a trap's: MonsterTraps).</summary>
+    public static async Task LeaveSkillGround(string remote, ClientState conn, uint owner, MonsterAttack a, (int X, int Y) at)
+    {
+        if (a.Ground is not { } ground || GroundKindOf(ground.Type, ground.ArtVariation) is not { } kind) return;
+        await PlaceHostileGround(remote, conn, owner, ground.ClientDrawn ? kind with { Art = "" } : kind, ground.Stats, at,
+            ground.Radius, ground.Seconds);
     }
 
     /// <summary>A monster skill's area hit that no longer belongs to the monster's own action: a trap of its going off,
@@ -1756,6 +1795,13 @@ public static partial class Game
     public static async Task MonsterDetachedAreaHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, (int X, int Y) aim, double radius, ushort sequence, Func<bool> still)
     {
+        if (a.Damage.IsZero)
+        {
+            if (!still()) return;
+            await MonsterAreaDebuffs(conn, id, a, aim, radius);
+            await LeaveSkillGround(remote, conn, id, a, aim);
+            return;
+        }
         MonsterHitOutcome? outcome = null;
         await SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x01af monster 0x{id:x} ({m.Label}) area hit on the player",
             atGate: () =>
@@ -1769,6 +1815,19 @@ public static partial class Game
                 }
             });
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        if (still()) await LeaveSkillGround(remote, conn, id, a, aim);
+    }
+
+    /// <summary>A skill that deals no damage (Wither): the player standing in its area at its contact gets its debuffs,
+    /// with no hit.</summary>
+    static async Task MonsterAreaDebuffs(ClientState conn, uint id, MonsterAttack a, (int X, int Y) aim, double radius)
+    {
+        if (a.Debuffs.Count == 0) return;
+        bool inside;
+        lock (conn.Monsters)
+            inside = !InGracePeriod(conn) && conn.PlayerLife > 0 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), aim) <= radius;
+        if (!inside) return;
+        foreach (var spec in a.Debuffs) await AddPlayerDebuff(conn, spec.Row, id, spec.Stats, spec.Seconds);
     }
 
     // At the send gate: every golem and the player within radius of aim take the hit; the player's outcome, or null.
@@ -1822,7 +1881,11 @@ public static partial class Game
 
     /// <summary>What a monster's hit on the player did (CommitMonsterHitLocked), for the packets that present it.</summary>
     public sealed record MonsterHitOutcome(byte[] HitPacket, uint Life, uint Mana, uint ManaBefore, int Damage, int RawDamage,
-        bool Blocked, bool Critical, PlayerRecoveryIntent? Recovery, RecentEnemyHits.Decision Armour, bool Spirit = false);
+        bool Blocked, bool Critical, PlayerRecoveryIntent? Recovery, RecentEnemyHits.Decision Armour, bool Spirit = false)
+    {
+        /// <summary>The caster and the debuffs its unblocked hit puts on the player (MonsterAttack.Debuffs).</summary>
+        public (uint Caster, IReadOnlyList<MonsterDebuffSpec> Specs)? Debuffs { get; init; }
+    }
 
     // The monster's hit on the player, committed under the Monsters lock at the moment it lands: reach (melee only),
     // evasion, the mod-rolled packet, block, armour, resistances, ailments, recovery and death. Null when it misses or is
@@ -2003,7 +2066,8 @@ public static partial class Game
         // its own stun roll; the player's recovery is the authoritative 0x1d1 (SendPlayerHitRecovery).
         var packet = InstanceProtocol.ActionHit(id, sequence, PlayerId, flags: MonsterHitFlags(blocked, monsterCritical), kind: 0x03,
             code: HitCode(mitigated), angle: HitAngle(here.X - from.X, here.Y - from.Y));
-        return new(packet, life, conn.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit);
+        return new(packet, life, conn.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit)
+        { Debuffs = !blocked && life > 0 && a.Debuffs.Count > 0 ? (id, a.Debuffs) : null };
     }
 
     // The packets after a committed hit: energy shield, native recovery, the life bar and life, mana, death or flask charges.
@@ -2035,6 +2099,8 @@ public static partial class Game
         {
             if (!hit.Blocked) await SendAttackerSlows(remote, stream, ciphers, conn);
             await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
+            if (hit.Debuffs is { } debuffs)
+                foreach (var spec in debuffs.Specs) await AddPlayerDebuff(conn, spec.Row, debuffs.Caster, spec.Stats, spec.Seconds);
         }
     }
 

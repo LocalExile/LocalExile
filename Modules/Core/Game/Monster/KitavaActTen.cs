@@ -90,7 +90,7 @@ static partial class KitavaActTen
     }
     public static Task Leaving(ClientState c)
     {
-        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.TrapDegenPerSecond = Math.Max(0, c.TrapDegenPerSecond - e.Dps); e.Dps = 0; }
+        if (Exposures.TryGetValue(c, out var e)) lock (c.Monsters) { c.Degens[e] = 0; e.Dps = 0; }
         return Task.CompletedTask;
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
