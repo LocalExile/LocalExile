@@ -17,6 +17,37 @@ public sealed class SupportHitDamageTests
     [Fact]
     public void Supports_and_keystones_multiply_hits_when_their_conditions_hold()
     {
+        // Phantasm adds projectile-spell minions to a melee summon without changing its melee damage types.
+        var supports = new GemSupports();
+        var skills = new SkillCatalog();
+        int phantasm = skills.EffectRow("SupportSummonPhantasm");
+        int multiple = skills.EffectRow("SupportGreaterMultipleProjectiles");
+        int faster = skills.EffectRow("SupportFasterProjectiles");
+        foreach (string active in new[] { "RaiseZombie", "SummonSkeletons" })
+        {
+            int effect = skills.EffectRow(active);
+            GemSupports.Candidate[] projectileSupports = [new(multiple, 20, 0, 1), new(faster, 20, 0, 2)];
+            Assert.Empty(supports.Resolve(effect, projectileSupports, skills));
+            foreach (bool phantasmFirst in new[] { false, true })
+            {
+                GemSupports.Candidate[] candidates = phantasmFirst
+                    ? [new(phantasm, 20, 0, 1), new(multiple, 20, 0, 2), new(faster, 20, 0, 3)]
+                    : [new(multiple, 20, 0, 1), new(faster, 20, 0, 2), new(phantasm, 20, 0, 3)];
+                var applied = supports.Resolve(effect, candidates, skills);
+                Assert.Equal(3, applied.Count);
+                var gmp = Assert.Single(applied, s => s.Gem.Effect == multiple);
+                Assert.Contains(applied, s => s.Gem.Effect == faster);
+                Assert.Equal(4, gmp.Stats.Single(s => s.Key == Program.Stats.Key("number_of_additional_projectiles")).Value);
+                var stats = applied.SelectMany(s => s.Stats).Select(s => (Name: Program.Stats.Name(s.Key)!, s.Value)).ToArray();
+                Assert.Equal(1d, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats,
+                    new HashSet<int> { 0, 19 }).GeneralOrPhysical);
+                Assert.Equal(.74, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats,
+                    new HashSet<int> { 1, 2 }).GeneralOrPhysical, 9);
+            }
+            // Resolution must not retain the added minion types when Phantasm leaves the link group.
+            Assert.Empty(supports.Resolve(effect, projectileSupports, skills));
+        }
+
         // Native final-speed rounding precedes duration: Burning Arrow's -30% inherent speed.
         foreach (var (increased, final, rate) in new[] { (15, -20, 112), (30, -9, 127), (45, 2, 143) })
         {

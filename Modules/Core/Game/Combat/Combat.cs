@@ -1301,6 +1301,9 @@ public static partial class Game
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
         if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await CastCurse(remote, stream, ciphers, conn, skillId, to, targetId, recoveryGeneration, Current);
+        if (gem.Name is not null && IsVaalMinion(SkillsFor(conn).EffectId(gem.Effect)))
+            return await RepeatSummonCast(conn, skillId, recoveryGeneration, Current, false,
+                () => ReleaseVaalMinions(remote, stream, ciphers, conn, skillId, to, Current));
         if (gem.Name is not null && MinionUtility(SkillsFor(conn).EffectId(gem.Effect)))
             return await CastMinionUtility(conn, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(conn, skillId) && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
