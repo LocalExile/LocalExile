@@ -31,6 +31,12 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     double beamUntil, beamNextTick;
     (int X, int Y) beamAt;
     MonsterAttack? beamTick;
+    // The beam itself: a ServerBeamEffect object stretched from where he stood to the mark, alive for BeamSeconds.
+    // CelestialBeamArt is only the source rig of the skill's mesh (celestialbeam.sm), so spawning it as an effect draws
+    // that mesh un-stretched, a ball; the client's own beam object is the thing that draws a beam between two points.
+    (int X, int Y) beamFrom;
+    uint beamObject;
+    double beamShowAt, beamHideAt;
     // A threshold's intermission: the shield, the blink to the middle, then three bullet-hell rings.
     bool intermission;
     int waves;
@@ -38,6 +44,13 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
 
     protected override async Task Ticks(ClientState conn, double now)
     {
+        if (beamShowAt > 0 && now >= beamShowAt) { beamShowAt = 0; beamObject = await ShowBeam(conn); }
+        if (beamObject != 0 && now >= beamHideAt)
+        {
+            var gone = beamObject;
+            beamObject = 0;
+            await All(InstanceProtocol.RemoveObject(gone));
+        }
         if (beamTick is null || now >= beamUntil || now < beamNextTick) return;
         beamNextTick = now + 0.5;
         if (now >= beamUntil) { beamTick = null; return; }
@@ -66,7 +79,9 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             await Beam(conn, player, now);
             return;
         }
-        if (now >= nextFlicker && distance is > 14 and < 70)
+        // The slam needs no stand-off: the melee above already takes every distance it can reach, so whatever gets here
+        // is out of his arms. The old "> 14" bound was never reachable (melee keeps him at 13) and kept the skill shut.
+        if (now >= nextFlicker && distance < 70)
         {
             nextFlicker = now + 19;
             await FlickerSlam(conn, player, now);
@@ -114,8 +129,29 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         if (AtlasBosses.ClipFor(conn, Variety, AtlasBosses.CelestialBeamEffect) is { Index: < uint.MaxValue } clip)
             await All(InstanceProtocol.AnimationUpdate(id, 0, clip.Index,
                 (float)Math.Clamp(clip.LengthMs / 1000.0 / BeamChargeSeconds, 0.1, 10)));
-        EffectAt(now + BeamChargeSeconds, conn, beamAt, AtlasBosses.CelestialBeamArt, BeamSeconds);
+        beamFrom = boss.Walk.Position(now);
+        beamShowAt = now + BeamChargeSeconds;
+        beamHideAt = beamShowAt + BeamSeconds;
     }
+
+    /// <summary>Draws the beam with the client's own beam object (<c>Metadata/Effects/ServerBeamEffect</c>): it stretches
+    /// the MiscBeams row's art between the two ends, which is what the skill's class does for the mesh CelestialBeamArt
+    /// points at. The end stays a world point (no object to follow), so the beam holds still where it landed.</summary>
+    async Task<uint> ShowBeam(ClientState conn)
+    {
+        uint beam;
+        lock (conn.Monsters) beam = conn.TakeObjectId();
+        await All(InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
+            new BeamEffectObject(beamFrom.X, beamFrom.Y, id, beamAt.X * BeamEffectObject.WorldPerCell,
+                beamAt.Y * BeamEffectObject.WorldPerCell, 0, BeamRow).Blob()));
+        await All(InstanceProtocol.EnterWakeZone(beam));
+        return beam;
+    }
+
+    /// <summary>The MiscBeams row the beam is drawn with: <c>ElderGuardianLightningBeam</c> (76,
+    /// <c>.../ElderGuardian/LightningGuardian/arenabeam.ao</c>), the gold lightning column of the same family as the
+    /// Celestial Beam. The skill's own mesh has no MiscBeams row of its own (the skill class stretches it itself).</summary>
+    const ushort BeamRow = 76;
 
     /// <summary>How long the Shaper charges before the beam lands (the skill's own cast second).</summary>
     const double BeamChargeSeconds = 1.0;

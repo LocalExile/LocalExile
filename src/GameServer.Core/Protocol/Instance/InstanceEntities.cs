@@ -1025,6 +1025,59 @@ public sealed record BlockerObject(int GridX, int GridY, float Rotation, float S
     }
 }
 
+/// <summary>
+/// Sirus's own maze wall: <c>Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionBlockingWall{1,2}</c> (Orion is his
+/// internal name; the two differ only in blocking_01 / blocking_02.ao). Its .ot chain is InanimateObject, and unlike the
+/// Twilight Strand's force wall it keeps Pathfinding, Stats, Buffs, Life, Animated, Transitionable, StateMachine and
+/// TriggerableBlockage - so <see cref="BlockerObject"/>'s fixed layout does not fit it.
+/// <para>read: 9, components in order: Positioned, Pathfinding, Stats, Buffs, Life, Animated, Transitionable,
+/// StateMachine, TriggerableBlockage. Pathfinding reads nothing. TriggerableBlockage (reader 0x141e47880) is
+/// u8 blocked, then a u8 count and that many u8 only while blocked; the client closes the cells of the model's own
+/// footprint where the object stands (0x141d8ad70), which is what makes the wall real.</para>
+/// <para>Transitionable has num_states 3; the object is created in state 1 (states run 1..num_states; 0 crashed the
+/// client's post-create event interpreter). StateMachine's only shared state is <c>detonate</c> (0), which the official
+/// fight raises when the maze collapses.</para>
+/// <para>Everything after <c>Life</c> sits behind it, so Life writes all three pools and its flags byte (as
+/// <see cref="MonsterObject"/> does), and StateMachine writes its two counts before the states (reader 0x141e42430).
+/// One pool alone left the client reading <c>Animated</c> out of the mana pool - a wall with no model and no blockage -
+/// and a state without the counts made it read the tasks byte as a shared timer.</para>
+/// </summary>
+public sealed record OrionWallObject(int GridX, int GridY, float Rotation, bool UseBlocking02 = true)
+{
+    public const string Path1 = "Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionBlockingWall1";
+    public const string Path2 = "Metadata/Monsters/AtlasExiles/OrionArenaObjects/OrionBlockingWall2";
+    public string TypePath => UseBlocking02 ? Path2 : Path1;
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        // Object flags 0, then the base data entry count: the create does not wake the object itself, so the caller sends
+        // the wake-zone record (0x1a9) right after it, exactly as The Twilight Strand's force wall does. (Bit 0x02 here
+        // wakes it from the create instead; the two must not both be used, a 0x1a9 to an awake object only logs a
+        // [CRIT]. The explicit record is the live-verified path.)
+        w.U8(0).U8(0);
+        // Positioned: x, y, facing, team 0, flags0 0 (the .ot's own scale), flags1 0x02 with its two bytes (hidden 0,
+        // shown 1) - the spike trap's and the abyss blade's layout.
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(0).U8(0x02).U8(0).U8(1);
+        // Pathfinding: reads nothing.
+        w.Stats([]).U32(0).U32(0).U8(0);        // Stats: the .ot's own stat defaults
+        w.U16(0);                               // Buffs
+        // Life: current, reserved, i16, u32, u32 per pool - life, mana, energy shield - then the flags byte.
+        w.U32(1).U32(0).U16(0).U32(0).U32(0);   // life: an inanimate object with a life pool of 1
+        w.U32(0).U32(0).U16(0).U32(0).U32(0);   // mana
+        w.U32(0).U32(0).U16(0).U32(0).U32(0);   // energy shield
+        w.U8(0);                                // Life flags
+        w.U8(0);                                // Animated: the type's own blocking_0X.ao
+        w.U8(1);                                // Transitionable: state 1 (num_states 3)
+        // StateMachine (0x141e42430): u8 shared-state count, u8 shared-timer count, then per define_shared_state a
+        // compact int value + u8 flags (0x02 keeps the sent value). The type has one, "detonate" = 0.
+        w.U8(1).U8(0).CompactI(0).U8(0x02);
+        w.U8(1).U8(0);                          // TriggerableBlockage: blocked, no extra cells
+        w.U8(0);                                // tasks
+        return w.ToArray();
+    }
+}
+
 /// <summary>A type's networked StateMachine data: the define_shared_state defaults in order and the number of
 /// define_shared_timer entries (scripts/re/ot_components.py "shared_states" / "shared_timers").</summary>
 public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int SharedTimers, IReadOnlyList<string>? Names = null)

@@ -52,7 +52,9 @@ static partial class Sirus
     sealed record Deferred(double At, int Generation, ClientState Target, (int X, int Y) From, (int X, int Y) Aim);
     sealed record TimedAnimation(double At, int Generation, byte Animation, float Seconds);
     sealed record Hit(double At, int Generation, int Group, int Effect, (int X, int Y) From, (int X, int Y) To,
-        double Radius, bool Beam = false, ClientState? Track = null, bool ApparitionHit = false);
+        double Radius, bool Beam = false, ClientState? Track = null, bool ApparitionHit = false, bool DrawBeam = true);
+    // An effect that goes up later: the fight's own timing (a meteor that falls, an orb that travels).
+    sealed record TimedFx(double At, string Model, int X, int Y, double Until, float Rotation);
     sealed record Visual(uint Id, (int X, int Y) At, string Model, uint? Clip, double Until, float Rotation, bool Blocking, bool Temporary);
     sealed class StormState(uint id, SpawnedMonster monster, double born, double angle)
     {
@@ -77,12 +79,13 @@ static partial class Sirus
         readonly List<StormState> storms = [];
         readonly List<Patch> patches = [];
         readonly List<Quad> quads = [];
+        readonly List<TimedFx> timedFx = [];
         readonly HashSet<(int, ClientState, uint)> struck = [];
         readonly Dictionary<(ClientState, uint), double> carry = [];
         int group, special, apparitionRotation;
         (int X, int Y) mazeCentre, corridorEnd;
         double specialUntil, lastGround;
-        void CancelCombat() { hits.Clear(); deferred.Clear(); animations.Clear(); struck.Clear(); special = 0; if (body is not null) { body.ActionGeneration++; body.SwingGeneration = null; } }
+        void CancelCombat() { hits.Clear(); deferred.Clear(); animations.Clear(); struck.Clear(); timedFx.Clear(); special = 0; if (body is not null) { body.ActionGeneration++; body.SwingGeneration = null; } }
         void RegisterStorm(uint key, SpawnedMonster m, double now)
         {
             if (storms.Any(s => s.Id == key)) return;
@@ -113,7 +116,7 @@ static partial class Sirus
         }
         async Task ClearTemporary(ClientState c)
         {
-            hits.Clear(); patches.Clear(); quads.Clear();
+            hits.Clear(); patches.Clear(); quads.Clear(); timedFx.Clear();
             foreach (var v in visuals.Where(v => v.Temporary).ToArray())
             { visuals.Remove(v); foreach (var p in players) p.RemoveBlocker(v.Id); await Remove(v.Id); }
         }
@@ -124,7 +127,7 @@ static partial class Sirus
             foreach (var fx in visuals.ToArray()) await Remove(fx.Id);
             visuals.Clear();
             foreach (var s in storms.ToArray()) await Retire(players[0], s.Id);
-            storms.Clear(); patches.Clear(); quads.Clear();
+            storms.Clear(); patches.Clear(); quads.Clear(); timedFx.Clear();
         }
         async Task Cast(ClientState c, uint actor, int effect, (int X, int Y) aim, double now)
         {
@@ -219,7 +222,14 @@ static partial class Sirus
                 var exit = (mazeCentre.X + (int)(Math.Cos(gap) * radius), mazeCentre.Y + (int)(Math.Sin(gap) * radius));
                 await Fx(c, exit, Art + "maze_warp.ao", now + duration, clip: null);
             }
+            // The warning on the ground stays until the meteor lands.
             await Fx(c, mazeCentre, Art + "maze_meteor_incoming.ao", now + duration, clip: null);
+            // The meteor itself is the fight's own giant meteor (maze_meteor.ao, the blocking_slams/meteor rig): it
+            // falls onto the centre of the ring and leaves the crater. It carries no contact of its own, so it is
+            // timed like the small meteor - up 1.92 s before the hit, alive through it.
+            timedFx.Add(new(now + duration - 1.92, Art + "maze_meteor.ao", mazeCentre.X, mazeCentre.Y, now + duration + 1.2, 0));
+            // The crater: the ground inside the ring keeps burning (the fight's own 10945).
+            patches.Add(new(mazeCentre, now + duration + 8, 17 + (rings - 1) * 15, 10945));
             hits.Add(new(now + duration, body!.ActionGeneration, ++group, rings == 1 ? 10949 : rings == 2 ? 10950 : 10951,
                 mazeCentre, mazeCentre, 17 + (rings - 1) * 15));
         }
@@ -229,16 +239,28 @@ static partial class Sirus
             var aim = c.Walk.Position(now); var at = RingPoint(c, aim, 42, now);
             await Teleport(c, id, at, now); await Cast(c, id, 10948, aim, now); await Voice(5678);
             body!.LifePhases!.DamageTakenPercent = 20;
-            corridorEnd = Extend(at, aim, 100);
+            // The corridor reaches from Sirus to the target and 75 cells past it (the client's own rule).
+            corridorEnd = Extend(at, aim, Distance(at, aim) + 75);
             double angle = Math.Atan2(aim.Y - at.Y, aim.X - at.X), dx = Math.Cos(angle + Math.PI / 2) * 11, dy = Math.Sin(angle + Math.PI / 2) * 11;
-            for (int d = 8; d < 100; d += 6)
+            for (int d = 8; d < Distance(at, aim) + 75; d += 6)
                 foreach (int side in new[] { -1, 1 })
                 {
                     var wall = (at.X + (int)(Math.Cos(angle) * d + side * dx), at.Y + (int)(Math.Sin(angle) * d + side * dy));
                     await Fx(c, wall, Art + "blocking_02.ao", specialUntil, clip: 2, rotation: (float)(angle + Math.PI / 2), blocking: true);
                 }
-            foreach (double contact in new[] { 1.173, 1.825, 2.485, 3.156, 3.818, 4.497, 5.167, 5.812 })
-                hits.Add(new(now + contact, body.ActionGeneration, ++group, 10948, at, corridorEnd, 7, Beam: true));
+            // The corridor itself is a line one cell wide; the client scans it every 0.3 s but pays the damage once.
+            hits.Add(new(now + .76, body.ActionGeneration, ++group, 10948, at, corridorEnd, 1, Beam: true, DrawBeam: false));
+            // The orb that travels the middle is the fight's own projectile (Projectiles: AtlasOrionCorridorBlast ->
+            // death_projectile.ao, the big red burning ball); the slash at the corridor's mouth is corridor_slash_01.ao.
+            double[] contacts = [1.173, 1.825, 2.485, 3.156, 3.818, 4.497, 5.167, 5.812];
+            for (int i = 0; i < contacts.Length; i++)
+            {
+                double t = (i + 1) / (double)contacts.Length;
+                var ball = (at.X + (int)((corridorEnd.Item1 - at.X) * t), at.Y + (int)((corridorEnd.Item2 - at.Y) * t));
+                timedFx.Add(new(now + contacts[i] - .75, Art + "death_projectile/death_projectile.ao", ball.Item1, ball.Item2, now + contacts[i] + .3, (float)angle));
+                timedFx.Add(new(now + contacts[i], Art + "corridor_slash_01.ao", at.X, at.Y, now + contacts[i] + .6, (float)(angle + Math.PI / 2)));
+                hits.Add(new(now + contacts[i], body.ActionGeneration, ++group, 10948, ball, ball, 7));
+            }
         }
         async Task QuadBeam(ClientState c, double now)
         {
@@ -295,7 +317,10 @@ static partial class Sirus
                 {
                     var at = c.Layout.Near((aim.X + Random.Shared.Next(-24, 25), aim.Y + Random.Shared.Next(-24, 25)));
                     double contact = now + 1.4 + i * .28;
-                    await Fx(c, at, Art + "maze_meteor_incoming.ao", contact, clip: null);
+                    // The small meteor is the fight's own meteor_rain.ao: it carries the warning circle, the fall and
+                    // the landing, and its own contact is at 1.92 s - so it goes up 1.92 s before the hit and lives
+                    // through it.
+                    timedFx.Add(new(contact - 1.92, Art + "destruction_assets/meteors/meteor_rain.ao", at.X, at.Y, contact + .2, 0));
                     hits.Add(new(contact, c.Monsters[apparition].ActionGeneration, ++group, kind == 1 ? 7032 : 10956, at, at, kind == 1 ? 9 : 12, ApparitionHit: true));
                     patches.Add(new(at, contact + 8, 8, 10945));
                 }
@@ -305,6 +330,12 @@ static partial class Sirus
             foreach (var fx in visuals.Where(v => v.Until <= now).ToArray())
             { visuals.Remove(fx); foreach (var p in players) p.RemoveBlocker(fx.Id); await Remove(fx.Id); }
             patches.RemoveAll(p => p.Until <= now); quads.RemoveAll(q => q.Until <= now);
+            // Effects that go up later: a meteor that falls onto the ground, an orb that travels the corridor.
+            foreach (var v in timedFx.Where(v => v.At <= now).ToArray())
+            {
+                timedFx.Remove(v);
+                await Fx(c, (v.X, v.Y), v.Model, v.Until, clip: null, rotation: v.Rotation);
+            }
             if (stage is 7 or 8) return;
             foreach (var animation in animations.Where(a => a.At <= now).ToArray())
             {
@@ -335,7 +366,7 @@ static partial class Sirus
                 if (body is null || stage != 4 || !c.Monsters.TryGetValue(hit.ApparitionHit ? apparition : id, out var caster)
                     || hit.Generation != caster.ActionGeneration) continue;
                 var aim = hit.Track is { Closed: false, LeavingArea: false } p ? Extend(hit.From, p.Walk.Position(now), 180) : hit.To;
-                if (hit.Beam) await Beam(c, hit, aim, now);
+                if (hit.Beam && hit.DrawBeam) await Beam(c, hit, aim, now);
                 else await Fx(c, hit.To, Art + "maze_meteor_impact.ao", now + 2, clip: null);
                 foreach (var player in Present.ToArray()) await Damage(player, hit with { To = aim });
             }
