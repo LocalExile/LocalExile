@@ -91,6 +91,11 @@ Copy-Into 'scripts\re\divination_cards.py' 'scripts\re\divination_cards.py'
 Get-ChildItem 'scripts\re\divination' -Filter '*.py' -File | ForEach-Object {
     Copy-Into $_.FullName (Join-Path 'scripts\re\divination' $_.Name)
 }
+# The loot filter converter (README-player.txt): it reads the item names from sql\, so it needs nothing else.
+if (-not $IsLinux) {
+    Copy-Into 'scripts\loot-filter\LocalExileFilterFixer.ps1' 'LootFilterFixer\LocalExileFilterFixer.ps1'
+    Copy-Into 'scripts\loot-filter\Fix Loot Filter.bat' 'LootFilterFixer\Fix Loot Filter.bat'
+}
 
 # The bundled runtime of the extraction (Node, for GamePack's Oodle decoder), and the manifest with each entry's program.
 Step 'bundling Node ...'

@@ -89,6 +89,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Every reader takes the client tables by name as typed rows (`ClientTable`), the servers, the tools and the Python
   scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. Not yet checked in a real-client session.
   Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Core/Config/ServerConfig.cs`.
+- Loot filters made for 3.30 (FilterBlade, NeverSink): `scripts/loot-filter` (`LootFilterFixer\` in a release) writes a
+  copy the 3.29 client loads into `My Games\Path of Exile`.
+  It drops item, class and mod names missing from `sql/updates/client` and disables blocks that use `Fated`.
+  Checked on a 3.30 NeverSink filter: no names or keywords left that the 3.29.3c tables and `Game.exe` lack.
+  Not yet: loaded in the real client.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64

@@ -21,6 +21,12 @@ Close the game, then extract the new zip to the same place, so its LocalExile fo
 client in Client\ are kept. Only LocalExile is updated, never the game. LocalExile.exe tells you when a newer release
 exists; add --no-update-check to turn that off. It never downloads anything by itself.
 
+LOOT FILTERS FROM FILTERBLADE (3.30 AND LATER)
+FilterBlade and NeverSink now make filters for newer patches, and this client does not load them. Double-click
+LootFilterFixer\Fix Loot Filter.bat, pick your filter (downloaded, or synced to your account) and click Convert: it saves
+"<name> - LocalExile.filter" in Documents\My Games\Path of Exile. It takes out only the items and rules this client does
+not have. Pick that filter in the game's options. Convert again each time you change your filter on FilterBlade.
+
 IF SOMETHING GOES WRONG
 Logs are in logs\. An antivirus may flag Client\Game.patched.exe, a modified copy of the client: allow it if you trust
 this package. LocalExile.exe --help lists every option.
