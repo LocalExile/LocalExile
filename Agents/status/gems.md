@@ -83,9 +83,7 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you" (its buff
-  icon is no longer shown for a self-excluding aura).
-  Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
-  Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+  icon is no longer shown for a self-excluding aura, while the aura art and skill-bar association remain).
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
