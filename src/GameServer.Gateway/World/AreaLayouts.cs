@@ -227,7 +227,9 @@ public static class AreaLayouts
     });
 
     /// <summary>When the client reports the area generated (0x7d): the walk map scripts/walkmaps saved meanwhile, if
-    /// any. Waits up to 2 s for the file.</summary>
+    /// any. Waits up to 2 s for the file while the recorder runs (<see cref="Recording"/>); without it nothing writes
+    /// the file, so it looks once and does not wait: the player is already past the loading screen, and the wait held
+    /// every arrival in an area without a walk map for 2 s (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitFor(AreaLayout layout, uint seed)
     {
         string bin = $"{Folder}/{layout.Id}_seed{seed}.bin";
@@ -238,23 +240,27 @@ public static class AreaLayouts
                 var better = For(layout.Hash, seed);
                 return better.Walkable is null ? null : better;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
     }
 
     /// <summary>When the client reports the area generated (0x7d) and the layout has no area transitions yet: the ones
-    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file.</summary>
+    /// scripts/walkmaps captured meanwhile, if any. Waits up to 1 s for the file while the recorder runs
+    /// (<see cref="Recording"/>); without it it looks once and does not wait. A hideout has no area transitions, so the
+    /// wait held every arrival in one for a second (2026-11-17).</summary>
     public static async Task<AreaLayout?> WaitForTransitions(AreaLayout layout, uint seed)
     {
         for (int i = 0; i < 10; i++)
         {
             if (AreaTransitionCatalog.Captured(layout.Id, seed))
             {
-                await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
+                if (Recording) await Task.Delay(200);   // the capture is rewritten per object; let the last ones land
                 var better = For(layout.Hash, seed);
                 return better.AreaTransitions.Length > 0 || better.Waypoint is not null ? better : null;
             }
+            if (!Recording) return null;
             await Task.Delay(100);
         }
         return null;
