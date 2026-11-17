@@ -130,6 +130,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
+            GainPhasingOnKill(conn);
             session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
@@ -213,11 +214,12 @@ public static partial class Game
     public static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
-    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
-    {
-        session.Create(id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
-        session.World(id, InstanceProtocol.EnterWakeZone(id));
-    }
+    // One admitted create and wake, projected at the gate from the item as it lies there. A pickup that wins the race
+    // leaves no item, so the create is suppressed instead of a removal reaching an object the client never saw; the
+    // claim on SeenGround keeps the 100 ms ground sync from removing that unseen ID and from creating the drop again.
+    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground) =>
+        session.Create(id, () => GroundItemPresentation(session.Conn, id, justDropped: true, expected: ground, includeWake: false),
+            wake: true);
 
     public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)

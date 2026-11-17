@@ -2732,6 +2732,20 @@ before action/cost admission. Enemy targeting of totems, placement range and the
 
 ## 10h. Player minions that fight
 
+The native Actor also has an ownership list, separate from model/team and count stats.
+Actor update flag `0x0100` (`0x142199c20`) reads a u16 count followed by `(u32 object, u16 source, u16 MinionType)`.
+A zero source removes the id; other entries append, so a changed entry needs removal before addition.
+The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
+`MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
+
+UpgradeMinion's availability check (`0x1412ea7d0`) requires a matching ownership entry.
+It maps a skill id to `0xc000 | (id & 0x3fff)`, or `0x8000 | (id & 0x3fff)` for an id already tagged `0xc000`.
+At the upgraded limit it also dereferences that source skill's limit stats: a roster entry without this skill record
+can crash the client on a subsequent cast.
+The module publishes a paired normal-skill proxy with that id and a parent reference to its ordinary source.
+GE `SkillID` supplies `skill_behaviour_variation`: zero selects Absolution and one selects Dominance in this action.
+Native verification covered Absolution and Dominance upgrades and full-cap refreshes with no ordinary sentinel remaining.
+
 A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
 (`PlayerMinions.cs`).
 The Spirit chieftains are the first (section 10f).

@@ -58,6 +58,7 @@ public static partial class Game
             if (conn.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(state, previous, "refreshed");
             UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
+            ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +

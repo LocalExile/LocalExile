@@ -340,7 +340,7 @@ public static partial class Game
             SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
             skills, stats)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             ActorStance = Arakaali.Stance(conn, variety),
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
@@ -2107,6 +2107,7 @@ public static partial class Game
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
