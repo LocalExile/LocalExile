@@ -285,7 +285,7 @@ public static partial class Game
 
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
-            var result = new List<ProjectileActor>(Conn.Monsters.Count + 1);
+            var result = new List<ProjectileActor>(Conn.Monsters.Count + Conn.Totems.All.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
                 if (monster.Dead || monster.Life == 0 || monster.WorldHidden || ArenaHazards.Untargetable(Conn, monster)) continue;
@@ -293,8 +293,7 @@ public static partial class Game
                 int size = LivingCollision.Size(monster);
                 if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
                     || kept.Hostile != monster.Hostile || kept.Size != size)
-                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, new(Key(id, monster), monster.Hostile ? 2 : 1,
-                        t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size });
+                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, MonsterActor(Key(id, monster), walk, monster.Hostile, size));
                 result.Add(kept.Actor);
             }
             // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
@@ -303,13 +302,29 @@ public static partial class Game
             if (actorOf.Count > 2 * result.Count + 64) PruneActors();
             // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
             // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
-            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
-                InOrder(result, new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            // A totem's id and place never change, so it keeps one record for as long as it is listed.
+            var totems = Conn.Totems.All;
+            double clock = Conn.Clock.Elapsed.TotalSeconds;
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Alive(clock)) InOrder(result, TotemActor(totems[i]));
             if (Conn.PlayerLife > 0)
                 InOrder(result, playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
+        }
+
+        // Its own method: a lambda in the loop above made the loop keep its walk in a new closure at every monster of
+        // every call (24 bytes each), also when the kept record was used.
+        static ProjectileActor MonsterActor(ProjectileActorKey key, PlayerWalk walk, bool hostile, int size) =>
+            new(key, hostile ? 2 : 1, t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size };
+
+        readonly System.Runtime.CompilerServices.ConditionalWeakTable<TotemState.Totem, ProjectileActor> totemActors = [];
+        ProjectileActor TotemActor(TotemState.Totem totem)
+        {
+            if (totemActors.TryGetValue(totem, out var kept)) return kept;
+            totemActors.Add(totem, kept = new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            return kept;
         }
 
         static readonly Comparer<ProjectileActor> ContactOrder = Comparer<ProjectileActor>.Create((a, b) =>
