@@ -54,8 +54,39 @@ public sealed class GemSupports(string folder = "data")
                 if (grants.Length == 1 && levelStats.Length == 1) level = itemMod.Values[levelStats[0].Index];
                 if (level > 0) yield return new(grant.Effect, level, 0, source++);
             }
+            // Forbidden Shako: the mod rolls which support it grants ("Socketed Gems are Supported by Level {0} {1}",
+            // display_indexable_support): local_random_support_gem_index[_1] is an IndexableSupportGems Index, and the
+            // local_random_support_gem_level stat with the same suffix its level.
+            for (int i = 0; i < mod.Stats.Count && i < itemMod.Values.Count; i++)
+            {
+                if (!mod.Stats[i].Id.StartsWith(RandomSupportIndex, StringComparison.Ordinal)) continue;
+                string levelStat = RandomSupportLevel + mod.Stats[i].Id[RandomSupportIndex.Length..];
+                int at = Enumerable.Range(0, Math.Min(mod.Stats.Count, itemMod.Values.Count))
+                    .FirstOrDefault(j => mod.Stats[j].Id == levelStat, -1);
+                if (at >= 0 && itemMod.Values[at] > 0 && RandomSupportEffect(itemMod.Values[i]) is int effect)
+                    yield return new(effect, itemMod.Values[at], 0, source++);
+            }
         }
     }
+
+    const string RandomSupportIndex = "local_random_support_gem_index", RandomSupportLevel = "local_random_support_gem_level";
+
+    /// <summary>The support an IndexableSupportGems Index names: its SkillGems row's first GemVariants entry's
+    /// GrantedEffect (the normal gem's support effect), or null for an index the table does not have.</summary>
+    public int? RandomSupportEffect(int index) => _indexable.Value.TryGetValue(index, out int effect) ? effect : null;
+
+    readonly Lazy<Dictionary<int, int>> _indexable = new(() =>
+    {
+        var gems = Read("SkillGems");
+        var effects = Read("GemEffects");
+        var result = new Dictionary<int, int>();
+        foreach (var row in Read("IndexableSupportGems"))
+            if (row.IntOrNull("Index") is int index && row.IntOrNull("SupportGem") is int gem and >= 0 && gem < gems.Count
+                && gems[gem].Ints("GemVariants").FirstOrDefault(-1) is int variant and >= 0 && variant < effects.Count
+                && effects[variant].IntOrNull("GrantedEffect") is int effect and >= 0)
+                result.TryAdd(index, effect);
+        return result;
+    });
 
     // ActiveSkillType expressions are postfix; remaining terms are implicitly ORed (legacy table format).
     public static bool Matches(IReadOnlyList<int> expression, IReadOnlySet<int> types, bool empty)

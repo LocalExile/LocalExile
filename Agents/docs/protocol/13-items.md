@@ -507,6 +507,12 @@ enemy-debuff step copies the player's value onto each living hostile monster (`T
 freeze, shock, bleed, poison) to its other increased damage taken, for hits and damage over time. The server does not
 record who inflicted a monster's ailments, so in a party any player's count; scorch, brittle and sap are not modelled.
 
+**Forbidden Shako and its Replica** (`GemSupports.ItemCandidates`): each RandomSupportUnique mod rolls
+`local_random_support_gem_index[_1]` (1-172) and `local_random_support_gem_level[_1]`; the description shows the index
+through `display_indexable_support`, which is IndexableSupportGems' `Index` column (row + 1), whose `SupportGem` is a
+SkillGems row. Its first GemVariants entry's GrantedEffect supports every gem socketed in the helmet, as other "Socketed
+Gems are Supported by" mods do, at the rolled level (25-35 reads the nearest GrantedEffectsPerLevel row).
+
 Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
 Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
 all-white Unset Ring socket are generated from the unique rows too; their link groups use the Jeweller's approximation.
