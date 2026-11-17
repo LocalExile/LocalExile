@@ -37,6 +37,27 @@ static class ConditionalOperatorCoreCases
             subject: sourceSubject with { ItemValue = (_, key) => key == "other_ring_is_elder_item" ? 0 : null },
             statExists: n => Program.Stats.Key(n) is not null);
         Assert.Equal(0, absent.GetValueOrDefault("spell_damage_+%"));
+
+        foreach (string overleech in new[] { "energy_shield_leech_does_not_stop_on_full_energy_shield",
+            "energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield" })
+        {
+            var esFlags = new Dictionary<string, bool> { ["_on_full_energy_shield"] = false };
+            var belowFull = new StatConditions.Subject(Flags: esFlags);
+            Assert.Null(StatConditions.PlainOf(overleech));
+            Assert.Equal(StatConditions.State.None, StatConditions.Of(overleech, belowFull));
+            Assert.Equal(StatConditions.State.Fails,
+                StatConditions.Of("damage_+%_on_full_energy_shield", belowFull));
+            int Get(string id) => id == overleech && StatConditions.Counts(StatConditions.Of(id, belowFull)) ? 1 : 0;
+            var leech = new LeechSession();
+            leech.Configure(0, LeechLimits.Resolve(Get, 1000, 1000, 1000), Get, _ => null);
+            leech.Hit(0, (0, 0, 100), false, false, false, attack: true);
+            leech.ClearFull(0, false, false, true);
+            Assert.True(leech.Active(0).EnergyShield);
+            esFlags["_on_full_energy_shield"] = true;
+            Assert.Equal(StatConditions.State.None, StatConditions.Of(overleech, belowFull));
+            Assert.Equal(StatConditions.State.Holds,
+                StatConditions.Of("damage_+%_on_full_energy_shield", belowFull));
+        }
     }
 
     public static void Event_amounts_use_exact_independent_windows_and_saturating_coefficients()
