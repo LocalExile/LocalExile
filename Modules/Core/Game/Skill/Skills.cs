@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.World;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
@@ -877,8 +878,11 @@ public static partial class Game
             }
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
-                Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
-                    $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
+                // Per gem, every time a stat rebuild walks the bar: 1264 lines (up to 64 in one second) in a 3-minute
+                // fight, ~45 KB/s of log, which the rebuild then waited on. Only under Game_TRACE=skills.
+                if (ServerTrace.Skills)
+                    Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
+                        $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
                 yield return skill with { Supports = [.. supported.Supports.Select(s => SkillsFor(conn).FindByRow(0, s.Effect.Row, s.Gem.Level))
                     .OfType<GrantedSkill>().Select(s => new GrantedSupport(s.EffectsPerLevelRow, s.StatSetsPerLevelRow)
                     { ExtraStatSets = [.. s.ExtraStatSets.Select(e => e.Row)] })] };
@@ -1292,7 +1296,9 @@ public static partial class Game
     {
         if (!CurrentGameRules) return;
         RefreshVaalSouls(conn);
-        lock (conn.Monsters)
+        // Named, because it is a large block (auras, pools, cooldowns) that runs on every skill refresh, and a waiter that
+        // found the combat lock busy here had no name to show for it.
+        using (conn.Performance.Lock(conn.Monsters, "skills"))
         {
             if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             RefreshVaalSouls(conn);
@@ -1336,6 +1342,9 @@ public static partial class Game
             }
         }
         List<ushort> gone = [], added = [];
+        // Built at the send gate, as every full stat and Actor refresh is (SendPlayerStatSnapshot): the packet that is
+        // written last is then the one built last, the own-aura records it depends on go with it, and a lockstep client
+        // gets it as a world record of the player.
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () =>
         {
             var skills = PlayerSkills(conn);
