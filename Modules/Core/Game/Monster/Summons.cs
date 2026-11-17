@@ -61,7 +61,7 @@ public static partial class Game
     {
         if (definition.Persistent) return double.PositiveInfinity;
         int ms = GolemStat(gem.Stats, definition.Family == "Spectre" ? "spectres_have_base_duration_ms"
-            : definition.Family == "Absolution" ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
+            : definition.Family == "Absolution" || definition.Family.StartsWith("Dominating", StringComparison.Ordinal) ? "base_secondary_skill_effect_duration" : "base_skill_effect_duration");
         var player = CharacterPlayerStats(conn);
         return SkillDurationModifiers.Seconds(ms, n => GolemStat(player, n), n => GolemStat(gem.Stats, n));
     }
@@ -131,9 +131,11 @@ public static partial class Game
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
-        bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true)
+        bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
+        MonsterRarity rarity = MonsterRarity.Normal)
     {
         var gem = SupportedSkill(conn, source);
+        if (definition.Family == "Phantasm") gem = PhantasmGem(conn, gem);
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
         int limit = SummonLimit(conn, definition, gem);
         if (limit < 1) return 0;
@@ -167,11 +169,15 @@ public static partial class Game
         }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
+        if (actorLevel <= 0 && definition.Family.StartsWith("Dominating", StringComparison.Ordinal))
+            actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
         var player = CharacterPlayerStats(conn);
         var fighter = new GolemState.Golem(0, null!, native, source)
-        { GemLevel = gem.Level, Quality = gem.Quality, Own = gem.Stats, Player = new(player), Limit = limit };
+        { GemLevel = gem.Level, Quality = gem.Quality, Own = gem.Stats, Player = new(player), Limit = limit,
+            InheritedMods = inheritedMods ?? MonsterModSet.None,
+            SourceIdentity = gem.SourceGem is null ? null : PlayerInventories.GemIdentity(gem.SourceGem) };
         if (animated is not null)
         {
             fighter.Equipment = animated.Equipment;
@@ -185,7 +191,7 @@ public static partial class Game
         fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
         if (!conn.Layout.WalkableFor(aim.X, aim.Y, 0)) aim = NextToPlayer(conn);
         var consumed = corpse;
-        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, aim.X, aim.Y,
+        uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: maximum, damagedLife: (uint)Math.Clamp(life * maximum, 1, maximum),
             ownedLooks: SummonLooks(fighter),
@@ -281,9 +287,16 @@ public static partial class Game
                 }
                 if (player is null) { GolemStepLocked(remote, stream, ciphers, conn, fighter, now); continue; }
                 var gem = SupportedSkill(conn, fighter.Source);
-                if (SkillsFor(conn).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
+                if (fighter.Definition.Kind == "Phantasm") gem = PhantasmGem(conn, gem);
+                if (fighter.Definition.Kind == "Phantasm" && GolemStat(gem.Stats, "base_number_of_support_ghosts_allowed") <= 0)
+                { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
+                if (fighter.SourceIdentity is not null && (fighter.Definition.Kind is "Absolution" or "Phantasm" || fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal))
+                    && (gem.SourceGem is null || !ReferenceEquals(fighter.SourceIdentity, PlayerInventories.GemIdentity(gem.SourceGem)))
+                    || SkillsFor(conn).EffectId(gem.Effect) != fighter.Definition.Id || !gem.RequirementsMet)
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
+                if (actorLevel <= 0 && fighter.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal))
+                    actorLevel = SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level);
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)
                 { rescaled.Add((fighter, state.Definitions[fighter.Id])); continue; }
                 fighter.Own = gem.Stats; fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
@@ -292,9 +305,10 @@ public static partial class Game
             }
         }
         foreach (var (old, definition) in rescaled)
-            if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, old.Monster.Walk.Position(now),
+            if (await SummonFighterCore(remote, stream, ciphers, conn, old.Source, definition, old.Monster.Walk.Position(now),
                 restoredVariety: old.Monster.Variety!.Id, life: old.Monster.Life / (double)old.Monster.MaxLife,
-                restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now), replacing: old.Id) != 0)
+                restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now), replacing: old.Id,
+                inheritedMods: old.InheritedMods, rarity: old.Monster.Rarity) != 0)
                 lock (conn.Monsters)
                 { if (state.Fighters.ContainsKey(old.Id)) RemoveSummonLocked(conn, old, now); changed = true; }
         if (changed) SaveSummons(conn);
@@ -302,12 +316,20 @@ public static partial class Game
 
     static void AddSummonCounts(ClientState conn, Dictionary<uint, int> stats)
     {
+        foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
+            if (Stats.Key("number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters") is uint count)
+                lock (conn.Monsters) stats[count] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == "Dominating" + rarity && !g.Monster.Dead);
+        lock (conn.Monsters)
+        {
+            if (Stats.Key("number_of_dominated_monsters") is uint dominated)
+                stats[dominated] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
+        }
         var names = SummonCountNames;
         lock (conn.Monsters)
         foreach (var (kind, name) in names)
             if (Stats.Key("number_of_active_" + name) is uint key)
                 stats[key] = conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
     }
-    static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
+    static readonly IReadOnlyDictionary<string, string> SummonCountNames = new Dictionary<string, string> { ["Absolution"] = "absolution_sentinels", ["Phantasm"] = "phantasms", ["Zombie"] = "zombies", ["Spectre"] = "spectres", ["Skeleton"] = "skeletons",
             ["RagingSpirit"] = "raging_spirits", ["HolyRelic"] = "relics", ["Reaper"] = "reapers", ["AnimatedWeapon"] = "animated_weapons", ["AnimatedGuardian"] = "animated_armour" };
 }

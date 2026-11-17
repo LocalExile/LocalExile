@@ -4,21 +4,29 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static SummonCatalog.Definition? HitSummonDefinition(string? effect) => effect is "Absolution" or "AbsolutionAltX"
-        ? new(effect, "Absolution", "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",
-            "base_max_number_of_absolution_sentinels", "") : null;
+    static SummonCatalog.Definition? HitSummonDefinition(string? effect, MonsterRarity rarity = MonsterRarity.Normal) => effect switch
+    {
+        "Absolution" or "AbsolutionAltX" => new(effect, "Absolution", "Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",
+            "base_max_number_of_absolution_sentinels", ""),
+        "DominatingBlow" or "DominatingBlowAltX" => new(effect, "Dominating" + rarity,
+            "Metadata/Monsters/Axis/AxisEliteSoldierDominatingBlow", "base_max_number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters", ""),
+        _ => null,
+    };
 
-    internal static void AbsolutionOnHitLocked(ClientState conn, SpawnedMonster monster,
+    internal static void HitSummonsOnHitLocked(ClientState conn, SpawnedMonster monster,
         IReadOnlyDictionary<uint, int>? skill, ushort source, double now, Random random)
     {
-        if (skill is null || GolemStat(skill, "base_max_number_of_absolution_sentinels") <= 0
+        if (skill is null || GolemStat(skill, "base_max_number_of_absolution_sentinels") + GolemStat(skill, "base_max_number_of_dominated_normal_monsters") <= 0
             || !monster.Hostile || conn.PlayerLife == 0) return;
         var gem = SupportedSkill(conn, source);
-        if (HitSummonDefinition(SkillsFor(conn).EffectId(gem.Effect)) is null || !gem.RequirementsMet) return;
+        var definition = HitSummonDefinition(SkillsFor(conn).EffectId(gem.Effect));
+        if (definition is null || !gem.RequirementsMet) return;
+        if (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
+            && (monster.Effects["cannot_be_dominated"] > 0 || monster.Effects["cannot_be_converted_or_dominated"] > 0)) return;
         var pair = conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, monster));
         if (pair.Value is null) return;
         if (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && random.Next(100)
-            < GolemStat(skill, "absolution_blast_chance_to_summon_on_hitting_rare_or_unique_%"))
+            < GolemStat(skill, definition.Family == "Absolution" ? "absolution_blast_chance_to_summon_on_hitting_rare_or_unique_%" : "dominating_blow_chance_to_summon_on_hitting_unqiue_%"))
             conn.Summons.HitSummons.Add(new(pair.Key, monster, source, gem.Effect, gem.SourceGem, false));
         if (monster.Rarity == MonsterRarity.Unique) return;
         double duration = SkillDurationModifiers.Seconds(GolemStat(skill, "base_skill_effect_duration"),
@@ -28,6 +36,14 @@ public static partial class Game
     }
 
     static void HitSummonsOnDeathLocked(ClientState conn, uint id, SpawnedMonster monster, double now)
+    {
+        QueueMarkedDeath(conn, id, monster, now);
+        foreach (var peer in conn.Instance.PlayersExcept(conn.PeerId))
+            if (peer.Owner is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, conn.Instance))
+                QueueMarkedDeath(other, id, monster, now);
+    }
+
+    static void QueueMarkedDeath(ClientState conn, uint id, SpawnedMonster monster, double now)
     {
         foreach (var (key, mark) in conn.Summons.HitMarks.Where(p => p.Key.Id == id).ToArray())
         {
@@ -52,12 +68,15 @@ public static partial class Game
         foreach (var request in pending)
         {
             var gem = SupportedSkill(conn, request.Source);
-            var definition = HitSummonDefinition(SkillsFor(conn).EffectId(gem.Effect));
+            var definition = request.Kind == "Phantasm" ? PhantasmDefinition(SkillsFor(conn).EffectId(gem.Effect) ?? "")
+                : HitSummonDefinition(SkillsFor(conn).EffectId(gem.Effect), request.ConsumeCorpse ? request.Monster.Rarity : MonsterRarity.Normal);
             bool Current() => CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
                 && conn.Monsters.GetValueOrDefault(request.Target) == request.Monster
                 && (!request.ConsumeCorpse || request.Monster.Dead && !request.Monster.CorpseConsumed && !request.Monster.Ailments.Shattered)
-                && SameTriggerSource(gem, SupportedSkill(conn, request.Source));
-            if (definition is null || gem.Effect != request.Effect || !ReferenceEquals(gem.SourceGem, request.Gem)
+                && SameTriggerSource(gem, SupportedSkill(conn, request.Source))
+                && (request.Kind != "Phantasm" || request.Supports == SummonSupportStamp(gem));
+            if (definition is null || gem.Effect != request.Effect || !(gem.SourceGem is not null && request.Gem is not null
+                    && ReferenceEquals(PlayerInventories.GemIdentity(gem.SourceGem), PlayerInventories.GemIdentity(request.Gem)))
                 || !gem.RequirementsMet) continue;
             lock (conn.Monsters)
             {
@@ -65,7 +84,7 @@ public static partial class Game
                 int limit = SummonLimit(conn, definition, gem);
                 if (limit <= 0) continue;
                 var alive = conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead && g.Monster.Life > 0).ToArray();
-                if (alive.Length >= limit)
+                if (alive.Length >= limit && definition.Family == "Absolution")
                 {
                     var refresh = alive.MinBy(g => conn.Summons.Until[g.Id])!;
                     conn.Summons.Until[refresh.Id] = now + SummonDuration(conn, definition, gem);
@@ -78,7 +97,12 @@ public static partial class Game
             }
             uint id = await SummonFighterCore(remote, stream, ciphers, conn, request.Source, definition,
                 request.Monster.Walk.Position(now), current: Current, triggered: true,
-                consumedCorpse: request.ConsumeCorpse ? request.Monster : null);
+                consumedCorpse: request.ConsumeCorpse ? request.Monster : null,
+                inheritedMods: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
+                    ? MonsterModRolls.Value.Create(request.Monster.Mods.Affixes.ToArray(), request.Monster.Mods.NameWords,
+                        request.Monster.Rarity, Math.Clamp(SkillsFor(conn).PlayerLevelReq(gem.Effect, gem.Level), 1, 100)) : null,
+                rarity: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
+                    ? request.Monster.Rarity : MonsterRarity.Normal);
             if (id != 0 && request.ConsumeCorpse)
                 lock (conn.Monsters) ConsumeHitSummonCorpseLocked(conn, request);
         }
