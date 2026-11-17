@@ -206,6 +206,12 @@ public sealed class SupportHitDamageTests
         Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
         Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get(("trap_throwing_speed_+%", 20),
             ("trap_throwing_speed_+%_per_frenzy_charge", 10)), mine: false, frenzyCharges: 3), 9);
+        // Swift Assembly's three chances are rolled separately and their extra throws add up.
+        static string Swift(int extra) => $"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine";
+        Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
+        Assert.Equal(6, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 100), (Swift(3), 100)), new Random(1)));
+        Assert.Equal(4, Game.SwiftAssemblyExtra(Get((Swift(1), 100), (Swift(2), 0), (Swift(3), 100)), new Random(1)));
+        Assert.Equal(2, Game.SwiftAssemblyExtra(Get((Swift(2), 100)), new Random(1)));
         // Several traps or mines from one use scatter around the aim: within the support's circle, or a radius that
         // grows with their number.
         Assert.Equal((100, 100), Game.PlacedThrowPoint((100, 100), 1, 20, new Random(1)));

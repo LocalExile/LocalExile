@@ -49,17 +49,14 @@ public static partial class Game
         return (mine ? .3 : .6) / Math.Max(.01, speed);
     }
 
-    // Swift Assembly: its chances of 1, 2 or 3 additional traps or mines, read as one roll per use with the largest
-    // number first (a local reading of "chance to throw up to N additional").
+    // Swift Assembly: three separate chances, of 1, 2 and 3 additional traps or mines. Each is rolled on its own and
+    // the successes add up, so one use throws up to 6 more (3.8.0 patch notes).
     public static int SwiftAssemblyExtra(Func<string, int> get, Random random)
     {
-        int roll = random.Next(100), threshold = 0;
-        for (int extra = 3; extra >= 1; extra--)
-        {
-            threshold += get($"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine");
-            if (roll < threshold) return extra;
-        }
-        return 0;
+        int total = 0;
+        for (int extra = 1; extra <= 3; extra++)
+            if (random.Next(100) < get($"support_additional_trap_mine_%_chance_for_{extra}_additional_trap_mine")) total += extra;
+        return total;
     }
 
     // Where each trap or mine of one use lands. One lands on the aim. Several scatter at random around it: within
