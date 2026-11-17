@@ -9,6 +9,29 @@ namespace GameServer.Modules.Game;
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
 public sealed class GameModule : IModule, IDisposable
 {
+    /// <summary>
+    /// Builds, when the module loads, the catalogues every first login and first arrival reads (the stash rules, gems,
+    /// monster contacts, life tables, golem scaling, the room index, the hideouts). Each is built on first use otherwise,
+    /// which was while the first player after a start waited: about 3 s of server time on the first login (2026-11-17).
+    /// A catalogue that cannot be built here is left for its first use, which reports why as it always did.
+    /// </summary>
+    static void WarmCatalogues()
+    {
+        try
+        {
+            Program.Items.Warm();
+            Program.Skills.Warm();
+            Rules.Monsters.Warm();
+            Rules.GolemData.Warm();
+            AreaPopulation.Warm();
+            _ = HideoutCatalog.Hideouts;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or Microsoft.Data.Sqlite.SqliteException or KeyNotFoundException or InvalidOperationException)
+        {
+            Console.WriteLine($"[gateway] catalogues not built at startup, left for their first use: {e.Message}");
+        }
+    }
+
     /// <summary>The end of an unload: the host disposes a module's entry after it stopped the module's lifetime, so the
     /// clean-ups that lifetime owns (the fights' CleanupOnUnload) have read the rule tables by now.</summary>
     public void Dispose()
@@ -33,6 +56,7 @@ public sealed class GameModule : IModule, IDisposable
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
         Program.Skills.WarmMonsterMeleeClocks();
         Rules.HardModeSkills.Value.WarmMonsterMeleeClocks();
+        WarmCatalogues();
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());
         string id = module.Manifest.Id;
