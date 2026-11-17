@@ -54,7 +54,7 @@ public static class GameDataFiles
         // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata; v6 adds the
         // rooms' server objects (room points) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
         // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
-        ("object_types", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("object_types", "monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
         ("item_types", "items, quest items' Quest flags"),
         ("area_transition_areas", "area transitions of fixed layouts"),
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
@@ -62,7 +62,8 @@ public static class GameDataFiles
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
         ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),
         ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several (monster-contacts v5), and boss stage contacts"),
+        ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several, and boss stage contacts"),
+        ("monster_melee_clocks", "ordinary monster melee clocks from the variety AO, including slow spans and ACT budgets (monster-contacts v6)"),
         ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
         ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
         ("client_constants", "the Gateway does not start without its HNC mask"),
@@ -88,11 +89,11 @@ public static class GameDataFiles
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 9, "class rig animation indices, spell cancellation events, every contact frame and all named event times, with lengths even for clips without a contact keyframe"),
-        ("monster-contacts", 5, "monster clip contact frames, effect-specific animation pools and Throw-stage contacts"),
+        ("monster-contacts", 6, "monster clip contact frames, variety AO slow spans, ACT budgets and explicit clock metadata availability"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
-        ("object-types", 10, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),
+        ("object-types", 11, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker) and inherited monster Actor slow-animation policy, phasing and immobility"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

@@ -33,6 +33,7 @@ public sealed class GolemState
         public IReadOnlyList<GrantedSkill> Skills = [];
         public IReadOnlyList<Ability> Abilities = [];
         public Action? Pending;
+        public Action? Repeat;
         public readonly List<Hazard> Hazards = [];
         public readonly List<Pulse> Pulses = [];
         public readonly MonsterIgnites Burns = new();
@@ -44,6 +45,9 @@ public sealed class GolemState
     {
         public bool Started;
         public double At = ContactAt;
+        public Ability? Original;
+        public int RepeatIndex, RepeatsRemaining;
+        public double UseDamageMore = 1, UseAilmentMore = 1;
     }
     public sealed record Hazard(int Effect, (int X, int Y) At, double Until, double Radius, double DamagePerSecond,
         GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false)
