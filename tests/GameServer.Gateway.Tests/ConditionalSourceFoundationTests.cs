@@ -14,5 +14,6 @@ public class ConditionalSourceFoundationTests
     {
         SkillSourceLifetimeCases.Shared_physical_markers_retire_old_leases_and_transfer_one_activation_writer();
         SkillSourceLifetimeCases.Accepted_socket_edits_retire_the_source_and_skill_ids_separate_source_kinds();
+        WornSkillSourceCases.Worn_grants_use_real_rows_distinct_hosts_and_supported_current_sources();
     }
 }
