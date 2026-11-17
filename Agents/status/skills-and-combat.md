@@ -118,9 +118,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) §10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) §10f, [20](../docs/protocol/20-damage.md) §2e.
-- Player minions that fight, including Conviction relics' enemy-centred novas. Docs: [11](../docs/protocol/11-skills.md) §10h.
-- Player minions that fight, with compatible Multistrike repeats, Ruthless uses and Melee Splash.
-  Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Player minions: Conviction novas, Multistrike, Ruthless and Melee Splash. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Life Recoup. Docs: [20](../docs/protocol/20-damage.md) §5.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) §4.
@@ -150,23 +148,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
-- Animated equipment (including Self Reflection's main-hand copy), summons, source recovery, spell repeats, mines and traps.
-  Raging Spirit's quality rolls extra summons for manual, triggered and totem releases.
-- Animated equipment, summons (including source recovery and spell repeats), mines and traps.
-  Spell totems summon minion groups, golems, corpse minions and animated equipment from valid sources.
-- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Predator grants Signal
-  Prey and supported minions prioritize its target with their damage bonus. Feeding Frenzy procs on minion hits and
-  shares its timed damage and speed buff; aggressive and defensive targeting ranges remain open.
-- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Absolution's hit
-  debuff and rare/unique hit chance generate sentinels; at the limit they refresh a sentinel's life and duration.
-- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Bear Trap's secondary
-  hit targets one enemy, shares its panel inputs and excludes attack/spell damage modifiers; its immobilise and
-  decaying debuff remain open.
+- Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Absolution hit/death summons and sentinel life/duration refresh. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons, Holy Flame Totem's native piercing bolts and ballistas;
-  placement validates the linked source again at release. Holy Flame Totem's consecrated ground remains open.
-  Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, Arc, projectile spells, supported summons and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.

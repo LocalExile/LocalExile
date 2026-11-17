@@ -28,6 +28,17 @@ public sealed class HolyFlameTotemTests
             Assert.Equal(6,use.Profile.Count);Assert.Equal(-1,use.Profile.Pierce);
             Assert.Equal("Metadata/Projectiles/TotemHolyFireSpray",use.Profile.Id);
             Assert.True(Assert.IsType<ProjectileOffense>(use.Payload).Hit.MaxTotal>0);
+            // The integrated Dying Sun path reaches the native totem, once, and disappears when the flask ends.
+            var sun = UtilityFlasks.DuringEffectSources(new Dictionary<string, int>
+                { ["local_flask_number_of_additional_projectiles_during_flask_effect"] = 2 }, 1.5);
+            f.Conn.UtilityFlaskEffects.Start(new(123, 0, "Dying Sun", new(0, 0, "test", [], 10, 1, 10),
+                1, null, sun, 0, 100));
+            var flaskUse = Game.CaptureGemProjectile(f.Conn,session,source,gem,(70,50),new(0),totem:totem);
+            Assert.Equal(9,flaskUse.Profile.Count);
+            Assert.Equal(-1,flaskUse.Profile.Pierce);
+            Assert.Equal(totem.Id,flaskUse.Emitter.Id);
+            f.Conn.UtilityFlaskEffects.End(100,all:true,out _);
+            Assert.Equal(6,Game.CaptureGemProjectile(f.Conn,session,source,gem,(70,50),new(0),totem:totem).Profile.Count);
             var visible=(ProjectileUse)typeof(Game).GetMethod("ClientDrawnVolley",BindingFlags.NonPublic|BindingFlags.Static)!
                 .Invoke(null,[f.Conn,session,source,gem,use,(ushort)1,0u])!;
             var shot=Assert.IsType<ProjectileOffense>(visible.Payload);
