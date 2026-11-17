@@ -56,14 +56,22 @@ public static partial class Game
         int percent = generic + (bleeding ? bleedingPercent : 0);
         int chance = Get("explode_enemies_for_25%_life_as_chaos_on_kill_chance_%");
         int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
+        // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
+        // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
+        int elementalChance = Get("explode_enemies_for_10%_life_as_random_element_on_kill_chance_%");
+        DamageType? element = elementalChance > 0 && Random.Shared.Next(100) < elementalChance
+            ? (DamageType)Random.Shared.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
         int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
-        if (physical == 0 && chaos == 0) return false;
-        // Both modifiers can trigger on the same kill; preserve each damage type through mitigation.
+        int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
+        if (physical == 0 && chaos == 0 && elemental == 0) return false;
+        // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
         var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
             .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
-        long amount = (long)physical + chaos;
-        string type = physical > 0 && chaos > 0 ? "physical and chaos" : chaos > 0 ? "chaos" : "physical";
+        if (element is { } e) packet = packet.Add(DamagePacket.Of(e, elemental, elemental));
+        long amount = (long)physical + chaos + elemental;
+        string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
+            element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
         int radius = KillExplosionRadius;
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;

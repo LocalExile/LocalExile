@@ -48,7 +48,21 @@ public static partial class Game
     public static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds)) return null;
+        MarkIgnitedDuringFlaskLocked(conn, id, m, now);
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
+    }
+
+    /// <summary>Cinderswallow Urn: an ignite the player inflicts during the flask's effect makes the monster take the
+    /// flask's increased damage until that ignite ends (MonsterDamageTaken); a stronger or longer one replaces it.</summary>
+    static void MarkIgnitedDuringFlaskLocked(ClientState conn, uint id, SpawnedMonster m, double now)
+    {
+        int pct = UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat);
+        if (pct <= 0) return;
+        double until = m.Ignites.Until;
+        if (m.IgnitedTakenUntil > now && m.IgnitedTakenPct > pct && m.IgnitedTakenUntil >= until) return;
+        if (m.IgnitedTakenUntil <= now || pct >= m.IgnitedTakenPct) m.IgnitedTakenPct = pct;
+        m.IgnitedTakenUntil = Math.Max(m.IgnitedTakenUntil, until);
+        Console.WriteLine($"[gateway] monster 0x{id:x} ignited during Cinderswallow: takes {m.IgnitedTakenPct}% increased damage for {m.IgnitedTakenUntil - now:0.##} s");
     }
 
     // The ignited (or bleeding) buff's timer runs to the monster's last ignite's (bleed's) end: every new one sends it
@@ -187,6 +201,7 @@ public static partial class Game
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+        MarkIgnitedDuringFlaskLocked(conn, id, target, now);
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {

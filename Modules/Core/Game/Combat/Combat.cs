@@ -518,7 +518,7 @@ public static partial class Game
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
-                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsProfane(conn, player)), ownPenetration, skillRoll: criticalRoll)
+                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
@@ -1977,7 +1977,7 @@ public static partial class Game
                 // The shared roll meets each target's current chance: a source can change between targets.
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsProfane(conn, skillId, release: false));
+                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
                 critical = RollCriticalStrike(conn, criticalChance, skillStats,
                         attack: !spell, skillRoll: criticalRoll, player: player)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
