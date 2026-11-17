@@ -54,11 +54,13 @@ public static partial class Game
         }
         // Outside the lock: the first call loads the aura table from PassiveSkills.
         var all = PassiveBuffAuras.EnemyAurasFor(nodes, LeagueFor(conn).HardMode, EnemyAuraActs);
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        // Built before the send gate, not inside it: the builder takes the combat lock, and a producer that holds the gate
+        // while it waits for that lock stalls every other send — a cast or a walk echo waited 400-600 ms behind this one on
+        // a lockstep client (live 2026-11-17). It also means the common case, nothing to say, never takes the gate at all.
+        byte[]? payload = null;
+        lock (conn.Monsters)
         {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
                 now = AreaTime(conn);
                 ushort[] currentNodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
                 var current = nodes.SequenceEqual(currentNodes) ? all
@@ -223,10 +225,11 @@ public static partial class Game
                     bytes.AddRange(blinded ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId) : InstanceEntities.RemoveBuff(id, buff));
                     if (blinded) added++; else removed++;
                 }
-                if (bytes.Count == 0) return null;
+                if (bytes.Count == 0) return;
                 Console.WriteLine($"[gateway] {remote} enemy debuffs: {added} added, {removed} removed (t={now:0.000})");
-                return [.. bytes];
-            }
-        });
+                payload = [.. bytes];
+        }
+        if (payload is null) return;
+        await Send(remote, stream, ciphers, payload, "0x1c1 enemy debuffs", still: () => !conn.Closed && !conn.LeavingArea);
     }
 }
