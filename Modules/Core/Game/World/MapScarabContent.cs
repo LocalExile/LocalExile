@@ -28,7 +28,7 @@ public static class MapScarabContent
             return mods.Get("map_num_extra_apparition_shrines") > 0 ? "Shrines.Apparitions"
                 : mods.Get("map_num_extra_evolving_shrines") > 0 ? "Shrines.Evolving"
                 : mods.Get("map_shrines_have_standalone_map_boss") > 0 ? "Shrines.Terrors" : StandardShrines;
-        if (mods.Get("map_contains_X_additional_div_card_packs") > 0) return "CloisterPacks";
+        if (mods.Get(MapScarabPacks.CountStat) > 0) return MapScarabPacks.Cloister;
         if (mods.Get("map_atlas_boss_pack_replacement_chance_%") > 0) return "AtlasBossPacks";
         return Encounters.GetValueOrDefault(family);
     }

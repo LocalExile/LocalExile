@@ -17,7 +17,7 @@ public sealed class ScarabEncounterTests
     }
 
     [GameFilesFact]
-    public async Task Domination_scarabs_feed_generated_shrines_and_keep_shared_claims_on_reentry()
+    public async Task Scarab_encounters_use_generated_shrines_and_additional_packs_with_shared_lifecycles()
     {
         var slot = Slot("ScarabDomination1");
         var catalog = MapRunCatalog.Load("data");
@@ -40,6 +40,51 @@ public sealed class ScarabEncounterTests
         Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
         Assert.Equal(0, mods.Get("map_num_extra_shrines"));
 
+        var cloister = Slot("ScarabDivinationCardsNew1");
+        var cloisterMods = catalog.Of([cloister], Program.Items.Mods);
+        Assert.Equal(8, cloisterMods.Get(MapScarabPacks.CountStat));
+        Assert.Equal(5, MapScarabPacks.Packs.Count);
+        var rolledCounts = new HashSet<int>();
+        MapOpening Open(int seed, params MapDevice.Slot[] slots)
+        {
+            var request = new MapOpening(new(new(1, "scarab", 100, 100, 10, 10, null, []), 1, 1), slots, false,
+                new(new(1, "MapWorldsStrand", "Strand Map", 3), catalog.Of(slots, Program.Items.Mods)), "");
+            MapScarabContent.Describe(request);
+            MapScarabPacks.Opening(request, new Random(seed));
+            Assert.Empty(request.UnhandledContent);
+            return request;
+        }
+        for (int i = 0; i < 64; i++)
+        {
+            var single = Open(i, cloister).Opening!.Mods;
+            Assert.Equal(1, single.ScarabCount);
+            int count = single.Get(MapScarabPacks.CountStat);
+            Assert.InRange(count, 8, 12);
+            rolledCounts.Add(count);
+            Assert.Equal(count, Compose(single)[Program.Stats.Key(MapScarabPacks.CountStat)!.Value]);
+            Assert.InRange(Open(i, cloister, cloister).Opening!.Mods.Get(MapScarabPacks.CountStat), 16, 24);
+        }
+        Assert.Equal(Enumerable.Range(8, 5), rolledCounts.Order());
+        Assert.Empty(MapScarabPacks.Requests(MapMods.None));
+        string member = Game.Monsters.Find(MapScarabPacks.Packs[0].Entries[0].Variety.ToString())!.Id;
+        Assert.True(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(0)));
+        Assert.False(MapScarabPacks.DropsDeck(cloisterMods, member, new FixedRoll(1)));
+        Assert.False(MapScarabPacks.DropsDeck(cloisterMods, "ordinary monster", new FixedRoll(0)));
+        Assert.False(MapScarabPacks.DropsDeck(MapMods.None, member, new FixedRoll(0)));
+        var original = new MapMods(new Dictionary<string, int> { [MapScarabPacks.CountStat] = 10 }, 20)
+        {
+            Implicit = new Dictionary<string, int> { [MapScarabPacks.CountStat] = 2 },
+            Fragments = new Dictionary<string, int> { [MapScarabPacks.CountStat] = 8 },
+            ExplicitMods = [new Dictionary<string, int> { ["map_monsters_life_+%"] = 20 }],
+            ScarabCount = 1, FragmentCount = 1, MapRarity = GameServer.Core.Protocol.Instance.ItemRarity.Rare, Corrupted = true,
+        };
+        var replaced = original.WithFragmentStat(MapScarabPacks.CountStat, 12);
+        Assert.Equal(14, replaced.Get(MapScarabPacks.CountStat));
+        Assert.Same(original.ExplicitMods, replaced.ExplicitMods);
+        Assert.Same(original.Implicit, replaced.Implicit);
+        Assert.Equal((20, 1, 1, original.MapRarity, true),
+            (replaced.Quality, replaced.ScarabCount, replaced.FragmentCount, replaced.MapRarity, replaced.Corrupted));
+
         var instance = new InstanceState();
         var kept = instance.AreaStats(() => stats);
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x505, 70, kept);
@@ -51,6 +96,18 @@ public sealed class ScarabEncounterTests
         var plan = ShrinePlacement.Plan(generated.RoomObjects, layout.Walkable!, seed);
         Assert.True(requested >= 3);
         Assert.Equal(requested, plan.Count);
+        var packNotes = new List<string>();
+        var cloisterRequest = Assert.Single(MapScarabPacks.Requests(Open(5, cloister).Opening!.Mods));
+        var ordinary = Game.Packs.For(area.Id)!;
+        var extra = AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
+            (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, packNotes, additionalPacks: [cloisterRequest]);
+        var packIds = MapScarabPacks.Packs.Select(p => p.Id).ToHashSet();
+        var added = extra.Where(s => packIds.Contains(s.Pack)).ToArray();
+        Assert.InRange(added.Length, cloisterRequest.Count * 4, cloisterRequest.Count * 9);
+        Assert.Contains(packNotes, n => n.Contains($"placed {cloisterRequest.Count}/{cloisterRequest.Count}"));
+        Assert.All(added, s => Assert.True(layout.Walkable!(s.X, s.Y)));
+        Assert.Equal(extra, AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
+            (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, [], additionalPacks: [cloisterRequest]));
         Assert.Same(kept, instance.AreaStats(() => throw new InvalidOperationException("recomposed the map")));
 
         TestEnvironment.OpenOwnSaves("scarab-shrines");
@@ -164,5 +221,10 @@ public sealed class ScarabEncounterTests
             await drain;
             reader.Dispose();
         }
+    }
+
+    sealed class FixedRoll(int roll) : Random
+    {
+        public override int Next(int maxValue) => roll;
     }
 }

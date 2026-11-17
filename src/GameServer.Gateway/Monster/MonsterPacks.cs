@@ -147,6 +147,8 @@ public static class AreaPopulation
 
     public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
 
+    public sealed record AdditionalPacks(string Source, IReadOnlyList<PackCatalog.Pack> Packs, int Count, double Size = 1);
+
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
     public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
 
@@ -280,7 +282,7 @@ public static class AreaPopulation
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
-        Func<int, bool>? guardSpawnable = null)
+        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -416,10 +418,10 @@ public static class AreaPopulation
                     : $": {mine.Count} around it at " + string.Join(" ", mine.Select(s =>
                         $"({s.X - at.X},{s.Y - at.Y})"))));
         }
-        if (packs.Count == 0) return spawns;
+        if (packs.Count == 0 && additionalPacks is not { Count: > 0 }) return spawns;
         // The layout's own pack points stand their packs first, where the room puts them (issue #668).
         int roomPlaced = 0;
-        foreach (var p in roomPacks ?? [])
+        foreach (var p in packs.Count == 0 ? [] : roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
                 var pack = PickPack(packs, rng);
@@ -448,6 +450,29 @@ public static class AreaPopulation
         if (pocket > 0)
             notes.Add($"{pocket} deep cell(s) the arrival cannot walk to stand no pack " +
                 $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
+        Shuffle(candidates, rng);
+        bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
+            && (reach is null || reach[y * w + x]) && walkable(x, y);
+        foreach (var request in additionalPacks ?? [])
+        {
+            int placed = 0, first = spawns.Count;
+            var choices = request.Packs.Where(p => p.Entries.Count > 0 && p.Entries.All(e => spawnable(e.Variety))).ToList();
+            if (choices.Count > 0)
+                foreach (var c in candidates)
+                {
+                    if (placed >= request.Count) break;
+                    if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance))
+                        || centres.Any(o => Near(c, o, PackSpacing)) || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+                    var pack = choices[rng.Next(choices.Count)];
+                    int before = spawns.Count;
+                    AddPack(spawns, taken, ReachableMember, c, pack, RollRarity(rng.Next(100)), true, rng, spawnable, packSize: request.Size);
+                    if (spawns.Count == before) continue;
+                    centres.Add(c);
+                    placed++;
+                }
+            notes.Add($"additional packs {request.Source}: placed {placed}/{request.Count}, {spawns.Count - first} monsters");
+        }
+        if (packs.Count == 0) return spawns;
         double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(packCells / (double)CellsPerPack
             * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density);
@@ -455,7 +480,6 @@ public static class AreaPopulation
         // already exceed that budget.
         wanted = Math.Max(0, wanted - roomPlaced) + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
-        Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
         foreach (var c in candidates)
         {
@@ -471,8 +495,6 @@ public static class AreaPopulation
             rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
         Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
         Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
-        bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
-            && (reach is null || reach[y * w + x]) && walkable(x, y);
         int scatteredStart = spawns.Count;
         int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
         int placedPacks = 0;
