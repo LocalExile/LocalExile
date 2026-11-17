@@ -1696,6 +1696,7 @@ public static partial class Game
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
         var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
+        var meleeKillTrigger = spell ? null : CaptureMeleeKillTriggerSource(conn, skillId);
         sacrifice ??= new SacrificeUse(conn, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var skillStats = SupportedSkill(conn, skillId).Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
@@ -2018,6 +2019,8 @@ public static partial class Game
                     if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                         criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                     else ArcaneSurgeOnSpellHitLocked(conn, player, m);
+                    if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(conn,
+                        ProjectilesFor(remote, stream, ciphers, conn), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));

@@ -335,6 +335,7 @@ public static partial class Game
             bleed = RepeatAilment(bleed, repeatMore);
             poison = RepeatAilment(poison, repeatMore);
             var criticalTrigger = CaptureCriticalTriggerSource(conn, skillId);
+            var meleeKillTrigger = CaptureMeleeKillTriggerSource(conn, skillId);
             bool fortificationGranted = false;
             bool rageGranted = false;
             var hitOrigins = new List<ProjectileVector>();
@@ -393,6 +394,8 @@ public static partial class Game
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
+                if (hit.Life == 0) ReleaseMeleeKillTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
+                    meleeKillTrigger, true, m.Hostile, mAt, now);
                 if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
