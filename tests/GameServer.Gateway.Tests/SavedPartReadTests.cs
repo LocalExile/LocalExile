@@ -17,6 +17,39 @@ public class SavedPartReadTests : IDisposable
         Saves.Db.Read(() => { Check("SavedParts"); return 0; });
     }
 
+    [Fact]
+    public void Experience_is_read_without_the_whole_save()
+    {
+        TestEnvironment.OpenOwnSaves("saved-experience");
+        try { Saves.Db.Read(() => { CheckExperience("SavedExperience", "NoSavedExperience"); return 0; }); }
+        finally { CharacterSaves.ForgetExperience("SavedExperience"); CharacterSaves.ForgetExperience("NoSavedExperience"); }
+    }
+
+    // Every kill publishes the character's experience twice (Game.CurrentExperience): it must not read the save's items.
+    static void CheckExperience(string name, string unsaved)
+    {
+        CharacterSaves.Write(name, new([], Experience: 100));
+        long before = Saves.CharacterReads;
+        Assert.Equal(100u, CharacterSaves.Experience(name));
+        // A kill's gain waits in memory, starting from the saved total, and is the current experience.
+        Assert.Equal((100u, 150u), CharacterSaves.AddExperience(name, 0, xp => xp + 50));
+        for (int i = 0; i < 50; i++) Assert.Equal(150u, CharacterSaves.Experience(name));
+        // A character without a save has none, even with a gain waiting (as Load gives no save).
+        Assert.Null(CharacterSaves.Experience(unsaved));
+        CharacterSaves.AddExperience(unsaved, 7, xp => xp + 1);
+        Assert.Null(CharacterSaves.Experience(unsaved));
+        Assert.Equal(0, Saves.CharacterReads - before);
+
+        // The same answer as the whole save, before and after the gain is saved.
+        Assert.Equal(CharacterSaves.Load(name)!.Experience, CharacterSaves.Experience(name));
+        CharacterSaves.SaveExperience(name);
+        Assert.Equal(150u, CharacterSaves.Experience(name));
+        Assert.Equal(150u, CharacterSaves.Load(name)!.Experience);
+        CharacterSaves.Write(name, new([]));
+        Assert.Null(CharacterSaves.Experience(name));
+        Assert.Null(CharacterSaves.Load(name)!.Experience);
+    }
+
     static void Check(string name)
     {
         CharacterSaves.Write(name, new CharacterSaves.Save([])
