@@ -650,7 +650,9 @@ public static partial class Game
             Stats.Key($"virtual_{attribute}_for_requirements") is uint key && dev.TryGetValue(key, out int set) ? set : value;
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? conn.Pools.Level, active =>
         {
-            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item), catalog)), dev)
+            var ids = active.Select(w => w.Id).ToHashSet();
+            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item)
+                    .Concat(RingReflections(equipment, i => ids.Contains(i.Id), catalog.Mods)), catalog)), dev)
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
@@ -662,7 +664,9 @@ public static partial class Game
             if (exempt.Count > 0) active = [.. active, .. exempt];
             inactive.ExceptWith(exemptions);
         }
-        active = AbyssJewels.Sources(active, catalog).ToArray();
+        // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
+        active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
+            catalog).ToArray();
         var rawAttributes = RawAttributes(active);
         var conditionAttributes = AttributeInputs(rawAttributes, dev)
             .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
