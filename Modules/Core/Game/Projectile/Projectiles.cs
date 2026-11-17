@@ -650,7 +650,8 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null)
+            float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
+            float rotation = 0)
         {
             uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
@@ -659,7 +660,7 @@ public static partial class Game
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
             var effect = new EffectObject(x, y, ao)
             {
-                Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0,
+                Scale = scale, AnimatedFlags = animatedFlags, Flags0 = positionedFlags0, Rotation = rotation,
                 AnimationWord = animationWord, AnimationValue = animationValue, AnimationId = animatedId
             };
             if (radius is not null && ServerTrace.Projectiles)

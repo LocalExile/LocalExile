@@ -77,9 +77,11 @@ public static partial class Game
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
                 {
-                    session.RainArt(at, ArtOf("toxic_rain_place"), duration);
+                    // Each pod and its roots face their own way.
+                    float turn = (float)(Random.Shared.NextDouble() * Math.Tau);
+                    session.RainArt(at, ArtOf("toxic_rain_place"), duration, rotation: turn);
                     // The pod is its own object type (rain_of_spores/BloomPod); only its model is drawn here.
-                    session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration);
+                    session.RainArt(at, Art.ObjectModel("toxic_rain_spore", variation) ?? Art.ObjectModel("toxic_rain_spore", 0), duration, rotation: turn);
                     session.PlaceToxicPod(use, at, radius, duration, dps,
                         -Get("rain_of_spores_vines_movement_speed_+%_final"), -Get("minimum_rain_of_spores_movement_speed_+%_final_cap"), ArtOf("toxic_rain_explode"));
                 }

@@ -33,9 +33,10 @@ public static partial class Game
         readonly ConditionalWeakTable<SpawnedMonster, PodDamage> dotRemainders = new();
         sealed class PodDamage { public double Fraction; }
 
-        internal void RainArt(ProjectileVector at, string? ao, double duration, double? radius = null)
+        internal void RainArt(ProjectileVector at, string? ao, double duration, double? radius = null, float rotation = 0)
         {
-            if (ao is not null) Effect((int)Math.Round(at.X), (int)Math.Round(at.Y), ao, ProjectileRuntime.Time(duration), radius);
+            if (ao is not null) Effect((int)Math.Round(at.X), (int)Math.Round(at.Y), ao, ProjectileRuntime.Time(duration), radius,
+                rotation: rotation);
         }
 
         void LeavePod(ToxicPod pod, SpawnedMonster m)

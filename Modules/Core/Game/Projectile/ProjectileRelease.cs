@@ -364,7 +364,7 @@ public static partial class Game
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player),
-            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
+            Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId, Gem = gem.Gem,
             SkillStats = new Dictionary<uint, int>(own),
             MirageSource = totem is null && Own("support_mirage_archer_base_duration") > 0 ? SupportedSkill(conn, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId),
