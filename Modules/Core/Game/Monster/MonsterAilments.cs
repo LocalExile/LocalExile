@@ -153,7 +153,8 @@ public static partial class Game
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null)
     {
-        AbsolutionOnHitLocked(conn, m, skill, sourceSkill, now, random);
+        HitSummonsOnHitLocked(conn, m, skill, sourceSkill, now, random);
+        PhantasmsOnHitLocked(conn, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker

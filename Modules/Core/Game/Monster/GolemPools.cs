@@ -21,11 +21,12 @@ public static partial class Game
         int Own(string name) => GolemStat(golem.Own, name);
         int Player(string name) => GolemStat(player, name);
 
+        var inherited = golem.InheritedMods.Effects;
         double rawBaseLife = (double)(monsters.BaseLife(variety, level) ?? 100)
             + golem.Gear.GetValueOrDefault("base_maximum_life");
         double lifeIncreased = (long)Player("minion_maximum_life_+%") + Own("minion_maximum_life_+%")
             + (golem.Definition.IsGolem ? Player("golem_maximum_life_+%") : 0)
-            + golem.Gear.GetValueOrDefault("maximum_life_+%");
+            + golem.Gear.GetValueOrDefault("maximum_life_+%") + inherited["maximum_life_+%"];
         double lifeMore = Math.Max(0, 1 + Own("active_skill_minion_life_+%_final") / 100.0)
             * Math.Max(0, 1 + Own("support_minion_maximum_life_+%_final") / 100.0)
             * Math.Max(0, 1 + Own("support_minion_damage_minion_life_+%_final") / 100.0)
@@ -35,6 +36,10 @@ public static partial class Game
             lifeMore *= 2;
         if (golem.Definition.Kind != "Reaper")
             lifeMore *= Math.Max(0, 1 + Player("active_skill_non_reaper_minion_maximum_life_+%_final") / 100d);
+
+        lifeMore *= Math.Max(0, 1 + inherited["monster_life_+%_final_from_rarity"] / 100d)
+            * Math.Max(0, 1 + inherited[MonsterModCatalog.RarityTableLifeStat] / 100d)
+            * Math.Max(0, 1 + inherited[MonsterModCatalog.MapHiddenLifeStat] / 100d);
 
         int chaosMaximum = (int)Math.Clamp((long)MonsterModEffects.MaxResistance
             + effects["base_maximum_chaos_damage_resistance_%"], 0L, GameServer.Core.World.DamageModel.MaxResistCap);
