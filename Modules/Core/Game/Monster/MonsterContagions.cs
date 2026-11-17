@@ -212,7 +212,7 @@ static partial class Game
                 if (m.Contagion.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Contagion.Clear();
-                else damage = m.Contagion.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
+                else damage = m.Contagion.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, conn.PeerId));
                 if (damage > 0)
                 {
                     uint lifeBefore = m.Life;

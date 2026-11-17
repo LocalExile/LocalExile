@@ -101,7 +101,7 @@ public static partial class Game
                 {
                     var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,
                         type => MonsterHitResistance(m, type, elementalPenetration, now));
-                    damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
+                    damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now, conn.PeerId));
                 }
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));

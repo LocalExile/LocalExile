@@ -96,7 +96,8 @@ public static partial class Game
     /// chill, the Intimidate or Unnerve on it at <paramref name="now"/>; without a time those do not count). Blocking is rolled before
     /// (<see cref="MonsterBlocks"/>).
     /// </summary>
-    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN)
+    public static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now = double.NaN,
+        uint source = 0)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -109,12 +110,12 @@ public static partial class Game
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
-        double factor = MonsterDamageTaken(m, spell, now, hit: true);
+        double factor = MonsterDamageTaken(m, spell, now, hit: true, source: source);
         double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, hit: true, chaos: true) - factor);
+            : mitigated[DamageType.Chaos].Min * (MonsterDamageTaken(m, spell, now, hit: true, chaos: true, source: source) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true);
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, source: source);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
@@ -175,21 +176,21 @@ public static partial class Game
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,
-        double now = double.NaN) =>
-        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type, now) }).Tick(seconds, m.Burn);
+        double now = double.NaN, uint source = 0) =>
+        (burn with { DamagePerSecond = burn.DamagePerSecond * MonsterDotTaken(m, burn.Type, now, source) }).Tick(seconds, m.Burn);
 
     /// <summary>The share of damage over time of this type a monster takes (Righteous Fire's burn, ignites): less its
     /// resistance (its type's base and its mods', as for hits, without penetration) and with its damage taken
     /// (<see cref="MonsterDamageTaken"/>: its shock and Glacial Wave's chill at <paramref name="now"/>, without a time
     /// they do not count, and the player's debuffs on it). Spell Resistant counts for hits only: its stat has no
     /// description saying it covers damage over time.</summary>
-    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN)
+    public static double MonsterDotTaken(SpawnedMonster m, DamageType type, double now = double.NaN, uint source = 0)
     {
         if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
-                chaos: type == DamageType.Chaos);
+                chaos: type == DamageType.Chaos, source: source);
         // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
         // all apply to the physical part only.
         if (type == DamageType.Physical)

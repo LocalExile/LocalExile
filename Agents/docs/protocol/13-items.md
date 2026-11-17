@@ -501,11 +501,16 @@ made with that weapon doubles, before the triple-damage roll can override it. Th
 hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not
 alternate hands on the server yet.
 
-**Yoke of Suffering** (`ailment_types_apply_damage_taken_+%`, "for each type of Ailment you have inflicted on them"): the
-enemy-debuff step copies the player's value onto each living hostile monster (`TakenPerAilmentTypePct`), and
-`MonsterDamageTaken` adds it once per ailment type on the monster at that moment (`AilmentTypesOn`: ignite, chill,
-freeze, shock, bleed, poison) to its other increased damage taken, for hits and damage over time. The server does not
-record who inflicted a monster's ailments, so in a party any player's count; scorch, brittle and sap are not modelled.
+**Yoke of Suffering** (`ailment_types_apply_damage_taken_+%`, "for each type of Ailment you have inflicted on them"): a
+party shares its monsters, so each wearer's enemy-debuff step keeps the wearer's own value on each living hostile monster,
+keyed by its PeerId (`SpawnedMonster.SetSourceValue`); a non-wearer, unequipping or death clears only that wearer's
+entry, and leaving the instance (`Left`) removes all of the leaver's. `MonsterDamageTaken(source:)` adds the value of
+the player whose damage it is, once per ailment type on the monster (`AilmentTypesOn`: ignite, chill, freeze, shock,
+bleed, poison), to the other increased damage taken: wearers do not add up, and another player's damage gets nothing.
+Player hits pass their connection; ailment and other damage-over-time ticks pass the connection that runs the tick (the
+one `TakeOwnerDamageLocked` credits), since an ailment's inflicter is not recorded; paths without an owner (minions,
+shrines, reflected guard damage) get no bonus. For the same reason any player's ailments count; scorch, brittle and sap
+are not modelled.
 
 **Forbidden Shako and its Replica** (`GemSupports.ItemCandidates`): each RandomSupportUnique mod rolls
 `local_random_support_gem_index[_1]` (1-172) and `local_random_support_gem_level[_1]`; the description shows the index

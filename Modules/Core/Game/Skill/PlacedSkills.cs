@@ -218,7 +218,7 @@ public static partial class Game
                 || bear && id != target.Key || Dist(m.Walk.Position(now), placed.At) > radius) continue;
             var rolled = placed.Damage.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesMitigated(m, mitigated, spellDamage, now);
+            int damage = MonsterTakesMitigated(m, mitigated, spellDamage, now, conn.PeerId);
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
@@ -240,7 +240,7 @@ public static partial class Game
                 .MaxBy(g => g.DamagePerSecond);
             if (ground is null) continue;
             double total = ground.DamagePerSecond * (Math.Min(now, ground.Until) - ground.LastAt)
-                * MonsterDotTaken(monster, DamageType.Fire, now) + ground.Carry.GetValueOrDefault(id);
+                * MonsterDotTaken(monster, DamageType.Fire, now, conn.PeerId) + ground.Carry.GetValueOrDefault(id);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(conn, monster, damage, allyAt: ground.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, monster, now); hit = hit with { StageStarts = false }; }

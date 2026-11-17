@@ -347,8 +347,22 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
     public (int All, int Elemental, int Physical) TakenFromPlayer;
-    // The player's increased damage taken for each type of ailment on it, as the enemy-debuff step last set it.
-    public int TakenPerAilmentTypePct;
+    // Values each player keeps on it, by (the player's PeerId, a stat Id): a party shares its monsters, so each source
+    // sets and clears only its own entries and never another participant's. Guarded by the Monsters lock.
+    readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
+    public int SourceValue(uint source, string stat) => sourceValues.GetValueOrDefault((source, stat));
+    /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
+    public void SetSourceValue(uint source, string stat, int value)
+    {
+        if (value == 0) sourceValues.Remove((source, stat));
+        else sourceValues[(source, stat)] = value;
+    }
+    /// <summary>Removes every value <paramref name="source"/> keeps on it (the source left the instance).</summary>
+    public void ForgetSource(uint source)
+    {
+        if (sourceValues.Count == 0) return;
+        foreach (var key in sourceValues.Keys.Where(k => k.Source == source).ToList()) sourceValues.Remove(key);
+    }
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;

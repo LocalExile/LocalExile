@@ -101,7 +101,7 @@ static partial class Game
                 // The kill belongs to the instance whose damage crossed the monster's remaining life.
                 double before = m.Life, sum = 0;
                 MonsterEssenceDrain.Cast? winner = null;
-                var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now),
+                var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, conn.PeerId),
                     (cast, dealt, life) =>
                     {
                         if (winner is null && (sum += dealt) >= before) winner = cast;
