@@ -65,6 +65,10 @@ public static partial class Game
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
             FlaskToLinkedTargetsLocked(conn, flask.Item, local, utility, Get);
+            // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
+            foreach (var (stat, charge) in ChargesOnFlaskUse)
+                if (local.GetValueOrDefault(stat) is int count and > 0)
+                    ChargesOf(conn).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
             MakeFlaskGroundsLocked(conn, local, seconds, now, character);
             state.StatRevision++;
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
@@ -74,6 +78,13 @@ public static partial class Game
         return true;
     }
 
+    static readonly (string Stat, ChargeType Charge)[] ChargesOnFlaskUse =
+    [
+        ("local_flask_gain_endurance_charges_on_use", ChargeType.Endurance),
+        ("local_flask_gain_frenzy_charges_on_use", ChargeType.Frenzy),
+        ("local_flask_gain_power_charges_on_use", ChargeType.Power),
+    ];
+
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
     // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
     // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
@@ -82,7 +93,7 @@ public static partial class Game
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
-        return player + (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.Rarity ?? 0)
+        return player + (MapModsOf(conn)?.Rarity ?? 0)
             + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
     }
 
@@ -96,7 +107,7 @@ public static partial class Game
         double player = Math.Max(0, 100 + Get("base_item_found_quantity_+%") + Get("item_found_quantity_+%")) / 100.0;
         return player * (1 + Math.Max(0, monster?.KilledWithItemQuantityPct ?? 0) / 100.0)
             * (1 + Math.Max(0, monster?.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) ?? 0) / 10000.0)
-            * (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.QuantityFactor ?? 1);
+            * (MapModsOf(conn)?.QuantityFactor ?? 1);
     }
 
     // The pools and the walk speed again (under the Monsters lock): after a utility flask effect started or ended, or the

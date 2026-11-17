@@ -33,7 +33,7 @@ public static partial class Game
     {
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
         var wanted = saved.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
-        conn.Stance = CharacterSaves.Load(CharacterName(conn))?.Stance == "Sand" ? "Sand" : "Blood";
+        conn.Stance = CharacterSaves.Remembered(CharacterName(conn)).Stance == "Sand" ? "Sand" : "Blood";
         wanted.ExceptWith(conn.Auras.Values.Select(a => AuraCatalog.Family(a.EffectId)));
         if (wanted.Count == 0) return [];
         var candidates = new List<AuraCatalog.Aura>();
@@ -173,6 +173,7 @@ public static partial class Game
             conn.ChannelMovement = default;
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
+            VaalAuraStates.Remove(conn); // CancelOnDeath: it cannot return after resurrection.
             ClearAntiquarianOnDeath(conn);
             conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
             conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
@@ -236,6 +237,11 @@ public static partial class Game
                     conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]);
             }
         }, log);
+        // A client that pays its costs from Energy Shield (Eldritch Battery) spent some of it on a use this mana update
+        // may answer (a cost given back): the pool goes out again even when the server's has not changed.
+        lock (conn.Monsters)
+            if (Stats.Key("keystone_eldritch_battery") is uint battery && CharacterPlayerStats(conn).GetValueOrDefault(battery) != 0)
+                conn.SentEnergyShield = null;
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
@@ -292,7 +298,12 @@ public static partial class Game
                 int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
                 if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
                 uint current = conn.EnergyShield.Current;
-                bool active = conn.EnergyShield.Recharging;
+                // A client paying its costs from Energy Shield (Eldritch Battery) spends it on its own, below the value
+                // last sent; it refills that only with a recharge rate to predict. The server's recharge runs whenever no
+                // damage came within the delay, full or not, so the rate goes out then too (live 2026-11-13: the globe
+                // stayed below full after a cast, the server's last update being full with no rate).
+                bool active = conn.EnergyShield.Recharging || Get("keystone_eldritch_battery") != 0
+                    && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
                 int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
@@ -316,12 +327,16 @@ public static partial class Game
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
+    // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
+    // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out Dictionary<uint, int> player)
+        out uint es, out uint fromEs, out Dictionary<uint, int> player)
     {
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = 0;
         life = 0;
+        es = 0;
+        fromEs = 0;
         player = [];
         if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
             return false;
@@ -354,7 +369,13 @@ public static partial class Game
         }
         else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
-        return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
+        es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
+        if (es > conn.EnergyShield.Current) return false;
+        var paying = player;
+        bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
+        if (Has("virtual_spend_energy_shield_for_costs_before_mana") || Has("keystone_eldritch_battery"))
+            fromEs = Math.Min(cost, conn.EnergyShield.Current - es);
+        return conn.PlayerMana >= cost - fromEs && !(life > 0 && conn.PlayerLife <= (uint)life);
     }
 
     // Whether the player can pay a use of the skill now: checked before a use's admission spends a cooldown use or a
@@ -362,12 +383,15 @@ public static partial class Game
     public static bool CanPaySkillCost(ClientState conn, ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
-        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _);
+        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _, out _, out _);
     }
 
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
     // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
-    // mana cost with Life. False when the player lacks the pool it actually uses.
+    // mana cost with Life. An Energy Shield cost (es_cost) is paid from Energy Shield, and Eldritch Battery pays the
+    // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
+    // cost is what Mana paid, and only that is Mana spent (ManaSpentLocked: Ravenous Passion's Rage, recoup): the part
+    // Energy Shield paid is not (a player's test, 2025: Indigon did not count it; no official statement found).
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var supported = SupportedSkill(conn, skillId);
@@ -375,7 +399,20 @@ public static partial class Game
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (!SkillCostLocked(conn, skillId, own, out cost, out int life, out var player)) return false;
+            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player))
+            {
+                cost = 0;
+                return false;
+            }
+            if (es + fromEs > 0)
+            {
+                conn.EnergyShield.Spend(es + fromEs);
+                // The client paid it from its own Energy Shield too, and the cost's 0x1b1 goes out only for a Mana or Life
+                // cost: the next update sends the pool even when recharge has already brought it back to the last value
+                // sent (live 2026-11-13: the globe stayed at 5249/5324 after a cast while the server was full).
+                conn.SentEnergyShield = null;
+            }
+            cost = manaCost - fromEs;
             conn.PlayerMana -= cost;
             if (life > 0)
             {
@@ -556,6 +593,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncElusive(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
@@ -591,7 +630,9 @@ public static partial class Game
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await SendAntiquarian(remote, stream, ciphers, conn);
                 await SendKillOnslaught(remote, stream, ciphers, conn);
+                await SendSpreadPoisonRegeneration(remote, stream, ciphers, conn);
                 await SendSoulEater(remote, stream, ciphers, conn);
+                await SendVaalAuraExpiry(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
                 await SendTotems(remote, stream, ciphers, conn);
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
@@ -807,7 +848,7 @@ public static partial class Game
                         conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
-                    double takenFactor = Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
+                    double takenFactor = IncomingStat("base_cannot_be_damaged") > 0 ? 0 : Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
                     burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now))
                         * seconds * takenFactor;
@@ -946,6 +987,18 @@ public static partial class Game
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
             else Console.WriteLine($"[gateway] {remote} flask {e.Slot} effect ends ({why})");
+        // A life, mana or hybrid flask's "during effect" mods end with its recovery.
+        bool changed;
+        lock (conn.Monsters)
+        {
+            changed = conn.RecoveryFlaskStats.Prune(conn.FlaskEffects);
+            if (changed) RecomputePoolsAndSpeed(conn);
+        }
+        if (changed)
+        {
+            Console.WriteLine($"[gateway] {remote} recovery flask during effect ends ({why})");
+            await SendCharacterStats(remote, stream, ciphers, conn, "recovery flask effect ended");
+        }
     }
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
@@ -1152,6 +1205,12 @@ public static partial class Game
             await GameEvents.RunResurrected(conn);
             return;
         }
+        if (!inTown && MapCheckpointExit(conn) is { } exit)
+        {
+            await ChangeArea(remote, stream, ciphers, conn, exit, "resurrect at checkpoint: out of the map, where it was entered from");
+            await GameEvents.RunResurrected(conn);
+            return;
+        }
         // Revive first: a teleport sent while the player is dead left them where they died (live 2026-10-17).
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player revived with {conn.PlayerMaxLife} life");
@@ -1172,6 +1231,15 @@ public static partial class Game
             "0x01b3 player hide_mini_life_bar = 0");
         await GameEvents.RunResurrected(conn);
     }
+
+    // "Resurrect at Checkpoint" in a map leaves it for where it was entered from, the map device's area (the hideout),
+    // where its portals stand; "Resurrect in Town" still goes to the last town (the official servers, 3.30.0b; issue #1002). Null outside
+    // maps: there the checkpoint is in the area.
+    public static PendingTransfer? MapCheckpointExit(ClientState conn) =>
+        MapDevice.ForInstance(conn) is { } map && (map.ReturnTo ?? map.Entrance) is { } origin
+            ? new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y))
+            : MapDevices.Value.IsMapArea(conn.Layout.Hash) && HomeHideout(conn) is { } hideout
+                ? new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) : null;
 
     // The player in its class: the Characters.dat row's object type (Metadata/Characters/StrInt/StrInt for the Templar), model
     // (AOFile), class byte (IntegerId), attributes and unarmed attack; the name is the character's.
@@ -1232,6 +1300,7 @@ public static partial class Game
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
         PrepareKaruiBridgeGates(conn);
+        DepravedTrinity.ConfigureRoutes(conn);
         var (layout, name, classRow) = (conn.Layout, conn.Character, conn.ClassRow);
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);

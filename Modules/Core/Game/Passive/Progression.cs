@@ -38,6 +38,7 @@ public static partial class Game
     // without experience (an older one) starts at the account's level. Passives beyond the level's points are dropped.
     public static int LoadProgress(ClientState conn, int level)
     {
+        ImportedProgress.Restore(CharacterName(conn));
         var save = CharacterSaves.Load(CharacterName(conn));
         // Quest flags whose refund points were never credited (QuestStaticRewards; a save from before the credit): now, once.
         if (save is not null && QuestStaticRewards.Default.Value.NewRefunds(save.QuestFlags ?? [], save.QuestRefundsCredited ?? []).Points > 0)
@@ -156,6 +157,7 @@ public static partial class Game
             }
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
+        sources = WithSpreadPoisonRegeneration(conn, sources);
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -253,6 +255,14 @@ public static partial class Game
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
         var tree = PassivesFor(conn);
         var catalog = ItemsFor(conn);
+        var pathJewels = JewelPathEffects.Apply(conn, tree, catalog, family, sourcesKey.Nodes,
+            sourcesKey.ClusterPassives, items.Items(PlayerInventories.PassiveJewels), treeJewels);
+        if (!ReferenceEquals(pathJewels, treeJewels))
+        {
+            treeJewels = pathJewels;
+            worn = equipment.Select(e => e.Item)
+                .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) })).Concat(charms).ToArray();
+        }
         var timeless = items.Items(PlayerInventories.PassiveJewels)
             .Where(i => TimelessJewelCatalog.IsTimeless(i.Item, catalog)
                 && tree.JewelNodeForSlot(i.X) is { } socket && allocated.Contains(socket))
@@ -276,7 +286,8 @@ public static partial class Game
         foreach (var (socket, conversion) in radiusJewels)
             if (conversion.TattooEffectPct != 0)
                 foreach (ushort node in tree.NodesInRadius(socket, conversion.Radius))
-                    if (tattoos.TryGetValue(node, out string? tattooName) && tattooName != "Journey Tattoo of Makanui")
+                    if (tattoos.TryGetValue(node, out string? tattooName) && tattooName != "Journey Tattoo of Makanui"
+                        && TattooCatalogue.Find(tattooName)?.IsRunegraft != true)
                         tattooEffect[node] = tattooEffect.GetValueOrDefault(node) + conversion.TattooEffectPct;
         IReadOnlyList<(uint Key, int Value)> TattooEffect(ushort node, IReadOnlyList<(uint Key, int Value)> stats) =>
             tattooEffect.TryGetValue(node, out int pct) ? ScaleStats(stats, pct) : stats;
@@ -491,7 +502,8 @@ public static partial class Game
         {
             if (nodeStats.TryGetValue(node, out var stats))
                 foreach (var (key, value) in stats) passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
-            if (masteries.TryGetValue(node, out ushort effect) && tree.FindEffect(effect) is { } mastery)
+            if (!(tattoos.TryGetValue(node, out var replacement) && TattooCatalogue.Find(replacement)?.IsRunegraft == true)
+                && masteries.TryGetValue(node, out ushort effect) && tree.FindEffect(effect) is { } mastery)
             {
                 if (HasStat(mastery, wandProjectile))
                 {
@@ -519,7 +531,8 @@ public static partial class Game
             .Where(i => ClusterSize(i.Item) is not null
                 && (tree.JewelNodeForSlot(i.X) is { } ordinary && allocated.Contains(ordinary) || ClusterSlotOpen(conn, i.X)))
             .OrderBy(i => i.X).ToList();
-        foreach (var (key, value) in ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats))
+        var clusterStats = ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats).ToArray();
+        foreach (var (key, value) in clusterStats)
             passives[key] = passives.GetValueOrDefault(key) + value;
         // Threshold jewels: Path of Building's Threshold pass sums the attributes of every ordinary passive in
         // radius, allocated or not, and grants the skill stat only when the total reaches the requirement. The
@@ -578,7 +591,8 @@ public static partial class Game
         var passiveAttributes = new Dictionary<string, long>();
         foreach (ushort node in nodes)
         {
-            var effects = masteries.TryGetValue(node, out ushort effect) ? tree.FindEffect(effect)?.Stats : null;
+            var effects = !(tattoos.TryGetValue(node, out var replacement) && TattooCatalogue.Find(replacement)?.IsRunegraft == true)
+                && masteries.TryGetValue(node, out ushort effect) ? tree.FindEffect(effect)?.Stats : null;
             foreach (var (key, value) in (nodeStats.GetValueOrDefault(node) ?? []).Concat(effects ?? []))
             {
                 string name = Stats.Name(key);
@@ -590,6 +604,9 @@ public static partial class Game
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         foreach (var (key, value) in copiedSmallStats)
+            if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
+                passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+        foreach (var (key, value) in clusterStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
@@ -902,7 +919,7 @@ public static partial class Game
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)
-                + FlickerMovementPct(conn)
+                + FlickerMovementPct(conn) + ElusiveMovementPct(conn)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.
@@ -1258,20 +1275,26 @@ public static partial class Game
         uint? skipItemId = null)
     {
         var allocated = candidate.ToHashSet();
+        return AllocationBypassNodes(allocated, ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+            .Where(item => item.Id != skipItemId).Select(item => (item.X, item.Item)), ItemsFor(conn).Mods, PassivesFor(conn));
+    }
+
+    public static Dictionary<ushort, HashSet<ushort>> AllocationBypassNodes(IReadOnlySet<ushort> allocated,
+        IEnumerable<(byte X, Item Item)> jewels, ModCatalog mods, PassiveTree tree)
+    {
         var result = new Dictionary<ushort, HashSet<ushort>>();
         // No socket is allocated, so no jewel counts. A character with no save gets here from the read-only admission
         // preflight, and its first item load would build and save its start kit.
         if (allocated.Count == 0) return result;
-        var mods = ItemsFor(conn).Mods;
-        foreach (var item in ItemsOf(conn).Items(PlayerInventories.PassiveJewels))
+        foreach (var item in jewels)
         {
-            if (item.Id == skipItemId || Passives.ClusterNodeForSlot(item.X) is not null) continue;
-            if (Passives.JewelNodeForSlot(item.X) is not ushort socket || !allocated.Contains(socket)) continue;
+            if (tree.ClusterNodeForSlot(item.X) is not null) continue;
+            if (tree.JewelNodeForSlot(item.X) is not ushort socket || !allocated.Contains(socket)) continue;
             if (ImpossibleEscapeCatalogue.Read(item.Item, mods) is { } escape)
             {
                 if (ImpossibleEscapeCatalogue.ForStoredValue(escape.Value) is { GraphId: var keystone })
-                    foreach (ushort node in Passives.NodesInRadius(keystone, escape.Radius))
-                        if (node != keystone && Passives.Find(node) is { IsAscendancy: false, IsStart: false,
+                    foreach (ushort node in tree.NodesInRadius(keystone, escape.Radius))
+                        if (node != keystone && tree.Find(node) is { IsAscendancy: false, IsStart: false,
                             IsMastery: false, IsProxy: false, IsExpansion: false })
                         {
                             if (!result.TryGetValue(node, out var providers)) result[node] = providers = [];
@@ -1283,10 +1306,10 @@ public static partial class Game
                 continue;
             var (inner, outer) = RadiusJewelCatalogue.RingRadii(conversion.Ring);
             var nodes = outer > 0
-                ? Passives.NodesInRing(socket, inner, outer)
-                : Passives.NodesInRadius(socket, conversion.Radius);
+                ? tree.NodesInRing(socket, inner, outer)
+                : tree.NodesInRadius(socket, conversion.Radius);
             foreach (ushort node in nodes)
-                if (Passives.Find(node) is { IsAscendancy: false, IsStart: false, IsMastery: false,
+                if (tree.Find(node) is { IsAscendancy: false, IsStart: false, IsMastery: false,
                     IsProxy: false, IsExpansion: false } passive
                     && RadiusJewelCatalogue.BypassIncludes(conversion, passive))
                 {
@@ -1489,7 +1512,13 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} {chosen.Name} refused: {ex.Message}");
             return;
         }
-        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name} chosen at the font");
+        await ChangeArea(remote, stream, ciphers, conn, AscendancyReload(conn), $"ascendancy {chosen.Name} chosen at the font");
+    }
+
+    public static PendingTransfer AscendancyReload(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return new(conn.Layout.Hash, conn.InstanceNumber, false, ArriveAt: conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
     }
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the

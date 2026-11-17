@@ -196,6 +196,8 @@ public static partial class Game
     public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
     {
         if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
+        if (LeapSlamPeerActions.TryGetValue(bytes, out var leap) && ReferenceEquals(leap.Owner, ciphers))
+            bytes = leap.Records;
         ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
         if (message is InstanceProtocol.ActionStartedId or 0x1ac
             && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) == PlayerId)
@@ -565,10 +567,14 @@ public static partial class Game
                     uint id = (uint)Interlocked.Increment(ref conn.NextMirroredObject);
                     conn.MirroredObjects[key] = id;
                     var o = m.Origin;
+                    if (o.Object.Parent == PlayerId)
+                        o = o with { Object = o.Object with { Parent = owner.PeerId } };
                     lock (conn.Monsters)
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                     packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life }).Blob()));
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                    if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
+                        packets.World(id, display);
                     if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
                         packets.World(id, InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
                 }
@@ -699,15 +705,17 @@ public static partial class Game
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                foreach (uint gone in conn.MonsterViews.Keys.Where(id => !world.Monsters.ContainsKey(id)
-                    && !world.DormantMonsters.ContainsKey(id)).ToList())
+                foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
+                    || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {
                     conn.MonsterViews.Remove(gone);
+                    conn.AsleepMonsters.Remove(gone);
                     bars.Hidden.Remove(gone);
-                    if (!runner) packets.Remove(gone);
+                    if (!runner || world.Monsters.GetValueOrDefault(gone)?.WorldHidden == true) packets.Remove(gone);
                 }
                 foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
                 {
+                    if (m.WorldHidden) continue;
                     if (!world.MonsterOrigins.TryGetValue(id, out var o)) continue; // a player's minion: SyncPeerMinions
                     bool dormant = world.DormantMonsters.ContainsKey(id);
                     uint life = m.Dead ? 0 : m.Life;
@@ -719,14 +727,17 @@ public static partial class Game
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
                         var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
-                        if (!dormant && m.Variety is { } v && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
+                        if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
+                            && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
                             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
+                        SettleBleeding(m, now);
+                        foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life);
+                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
                         continue;
                     }
@@ -745,7 +756,7 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = new(at, to, life);
+                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }

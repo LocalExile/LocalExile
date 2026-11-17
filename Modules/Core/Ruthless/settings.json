@@ -40,6 +40,11 @@
       "type": "number", "default": 0.25, "min": 0, "max": 1, "format": "percent",
       "label": "Boss life on player death",
       "description": "Share of maximum life a nearby campaign boss recovers when the player dies."
+    },
+    "hardcoreDeathToVoid": {
+      "type": "bool", "default": false,
+      "label": "Hardcore deaths go to Void",
+      "description": "As on the official servers: a Hardcore Ruthless character that dies is sent to Void and can no longer be played. Off: it moves to the league's parent."
     }
   }
 }

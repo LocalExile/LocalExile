@@ -20,6 +20,7 @@ public static class QuestObjectTypes
         /// <summary>Whether the .ot names its own model (Animated animated_object); one that does not takes the placing
         /// line's (the Aspirants' Plaza's LabyrinthAirlockPortal, LabyrinthAirlockPortal.ao in airlock.arm).</summary>
         public bool OwnModel { get; init; } = true;
+        public string? AnimatedModel { get; init; }
     }
 
     /// <summary>Tile objects the quest engine may create: quest objects, quest chests, the Dark Altar and the quest
@@ -50,6 +51,7 @@ public static class QuestObjectTypes
             bool blocking = ObjectTypes.Flag(t, "positioned_blocking") == true;
             types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
             {
+                AnimatedModel = t.TextOrNull("animated_object"),
                 OwnModel = !components.Contains("Animated") || t.TextOrNull("animated_object") is not null,
             };
         }

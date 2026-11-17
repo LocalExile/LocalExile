@@ -93,7 +93,7 @@ public static partial class Game
         double more = 1;
         foreach (var stat in new[] { "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
             "support_efficacy_damage_over_time_+%_final", "support_phys_chaos_projectile_chaos_damage_over_time_+%_final",
-            "support_area_concentrate_area_damage_+%_final" }) more *= Math.Max(0, 1 + own(stat) / 100d);
+            "support_area_concentrate_area_damage_+%_final", "cruelty_damage_over_time_+%_final" }) more *= Math.Max(0, 1 + own(stat) / 100d);
         return Math.Max(0, get("base_chaos_damage_to_deal_per_minute") / 60d) * more * Math.Max(0, 1 + increased / 100)
             * Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get("chaos_dot_multiplier_+")) / 100);
     }

@@ -6,6 +6,11 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
     {
         if (conn.Immune) return 0;
+        // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
+        // shrine's 20 s). It is the buff's own stat rather than a shrine-specific flag, so anything else that grants it
+        // protects the player the same way.
+        if (Stats.Key("base_cannot_be_damaged") is uint cannotBeDamaged
+            && player.GetValueOrDefault(cannotBeDamaged) > 0) return 0;
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state) || conn.LeavingArea) return 0;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -22,12 +27,19 @@ public static partial class Game
         (physical, other, chaos) = TriggeredGuardHit(conn, physical, other, chaos, at);
         RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
+        // Eldritch Battery: "Energy Shield protects Mana instead of Life". The hit goes past it to Life (it still stops
+        // the recharge), and the share defensive Mana takes (Mind Over Matter) is taken from Energy Shield first.
+        bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;
         int bypass = Get(IncomingResourceDefences.BypassStat);
-        int nonChaosLife = (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
-            + IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at));
+        int nonChaosLife = protectsMana
+            ? conn.EnergyShield.Damage((int)Math.Min(int.MaxValue, (long)physical + other), true, at)
+            : (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
+                + IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at));
         int chaosLife = conn.EnergyShield.Damage(chaos, true, at);
-        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, types, (int)conn.PlayerMana, Get);
-        conn.PlayerMana -= (uint)fromMana;
+        int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)conn.PlayerMana + conn.EnergyShield.Current) : (int)conn.PlayerMana;
+        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, types, manaPool, Get);
+        int toMana = protectsMana ? conn.EnergyShield.Damage(fromMana, false, at) : fromMana;
+        conn.PlayerMana -= (uint)Math.Min(toMana, conn.PlayerMana);
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
             (int)Math.Min(int.MaxValue, (long)physical + other + chaos), Get("damage_taken_goes_to_mana_%"));
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.

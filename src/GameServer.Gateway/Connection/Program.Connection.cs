@@ -47,6 +47,7 @@ public partial class Program
         long total = 0;
         uint ticket = 0;
         ClientState? left = null;
+        InstanceState? entered = null;
         bool prepared = false;
         long connectedAt = Stopwatch.GetTimestamp();
         string? reason = null;   // why the connection ended, for the DISCONNECT line
@@ -96,13 +97,20 @@ public partial class Program
                     return;
                 }
                 ushort areaHash = resolved.Area;
-                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
-                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                byte areaLevel = MapDevice.OpenOf(characterName) is { } openMap && openMap.Area.Hash16 == areaHash
-                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
-                // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
                 ulong instanceId = resolved.Instance;
+                var instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null);
+                entered = instance;
+                var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
+                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+                byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
+                // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
+                // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
+                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
+                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(
+                    ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup),
+                    new AreaStatsRequest(characterName, resolved.League, areaHash, map)));
+                // The client generates the area at the seed, level and stats of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -112,7 +120,7 @@ public partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
@@ -122,7 +130,8 @@ public partial class Program
                 conn.Wire = (remote, stream, ciphers);
                 // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
                 // this connection's character is loaded only after that.
-                if (!await Logic.AdmittingAsync(conn))
+                // Closed: a third login of the character ended this one while it waited for the first.
+                if (!await Logic.AdmittingAsync(conn) || conn.Closed)
                 {
                     conn.CloseReason ??= "the game rules refused the connection";
                     Console.WriteLine($"[gateway] {remote} connection refused by the rules");
@@ -145,10 +154,10 @@ public partial class Program
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
                 if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
+                    Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
@@ -250,26 +259,34 @@ public partial class Program
             left.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
-            // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                if (!left.BuildFinalized) Logic.Save(left, prepared);
+                // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
+                try
+                {
+                    if (!left.BuildFinalized) Logic.Save(left, prepared);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                }
+                // What follows must run whatever the rules do, or the player stays in the instance.
+                try { if (!left.BuildFinalized) Logic.Left(left); }
+                catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
+                left.Instance.RemovePlayer(left.PeerId);
+                if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
+                ForgetCommands(left);
+                Instances.Leave(left.Instance);
+                CharacterBuildImports.Release(left);
             }
-            catch (Exception e)
+            finally
             {
-                Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                // The connection has ended and its save is written: whoever ended it for another connection goes on. Set
+                // whatever threw above, or that login (and every later one of the character) would wait for ever.
+                left.Ended.TrySetResult();
             }
-            // What follows must run whatever the rules do, or the player stays in the instance.
-            try { if (!left.BuildFinalized) Logic.Left(left); }
-            catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
-            left.Instance.RemovePlayer(left.PeerId);
-            if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
-            ForgetCommands(left);
-            Instances.Leave(left.Instance);
-            CharacterBuildImports.Release(left);
-            // The connection has ended and its save is written: whoever ended it for another connection goes on.
-            left.Ended.TrySetResult();
         }
+        else if (entered is not null) Instances.Leave(entered);   // ended before its ClientState existed
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
             ? left.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")

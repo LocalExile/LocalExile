@@ -50,5 +50,16 @@ public sealed class CharacterSessionTests
         Assert.False(ending.IsCompleted);
         conn.Ended.TrySetResult();   // the connection's thread saved and left
         await ending;
+
+        // An area change is not a second login: the old connection handed the character over (Travel.Transfer) and the
+        // client drops it once the new one is up, so the new one is admitted without ending it.
+        var character = Guid.NewGuid();
+        var leaving = Connection(character);
+        Assert.Empty(Rules.ClaimCharacter(leaving));
+        leaving.TransferAccepted = true;
+        var arriving = Connection(character);
+        Assert.True(await new GameServer.Modules.Game.GameLogic().AdmittingAsync(arriving));
+        Assert.False(leaving.Closed);
+        Rules.ReleaseCharacter(arriving);
     }
 }

@@ -10,7 +10,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill and Regrets.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
-- Passive tree jewel sockets, percentage attribute mods and The Adorned (tree art check pending).
+- Passive tree jewel sockets, percentage attribute mods, The Adorned and Split Personality's allocated paths,
+  including nested clusters (tree art check pending).
   Docs: [15](../docs/protocol/15-progression.md) §2a, [unique jewels](../docs/game/unique-jewels.md).
 - Cluster jewels: a new one has its theme, passive count and sockets, its small passives grant the theme and its
   notables roll for it; the single-keystone smalls' keystone stats, nesting and the client's layout; keystones,
@@ -25,9 +26,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional consumers are partial. Docs: [unique jewels](../docs/game/unique-jewels.md).
 - Ordinary ascendancy selection, point awards, allocations, paid refunds and saves.
   Docs: [ascendancies](../docs/game/ascendancies.md).
-- Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; Primal Wisps found waits for the
-  Wildwood Wisp system. Docs: [15](../docs/protocol/15-progression.md) §2, [16](../docs/protocol/16-waypoints.md) §3,
-  [05](../docs/protocol/05-inventories-and-ui.md).
+- Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; the charm modifiers chain
+  projectiles off terrain, add physical damage after a recent critical strike and explode bleeding kills (phasing on
+  kill waits for the client to be told it phases); Primal Wisps found waits for the Wildwood Wisp system. Docs: [15](../docs/protocol/15-progression.md) §2,
+  [16](../docs/protocol/16-waypoints.md) §3, [05](../docs/protocol/05-inventories-and-ui.md).
 - Elementalist Shaper of Flames. Docs: [20](../docs/protocol/20-damage.md) §3.
 - Antiquarian. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Juggernaut. Docs: [Juggernaut](../docs/game/juggernaut.md).
@@ -53,6 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
 - Tattoos: 91 rows work in the client and 7 are partial (the seven Forbidden ascendancy tattoos, whose client use
-  flow is untraced); two are inert. The vendor recipe works (three same-tribe tattoos for one weighted random tattoo
-  of that tribe; not live-checked).
+  flow is untraced); two are inert. Replace, tattoo persistence across refund/reallocate and the 50-tattoo cap are
+  client-verified (the 51st tattoo is refused). The vendor recipe works (three same-tribe tattoos for one weighted
+  random tattoo of that tribe; not live-checked).
   Docs: [tattoos](../docs/game/tattoos.md).

@@ -17,6 +17,15 @@ public sealed class ItemCatalog
     }
 
     private StashRules? _stash;
+
+    /// <summary>Builds, at startup, what every login reads of the items: the stash rules and their tab layouts, the gems,
+    /// the flasks, the weapons' criticals and the attribute requirements. They are built on first use otherwise, which
+    /// was inside the first player's login (2026-11-17: about 0.9 s of it).</summary>
+    public void Warm()
+    {
+        _ = Stash;
+        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
+    }
     private readonly string _folder;
     private readonly Lazy<HashSet<int>> _activeGemEffects;
 
@@ -80,6 +89,9 @@ public sealed class ItemCatalog
         IReadOnlyList<string> Components, int MaxCharges, string Class = "", byte Stance = 0xff, int DropLevel = 0, ushort MaxStack = 1,
         int FullStackRow = -1, IReadOnlyList<ModCatalog.Mod>? Implicits = null)
     {
+        // Fixed one-socket base implicits also occur on amulets, belts and quivers.
+        public bool HasOneSocket { get; } = Implicits?.Any(mod => mod.Stats.Any(stat =>
+            stat.Id == "local_has_X_sockets" && stat.Min == 1 && stat.Max == 1)) == true;
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
         /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
@@ -316,11 +328,11 @@ public sealed class ItemCatalog
     public GemType? Gem(BaseType t) => _gems.Value.GetValueOrDefault(t.Row);
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
-    /// skill. Support gems grant none: they modify the linked active skills (granting one as a skill crashed the client in
-    /// the Actor skill reader, 0x141eee1ba).</summary>
+    /// skill. Only active effects enter the Actor: a support can grant an active companion, but its support effect
+    /// crashes the Actor skill reader at 0x141eee1ba.</summary>
     public IEnumerable<int> GemEffects(Item gem)
     {
-        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
+        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
         if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
         if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
@@ -586,6 +598,7 @@ public sealed class ItemCatalog
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
         random ??= Random.Shared;
+        if (t.HasOneSocket) return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [1]);
         return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite)),
                  new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
@@ -596,7 +609,7 @@ public sealed class ItemCatalog
 
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
     {
-        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise)
+        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
             return DefaultSockets(type, level, random: random);
         int capacity = Math.Min(SystemSettings.Default.SocketMax(type.Class), DropSocketCounts.Length);
         int total = 0, maximum = 0;
@@ -652,8 +665,8 @@ public sealed class ItemCatalog
             DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
             Charges = t.MaxCharges,
             Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
-                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
-            Links = ResonatorSockets(t) > 0 ? null : links,
+                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : t.HasOneSocket ? [new(SocketColour.White)] : []),
+            Links = ResonatorSockets(t) > 0 ? null : links ?? (t.HasOneSocket && sockets is null ? [(byte)1] : null),
             Mods = t.Components.Contains("Mods")
                 ? [.. t.Cluster?.Roll(random) ?? [], .. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };

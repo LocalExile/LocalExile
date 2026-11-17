@@ -66,6 +66,7 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
+  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
@@ -77,12 +78,15 @@ Nothing yet.
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
   extra freeze chance counts an enemy chilled by an earlier hit; Sadism's less duration shortens its ailments; Vicious
   Projectiles' less attack speed and Greater Chain's more chains apply. Greater Fork can add a third projectile at the
-  fork; Rupture's stacks raise bleeding damage taken; Close Combat's Combat Rush speeds up eligible travel skills
+  fork; Rupture raises bleeding damage taken, dynamically speeds bleed expiry and shows its independent native buff stacks to each player; Close Combat speeds travel skills
   and is consumed by a paid travel use; Block Chance Reduction lowers the monster's block roll and applies Overpowered;
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
-  Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
+  Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
+  Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
+  Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
+  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
@@ -90,7 +94,10 @@ Nothing yet.
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Mirage Archer uses linked bow skills after arrow hits; owner-only damage restriction changes await a client check.
+  Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
+  keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
+  ([25](../docs/protocol/25-gem-supports.md)).
+  Owner-only damage restriction overrides still await a client check.
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
   Blaze scales ignite damage and hit damage by enemies ignited recently
   ([25](../docs/protocol/25-gem-supports.md)).
@@ -116,7 +123,7 @@ Nothing yet.
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys no longer move when other gems come or go; a skill that goes away ends its aura or Righteous Fire;
+  keys no longer move when other gems come or go; queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;

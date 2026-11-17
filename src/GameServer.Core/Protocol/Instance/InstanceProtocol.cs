@@ -81,6 +81,8 @@ public static class InstanceProtocol
     /// (<see cref="InstanceChat.JoinChannelId"/>) and 0x0129 (id only); the 20 bytes once taken for 0x0099 were all four.</summary>
     public static int? KnownClientLength(ushort id) => id switch
     {
+        InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
+        InstanceDivination.MoveId => InstanceDivination.MoveLength,
         InstanceDelve.UpgradesRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,
@@ -96,6 +98,9 @@ public static class InstanceProtocol
         InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength,
         InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
+        // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
+        InstanceMapDevice.MoveIntoDeviceId => InstanceMapDevice.MoveItemLength,
+        InstanceMapDevice.MoveOutOfDeviceId => InstanceMapDevice.MoveItemLength,
         InstanceItems.InventoryRequestId => InstanceItems.InventoryRequestLength, InstanceItems.UseItemId => InstanceItems.UseItemLength, InstanceItems.UseItemOnId => InstanceItems.UseItemOnLength, InstanceItems.UseItemOnPassiveId => InstanceItems.UseItemOnPassiveLength, InstanceItems.UseFlaskId => InstanceItems.UseFlaskLength, InstanceItems.UseItemTypeOnId => InstanceItems.UseItemTypeOnLength,
         InstanceItems.ItemActionId => InstanceItems.ItemActionLength, InstanceItems.SplitStackId => InstanceItems.SplitStackLength, InstanceItems.SocketGemId => 16,
         InstanceItems.UnsocketGemId => 17, BindSkillId => 5, AttackInPlaceId => 4, SlotMask52Id => 4, ExitToCharacterSelectId => 2,
@@ -261,6 +266,12 @@ public static class InstanceProtocol
         return new((int)r.U32(), (int)r.U32(), r.U16(), r.U16(), r.U16());
     }
 
+    /// <summary>S→C 0x1ac (read 0x141f988f0): the world object header only. The historical name is not a generic
+    /// stop command: Actor 0x14219aa10 decrements its pending-action counter, then in Predictive releases an eligible
+    /// server-created action (including its walk-up/swing gate). It does not stop the local player's predicted
+    /// nonnegative-sequence action; Lockstep skips the Predictive release branch. See protocol/07 §5.</summary>
+    public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
+
     /// <summary>
     /// S→C 0x1ab (world group, class 0x1435ccc18, read 0x141fe4290; Actor handler 0x14219aa10): an object starts an
     /// action. Object header (u16 id, u32 object id, u32 +0x14, u16 +0x18), u16 flags (+0x38 → action +0x122; bit 0x80 adds
@@ -271,10 +282,6 @@ public static class InstanceProtocol
     /// (live 2026-10-16: sending the target in that pair teleported the player on long clicks, onto unwalkable cells).
     /// Otherwise it looks the skill up in the actor's granted skills and starts the action (0x141ef0050 → 0x141e937b0).
     /// </summary>
-    /// <summary>S→C 0x1ac "action ended" (read 0x141f988f0): the world object header only (u32 object id, u32 0, u16 0);
-    /// the object's current action stops. Ignored for the local player's predicted actions (07 §5).</summary>
-    public static byte[] ActionEnded(uint objectId) => new LoginWriter().U16(0x1ac).U32(objectId).U32(0).U16(0).ToArray();
-
     public static byte[] ActionStarted(uint objectId, int posX, int posY, int targetX, int targetY, ushort skillId, ushort sequence, ushort flags,
         uint? targetObjectId = null, ushort header = 0)
     {
@@ -394,6 +401,26 @@ public static class InstanceProtocol
 
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
+
+    public const ushort MonstersRemainingId = 0x1a0;
+
+    /// <summary>
+    /// S→C 0x1a0 (instance group, class 0x14346cd80, read 0x140e27980, dispatcher case 0x7e at 0x14215718b): the map
+    /// overlay's "X monsters remain" line. One payload byte, <c>byte [msg+0x10]</c>, which the handler copies to
+    /// <c>instance+0xd7cd</c> (the dispatcher's <c>r13</c> is the instance + 8: <c>mov byte ptr [r13+0xd7c5]</c>, then
+    /// notifies the observers that invalidate the overlay). That byte is the only input of the line and 0x1a0 its only
+    /// writer in the client: the instance constructor (0x14214b4a0, at 0x14214e686) starts the word at
+    /// <c>instance+0xd7cc</c> at 0xff00, so with nobody sending this the count always read 255, and the text builder
+    /// (0x1406b24e0, called by the overlay builder 0x1406b25f0 at 0x1406b279b) picks ClientStrings 0x1ab6
+    /// "1 monster remains" for 1, 0x1ab7 "{0} monsters remain" for 0..50 and 0x1ab8 "More than 50 monsters remain" for
+    /// 51..255. Nothing on the client counts monsters, so the count only changes when a server sends this again.
+    /// Live 2026-11-14 with <c>/raw</c> (an area entered, so the instance exists): <c>01a0 05</c> → "5 monsters remain",
+    /// <c>01a0 01</c> → "1 monster remains", <c>01a0 00</c> → "0 monsters remain", <c>01a0 33</c> → "More than 50
+    /// monsters remain" (51..255 all read so; 0xff is not special-cased). <paramref name="remaining"/> is clamped to the
+    /// byte: 51..255 render alike and a bigger area must be sent as 255, not wrapped.
+    /// </summary>
+    public static byte[] MonstersRemaining(int remaining) =>
+        new LoginWriter().U16(MonstersRemainingId).U8((byte)Math.Min(Math.Max(remaining, 0), byte.MaxValue)).ToArray();
 
     public const ushort TeleportId = 0x1b7, MoveToId = 0x1ba, EnterWakeZoneId = 0x1a9, LeaveWakeZoneId = 0x1aa;
 
@@ -539,7 +566,8 @@ public static class InstanceProtocol
                 : id == InstanceStash.SetAffinitiesId ? InstanceStash.SetAffinitiesLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceNpcs.CtrlBuyId ? InstanceNpcs.CtrlBuyLength(data[pos..]) ?? int.MaxValue
                 : id is InstanceWaypoints.VisitHideoutId or InstanceWaypoints.VisitMenagerieId ? InstanceWaypoints.VisitHideoutLength(data[pos..]) ?? int.MaxValue
-                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
+                : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
+                    ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }

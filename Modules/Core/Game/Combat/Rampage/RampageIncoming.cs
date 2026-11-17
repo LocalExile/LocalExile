@@ -10,6 +10,10 @@ public static partial class Game
         uint id, SpawnedMonster monster, double now, (int X, int Y) from, double playerDistance)
     {
         if (!CurrentRampageWork) return false;
+        // With no Rampage actor there is no weapon to find, and the search below passes over every monster of the
+        // instance for each monster that plans (half a second in ten with 1000 of them). Asked only of a world that
+        // stands: the search's own RampageWorld would make one, and then only when the player owns a living monster.
+        if (monster.Hostile && conn.StandingRampageWorld is { Actors.Count: 0 }) return false;
         var owned = monster.Hostile ? conn.Monsters.Where(p => p.Value.OwnerId == PlayerId && !p.Value.Dead
             && p.Value.Life > 0 && conn.RampageWorld.Actors.TryGetValue(p.Key, out var actor) && actor.Weapon is not null)
             .OrderBy(p => Dist(from, p.Value.Walk.Position(now))).FirstOrDefault() : default;

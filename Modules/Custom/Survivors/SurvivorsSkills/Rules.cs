@@ -887,6 +887,7 @@ static partial class SurvivorsSkills
         DamagePacket RawDamage()
         {
             int effectiveness = SkillsFor(conn).DamageEffectiveness(skill.Effect, rank);
+            var coefficients = SkillsFor(conn).DamageCoefficients(skill.Effect, rank);
             DamagePacket own;
             if (spell)
             {
@@ -898,9 +899,7 @@ static partial class SurvivorsSkills
             }
             else if (armedAttack)
             {
-                // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
-                own = SupportedAttackDamage.Raw(weapon, Get);
-                own = SpellDamage.WithEffectiveness(own, effectiveness);
+                own = SupportedAttackDamage.Raw(weapon, Get, coefficients.Base, coefficients.Added);
             }
             else
             {
@@ -908,9 +907,8 @@ static partial class SurvivorsSkills
                 var nominal = unarmed ? DamagePacket.Empty
                     : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
-                added = SpellDamage.WithEffectiveness(added, effectiveness);
-                own = SpellDamage.WithEffectiveness(nominal, effectiveness)
-                    .Add(added.Scale(roster.SkillScale));
+                own = SupportedAttackDamage.WithCoefficients(nominal, added.Scale(roster.SkillScale),
+                    coefficients.Base, coefficients.Added);
             }
             // The reference's power curve: every run skill deals 30% more a rank above the first (3.1× at rank 8), on top
             // of the gem's own effectiveness, supports and the character's stats.

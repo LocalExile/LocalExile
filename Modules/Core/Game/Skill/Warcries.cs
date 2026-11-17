@@ -96,6 +96,7 @@ public static partial class Game
             {
                 // Gone for the client (0x2bd below), so gone here too: a later removal (a projectile kill's) must not send it again.
                 corpse.CorpseConsumed = true;
+                NoteCorpseConsumedLocked(conn, corpse);
                 conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
                 conn.Monsters.Remove(id);
                 var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);

@@ -16,7 +16,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the builds listed in `ClientBuilds.cs` run, each recognized by its
   executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
   extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
-  Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
+  Port tools: `scripts/re/port`, `PortMap.java`; the hash-pinned network manifest reproduces selected branches and
+  field/data references across 3.29.3b/c/hotfix/d, with whole-program comparator exceptions explicitly unresolved.
+  Docs: [tooling](../docs/re/tooling.md) §11 and its network contract evidence.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` regenerates each data file that is
   missing or whose manifest version changed (stamps in `data/extract-stamps.json`); `live.ps1` runs its `-Servers`
   entries (`game-files.zip`, the GGPK root hash) on every start (`-NoExtract` to skip), the full manifest is the

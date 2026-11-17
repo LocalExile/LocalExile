@@ -131,7 +131,7 @@ public static class TimelessJewelCatalog
             int revision = Value("local_unique_jewel_alternate_tree_internal_revision") ?? 1;
             string name = revision == 0 ? LegacyName(entry, keystone) ?? conqueror.Name : conqueror.Name;
             return new TimelessSpec(entry.Name, version, entry.Faction, seed, seed * entry.DisplayMultiplier,
-                keystone, name, revision == 0 ? 0 : conqueror.Version, radius);
+                keystone, name, revision == 0 ? 0 : conqueror.Version, RadiusJewelCatalogue.EffectRadius(radius));
         }
         return null;
     }

@@ -26,6 +26,14 @@ public sealed class LeadershipConsumersTests
         state.Clear();
         Assert.Equal(0, state.Read(0, inputs).Current);
         Assert.Equal(inputs.Maximum, state.Read(10, inputs).Current);
+        // A full bar stays full while regeneration is active (policy v2), at any advance cadence: the 250 ms ticker,
+        // a 100 ms read and the frame-rate snapshots a live connection can take (60 Hz).
+        for (int tick = 1; tick <= 40; tick++)
+            Assert.Equal(inputs.Maximum, state.Read(10 + tick * 0.25, inputs).Current);
+        for (int tick = 1; tick <= 200; tick++)
+            Assert.Equal(inputs.Maximum, state.Read(20 + tick * 0.1, inputs).Current);
+        for (int tick = 1; tick <= 1200; tick++)
+            Assert.Equal(inputs.Maximum, state.Read(40 + tick / 60.0, inputs).Current);
         // cannot_gain_rage blocks regeneration like any other gain.
         state.Clear();
         Assert.Equal(0, state.Read(0, inputs with { CannotGain = true }).Current);

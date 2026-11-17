@@ -12,7 +12,7 @@ public static partial class Game
         uint id, SpawnedMonster target, bool critical, double now)
     {
         if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
-        double factor = DoedreSewers.MinionDamageFactor(conn);
+        double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, fighter, id, target, now);
         if (factor != 1)
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with

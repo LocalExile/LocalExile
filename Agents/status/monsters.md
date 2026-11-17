@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Ordinary melee with resolved clip metadata follows native timing ([11](../docs/protocol/11-skills.md) §6).
 - Monsters belong to the area instance: re-entering it finds the living ones where they were, with their damage, and
   the dead stay dead; a new instance gets fresh packs.
   Code: `InstanceStore.cs`, `PopulateArea`, Gateway.
@@ -27,9 +28,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
   A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
   A generated layout's rooms place a pack at each of their `magic`, `rare` and `normal` points (The Chamber of
-  Innocence: twelve magic packs, live 2026-11-12 with a headless client: created, magic, and they attack).
+  Innocence: twelve magic packs, live 2026-11-12 with a headless client: created, magic, and they attack), and those
+  packs count against the area's scattered budget, so a layout that names most of its packs does not also get a full
+  scattered set on top of them (#668). The scattered packs stand only on cells the arrival can walk to, so the pockets
+  a generated map's walk map walls off from the entrance get none: a pack standing in one was a monster the area
+  counted and nobody could reach or kill.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
+- The map overlay's "X monsters remain" line: S→C 0x1a0 carries living hostile monsters, including dormant enemies,
+  excluding friendly summons and corpses. Shared-instance updates follow entry, kills, spawns and removals; emerging
+  leaves the total unchanged. The native client accepted the capped 255 count and zero after a Beach clear; the
+  1 / 0..50 / 51..255 text thresholds were verified with native `/raw` messages.
+  Code: `Modules/Core/Game/Monster/MonsterRemaining.cs`, `InstanceProtocol.MonstersRemaining`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §2.
 - Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
   `MonsterMapDifficulty`, added as percentages (level 83: ×20.73 life, ×1.15 damage). The King in the Mists' humanoid
   form therefore has 45,614,731 life at level 83, matching poedb's display.
@@ -159,6 +170,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
@@ -168,13 +180,23 @@ Part of [Status](../Status.md); what to build next in this area is in
   damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
   in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
   Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
+  Arakaali's unsafe generic laser activators stay out; a dedicated controller supplies linked native turret rails.
+  Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
+  Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
+  his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
+  fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.
+  Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
+  have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
   bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
-- The campaign Trinity has native attacks and two scorpion phases; exact official AI weights remain unverified.
+- The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
+  room entrance pads and return pairs; Doedre's soul starts visible on creation and instance restore.
+  Exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
-- Act 10 Kitava: three hearts, finale and manual Epilogue portal; AI provisional ([Act 10](../docs/game/campaign/act10.md)).
+- Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
+  AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
@@ -285,6 +307,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
   Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Modules/Core/Game/Monster/Monsters.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
+
 
 ## Not working yet
 

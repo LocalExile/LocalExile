@@ -63,7 +63,7 @@ public static partial class Game
     }
 
     public static uint CurrentExperience(ClientState conn) =>
-        CharacterSaves.Load(CharacterName(conn))?.Experience ?? conn.Experience;
+        CharacterSaves.Experience(CharacterName(conn)) ?? conn.Experience;
 
     public static async Task<bool> PublishExperienceChange(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ExperienceChange change, string why)

@@ -41,6 +41,10 @@ static class Act4Objects
 {
     public const string HarvestBlocker = "Metadata/Terrain/Mountain/Belly/Objects/BellyHarvestBlocker";
     public const string Seal = "Metadata/QuestObjects/Act4/MineEntranceSeal", SealBlocker = "Metadata/QuestObjects/Act4/MineEntranceSealBlocker";
+    public const string ArenaEntrance = "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition";
+    public const string SideDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArseDoor";
+    public const string ArenaDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaDoor";
+    public const string RoomFolder = "Metadata/Terrain/Mountain/Belly/Rooms/Unique/";
     public const string DeshretSpirit = "Metadata/QuestObjects/Act4/DeshretSpirit", DeshretHand = "Metadata/QuestObjects/Act4/DeshretHand";
     public const string RaptureDevice = "Metadata/QuestObjects/Act4/RaptureDevice";
     public const string ResonatorLever = "Metadata/Terrain/Act4/Area7/Objects/PortalDeviceLever",
@@ -101,6 +105,8 @@ sealed class Act4 : Act
                 On.Seen(Harvest, Act4Monsters.Malachai2, "a4q1-SeenMalachai"),
                 On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2),
                 On.Killed(Harvest, Act4Monsters.Malachai2, "a4q1-QuestComplete"),
+                new PointPortalRule(Harvest, Highgate, "Metadata/QuestObjects/Act4/MalachaiDeathPortal"),
+                On.Exit(Harvest, Highgate, "a4q1-QuestComplete"),
                 On.Exit(Highgate, Ascent, "DiallaOnMalachaiDead"),
             },
             // a4q2 "Breaking the Seal": Voll stands at mapboss1 of The Dried Lake's boss room and drops Deshret's Banner (wiki:
@@ -145,6 +151,13 @@ sealed class Act4 : Act
                 // player there, and this one stands on the only way to The Harvest. Not yet checked with the client.
                 On.Door(Belly2, Act4Objects.HarvestBlocker, "a4q5-QuestReceived"),
                 On.Blocker(Belly2, Act4Objects.HarvestBlocker, 5, "a4q5-QuestReceived"),
+                new PlacedDoorRule(Belly1, Act4Objects.SideDoor),
+                new PlacedDoorRule(Belly2, Act4Objects.SideDoor),
+                new PlacedDoorRule(Harvest, Act4Objects.SideDoor),
+                new PlacedDoorRule(Belly2, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "boss_piety_1.arm", Act4Monsters.PietyBeast, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_1.arm", Act4Monsters.Doedre, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_2.arm", Act4Monsters.Maligaro, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_3.arm", Act4Monsters.Shavronne, Act4Objects.ArenaEntrance),
                 On.Exit(Belly2, Harvest, "a4q5-QuestReceived"),
                 On.Npc(Harvest, Act4Npcs.PietyHarvest, null),
                 On.Exists("Metadata/QuestObjects/Act4/CoreTransition", from: "a4q5-QuestComplete"),

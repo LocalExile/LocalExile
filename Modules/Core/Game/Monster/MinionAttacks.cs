@@ -49,7 +49,8 @@ public static partial class Game
         double now, Random random)
     {
         var t = target.Monster;
-        if (!CurrentGameWork || m.Attack is not { } a || m.Dead || !conn.Minions.Fights(id) || !conn.Monsters.TryGetValue(id, out var self)
+        if (!CurrentGameWork || m.Attack is not { } a || m.Dead || !conn.Minions.Fights(id) && !m.AlliedFighter
+            || !conn.Monsters.TryGetValue(id, out var self)
             || !ReferenceEquals(self, m) || t.Dead || t.Life == 0 || !t.Hostile
             || !conn.Monsters.TryGetValue(target.Id, out var current) || !ReferenceEquals(current, t)) return null;
         var at = m.Walk.Position(now);
@@ -59,7 +60,9 @@ public static partial class Game
         if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100)) || MonsterBlocks(t, random, spell: false))
             return null;
         var offense = a.Damage;
-        int Flat(string bound) => Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
+        // A minion the player summoned takes his minion modifiers; a shrine's ally is not his to scale (GGG: "You are not
+        // considered to be summoning them").
+        int Flat(string bound) => conn.Minions.Owns(id) && Stats.Key($"non_golem_minion_global_{bound}_added_physical_damage") is uint key
             ? conn.Golems.OwnerStats.GetValueOrDefault(key) : 0;
         if (Flat("maximum") > 0) offense = offense.Add(GameServer.Core.World.DamageType.Physical,
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects["damage_+%"] / 100.0)));
@@ -95,7 +98,8 @@ public static partial class Game
         var rules = CombatLifetime;
         var (id, m, from, targetId, targetMonster, toAt, contactAt) = attack;
         var target = new MinionTarget(targetId, targetMonster, toAt, true, toAt);
-        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !conn.Closed && !conn.LeavingArea && conn.Minions.Fights(id)
+        bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules) && !conn.Closed && !conn.LeavingArea
+            && (conn.Minions.Fights(id) || m.AlliedFighter)
             && conn.Monsters.TryGetValue(id, out var held) && ReferenceEquals(held, m) && !m.Dead
             && conn.Minions.Attacks.TryGetValue(id, out var pending) && ReferenceEquals(pending, attack);
         lock (conn.Monsters) if (!Current()) return;

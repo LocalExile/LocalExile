@@ -47,7 +47,8 @@ public static partial class Game
     /// (<see cref="ShowIgnitedLocked"/>), or null when nothing was added.</summary>
     public static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
-        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds)) return null;
+        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
+                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
@@ -127,7 +128,8 @@ public static partial class Game
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
-        return WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand);
+        return WithOverheat(conn, skillId,
+            WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand));
     }
 
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
@@ -185,7 +187,8 @@ public static partial class Game
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
-                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom,
+                UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {
@@ -235,7 +238,7 @@ public static partial class Game
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
     static async Task TickStrongestDots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
-        Func<SpawnedMonster, double, double>? aggravated = null)
+        Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -249,7 +252,11 @@ public static partial class Game
                 if (set.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) set.Clear();
-                else damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                else
+                {
+                    settle?.Invoke(m, now);
+                    damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                }
                 if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);

@@ -106,7 +106,7 @@ public static partial class Game
     // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
-    sealed class SentSkillList { public byte[]? Bytes; }
+    sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
     static readonly RuleTable<ClientState, SentSkillList> SentSkillLists = new();
 
     public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
@@ -116,7 +116,7 @@ public static partial class Game
         lock (sent)
         {
             if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
-            sent.Bytes = bytes;
+            (sent.Bytes, sent.Skills) = (bytes, skills);
         }
         return bytes;
     }
@@ -125,6 +125,20 @@ public static partial class Game
     public static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
-        lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
+        lock (sent) (sent.Bytes, sent.Skills) = (InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn)), skills);
+    }
+
+    /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),
+    /// null when the skill was not sent. The client times some effects by the skill's stats it holds, not the
+    /// character's current ones (Hammerfalls' waves).</summary>
+    public static int? SentSkillStat(ClientState conn, ushort skillId, string stat)
+    {
+        if (Stats.Key(stat) is not uint key || !SentSkillLists.TryGetValue(conn, out var sent)) return null;
+        lock (sent)
+        {
+            if (sent.Skills?.FirstOrDefault(s => s.Id == skillId) is not { } skill) return null;
+            foreach (var (k, value) in skill.Stats ?? []) if (k == key) return value;
+            return 0;
+        }
     }
 }

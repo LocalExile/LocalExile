@@ -20,15 +20,19 @@ static partial class Game
         double duration = SupportedAttackSeconds(conn, skillId);
         double contact = GemAttackContactDelay(conn, gem.Effect, duration, out _, out _);
         int repeats = MeleeAttackRepeats(conn, skillId);
+        int action = conn.ActionCount;
+        var stats = SupportedSkill(conn, skillId).Stats;
+        double ruthless = RuthlessBlowMore(conn, skillId, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && conn.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(conn) ?? PlayerStateAllowsAction(conn))
             && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int index = repeat;
-            session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration / (repeats + 1)), Valid, () =>
+            session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
+                () => Valid() && (index == 0 || conn.ActionCount == action), () =>
                 ReleaseLightningStrike(remote, stream, ciphers, conn, session, skillId, gem, from, aim, targetId,
-                    criticalRoll, sequence, index));
+                    criticalRoll, sequence, index, ruthless));
         }
         return Task.CompletedTask;
     }
@@ -36,7 +40,8 @@ static partial class Game
     internal static ProjectileUse ReleaseLightningStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0)
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
+        double? ruthlessMore = null)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         uint primary = LightningStrikeTarget(conn, from, aim, targetId, now);
@@ -49,10 +54,11 @@ static partial class Game
             var at = monster.Walk.Position(now);
             // Immediate means the scheduler already waited for contact. Selection is one strike, not the
             // generic area approximation, and its success is known before presentation can await network IO.
-            var melee = AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, at,
+            var melee = AreaSkillHitForUse(ruthlessMore, remote, stream, ciphers, conn, skillId, gem, from, at,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary,
                 radiusOverride: WeaponFor(conn).Range + monster.StopRange, damageMore: more,
-                singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session);
+                singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session,
+                repeat: repeat);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Lightning Strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
@@ -67,6 +73,9 @@ static partial class Game
                 // The native skill makes the bolts unavoidable when its melee contact hit.
                 AccuracyProfile = hit && shot.AccuracyProfile is { } accuracy ? accuracy with { CannotBeEvaded = true } : shot.AccuracyProfile,
                 Hit = shot.Hit.Scale(more),
+                Ignite = RepeatAilment(shot.Ignite, more),
+                Bleed = RepeatAilment(shot.Bleed, more),
+                Poison = RepeatAilment(shot.Poison, more),
             }
         };
     }
@@ -85,8 +94,8 @@ static partial class Game
 
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
-    static void CommitLightningStrikeMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence)
+    public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -101,13 +110,13 @@ static partial class Game
         session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
             kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
-            $"Lightning Strike melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, Random.Shared);
             session.Enqueue(() => MaybeCreateProfaneGround(session.remote, session.stream, session.ciphers, conn, target));
         }
-        if (hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
+        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
         if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(session.remote, session.stream, session.ciphers, conn, id, monster));
     }
 }
