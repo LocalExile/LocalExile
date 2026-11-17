@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class IncomingDamagingAilmentTests
+static class IncomingDamagingAilmentTestCases
 {
     sealed class UpperRoll : Random
     {
@@ -20,8 +20,7 @@ public sealed class IncomingDamagingAilmentTests
     static Dictionary<uint, int> Stats(params (string Name, int Value)[] pairs) =>
         pairs.ToDictionary(p => Program.Stats.Key(p.Name)!.Value, p => p.Value);
 
-    [Fact]
-    public void Monster_applications_use_final_avoidance_and_rolled_damage_ranges()
+    public static void Monster_applications_use_final_avoidance_and_rolled_damage_ranges()
     {
         var monster = new SpawnedMonster("ailment-source", new(0, 0, 0), 0, 0, 1000)
         {
@@ -58,8 +57,7 @@ public sealed class IncomingDamagingAilmentTests
         conn.Closed = true;
     }
 
-    [Fact]
-    public void Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection()
+    public static void Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection()
     {
         var conn = Fresh();
         conn.Clock.Stop();

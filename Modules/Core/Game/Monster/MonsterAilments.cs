@@ -293,4 +293,23 @@ public static partial class Game
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
+
+    /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
+    /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    {
+        int basePct = m.Effects.MovementPct;
+        int maimPct = now < m.MaimedUntil ? -30 : 0;
+        int hinderPct = m.HinderedUntil > now ? 30 : 0;
+        int totalPct = basePct + maimPct - hinderPct;
+        if ((maimPct != 0 || hinderPct != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+            totalPct = Math.Max(0, totalPct);
+        double Movement(double pct) => m.Variety is { } variety
+            ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
+            : Math.Max(.01, 1 + pct / 100.0);
+        double before = Movement(basePct);
+        double after = Movement(totalPct);
+        return (after / before, totalPct);
+    }
+
 }

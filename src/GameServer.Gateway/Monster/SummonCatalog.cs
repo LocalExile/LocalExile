@@ -78,7 +78,9 @@ public sealed class SummonedMinions
     public readonly List<HitSummon> HitSummons = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
-    public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null, uint? Host = null, int? Socket = null);
+    public sealed record Saved(string Effect, ushort Source, string Variety, double Life,
+        Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null,
+        GolemState.MinionResourceSnapshot? Resources = null, uint? Host = null, int? Socket = null);
 }
 
 public sealed partial class ClientState
