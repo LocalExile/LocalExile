@@ -1399,13 +1399,17 @@ public static partial class Game
         return Math.Min(now, frame.Start);
     }
 
+    // The record belongs to the acting monster unless the caller names another published object: a Rampage weapon's
+    // hit answers with the weapon's own life (RampageIncoming), and the action's generation still gates that answer.
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null,
+        uint? recordId = null)
     {
+        uint record = recordId ?? id;
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, record, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1416,7 +1420,7 @@ public static partial class Game
                     var bytes = packet();
                     sent = bytes is not null;
                     // The others in the instance see it too (SharedMonsters.cs).
-                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    if (bytes is not null) BroadcastMonsterMessage(conn, record, bytes);
                     return bytes;
                 }
             });
