@@ -118,8 +118,10 @@ Nothing yet.
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
-- **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
-  its own share, and Pacifism's hits leave 1 Life ([25](../docs/protocol/25-gem-supports.md)).
+- **Culling Strike.** Melee, area and projectile hits cull at 10% Life; the target-state conditions (burning, frozen,
+  cursed, marked, poacher's-marked and under 10% Life) cull too, flat Life and Mana on cull are granted, Cull the Weak
+  culls normal and magic enemies at its own share, and Pacifism's hits leave 1 Life
+  ([25](../docs/protocol/25-gem-supports.md)).
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
