@@ -54,7 +54,7 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
-  maps: the arrival point, a return portal, fragments and device recipes and map mods;
+  maps: the remaining named scarab encounter engines and special Domination variants (#505);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).

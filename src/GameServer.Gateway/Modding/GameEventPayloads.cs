@@ -47,6 +47,12 @@ public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> s
     public MapDevice.Opening? Opening { get; set; } = opening;
     public string Reason { get; set; } = reason;
     public bool ReturnToSource { get; set; }
+    /// <summary>Module-defined content keys handled by this opening's enabled providers.</summary>
+    public HashSet<string> HandledContent { get; } = new(StringComparer.Ordinal);
+    /// <summary>Content diagnostics, reported after every provider has checked the opening.</summary>
+    public List<(string Content, string Message)> ContentWarnings { get; } = [];
+    public IEnumerable<string> UnhandledContent => ContentWarnings
+        .Where(w => !HandledContent.Contains(w.Content)).Select(w => w.Message);
 }
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>

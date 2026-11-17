@@ -98,6 +98,43 @@ public sealed class ScarabEncounterTests
         }
     }
 
+    [Fact]
+    public void Named_content_diagnostics_keep_item_provenance_and_allow_enabled_providers_in_either_order()
+    {
+        var conn = new ClientState(new(1, "scarab-diagnostics", 100, 100, 10, 10, null, []), 1, 1)
+            { Character = "ScarabDiagnostics" };
+        var opening = new MapDevice.Opening(new(1, "MapWorldsStrand", "Strand Map", 3), MapMods.None);
+        MapOpening Request(params string[] names) => new(conn, names.Select(Slot).ToArray(), false, opening, "");
+        var unsupported = Request("ScarabBreachNew3", "ScarabLegionNew1");
+        MapScarabContent.Describe(unsupported);
+        Assert.Equal(2, unsupported.UnhandledContent.Count());
+        Assert.Contains(unsupported.UnhandledContent, s => s.Contains("ScarabBreachNew3")
+            && s.Contains("map_contains_additional_unstable_breaches=2") && s.Contains("area=MapWorldsStrand"));
+        Assert.Contains(unsupported.UnhandledContent, s => s.Contains("ScarabLegionNew1") && s.Contains("content=Legion"));
+        Assert.Same(opening, unsupported.Opening);
+        unsupported.HandledContent.Add("Breach");
+        Assert.Single(unsupported.UnhandledContent);
+        var basic = Request("ScarabDomination1");
+        ShrineMapAdmission.Check(basic);
+        MapScarabContent.Describe(basic);
+        Assert.Empty(basic.UnhandledContent);
+        var withoutOwner = Request("ScarabDomination1");
+        MapScarabContent.Describe(withoutOwner);
+        Assert.Single(withoutOwner.UnhandledContent);
+        var evolving = Request("ScarabDomination3");
+        MapScarabContent.Describe(evolving);
+        ShrineMapAdmission.Check(evolving);
+        Assert.Contains("Shrines.Evolving", Assert.Single(evolving.UnhandledContent));
+        var numeric = Request("ScarabMapsNew1", "ScarabDivinationCardsNew2");
+        MapScarabContent.Describe(numeric);
+        Assert.Empty(numeric.UnhandledContent);
+        var rejected = Request("ScarabDomination2");
+        rejected.Opening = opening with { Mods = MapRunCatalog.Load("data").Of(rejected.Slots, Program.Items.Mods) };
+        ShrineMapAdmission.Check(rejected);
+        Assert.Null(rejected.Opening);
+        Assert.Contains("not been consumed", rejected.Reason);
+    }
+
     sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
     {
         public ClientState Conn => conn;
