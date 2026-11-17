@@ -87,10 +87,27 @@ yet confirmed on screen).
   PassiveSkillMasteryEffects.dat HASH16). Captured `003598091194` = node 38921 (Block Mastery), effect 4500
   (+1% spell block per 5% attack block). The Gateway allocates the mastery node and records the effect, then answers
   with 0x33 and the updated stats.
-- **S→C 0x3d is the Atlas tree**, not the character's: its three presets ([05](05-inventories-and-ui.md) §4; the check
-  `0x141ef3860` logs "atlas passive skills allocated but only allowed"). The server populates them from the saved presets,
-  and handles Atlas allocation/refund as C→S 0x3e/0x3f. The point budget is saved but completion does not award it yet
-  (completed maps themselves are tracked: [21](21-hideouts.md) §4).
+- **S→C 0x3d is the Atlas tree**, not the character's: its three presets (layout in [05](05-inventories-and-ui.md) §4).
+  - u16 +0x28 is the Atlas **respec points** (each slot's +0x468): the refund check `0x141ef3710` needs them to cover
+    the cost (1, or the node's +0xb2 when +0xb6 is set) and subtracts it. u16 +0x2a is the points before the node
+    grants: the client's budget is u2a + the allocated nodes' SkillPointsGranted (`0x141ef4840`; only Unwavering
+    Vision grants, 20, 10 in HardMode, where two more keystones grant 20).
+  - Each flagged preset is created or updated with the one list. The handler (`0x142150ae0` case 0x11) makes a preset
+    the **active** one (instance +0xc2f0, what the tree draws and what 0x3e/0x3f send) only when the message flags
+    exactly that one; nothing else in the client writes it. The server sends one message per preset with the active
+    one last.
+  - The list must be sorted: `0x141ef3040` diffs it as a sorted set and CanAllocate binary-searches it.
+  - With bit1 the reader (`0x1421a55a0`) reads no count and no list, and the slot keeps its own; the server does not
+    use that form.
+- **C→S 0x2a8** (3 bytes, u8): a tab of the Atlas tree picked (`0x1407cacf0`, also `0x1407c7500`). The byte is the
+  tab's AtlasTrees row (the tabs are built from AtlasTrees.dat's rows, `0x1407c6520`), taken as the preset. The server
+  saves it and answers with that preset's 0x3d alone. Tabs II and III ("Unlocked at 50/100 bonus Atlas objectives")
+  are not locked here.
+- **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the "gold
+  respec" flag of 0x36). A refund spends one respec point; an Orb of Unmaking grants one (the Atlas Book of Skill's two
+  are not modelled). **C→S 0x40** (the Atlas "Refund All", from 0x37's senders) and **0x41** (0x38's, the widget
+  shown by 0x3d bit0) are 3 bytes, u8 the active preset, and are not handled. Completed maps:
+  [21](21-hideouts.md) §4.
 - **Masteries**: `PassiveSkillMasteryGroups.dat` maps a mastery node's `MasteryGroup` to its effects and
   `PassiveSkillMasteryEffects.dat` holds their stats. The selected effect is stored per node and its stats are summed
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20

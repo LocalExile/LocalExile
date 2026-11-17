@@ -37,7 +37,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   holds the Atlas graph (client.db `passive_graph*`, graph `atlas`) and refuses an allocation off the graph, of an
   icon-only node (the masteries), or not touching the start or an allocated node, and a refund that cuts allocated nodes
   off from the start (`AtlasPassives.CanAllocate/CanRefund`; not yet tried live). A save's old nodes are kept
-  as they are.
+  as they are. The active preset is saved (module data `atlas.active`), picked with a tab (C→S 0x2a8) and sent last
+  so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
+  spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
+  ([15](../docs/protocol/15-progression.md) §2; not yet tried live).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).

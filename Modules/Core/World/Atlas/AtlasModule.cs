@@ -94,6 +94,11 @@ public sealed class AtlasModule : IModule
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
             return true;
         });
+        GameEvents.Packet(InstanceEntities.AtlasTreeTabId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            await AtlasFeature.SelectPreset(conn, bytes[2]);
+            return true;
+        });
         GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             await AtlasFeature.SocketVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
@@ -223,9 +228,8 @@ static class AtlasFeature
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
-            for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
-                yield return ($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points) after the map points",
-                    global::Game.AtlasSlots(conn, preset));
+            foreach (var message in global::Game.AtlasPresetMessages(conn, "after the map points"))
+                yield return message;
     }
 
     static bool ApplyLeagueFlags(ClientState conn)
@@ -258,10 +262,25 @@ static class AtlasFeature
         await PlayerOf(conn).Tell($"Atlas: {type.Name}.");
     }
 
-    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node and budget, save the preset and send all three
-    // presets back so the client and the save agree. The server holds the Atlas graph (client.db) and refuses a node that
-    // is off it, an icon-only node, an allocation not touching the start or an allocated node, and a refund that
-    // would cut allocated nodes off from the start.
+    // C→S 0x2a8: a tab of the Atlas tree picked. The client switches only on a 0x3d with that preset alone.
+    internal static async Task SelectPreset(ClientState conn, byte preset)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        if (preset >= conn.AtlasPassives.Length)
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: no such preset");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab refused");
+            return;
+        }
+        SetAtlasActivePreset(conn, preset);
+        await Send(remote, stream, ciphers, AtlasSlots(conn, preset),
+            $"0x003d Atlas tree tab: preset {preset} active, {conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points");
+    }
+
+    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node, the budget and the respec points, save the
+    // preset and send all three presets back so the client and the save agree. The server holds the Atlas graph
+    // (client.db) and refuses a node that is off it, an icon-only node, an allocation not touching the start or an
+    // allocated node, and a refund that would cut allocated nodes off from the start.
     internal static async Task ChangeAtlasPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         byte preset, uint node, bool allocate)
     {
@@ -276,6 +295,8 @@ static class AtlasFeature
         var nodes = conn.AtlasPassives[preset];
         var character = CharacterName(conn);
         var links = AtlasPassiveNodes.Links;
+        bool hardMode = LeagueFor(conn).HardMode;
+        ushort respec = AtlasRespecPoints(conn);
         if (links.Count > 0 && (allocate
                 ? !nodes.Contains((ushort)node) && (passive.IsJustIcon
                     || !AtlasPassives.CanAllocate(nodes, (ushort)node, links, AtlasPassives.StartGraphId))
@@ -293,23 +314,40 @@ static class AtlasFeature
                 await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas already allocated");
                 return;
             }
-            if (nodes.Count >= conn.AtlasPassivePoints)
+            if (nodes.Count >= AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode))
             {
                 Console.WriteLine($"[gateway] {remote} <= Atlas allocate {passive.Name} ({node}) refused: no points left");
                 await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas no points");
                 return;
             }
             nodes.Add((ushort)node);
+            nodes.Sort();
         }
-        else if (!nodes.Remove((ushort)node))
+        else
         {
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas not allocated");
-            return;
+            if (!nodes.Contains((ushort)node))
+            {
+                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas not allocated");
+                return;
+            }
+            // A refund spends one respec point (the client's check 0x141ef3710), and may not take away the points
+            // that the remaining nodes use (a node granting points, such as Unwavering Vision).
+            var rest = nodes.Where(n => n != node).ToList();
+            if (respec == 0 || rest.Count > AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, rest, hardMode))
+            {
+                Console.WriteLine($"[gateway] {remote} <= Atlas refund {passive.Name} ({node}) refused: " +
+                    (respec == 0 ? "no respec points" : "the remaining nodes need its points"));
+                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refund refused");
+                return;
+            }
+            nodes.Remove((ushort)node);
+            SetAtlasRespecPoints(conn, --respec);
         }
         if (character is not null)
             CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
         Console.WriteLine($"[gateway] {remote} <= Atlas preset {preset} {(allocate ? "allocate" : "refund")} " +
-            $"{passive.Name} ({node}), {nodes.Count}/{conn.AtlasPassivePoints} points");
+            $"{passive.Name} ({node}), {nodes.Count}/{AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode)} " +
+            $"points, {respec} respec");
         await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas changed");
     }
 

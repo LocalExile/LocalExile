@@ -10,7 +10,7 @@ using GameServer.Core;
 public sealed class AtlasPassives(string folder = "data")
 {
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
-        IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false);
+        IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false, int SkillPoints = 0, int SkillPointsHardMode = 0);
 
     readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder));
 
@@ -65,6 +65,11 @@ public sealed class AtlasPassives(string folder = "data")
 
     public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
 
+    /// <summary>A preset's point budget: the character's points plus what its allocated nodes grant (SkillPointsGranted,
+    /// the Hardmode column in a HardMode league; the client counts the same, 0x141ef4840).</summary>
+    public int Budget(int points, IEnumerable<ushort> allocated, bool hardMode) =>
+        points + allocated.Sum(n => Find(n) is { } node ? hardMode ? node.SkillPointsHardMode : node.SkillPoints : 0);
+
     public Node? FindById(string id) => _nodes.Value.Values.FirstOrDefault(n => n.Id == id);
 
     static Dictionary<ushort, Node> LoadNodes(string folder)
@@ -82,7 +87,8 @@ public sealed class AtlasPassives(string folder = "data")
             for (int i = 0; i < keys.Count && i < 5; i++)
                 stats.Add(((uint)keys[i] + 1, row.Int($"Stat{i + 1}Value")));
             nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, id, row.Text("Name") ?? "",
-                row.Bool("IsNotable"), row.Bool("IsKeystone"), stats, row.Bool("IsJustIcon")));
+                row.Bool("IsNotable"), row.Bool("IsKeystone"), stats, row.Bool("IsJustIcon"), row.Int("SkillPointsGranted"),
+                row.Int(row.BoolOrNull("HasHardmodeAlternate") == true ? "SkillPointsGrantedHardmode" : "SkillPointsGranted")));
         }
         return nodes;
     }
