@@ -196,10 +196,15 @@ public static partial class Game
             await Send(remote, stream, ciphers, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
             return;
         }
-        var requires = new List<WorldObject>();
-        if (removeCorpse) requires.Add(conn.WorldOutput.PublishedObject(corpseId));
-        foreach (var (id, _, _) in hits) requires.Add(conn.WorldOutput.PublishedObject(id));
-        await SendWorldBatch(conn, [.. requires.Distinct()], admission =>
+        // Each object by itself, as the separate sends this batch replaces did: a target another producer has already
+        // removed (a second explosion's victim) drops only its own record. As prerequisites of the whole batch, one
+        // such target dropped every other victim's life update, and those monsters stayed alive on the client.
+        var output = conn.WorldOutput;
+        bool corpseBorn = removeCorpse && await output.AwaitBirths([output.PublishedObject(corpseId)]);
+        var born = new HashSet<uint>();
+        foreach (var (id, _, _) in hits)
+            if (await output.AwaitBirths([output.PublishedObject(id)])) born.Add(id);
+        await SendWorldBatch(conn, [], admission =>
         {
             var records = new List<OutputRecord>();
             if (effect != 0 && effectBytes is not null)
@@ -211,7 +216,7 @@ public static partial class Game
                 records.Add(OutputRecord.Create(effectObject, create, effectLog));
                 records.Add(OutputRecord.AfterBirth(effectObject, WorldOrder.First, InstanceProtocol.EnterWakeZone(effect), null));
             }
-            if (removeCorpse)
+            if (corpseBorn)
             {
                 var corpse = conn.WorldOutput.PublishedObject(corpseId);
                 var remove = InstanceProtocol.RemoveObject(corpseId);
@@ -221,6 +226,8 @@ public static partial class Game
             foreach (var (id, _, hit) in hits)
             {
                 var target = conn.WorldOutput.PublishedObject(id);
+                // Removed between its birth and this gate: nothing is left to update.
+                if (!born.Contains(id) || !target.IsReady) continue;
                 var life = InstanceProtocol.LifeUpdate(id, hit.Life);
                 records.Add(OutputRecord.World(target, RecordOrder(life, id), life,
                     $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion"));
