@@ -494,8 +494,8 @@ time left, replaced at each change by the same ticker. Death and an area change 
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter's
-`gain_magic_monster_mods_on_kill_%_chance` (20) steals a magic monster's affixes on that chance into the same 60 s stacks
-and `stolen_mods_buff` (the description says 60 s; BuffDefinitions has no magic-monster row), and its
+`gain_magic_monster_mods_on_kill_%_chance` (20) steals a magic monster's affixes on that chance into 60 s stacks of their
+own, shown with `stolen_mods_buff_experimented` (BuffDefinitions 1653, "Replica Headhunter"), and its
 `damage_+%_vs_magic_monsters` scales hits on magic monsters as the rare one does.
 
 **Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
