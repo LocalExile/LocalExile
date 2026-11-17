@@ -317,6 +317,10 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
     /// <summary>Its mods as rolled (MonsterMods.cs): the same affixes, values and rare name on the next entry.</summary>
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;
 
+    /// <summary>Planned by the area's population and not created yet (InstanceWorld.HeldBackMonsters): its cell is the
+    /// planned one, its mods are not rolled and its life is full.</summary>
+    public bool Planned { get; init; }
+
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>
     public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null)

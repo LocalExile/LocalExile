@@ -29,7 +29,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency, gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: currency (36 core orbs from world.db, the 12 beyond the original 24 with estimated weights), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
@@ -55,8 +55,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire and abyss jewels; most uniques' own mechanics
-  are missing.
+- Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
+- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire, Kalandra's Touch and abyss jewels; most uniques'
+  own mechanics are missing.
   Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
   Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
   Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
@@ -96,7 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/eldritch-ichor-coe.md).
 - **Eldritch Embers.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ember-coe.md).
-- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live).
+- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live; the Orb grants one Atlas respec point).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
 - **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules; the Tainted orbs live 2026-11-14).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".

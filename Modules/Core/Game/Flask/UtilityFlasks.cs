@@ -58,6 +58,7 @@ public static partial class Game
             if (conn.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(state, previous, "refreshed");
             UtilityFlasks.Start(conn, effect, () => RecomputePoolsAndSpeed(conn));
+            ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(conn.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {conn.Ward.Current}/{conn.Ward.Maximum}");
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): {utility.BuffId} for {seconds:0.##} s: " +
@@ -158,53 +159,58 @@ public static partial class Game
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea
                 || state.Packets.Count == 0 && state.StatRevision == state.PresentedStatRevision) return;
-        while (true)
+        await state.PublishGate.WaitAsync();
+        try
         {
-            FlaskOutput output;
-            lock (conn.Monsters)
+            while (true)
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0) break;
-                output = state.Packets[0];
-            }
-            bool sent = false;
-            byte[][]? Project()
-            {
+                FlaskOutput output;
                 lock (conn.Monsters)
                 {
-                    if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0
-                        || !ReferenceEquals(state.Packets[0], output)) return null;
-                    // Pool/reservation output samples current values, never a pre-reload instant snapshot.
-                    byte[][] packet = output.Pool switch
-                    {
-                        FlaskOutputPool.Life => [InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife)],
-                        FlaskOutputPool.Mana => WithOwnAuraRecords(conn, () => [InstanceProtocol.LifeUpdate(PlayerId,
-                            conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]),
-                        _ => [output.Packet],
-                    };
-                    if (output.UtilityStart is { } effect)
-                    {
-                        var prefix = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
-                        double now = AreaTime(conn);
-                        bool live = conn.PlayerLife > 0 && effect.Ends > now
-                            && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
-                            && ReferenceEquals(conn.UtilityFlaskEffects.Of(effect.ItemId), effect);
-                        packet = live ? [prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId)] : [prefix];
-                    }
-                    state.Packets.RemoveAt(0); sent = true; return packet;
+                    if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0) break;
+                    output = state.Packets[0];
                 }
+                bool sent = false;
+                byte[][]? Project()
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0
+                            || !ReferenceEquals(state.Packets[0], output)) return null;
+                        // Pool/reservation output samples current values, never a pre-reload instant snapshot.
+                        byte[][] packet = output.Pool switch
+                        {
+                            FlaskOutputPool.Life => [InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife)],
+                            FlaskOutputPool.Mana => WithOwnAuraRecords(conn, () => [InstanceProtocol.LifeUpdate(PlayerId,
+                                conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]),
+                            _ => [output.Packet],
+                        };
+                        if (output.UtilityStart is { } effect)
+                        {
+                            var prefix = PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn));
+                            double now = AreaTime(conn);
+                            bool live = conn.PlayerLife > 0 && effect.Ends > now
+                                && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
+                                && ReferenceEquals(conn.UtilityFlaskEffects.Of(effect.ItemId), effect);
+                            packet = live ? [prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId)] : [prefix];
+                        }
+                        state.Packets.RemoveAt(0); sent = true; return packet;
+                    }
+                }
+                uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? PlayerId : null);
+                if (output.CreatesObject)
+                    await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log, transport: (remote, stream, ciphers));
+                else if (output.RemovesObject)
+                    await SendWorldRemoval(remote, stream, ciphers, conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
+                else if (worldId is uint id)
+                    await SendWorldRecords(remote, stream, ciphers, conn, id, Project, output.Log);
+                else await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+                    Project() is { } records ? [.. records.SelectMany(p => p)] : null);
+                if (sent && output.Pool == FlaskOutputPool.Mana && CurrentGameWork)
+                    await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             }
-            uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? PlayerId : null);
-            if (output.CreatesObject)
-                await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log, transport: (remote, stream, ciphers));
-            else if (output.RemovesObject)
-                await SendWorldRemoval(remote, stream, ciphers, conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
-            else if (worldId is uint id)
-                await SendWorldRecords(remote, stream, ciphers, conn, id, Project, output.Log);
-            else await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
-                Project() is { } records ? [.. records.SelectMany(p => p)] : null);
-            if (sent && output.Pool == FlaskOutputPool.Mana && CurrentGameWork)
-                await SendPlayerEnergyShield(remote, stream, ciphers, conn);
         }
+        finally { state.PublishGate.Release(); }
         long revision;
         lock (conn.Monsters)
         {

@@ -71,6 +71,11 @@ public static class InstanceEntities
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
+    /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
+    /// C→S 0x40 and 0x41 (3 bytes, u8 the active preset) are the Atlas tree's analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41;
+    public const int AtlasTreeTabLength = 3;
+
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
     /// <summary>
@@ -318,6 +323,17 @@ public static class InstanceEntities
         foreach (var s in soulSeeds ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity);
         w.U8(checked((byte)(soulUpdates?.Count ?? 0)));
         foreach (var s in soulUpdates ?? []) w.U32(s.ActiveSkillsRow).U32(s.Current).U32(s.NewCapacity);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
+    /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
+    /// other entries append, so changing a source/type first requires a removal.</summary>
+    public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
+        bool canDetonateMines = false)
+    {
+        var w = new BlobWriter().U16(canDetonateMines ? (ushort)0x180 : (ushort)0x100)
+            .U16(checked((ushort)changes.Count));
+        foreach (var change in changes) w.U32(change.Id).U16(change.Source).U16(change.Type);
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
@@ -1096,6 +1112,9 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     /// (and crashed, live 2026-10-23).</summary>
     public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
+
+/// <summary>One native Actor ownership update; Source zero removes the object.</summary>
+public readonly record struct MinionOwnershipChange(uint Id, ushort Source, ushort Type);
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
