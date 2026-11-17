@@ -109,4 +109,3 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(new DamageRange(1, 80), DamageStats.AttributeAdded(n => legacy.GetValueOrDefault(n), DamageType.Chaos));
     }
 }
-
