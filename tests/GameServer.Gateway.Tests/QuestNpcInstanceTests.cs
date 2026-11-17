@@ -15,6 +15,7 @@ public sealed class QuestNpcInstanceTests
         {
             new Quests.KillRule("follower", Boss, ["appearance-killed"]),
             new Quests.AppearsRule("follower", Boss, Sin, "appearance-reward"),
+            Quests.On.Npc("follower", "Metadata/NPC/Act2/HelenaSins", "helena-gone", transitionedBy: "helena-freed", transitionedTo: 2),
         }];
     }
 
@@ -62,5 +63,24 @@ public sealed class QuestNpcInstanceTests
         returning.QuestFlags.Add("appearance-reward");
         await Game.UpdateQuestNpcs("return", returnWire.Stream, returnWire.Ciphers, returning, "reward");
         Assert.Empty(returning.Npcs);
+
+        // Helena has three asset states: 2 is rescued; the final state 3 hides her entirely.
+        const string helenaType = "Metadata/NPC/Act2/HelenaSins";
+        var helena = Assert.IsType<NpcCatalog.Npc>(Game.Npcs.Value.Find(helenaType));
+        Assert.Equal(3, helena.TransitionStates);
+        fresh.QuestNpcs.Add(new(helena, 120, 130, 0, "follower", helenaType, null, roomState: true));
+        await Game.UpdateQuestNpcs("helena", freshWire.Stream, freshWire.Ciphers, fresh, "before rescue");
+        Assert.Equal(1, Assert.Single(fresh.Npcs).Value.State);
+        fresh.QuestFlags.Add("helena-freed");
+        await Game.UpdateQuestNpcs("helena", freshWire.Stream, freshWire.Ciphers, fresh, "rescue");
+        Assert.Equal(2, Assert.Single(fresh.Npcs).Value.State);
+        // A later visit creates the same visible rescued state directly, without replaying state 1.
+        fresh.Npcs.Clear(); fresh.QuestNpcs.Clear();
+        fresh.QuestNpcs.Add(new(helena, 120, 130, 0, "follower", helenaType, null, roomState: true));
+        await Game.UpdateQuestNpcs("helena", freshWire.Stream, freshWire.Ciphers, fresh, "return");
+        Assert.Equal(2, Assert.Single(fresh.Npcs).Value.State);
+        fresh.QuestFlags.Add("helena-gone");
+        await Game.UpdateQuestNpcs("helena", freshWire.Stream, freshWire.Ciphers, fresh, "gone");
+        Assert.Empty(fresh.Npcs);
     }
 }

@@ -107,6 +107,8 @@ public static partial class Quests
     /// removed and transitioned as the flags change (the Game module's QuestNpcs.cs).</summary>
     public sealed record NpcRule(string Area, string NpcType, string? GoneWith, string? TransitionedBy = null, string? ShownBy = null) : Rule
     {
+        /// <summary>The freed/flagged state, when it is not the last state in the NPC's asset.</summary>
+        public byte? TransitionedTo { get; init; }
         /// <summary>A monster variety whose death in the instance frees the NPC: Transitionable 1 → 2 (Clarissa kneels until
         /// her guards' captain dies).</summary>
         public string? FreedBy { get; init; }
@@ -219,8 +221,8 @@ public static partial class Quests
         public static Rule SpawnsNear(string area, string objectType, string variety, string? until = null) => new NearSpawnRule(area, objectType, variety, until);
         public static Rule Drops(string area, string variety, string item) => new DropRule(area, variety, item);
         public static Rule Npc(string area, string npcType, string? goneWith, string? transitionedBy = null, string? shownBy = null,
-            string? freedBy = null, string? atObject = null) =>
-            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject };
+            string? freedBy = null, string? atObject = null, byte? transitionedTo = null) =>
+            new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject, TransitionedTo = transitionedTo };
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
         public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false) =>

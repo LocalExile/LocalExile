@@ -66,7 +66,7 @@ public static partial class Game
         new(npc, x, y, 0, area, rule.NpcType, rule, roomState: false);
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
-    // their last Transitionable state when a flag transitions them.
+    // their configured Transitionable state (the last state by default) when a flag transitions them.
     public static async Task UpdateQuestNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         List<QuestNpc> candidates;
@@ -78,12 +78,19 @@ public static partial class Game
         {
             bool want = c.Present(quests, Has) && KitavaActTen.PreFightNpcShown(conn, c.Npc.Id);
             bool transitioned;
-            lock (conn.QuestNpcs) transitioned = QuestsOf(conn).NpcTransitioned(area, c.Npc.Id, Has) || QuestsOf(conn).NpcFreed(area, c.Npc.Id, conn.KilledVarieties);
+            byte transitionState;
+            lock (conn.QuestNpcs)
+            {
+                transitioned = quests.NpcTransitioned(area, c.Npc.Id, Has) || quests.NpcFreed(area, c.Npc.Id, conn.KilledVarieties);
+                transitionState = quests.Npcs(area).FirstOrDefault(r => r.NpcType == c.Npc.Id && r.TransitionedTo is not null
+                    && (r.TransitionedBy is { } flag && Has(flag) || r.FreedBy is { } boss && conn.KilledVarieties.Contains(boss)))
+                    ?.TransitionedTo ?? NpcTransitionStates(c.Npc);
+            }
             bool transitionable = c.Npc.Components?.Contains("Transitionable") == true;
             if (want && c.Id == 0)
             {
                 var npc = !transitionable ? c.Npc
-                    : transitioned ? c.Npc with { TransitionState = NpcTransitionStates(c.Npc) }
+                    : transitioned ? c.Npc with { TransitionState = transitionState }
                     : c.RoomState ? c.Npc with { TransitionState = 1 } : c.Npc;
                 c.Id = await SpawnNpc(remote, stream, ciphers, conn, npc, c.X, c.Y, c.Angle);
                 Console.WriteLine($"[gateway] {remote} quest npc {c.Npc.Name} ({c.Npc.Id}) appears at ({c.X}, {c.Y}): {why}");
@@ -101,7 +108,7 @@ public static partial class Game
             {
                 SpawnedNpc? spawned;
                 lock (conn.Npcs) spawned = conn.Npcs.GetValueOrDefault(c.Id);
-                byte last = NpcTransitionStates(c.Npc);
+                byte last = transitionState;
                 if (spawned is not null && spawned.State < last)
                 {
                     spawned.State = last;
