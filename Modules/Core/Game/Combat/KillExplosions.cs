@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -117,13 +118,11 @@ public static partial class Game
         Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
         string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
-        await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, art).Blob()),
-            $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})");
-        await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
-        if (removeCorpse)
-            await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
-                $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
+        var effectBytes = InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            new EffectObject(at.X, at.Y, art).Blob());
+        await SendKillExplosionBatch(remote, stream, ciphers, conn, effect, effectBytes, at, art,
+            removeCorpse, corpseId, corpse.Label, hits);
+        if (removeCorpse) await SendRemainingMonsters(remote, stream, ciphers, conn);
         SendAfter(ArtMs(art) / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -131,11 +130,56 @@ public static partial class Game
         });
         foreach (var (id, m, hit) in hits)
         {
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, hit.Life),
-                $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
+            Console.WriteLine($"[gateway] {remote} 0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion for {amount} {type.ToString().ToLowerInvariant()}, life {hit.Life}/{m.MaxLife}");
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }
         return removeCorpse;
+    }
+
+    // One gate turn for the effect's create/wake, the corpse removal and every life update. The client still reads
+    // separate messages, but the server no longer waits behind four separate world sends for each corpse.
+    static async Task SendKillExplosionBatch(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint effect, byte[] effectBytes, (int X, int Y) at, string art, bool removeCorpse,
+        uint corpseId, string corpseLabel, IReadOnlyList<(uint Id, SpawnedMonster M, MonsterHit Hit)> hits)
+    {
+        string effectLog = $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})";
+        string corpseLog = $"0x02bd corpse 0x{corpseId:x} ({corpseLabel}) explodes";
+        if (!conn.LockstepClient)
+        {
+            var all = new List<byte>(effectBytes);
+            all.AddRange(InstanceProtocol.EnterWakeZone(effect));
+            if (removeCorpse) all.AddRange(InstanceProtocol.RemoveObject(corpseId));
+            foreach (var (id, _, hit) in hits) all.AddRange(InstanceProtocol.LifeUpdate(id, hit.Life));
+            await Send(remote, stream, ciphers, [.. all], "kill explosion", still: () => !conn.Closed && !conn.LeavingArea);
+            return;
+        }
+        await SendWorldBatch(conn, [], admission =>
+        {
+            var effectObject = admission.NewObject(effect);
+            var create = effectBytes.ToArray();
+            BinaryPrimitives.WriteUInt32BigEndian(create.AsSpan(6), uint.MaxValue);
+            BinaryPrimitives.WriteUInt16BigEndian(create.AsSpan(10), 0);
+            var records = new List<OutputRecord>
+            {
+                OutputRecord.Create(effectObject, create, effectLog),
+                OutputRecord.AfterBirth(effectObject, WorldOrder.First, InstanceProtocol.EnterWakeZone(effect), null),
+            };
+            if (removeCorpse)
+            {
+                var corpse = conn.WorldOutput.PublishedObject(corpseId);
+                var remove = InstanceProtocol.RemoveObject(corpseId);
+                BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+                records.Add(OutputRecord.Remove(corpse, WorldOrder.Last, remove, corpseLog));
+            }
+            foreach (var (id, _, hit) in hits)
+            {
+                var target = conn.WorldOutput.PublishedObject(id);
+                var life = InstanceProtocol.LifeUpdate(id, hit.Life);
+                records.Add(OutputRecord.World(target, RecordOrder(life, id), life,
+                    $"0x01b1 monster 0x{id:x} hit by the 0x{corpseId:x} kill explosion"));
+            }
+            return new OutputBatch([.. records]);
+        }, transport: (remote, stream, ciphers));
     }
 }
