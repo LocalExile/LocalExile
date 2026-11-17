@@ -173,6 +173,10 @@ public static partial class Game
     }
 
     public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
+        GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, DamageType element) =>
+        GolemAbilities(conn, variety, level, golem, player, at: null, prismatic: element);
+
+    public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, double? at = null,
         GolemOwnerResistances? ownerResistances = null, DamageType prismatic = DamageType.Fire)
     {
