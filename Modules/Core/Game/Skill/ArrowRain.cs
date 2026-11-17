@@ -59,7 +59,10 @@ public static partial class Game
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
         string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
         string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");
-        session.RainArt(use.Origin, up, 1);
+        // The volley leaves towards the aim and each arrow comes down leaning the way it was shot (an object's
+        // rotation: atan2(x, -y), as a projectile's).
+        static float Facing(ProjectileVector d) => d.Length < .001 ? 0 : (float)Math.Atan2(d.X, -d.Y);
+        session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin));
         double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
@@ -72,7 +75,7 @@ public static partial class Game
             session.Runtime.Schedule(land, () =>
             {
                 if (!session.Active || conn.PlayerLife == 0) return;
-                session.RainArt(at, down, 1);
+                session.RainArt(at, down, 1, rotation: Facing(at - use.Origin));
                 session.Runtime.Impact(use, at, new(id, radius));
                 if (!toxic) session.RainArt(at, impact, 1, radius);
                 else if (duration > 0)
