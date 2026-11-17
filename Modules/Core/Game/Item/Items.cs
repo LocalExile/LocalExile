@@ -1360,6 +1360,7 @@ public static partial class Game
         PlayerInventories.Placement? done = null;
         if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
         else if (LevelTooLow(conn, row, held) is { } low) why = low;
+        else if (held is not null && GameEvents.FirstInventoryRefusal(conn, row, held) is { } objection) why = objection;
         else if (row == PlayerInventories.PassiveJewels
             && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } targetItem
             && PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
@@ -1428,6 +1429,7 @@ public static partial class Game
         Item? placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
         if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
         else if (LevelTooLow(conn, row, placement) is { } low) why = low;
+        else if (placement is not null && GameEvents.FirstInventoryRefusal(conn, row, placement) is { } objection) why = objection;
         else if (row == PlayerInventories.PassiveJewels
             && items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y) is { } leavingBypass
             && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;

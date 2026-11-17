@@ -1330,8 +1330,9 @@ public static partial class Game
         // The player's inventories (id = row + 1), needed by UI built on entering (flask bar → row 11), with the character's items.
         var items = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn));
         if (ItemsFor(conn).Error is not null) Console.WriteLine($"[gateway] items: {ItemsFor(conn).Error}");
-        foreach (var slot in InstanceInventories.PlayerDefaults)
+        foreach (var row in InstanceInventories.PlayerDefaults)
         {
+            var slot = GameEvents.ResolveInventorySlot(conn, row);
             var inside = items.Items(slot.Row);
             messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
                 InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));

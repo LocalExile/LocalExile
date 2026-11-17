@@ -19,6 +19,14 @@ public static partial class Game
         return new(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, type);
     }
 
+    // A mod's ready-made drops (DropRoll.Made); one whose base type the server does not know is left out.
+    public static IEnumerable<ItemDrops.Drop> MadeDrops(ClientState conn, DropRoll? modded)
+    {
+        foreach (var item in modded?.Made ?? [])
+            if (ItemsFor(conn).ByHash(item.TypeHash) is { } type) yield return new(item, type);
+            else Console.WriteLine($"[mods] a mod's drop 0x{item.TypeHash:x8} is no item type the server knows");
+    }
+
     public sealed class ModPlayer(ClientState conn) : IConnectionPlayer
     {
         public ClientState Conn => conn;
