@@ -71,6 +71,11 @@ public static class InstanceEntities
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
+    /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
+    /// C→S 0x40 and 0x41 (3 bytes, u8 the active preset) are the Atlas tree's analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41;
+    public const int AtlasTreeTabLength = 3;
+
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
     /// <summary>

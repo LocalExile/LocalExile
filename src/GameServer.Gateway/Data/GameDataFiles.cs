@@ -65,7 +65,7 @@ public static class GameDataFiles
         ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several, and boss stage contacts"),
         ("monster_melee_clocks", "ordinary monster melee clocks from the variety AO, including slow spans and ACT budgets (monster-contacts v6)"),
         ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
-        ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("passive_graphs", "ordinary, Phrecia and Atlas passive graph membership/connections/geometry (passive-graphs v7)"),
         ("client_constants", "the Gateway does not start without its HNC mask"),
         ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
     ];

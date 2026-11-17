@@ -32,8 +32,8 @@ public static class CurrencyEffects
     public const string EldritchChaosOrb = "Metadata/Items/Currency/CurrencyEldritchRerollRare";
     public const string EldritchExaltedOrb = "Metadata/Items/Currency/CurrencyEldritchAddModToRare";
 
-    /// <summary>Orb of Unmaking (CurrencyItems Action atlas_skill_point_respec): used from the bag (C→S 0x58), it refunds
-    /// Atlas passive points. See Game.UseItem, the local rule is there.</summary>
+    /// <summary>Orb of Unmaking (CurrencyItems Action atlas_skill_point_respec): used from the bag (C→S 0x58), it grants
+    /// one Atlas passive respec point (Game.UseOrbOfUnmaking).</summary>
     public const string OrbOfUnmaking = "Metadata/Items/Currency/CurrencyAtlasPassiveRefund";
 
     /// <summary>Eldritch Chaos Orb, the documented LocalExile rule: a Chaos Orb (all unprotected explicit affixes
