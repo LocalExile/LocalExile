@@ -44,6 +44,25 @@ public sealed class ChargeSession(Charges.State? state = null)
     public bool Pending => !events.IsEmpty;
 
     /// <summary>
+    /// Whether the ticker must give <see cref="State"/> the character's expiry rate before the next <see cref="Step"/>:
+    /// a charge is held (its deadline follows the rate), an event waits (its gain is timed by it), or a periodic stat
+    /// may grant one in the step. Otherwise a step can gain or expire nothing, and the rate costs a full stat build 20
+    /// times a second for nothing; <see cref="Admit"/>, the one other way to gain, sets it from its own stats then.
+    /// </summary>
+    public bool TimesCharges
+    {
+        get
+        {
+            if (Pending || Holds) return true;
+            for (int i = 0; i < ChargeGains.Periodics.Count; i++)
+                if (Observed(ChargeGains.Periodics[i].Stat) != 0) return true;
+            return false;
+        }
+    }
+
+    bool Holds => State.Held(ChargeType.Endurance) > 0 || State.Held(ChargeType.Frenzy) > 0 || State.Held(ChargeType.Power) > 0;
+
+    /// <summary>
     /// The character's stats as they are now (<paramref name="get"/>: by Stats.dat Id): the limits of each type and
     /// the stats the session reads between events (the periodic gains, the gain-to-maximum chances, the duration
     /// stats), kept until the next observation.
@@ -117,7 +136,13 @@ public sealed class ChargeSession(Charges.State? state = null)
         Func<WeaponProfile> weapon, bool alive, Random rng)
     {
         var log = new List<string>();
-        if (alive) foreach (var e in accepted) ApplyEvent(e, now, stats, weapon, rng, log);
+        if (alive)
+        {
+            // With nothing held the ticker may have left the rate as it last was (TimesCharges): these gains are timed
+            // by the rate of the stats they are rolled with. Held charges keep the ticker's.
+            if (!Holds) State.SetExpiryRate(now, RecipientEffectTime.Rate(3, stats));
+            foreach (var e in accepted) ApplyEvent(e, now, stats, weapon, rng, log);
+        }
         return Finish(now, log);
     }
 
