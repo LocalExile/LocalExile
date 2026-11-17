@@ -17,7 +17,18 @@ public static class StrongboxManager
     const string PlanKey = "Strongbox/plan";
 
     /// <summary>A planned box: its Strongboxes row, cell, facing, current object id and whether it was opened.</summary>
-    sealed record Box(int Row, int X, int Y, float Rotation, uint Id, bool Opened);
+    sealed record Box(int Row, int X, int Y, float Rotation, uint Id, bool Opened, byte Rarity = 0, RolledMod[]? Mods = null)
+    {
+        public IReadOnlyList<ItemMod> Explicits => [.. (Mods ?? []).Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))];
+    }
+
+    /// <summary>A rolled mod as the plan keeps it: its Mods.dat HASH16 and its values.</summary>
+    sealed record RolledMod(ushort Hash, int[] Values);
+
+    static RolledMod[] Kept(IEnumerable<ItemMod> mods) => [.. mods.Select(m => new RolledMod(m.Hash, [.. m.Values]))];
+
+    static Func<string, int> StatOf(IReadOnlyDictionary<uint, int> stats) =>
+        name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
     sealed class SharedArea
     {
@@ -71,11 +82,13 @@ public static class StrongboxManager
         foreach (var (x, y) in spots)
         {
             if (StrongboxRules.Pick(StrongboxCatalog.All, hardMode, level, stats, rng) is not { } type) break;
-            boxes.Add(new Box(type.Row, x, y, (float)(rng.NextDouble() * Math.Tau), conn.TakeObjectId(), false));
+            byte rarity = StrongboxMods.RollRarity(StatOf(stats), rng);
+            var mods = StrongboxMods.Roll(ItemsFor(conn).Mods, type, rarity, level, StatOf(stats), rng);
+            boxes.Add(new Box(type.Row, x, y, (float)(rng.NextDouble() * Math.Tau), conn.TakeObjectId(), false, rarity, Kept(mods)));
         }
         Console.WriteLine($"[gateway] {conn.Wire.Remote} strongboxes: {conn.Layout.Id} seed {conn.Seed} level {level}" +
             $"{(hardMode ? " (HardMode weights)" : "")}: Ambush roll {roll} → {count}; {spots.Count} spot(s), {boxes.Count} box(es)" +
-            string.Concat(boxes.Select(b => $"; {StrongboxCatalog.ByRow(b.Row)?.Name} (row {b.Row}) 0x{b.Id:x} at ({b.X}, {b.Y})")));
+            string.Concat(boxes.Select(b => $"; {Describe(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
         Save(instance, boxes);
         return boxes;
     }
@@ -94,9 +107,20 @@ public static class StrongboxManager
         var (remote, stream, ciphers) = conn.Wire;
         conn.SetBlocker(box.Id, box.X, box.Y, type.Size);
         await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
-            InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Type), type.Blob(box.X, box.Y, box.Rotation, box.Opened)),
-            $"0x02bb strongbox 0x{box.Id:x} {type.Name} ({type.Type}) at ({box.X}, {box.Y}), opened={box.Opened}");
+            InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Type), type.Blob(box.X, box.Y, box.Rotation, box.Opened, box.Rarity, box.Explicits)),
+            $"0x02bb strongbox 0x{box.Id:x} {Describe(conn, box)} at ({box.X}, {box.Y}), opened={box.Opened}");
         await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
+    }
+
+    static readonly string[] RarityNames = ["Normal", "Magic", "Rare", "Unique"];
+
+    /// <summary>The box for the log: its rarity, name, Strongboxes row and mods.</summary>
+    static string Describe(ClientState conn, Box box)
+    {
+        var catalog = ItemsFor(conn).Mods;
+        string mods = string.Join(", ", (box.Mods ?? []).Select(m => catalog.ByHash(m.Hash) is { } mod
+            ? $"{mod.Id}[{string.Join("/", m.Values)}]" : $"0x{m.Hash:x4}"));
+        return $"{RarityNames[Math.Min(box.Rarity, (byte)3)]} {StrongboxCatalog.ByRow(box.Row)?.Name} (row {box.Row})" + (mods.Length > 0 ? $" {{{mods}}}" : "");
     }
 
     /// <summary>The box this object id is in the instance's plan, with its index.</summary>

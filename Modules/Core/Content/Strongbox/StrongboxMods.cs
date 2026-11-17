@@ -1,0 +1,96 @@
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
+
+namespace GameServer.Modules.Strongbox;
+
+/// <summary>
+/// A box's rarity and its explicit mods. The mods are the Mods rows of the chest domain (Domain 4) that are prefixes or
+/// suffixes (GenerationType 1, 2), rolled as items roll theirs: by spawn weight against the Chests row's tags and
+/// "default" (the first listed tag the box has decides), at most the area level, one mod per family, within the Rarity
+/// table's counts (magic 1–2 mods, at most 1 prefix and 1 suffix; rare 4–6, at most 3 and 3, while the pool lasts).
+/// <c>map_strongbox_mod_effect_+%</c> scales the rolled values of the mods' ranged stats.
+/// </summary>
+public static class StrongboxMods
+{
+    /// <summary>A box's base chances to be rare, else magic, in percent. Assumed: no client table gives a chest's rarity
+    /// odds (Strongboxes, Chests, Rarity and ChestEffects have none), so these are the server's own.</summary>
+    public const int RareChance = 10, MagicChance = 35;
+
+    /// <summary>The chest domain (Mods.Domain).</summary>
+    public const int ChestDomain = 4;
+
+    /// <summary>Normal 0, magic 1 or rare 2: the base chances with <c>map_strongboxes_chance_to_be_rare_+%</c>, raised to
+    /// <c>map_strongboxes_minimum_rarity</c> (1 magic, 2 rare; 3 unique is taken as rare, as no unique box is made) and to
+    /// rare by <c>map_strongboxes_at_least_rare</c>.</summary>
+    public static byte RollRarity(Func<string, int> stat, Random rng)
+    {
+        double rare = RareChance * Math.Max(0, 100 + stat("map_strongboxes_chance_to_be_rare_+%")) / 100.0;
+        double roll = rng.NextDouble() * 100;
+        int rarity = roll < rare ? 2 : roll < rare + MagicChance ? 1 : 0;
+        int minimum = Math.Clamp(stat("map_strongboxes_minimum_rarity"), 0, 2);
+        if (stat("map_strongboxes_at_least_rare") != 0) minimum = 2;
+        return (byte)Math.Max(rarity, minimum);
+    }
+
+    static readonly Lazy<Dictionary<int, (int Min, int Max, int Prefixes, int Suffixes)>> Counts = new(() =>
+    {
+        var counts = new Dictionary<int, (int, int, int, int)>();
+        foreach (var r in ClientTables.TableOrEmpty("Rarity"))
+            counts[r.Index] = (r.IntOrNull("MinMods") ?? 0, r.IntOrNull("MaxMods") ?? 0, r.IntOrNull("MaxPrefix") ?? 0, r.IntOrNull("MaxSuffix") ?? 0);
+        return counts;
+    });
+
+    /// <summary>The explicit mods of a box of this rarity, at this area level, scaled by the mod effect.</summary>
+    public static List<ItemMod> Roll(ModCatalog catalog, StrongboxCatalog.Entry box, byte rarity, int level, Func<string, int> stat, Random rng)
+    {
+        var rolled = new List<ItemMod>();
+        if (rarity == 0 || !Counts.Value.TryGetValue(rarity, out var limits) || limits.Max <= 0) return rolled;
+        int count = rng.Next(Math.Max(1, limits.Min), limits.Max + 1);
+        var pool = catalog.All.Where(m => m.Domain == ChestDomain && m.GenerationType is 1 or 2 && !m.EssenceOnly
+            && m.Level <= level && m.Stats.Count > 0 && m.WeightFor(box.Tags) > 0).ToList();
+        int prefixes = 0, suffixes = 0;
+        var families = new HashSet<int>();
+        var chosen = new List<ModCatalog.Mod>();
+        while (chosen.Count < count)
+        {
+            var open = pool.Where(m => !chosen.Contains(m) && !m.Families.Any(families.Contains)
+                && (m.GenerationType == 1 ? prefixes < limits.Prefixes : suffixes < limits.Suffixes)).ToList();
+            long total = open.Sum(m => (long)m.WeightFor(box.Tags));
+            if (total <= 0) break;
+            long pick = (long)(rng.NextDouble() * total);
+            var mod = open.FirstOrDefault(m => (pick -= m.WeightFor(box.Tags)) < 0) ?? open[^1];
+            chosen.Add(mod);
+            families.UnionWith(mod.Families);
+            if (mod.GenerationType == 1) prefixes++; else suffixes++;
+        }
+        int effect = stat("map_strongbox_mod_effect_+%");
+        // Prefixes first, as an item lists them.
+        foreach (var mod in chosen.OrderBy(m => m.GenerationType))
+        {
+            var item = mod.Roll(ModSection.Explicit, rng);
+            if (effect != 0)
+                item = item with
+                {
+                    Values = [.. item.Values.Select((v, i) => mod.RangeAt(i) is var (min, max) && min != max
+                        ? (int)Math.Clamp((long)v * Math.Max(0, 100 + effect) / 100, int.MinValue, int.MaxValue) : v)],
+                };
+            rolled.Add(item);
+        }
+        return rolled;
+    }
+
+    /// <summary>The sum of a stat over a box's own mods (its Chests implicits and its rolled explicits), by stat id.</summary>
+    public static int Stat(ModCatalog catalog, StrongboxCatalog.Entry box, IReadOnlyList<ItemMod> mods, string id)
+    {
+        long sum = 0;
+        foreach (int row in box.Implicits)
+            if (catalog.Row(row) is { } mod)
+                for (int i = 0; i < mod.Stats.Count; i++)
+                    if (mod.Stats[i].Id == id) sum += mod.RangeAt(i).Min;
+        foreach (var m in mods)
+            if (catalog.ByHash(m.Hash) is { } mod)
+                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++)
+                    if (mod.Stats[i].Id == id) sum += m.Values[i];
+        return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
+    }
+}

@@ -20,21 +20,27 @@ public static class StrongboxCatalog
     /// <param name="WeightStat">The area stat (client key) that raises the weight in percent, or 0.</param>
     /// <param name="HiddenRarity">The chest mods' <c>chest_hidden_item_rarity_+%</c> (Ornate: 500).</param>
     /// <param name="SummonRarity">The chest mods' <c>summoned_monster_rarity</c> (ChestSummonNormals: normal).</param>
+    /// <param name="Tags">The Chests row's tags and "default": what its explicit mods' spawn weights read.</param>
+    /// <param name="Implicits">The Chests row's own mods (Mods rows; ChestSummonNormals on every strongbox).</param>
     public sealed record Entry(int Row, string Type, string Name, string Model, IReadOnlyList<string> Components,
         StateMachineData? States, int Size, int Weight, int WeightHardMode, uint WeightStat, int MinLevel, int MaxLevel,
-        int Items, Contents Kind, int HiddenRarity, MonsterRarity SummonRarity)
+        int Items, Contents Kind, int HiddenRarity, MonsterRarity SummonRarity, IReadOnlySet<string> Tags, IReadOnlyList<int> Implicits)
     {
         /// <summary>Whether the object can be written: QuestObject's components and a StateMachine.</summary>
         public bool Supported => States is not null && QuestObject.CanSerialize(Components, true);
 
         /// <summary>The object's blob, closed or opened. Opened sets the StateMachine's <c>opened</c> (the client's
         /// <c>on_or_create_state_opened_1</c> hides the minimap icon) and the Chest component's opened bit.</summary>
-        public byte[] Blob(int x, int y, float rotation, bool opened) =>
+        /// <para>Its rarity and explicit mods go in ObjectMagicProperties as a monster's do (identified, so the
+        /// nameplate shows the mod lines in the rarity's colour).</para>
+        public byte[] Blob(int x, int y, float rotation, bool opened, byte rarity = 0, IReadOnlyList<ItemMod>? mods = null) =>
             new QuestObject(x, y, Components, rotation, null, Model, 1, opened)
             {
                 StateMachine = opened ? States!.Set("opened", 1) : States,
                 // A normal box has nothing to identify: without the flag its nameplate reads "Unidentified" (live).
                 Identified = true,
+                Rarity = rarity,
+                Mods = mods ?? [],
             }.Blob();
     }
 
@@ -62,7 +68,7 @@ public static class StrongboxCatalog
             if (!types.TryGetValue(id, out var type) && !(chest.Text("InheritsFrom") is { } parent && types.TryGetValue(parent, out type)))
                 continue;
             int size = type.TextOrNull("positioned_object_size") is { } os && int.TryParse(os, out int s) ? Math.Max(1, s - 1) : 1;
-            var chestTags = chest.Ints("TagsKeys").Select(t => tags.Row(t)?.Text("Id") ?? "").ToHashSet(StringComparer.Ordinal);
+            var chestTags = chest.Ints("TagsKeys").Select(t => tags.Row(t)?.Text("Id") ?? "").Append("default").ToHashSet(StringComparer.Ordinal);
             int hiddenRarity = 0;
             var summon = MonsterRarity.Normal;
             foreach (int m in chest.Ints("ModsKeys"))
@@ -79,7 +85,7 @@ public static class StrongboxCatalog
                 ObjectTypes.StateMachine(type, shared), size, row.IntOrNull("SpawnWeight") ?? 0, row.IntOrNull("SpawnWeightHardmode") ?? 0,
                 row.IntOrNull("SpawnWeightIncrease") is int increase ? (uint)increase + 1 : 0,
                 chest.IntOrNull("MinLevel") ?? 0, max, Math.Max(1, row.IntOrNull("__col2") ?? 1), KindOf(id, chestTags),
-                hiddenRarity, summon));
+                hiddenRarity, summon, chestTags, chest.Ints("ModsKeys")));
         }
         return result;
     }
