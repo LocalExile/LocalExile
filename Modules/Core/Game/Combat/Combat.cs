@@ -417,6 +417,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
             return;
         }
+        PhaseRunOnSkillUse(conn, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
@@ -968,6 +969,7 @@ public static partial class Game
             await PublishVaalUse(remote, stream, ciphers, conn, vaalUse);
         }
         if (!Current()) return false;
+        if (gem.Name is not null) PhaseRunOnSkillUse(conn, skillId);
         if (channelGeneration is not null)
         {
             lock (conn.Monsters)
@@ -1084,7 +1086,7 @@ public static partial class Game
     }
 
     static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
-        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
+        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect) || InPlaceSelfBuff(conn, effect)
         || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,

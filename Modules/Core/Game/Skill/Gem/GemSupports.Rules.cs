@@ -535,6 +535,10 @@ public static partial class Game
         }
         if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
+        // Phase Run's damage buff: more physical damage for the player's own melee attacks (a totem's are not its own).
+        if (attack && !totem && types.Contains(19) && Get("phase_run_melee_physical_damage_+%_final") is int phase and not 0)
+            raw = raw.Add(GameServer.Core.World.DamageType.Physical,
+                raw[GameServer.Core.World.DamageType.Physical].Scale(Math.Max(-1, phase / 100.0)));
         // The Frenzy gem's "5% more Attack Damage per Frenzy Charge": its hit and the ailments from it.
         if (attack && Get("frenzy_skill_attack_damage_+%_final_per_frenzy_charge") is int frenzyMore and not 0)
             raw = raw.Scale(Math.Max(0, 1 + (double)frenzyMore * Get("current_frenzy_charges") / 100));
