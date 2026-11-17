@@ -194,4 +194,46 @@ public sealed class GroundDropSoundTests
         Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(), line => line.Contains($"02BB{live:X8}", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task A_projectile_drop_is_one_gated_create_and_a_taken_drop_is_never_created()
+    {
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var wire = new PartyFollowerTests.Wire();
+        var player = runtime.Connection(new InstanceState(), wire, "projectile-ground");
+        player.LockstepClient = true;
+        await Program.BeginWorldFrames(player, .033);
+        var session = new Game.ProjectileSession("projectile-ground", wire.Stream, wire.Ciphers, player);
+        var item = new WorldItemObject(120, 100, new Item(0x11223344, [], 0));
+        int Creates(uint id) => Program.HistoryFor(wire.Ciphers).Lines()
+            .Count(line => line.Contains($"02BB{id:X8}", StringComparison.Ordinal));
+        double next = .033;
+        async Task Frame() { double start = next; next += .033; await Program.EndWorldFrame(player, (start, next)); }
+        // A pickup that won the race took the item before the pump reached the drop: no create goes out, and the
+        // reservation is released instead of failing on the removal that already named the ID.
+        uint taken = player.Instance.Ground.Add(item, player);
+        player.Instance.Ground.Take(taken);
+        Game.PublishProjectileGroundItem(session, taken, item);
+        var drained = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Enqueue(() => { drained.TrySetResult(true); return Task.CompletedTask; });
+        await drained.Task;
+        Assert.Equal(0, Creates(taken));
+        Assert.DoesNotContain(taken, player.SeenGround);
+
+        // A drop still lying there goes out once, with its wake, and the 100 ms sync neither removes nor recreates it.
+        uint live = player.Instance.Ground.Add(item, player);
+        Game.PublishProjectileGroundItem(session, live, item);
+        var publishing = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.Enqueue(() => { publishing.TrySetResult(true); return Task.CompletedTask; });
+        for (int i = 0; i < 4 && !publishing.Task.IsCompleted; i++) await Frame();
+        await publishing.Task;
+        await Frame();
+        Assert.Equal(1, Creates(live));
+        Assert.Contains(live, player.SeenGround);
+        await Game.SyncSharedGround("projectile-ground-sync", wire.Stream, wire.Ciphers, player);
+        Assert.Equal(1, Creates(live));
+
+        session.Invalidate();
+        await session.OutputCompleted;
+    }
+
 }
