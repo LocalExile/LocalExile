@@ -76,6 +76,7 @@ public sealed class SummonedMinions
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
         GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "");
     public readonly List<HitSummon> HitSummons = [];
+    public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
     public sealed record Saved(string Effect, ushort Source, string Variety, double Life,
         Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null,

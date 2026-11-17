@@ -81,10 +81,16 @@ public static partial class Game
     }
 
     // A declared single create; its common header is not inferred from an opaque concatenated send.
+    // `awaitBirth` holds the producer until the create is written. A presentation object that no later action depends
+    // on (a projectile, an effect) does not need that hold: a lockstep create is written at the next frame end, so each
+    // held create stalled its producer's queue for up to a frame.
     public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
         string? log = null, Func<bool>? still = null, bool wake = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
-        IReadOnlyList<byte[]>? afterBirth = null)
+        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null, bool awaitBirth = true,
+        // Records for the object that may be written with its create and read after it (a monster's wake and its rarity
+        // glow): each waits for the birth otherwise, which on a lockstep client is a frame per object. An area's rare and
+        // magic monsters alone held the entry's population for 3.2 s that way (live 2026-11-17).
+        Func<IReadOnlyList<byte[]>?>? afterCreation = null)
     {
         var wire = transport ?? conn.Wire;
         if (!conn.LockstepClient)
@@ -94,8 +100,14 @@ public static partial class Game
             {
                 if (create() is not { } bytes) return null;
                 sent = true;
-                return [.. bytes, .. wake ? InstanceProtocol.EnterWakeZone(id) : [],
-                    .. (afterBirth ?? []).SelectMany(p => p)];
+                // A copy: the writer encrypts its buffer in place, and a producer that hands in the same array again would
+                // send ciphertext as a header (live 2026-11-17: a monster created twice sent 244 bytes of noise whose id
+                // read as 0xed68, and the client crashed).
+                bytes = bytes.ToArray();
+                if (wake) bytes = [.. bytes, .. InstanceProtocol.EnterWakeZone(id)];
+                if (afterCreation?.Invoke() is { Count: > 0 } after)
+                    bytes = [.. bytes, .. after.SelectMany(r => r)];
+                return bytes;
             });
             return sent;
         }
@@ -112,15 +124,15 @@ public static partial class Game
             BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
             BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(10), 0);
             birth ??= admission.NewObject(id);
-            OutputRecord born = OutputRecord.Create(birth, bytes, log);
-            var records = new List<OutputRecord> { born };
-            if (wake) records.Add(OutputRecord.AfterBirth(birth, WorldOrder.First, InstanceProtocol.EnterWakeZone(id)));
-            foreach (var packet in afterBirth ?? [])
-                records.Add(OutputRecord.AfterBirth(birth, RecordOrder(packet, id), packet));
-            return new([.. records]);
+            List<OutputRecord> batch = [OutputRecord.Create(birth, bytes, log)];
+            if (wake) batch.Add(OutputRecord.AfterBirth(birth, WorldOrder.First, InstanceProtocol.EnterWakeZone(id)));
+            if (afterCreation?.Invoke() is { Count: > 0 } after)
+                foreach (var record in after.Where(r => r.Length > 0))
+                    batch.Add(OutputRecord.AfterBirth(birth, RecordOrder(record, id), record));
+            return new([.. batch]);
         }, still, transport: transport, creates: reservations);
         // A producer may only start an action after the create's delimiter. No gameplay lock is held here.
-        return admitted && (QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
+        return admitted && (!awaitBirth || QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
     }
 
     public static Task<bool> SendWorldCreate(string remote, NetworkStream stream, ConnectionCiphers ciphers,

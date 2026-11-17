@@ -342,7 +342,7 @@ public static partial class Game
         if (QuestsOf(conn).WatchesClear(area))
         {
             bool alive;
-            lock (conn.Monsters) alive = conn.Monsters.Values.Any(o => o.Hostile && !o.Dead && o.Life > 0);
+            lock (conn.Monsters) alive = HeldBackLocked(conn).Count > 0 || conn.Monsters.Values.Any(MonsterLiving);
             if (!alive) await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnCleared(area, f => ClientHasQuestFlag(conn, f)));
         }
     }
@@ -673,7 +673,8 @@ public static partial class Game
         if (rule.OpensWith is not { } flag || !ClientHasQuestFlag(conn, flag)) return false;
         if (rule.Guards is null) return true;
         lock (conn.Monsters)
-            return !conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0 && m.Variety is { } v && rule.Guards.Contains(v.Id));
+            return !conn.Monsters.Values.Any(m => MonsterLiving(m) && m.Variety is { } v && rule.Guards.Contains(v.Id))
+                && !HeldBackLocked(conn).Any(h => Monsters.Find(h.Variety.ToString()) is { } v && rule.Guards.Contains(v.Id));
     }
 
     // Only pending encounter chests need a transition when another player finishes the fight.

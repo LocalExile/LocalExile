@@ -73,7 +73,7 @@ public static partial class Game
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
             for (int i = 0; i < conn.AtlasPassives.Length; i++)
-                conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct()] : [];
+                conn.AtlasPassives[i] = i < atlasPresets.Count ? [.. atlasPresets[i].Where(n => AtlasPassiveNodes.Find(n) is not null).Distinct().Order()] : [];
             conn.AtlasPassivePoints = save?.AtlasPassivePoints ?? 0;
 
             // The Atlas layout picked on the map device is a character choice; fall back to the first starting node.
@@ -719,7 +719,9 @@ public static partial class Game
             Stats.Key($"virtual_{attribute}_for_requirements") is uint key && dev.TryGetValue(key, out int set) ? set : value;
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? conn.Pools.Level, active =>
         {
-            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item), catalog)), dev)
+            var ids = active.Select(w => w.Id).ToHashSet();
+            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item)
+                    .Concat(RingReflections(equipment, i => ids.Contains(i.Id), catalog.Mods)), catalog)), dev)
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
@@ -731,7 +733,9 @@ public static partial class Game
             if (exempt.Count > 0) active = [.. active, .. exempt];
             inactive.ExceptWith(exemptions);
         }
-        active = AbyssJewels.Sources(active, catalog).ToArray();
+        // Kalandra's Touch: the opposite active ring's modifiers once more (RingReflections).
+        active = AbyssJewels.Sources(active.Concat(RingReflections(equipment, i => !inactive.Contains(i.Id), catalog.Mods)),
+            catalog).ToArray();
         var rawAttributes = RawAttributes(active);
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
