@@ -418,7 +418,126 @@ public class ArrowRainAndMirageTests
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Different_weapon_mastery_reaches_shared_damage();
+        Righteous_fire_uses_outgoing_increases();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Righteous_fire_uses_outgoing_increases()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        using var b = new Battle("Righteous Fire");
+        var c = b.Conn;
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+            { Sockets = host.Item.Sockets, Links = [1] });
+        items.Remove(PlayerInventories.Weapon1, host.Id);
+        b.Enemy.Walk.Teleport(110, 100, 0);
+        b.Ally.Walk.Teleport(110, 100, 0);
+        c.Pools = Game.PoolsFor(c, 100);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        Game.ActivateRighteousFire("rf-increases", b.Stream, b.Ciphers, c, gem.Id,
+            gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
+        var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        Assert.Equal(4200, rf.DamagePctPerMinute);
+        Assert.Equal(4200, rf.EnergyShieldDamagePctPerMinute);
+        Assert.Equal(5400, rf.BurnPctPerMinute);
+        void Burn(double increase, double factor = 1)
+        {
+            c.Pools = Game.PoolsFor(c, 100);
+            double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
+                + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+            uint playerLife = c.PlayerLife;
+            b.Enemy.Life = b.Enemy.MaxLife;
+            b.Enemy.Burn = 0;
+            Game.BurnAround("rf-increases", b.Stream, b.Ciphers, c, rf, .5).GetAwaiter().GetResult();
+            Assert.Equal((int)Math.Floor(basis * Math.Max(0, 100 + increase) / 100 * factor * .5),
+                (int)(b.Enemy.MaxLife - b.Enemy.Life));
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(playerLife, c.PlayerLife);
+        }
+        Burn(0);
+        items.Add(6, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(17))!);
+        int ringDamage = Game.CharacterPlayerStats(c)[Key("damage_+%")];
+        Assert.InRange(ringDamage, 10, 30);
+        Burn(ringDamage);
+        // A warmed snapshot must observe removing and restoring a real global source.
+        var ring = Assert.Single(items.Items(6));
+        items.Remove(6, ring.Id);
+        Burn(0);
+        items.Add(6, 0, 0, ring.Item);
+        Burn(ringDamage);
+        Assert.True(c.Pools.EnergyShield > 0);
+        c.PlayerLife = Math.Max(2, c.PlayerLife / 2);
+        Burn(ringDamage); // Current Life is not the base of the burn.
+
+        // The same generic bucket includes the real different-weapon mastery, once and additively with the ring.
+        items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Nailed Fist")!));
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        const ushort node = 8872;
+        var mastery = Program.Passives.EffectsFor(node).Single(e => e.Hash == 46493);
+        Assert.Contains((Key("damage_+%_while_wielding_two_different_weapon_types"), 60), mastery.Stats);
+        c.Passives.Add(node);
+        c.MasteryEffects = new Dictionary<ushort, ushort>(c.MasteryEffects) { [node] = mastery.Hash };
+        Burn(ringDamage + 60);
+        c.Passives.Remove(node);
+        c.MasteryEffects = new Dictionary<ushort, ushort>();
+        Burn(ringDamage);
+
+        // Each eligible increase joins one additive bucket; spell, hit and ailment-only sources stay out.
+        foreach (string stat in new[] { "fire_damage_+%", "elemental_damage_+%", "damage_over_time_+%",
+            "fire_damage_over_time_+%", "burn_damage_+%", "area_damage_+%", "righteous_fire_damage_+%" })
+        {
+            c.PlayerStats[Key(stat)] = 25;
+            Burn(ringDamage + 25);
+            c.PlayerStats.Remove(Key(stat));
+        }
+        c.PlayerStats[Key("fire_damage_+%")] = 30;
+        c.PlayerStats[Key("area_damage_+%")] = 40;
+        c.PlayerStats[Key("damage_over_time_+%")] = -20;
+        Burn(ringDamage + 50);
+        foreach (string stat in new[] { "spell_damage_+%", "attack_damage_+%", "projectile_damage_+%",
+            "melee_damage_+%", "ignite_damage_+%", "base_ailment_damage_+%", "weapon_elemental_damage_+%" })
+            c.PlayerStats[Key(stat)] = 500;
+        Burn(ringDamage + 50);
+        c.PlayerStats[Key("damage_over_time_+%")] = -500;
+        Burn(ringDamage - 430);
+        c.PlayerStats.Remove(Key("fire_damage_+%"));
+        c.PlayerStats.Remove(Key("area_damage_+%"));
+        c.PlayerStats.Remove(Key("damage_over_time_+%"));
+
+        foreach (string stat in new[] { "base_deal_no_damage", "deal_no_elemental_damage",
+            "deal_no_non_chaos_damage", "keystone_ancestral_bond", "deal_no_damage_yourself" })
+        {
+            c.PlayerStats[Key(stat)] = 1;
+            Burn(ringDamage, factor: 0);
+            c.PlayerStats.Remove(Key(stat));
+            Burn(ringDamage);
+        }
+        c.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
+        Burn(ringDamage, factor: 0);
+        c.PlayerStats.Remove(StatKeys.SpellSkillsDealNoDamage);
+        c.PlayerStats[Key("delirium_aura_damage_over_time_+%_final")] = 30;
+        Burn(ringDamage, factor: 1.3);
+        c.PlayerStats.Remove(Key("delirium_aura_damage_over_time_+%_final"));
+        b.Enemy.Mods = MonsterModSet.None with
+            { Effects = new(new Dictionary<string, int> { ["base_fire_damage_resistance_%"] = 50 }) };
+        Assert.Equal(.5, Game.MonsterDotTaken(b.Enemy, DamageType.Fire));
+        c.PlayerStats[Key("base_reduce_enemy_fire_resistance_%")] = 100;
+        Burn(ringDamage, factor: .5); // Resistance applies; penetration does not apply to a DoT.
+        // Fractional ticks share the existing carry rather than rounding away each small interval.
+        b.Enemy.Life = b.Enemy.MaxLife;
+        b.Enemy.Burn = 0;
+        double dps = (c.PlayerMaxLife + c.Pools.EnergyShield) * .7 * (100 + ringDamage) / 100 * .5;
+        for (int i = 0; i < 17; i++)
+            Game.BurnAround("rf-increases", b.Stream, b.Ciphers, c, rf, .00037).GetAwaiter().GetResult();
+        double total = dps * .00037 * 17;
+        Assert.Equal((int)Math.Floor(total), (int)(b.Enemy.MaxLife - b.Enemy.Life));
+        Assert.Equal(total - Math.Floor(total), b.Enemy.Burn, 6);
+        b.Enemy.Walk.Teleport(150, 100, 0);
+        Burn(ringDamage, factor: 0);
+        Assert.DoesNotContain(200u, rf.Auras.Keys);
+        Assert.DoesNotContain(201u, rf.Auras.Keys);
     }
 
     static void Different_weapon_mastery_reaches_shared_damage()

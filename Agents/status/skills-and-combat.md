@@ -55,7 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Determination and Grace. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Discipline. Docs: [11](../docs/protocol/11-skills.md) §13,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Buffs and Righteous Fire. Docs: [11](../docs/protocol/11-skills.md) §12.
+- Buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297). Docs: [11](../docs/protocol/11-skills.md) §10b.
 - Own-aura restriction (#304). Docs: [11](../docs/protocol/11-skills.md) §10c.
 - Spell skills deal no damage (#293). Docs: [20](../docs/protocol/20-damage.md) §2g.
@@ -64,6 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Righteous Fire: enemy burn takes player increases (server-tested). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads

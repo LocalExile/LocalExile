@@ -3072,11 +3072,16 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
-  `ri_fire/player.epk`, the burning hands). Every 250 ms the player loses 90% of maximum life per second
-  (`base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute` 5400; nonlethal, it stops at 1) and every hostile
-  monster within its radius plus its size loses 70% of the player's maximum life per second
-  (`base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute` 4200) and carries `righteous_fire_aura` while
-  inside. It ends at death; casting it again does nothing. **The radius** is `active_skill_base_area_of_effect_radius`
+  `ri_fire/player.epk`, the burning hands). Its independent recovery-loop self-burn is 90% of maximum Life plus
+  70% of maximum Energy Shield per second, before mitigation (nonlethal, stopping at 1 Life). The player tick's enemy
+  burn starts at 70% of maximum Life plus Energy Shield per second. GrantedEffectStatSets 719 supplies these rates
+  in percent per minute; spent Life or ES does not reduce the base. A hostile monster within its
+  radius plus its size carries `righteous_fire_aura`. It ends at death; casting it again does nothing.
+  RF has no `spell_damage_modifiers_apply_to_skill_dot` implicit: its burning area takes applicable increased damage,
+  not spell or ignite damage. This agrees with [pinned PoB's area-only DoT flag](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Data/Skills/act_int.lua#L15539-L15545),
+  a reference model rather than native execution evidence. Outgoing increases do not scale self-burn. Supported-skill
+  modifiers, DoT multipliers and remaining more/conditional scopes are still incomplete; native parity is unverified.
+  **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then

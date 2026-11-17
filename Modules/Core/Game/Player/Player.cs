@@ -1008,6 +1008,12 @@ public static partial class Game
         double now = conn.Clock.Elapsed.TotalSeconds;
         double perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
         var playerStats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
+        // RF is area burning damage, not spell damage or an ignite. Its outgoing increases do not scale self-burn.
+        double increased = (double)Get("damage_+%") + Get("fire_damage_+%") + Get("elemental_damage_+%")
+            + Get("damage_over_time_+%") + Get("fire_damage_over_time_+%") + Get("burn_damage_+%")
+            + Get("area_damage_+%") + Get("righteous_fire_damage_+%");
+        perSecond = perSecond * Math.Max(0, 100 + increased) / 100;
         if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
             perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
         perSecond *= ChargeDamageMore(playerStats);
