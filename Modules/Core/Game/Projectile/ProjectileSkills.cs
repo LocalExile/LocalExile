@@ -27,6 +27,38 @@ public static partial class Game
             parameters = SkillProjectileParameters(id, profileId);
     }
 
+    // A bow or wand attack gem (skill_can_fire_arrows / skill_can_fire_wand_projectiles) whose effect names no projectile
+    // row fires the held weapon's: the skill's own art where Projectiles.dat has it by weapon (FrenzyArrow / FrenzyWand,
+    // PunctureArrow, PowerSiphonProjectile), else the default attack's DefaultArrow / WandProjectile. The weapon is the
+    // one in hand at release (ArrowsFor); the gem's weapon restriction already refused any other.
+    // Kept refused: a gem (or the base gem of its variant) that is an area, channelled, rain, melee or Vaal skill, or a
+    // Barrage volley (projectiles_barrage). A plain shot would be the wrong shape for them; they need their own recipes.
+    static ProjectileSkillDefinition? WeaponProjectileDefinition(int effect)
+    {
+        if (!Skills.IsAttack(effect) || !Skills.IsProjectile(effect) || Skills.EffectId(effect) is not { } id) return null;
+        var stats = Skills.EffectStats(effect, 1);
+        bool Has(string name) => Stats.Key(name) is uint key && stats.Any(s => s.Item1 == key && s.Item2 != 0);
+        bool arrows = Has("skill_can_fire_arrows"), wand = Has("skill_can_fire_wand_projectiles");
+        if (!arrows && !wand || Has("projectiles_barrage")) return null;
+        string root = WeaponProjectileBase(id);
+        foreach (int row in new[] { effect, Skills.EffectRow(root) })
+            if (row >= 0 && new[] { "Area", "Channel", "Rain", "Melee", "Vaal" }.Any(type => Skills.HasType(row, type))) return null;
+        string Row(string fallback, params string[] suffixes) => suffixes.Select(s => $"Metadata/Projectiles/{root}{s}")
+            .FirstOrDefault(candidate => Skills.Projectile(candidate) is not null) ?? fallback;
+        string bow = Row(OrdinaryRangedAttack.Arrow, "Arrow"), wandRow = Row(OrdinaryRangedAttack.Wand, "Wand", "Projectile");
+        var parameters = new ProjectileSkillParameters((get, speed, fromBow) => GatewayProjectileSkillProfiles.Resolve(id,
+            arrows && (fromBow || !wand) ? bow : wandRow, get, speed, attack: true, fromBow));
+        return SkillProjectileDefinition(id, arrows ? bow : wandRow, parameters);
+    }
+
+    // A variant's base gem: Royale and transfigured effects share the base effect's skill shape and art.
+    static string WeaponProjectileBase(string id)
+    {
+        foreach (string suffix in new[] { "Royale", "AltX", "AltY", "AltZ" })
+            if (id.Length > suffix.Length && id.EndsWith(suffix, StringComparison.Ordinal)) return id[..^suffix.Length];
+        return id;
+    }
+
     static ProjectileSkillParameters SkillProjectileParameters(string effect, string profileId) =>
         new((get, speed, arrows) => GatewayProjectileSkillProfiles.Resolve(effect, profileId, get, speed,
             Skills.IsAttack(Skills.EffectRow(effect)), arrows))
