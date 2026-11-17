@@ -206,6 +206,8 @@ public static class StatConditions
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("shocked", ShockedEnemy, false), ("ignited_an_enemy", IgnitedEnemy, false),
         ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
+        ("gained_frenzy_charge", GainedFrenzyCharge, false), ("gained_power_charge", GainedPowerCharge, false),
+        ("gained_endurance_charge", GainedEnduranceCharge, false),
         ("crit", Crit, false), ("hit", BeenHit, false),
     ];
 
@@ -217,7 +219,12 @@ public static class StatConditions
         UsedFireSkill = "used_fire_skill", UsedColdSkill = "used_cold_skill", UsedWarcry = "used_warcry",
         UsedMovementSkill = "used_movement_skill", UsedRetaliation = "used_retaliation", TauntedEnemy = "taunted_enemy",
         DetonatedMine = "detonated_mine", UsedSkill = "used_skill", SpentMana = "spent_mana",
-        BlockedAttack = "blocked_attack", BlockedSpell = "blocked_spell", ShockedEnemy = "shocked_enemy", IgnitedEnemy = "ignited_enemy";
+        BlockedAttack = "blocked_attack", BlockedSpell = "blocked_spell", ShockedEnemy = "shocked_enemy", IgnitedEnemy = "ignited_enemy",
+        GainedFrenzyCharge = "gained_frenzy_charge", GainedPowerCharge = "gained_power_charge",
+        GainedEnduranceCharge = "gained_endurance_charge";
+
+    /// <summary>The recent-event key of gaining a charge of a type (<c>frenzy</c>, <c>power</c>, <c>endurance</c>).</summary>
+    public static string GainedCharge(string type) => "gained_" + type + "_charge";
 
     /// <summary>
     /// The condition of one stat id against one subject.

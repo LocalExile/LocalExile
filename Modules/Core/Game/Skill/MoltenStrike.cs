@@ -439,6 +439,7 @@ public static partial class Game
             }
         }
 
+        var supportedStats = SupportedSkill(conn, skillId).Stats;
         foreach (var r in results)
         {
             if (r.Critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
@@ -448,7 +449,8 @@ public static partial class Game
                 melee: true, sequence: sequence, deaths: deaths, stun: r.Stun);
             await SendDotBuff(remote, stream, ciphers, r.Ignited, r.IgniteLog);
             await SendDotBuff(remote, stream, ciphers, r.Bled, r.BleedLog);
-            ChargesOnHit(conn, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
+            ChargesOnHit(conn, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id,
+                skillStats: supportedStats);
         }
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);

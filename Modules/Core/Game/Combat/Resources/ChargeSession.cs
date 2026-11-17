@@ -26,6 +26,12 @@ public sealed class ChargeSession(Charges.State? state = null)
     Charges.Shown[] shown => State.Presented;
     Dictionary<string, int> observed = [];
     double lastStep = double.NaN;
+    // The gained charges as the session last left them (State.Held): a lower count at the next step is a loss someone
+    // else made (a skill's State.Lose), which the loss triggers count too.
+    readonly int[] expected = new int[3];
+    readonly double[] lastLost = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
+    int pendingLife;
+    readonly List<(ChargeType Type, double At)> pendingGains = [];
 
     static readonly Charges.Limits Default = new(ChargePanelStats.BaseMaximumCharges, 0, Charges.BaseDurationMs);
 
@@ -88,10 +94,14 @@ public sealed class ChargeSession(Charges.State? state = null)
             Record(Charges.MinimumConversionFlag(type));
         }
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
+        foreach (string name in ChargeTriggers.Observed) Record(name);
         observed = seen;
     }
 
     int Observed(string name) => observed.GetValueOrDefault(name);
+
+    /// <summary>A stat the session observes (<see cref="ChargeTriggers.Observed"/> and the limits'), as last observed.</summary>
+    public int ObservedStat(string name) => Observed(name);
 
     /// <summary>Whether the type's charges are its special type's (Brutal, Affliction, Absorption) as last observed:
     /// the "gain … instead of" flag (<see cref="Charges.ConversionFlag"/>).</summary>
@@ -108,7 +118,29 @@ public sealed class ChargeSession(Charges.State? state = null)
         while (events.TryDequeue(out _)) { }
         timers.Reset();
         LastHitAt = double.NegativeInfinity;
-        return State.Clear();
+        bool any = State.Clear();
+        Array.Clear(expected);
+        return any;
+    }
+
+    /// <summary>When a charge of the type was last lost (game clock seconds; −∞: never). Death is not a loss.</summary>
+    public double LastLost(ChargeType type) => lastLost[(int)type];
+
+    /// <summary>The Life the loss triggers granted since the last call ("Gain X Life when you lose an Endurance
+    /// Charge"), for the Gateway to recover.</summary>
+    public int TakeLifeGained()
+    {
+        int life = pendingLife;
+        pendingLife = 0;
+        return life;
+    }
+
+    /// <summary>The charge gains since the last call, for the "if you have gained a … Charge recently" conditions.</summary>
+    public List<(ChargeType Type, double At)> TakeGains()
+    {
+        var gains = new List<(ChargeType, double)>(pendingGains);
+        pendingGains.Clear();
+        return gains;
     }
 
     /// <summary>What one step did: whether the charges the stats count changed, and lines for the log.</summary>
@@ -134,10 +166,11 @@ public sealed class ChargeSession(Charges.State? state = null)
             if (stats is not null && Pending) TimeGains(now, stats);
             while (stats is not null && events.TryDequeue(out var e)) ApplyEvent(e, now, stats, weapon, rng, log);
             if (!inTown)
-                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng))
+                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng,
+                    type => now - lastLost[(int)type] <= RecentlySeconds))
                     Apply(gain, now, rng, log);
         }
-        return Finish(now, log);
+        return Finish(now, log, rng);
     }
 
     // An admitted contact resolves only its own events at the original contact time. It never steps periodic/moving
@@ -151,7 +184,7 @@ public sealed class ChargeSession(Charges.State? state = null)
             TimeGains(now, stats);
             foreach (var e in accepted) ApplyEvent(e, now, stats, weapon, rng, log);
         }
-        return Finish(now, log);
+        return Finish(now, log, rng);
     }
 
     // Current presentation can expire/clamp, but cannot integrate already processed time or reset a moving timer.
@@ -167,6 +200,7 @@ public sealed class ChargeSession(Charges.State? state = null)
         if (!CanSpend(type)) return false;
         var (_, left) = State.Lose(type, 1, limits[(int)type]);
         limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
+        // The loss triggers run at the next step, which finds the count lower than it left it (Settle).
         return true;
     }
 
@@ -176,18 +210,22 @@ public sealed class ChargeSession(Charges.State? state = null)
         if (e is ChargeEvent.Set set)
         {
             foreach (var type in set.Type is { } only ? [only] : Charges.Types)
+            {
                 State.Set(type, set.Count, now, limits[(int)type]);
+                expected[(int)type] = State.Held(type);   // the /charges command is not a loss
+            }
             log.Add(set.Type is { } t ? $"{Charges.Name(t)} charges set to {set.Count}" : "charges cleared");
             return;
         }
         foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
     }
 
-    StepResult Finish(double now, List<string> log)
+    StepResult Finish(double now, List<string> log, Random? rng = null)
     {
         foreach (var type in State.Expire(now)) log.Add($"{Charges.Name(type)} charges expired");
         foreach (var type in Charges.Types)
             if (State.Clamp(type, limits[(int)type])) log.Add($"{Charges.Name(type)} charges down to the maximum {limits[(int)type].Maximum}");
+        Settle(now, rng ?? Random.Shared, log);
         bool changed = false;
         foreach (var type in Charges.Types)
         {
@@ -197,15 +235,55 @@ public sealed class ChargeSession(Charges.State? state = null)
         return new(changed, log);
     }
 
+    // The charges lost since the session last left them (expiry, a lower maximum, a skill that consumed them outside the
+    // session, Phase Run's or Immortal Call's State.Lose), each type's loss once, with its triggers.
+    void Settle(double now, Random rng, List<string> log)
+    {
+        foreach (var type in Charges.Types)
+        {
+            int held = State.Held(type);
+            if (held < expected[(int)type]) Lost(type, expected[(int)type] - held, now, rng, log);
+            expected[(int)type] = State.Held(type);
+        }
+    }
+
+    // Lost charges (not death): "recently" and the loss triggers (ChargeTriggers.OnLoss).
+    void Lost(ChargeType type, int count, double now, Random rng, List<string> log)
+    {
+        if (count <= 0) return;
+        expected[(int)type] = State.Held(type);
+        lastLost[(int)type] = now;
+        if (Converted(type)) return;   // a Brutal, Affliction or Absorption Charge is not one of the type's
+        foreach (var trigger in ChargeTriggers.OnLoss(type, count, Observed))
+        {
+            if (trigger.Life > 0)
+            {
+                pendingLife += trigger.Life;
+                log.Add($"{trigger.Source}: {trigger.Life} Life for {count} {Charges.Name(type)} charge(s) lost");
+            }
+            if (trigger.Gain is { } gain) Apply(gain, now, rng, log);
+        }
+    }
+
     void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
     {
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {
-            // A per-second loss (Replica Fragility, Replica Pacifism, Replica Powerlessness).
-            var (lost, left) = State.Lose(gain.Type, -gain.Count, current);
+            // A per-second loss (Replica Fragility, Replica Pacifism, Replica Powerlessness), a consumption (Discharge) or
+            // a "lose all" stat (Gain.All: every charge above the minimum).
+            var (lost, left) = State.Lose(gain.Type, gain.Count == ChargeGains.Gain.All ? int.MaxValue : -gain.Count, current);
             limits[(int)gain.Type] = ChargeMaxima.LimitsOf(gain.Type, Observed, left);
             log.Add($"{gain.Source}: {Charges.Name(gain.Type)} charges {lost} -> {left}/{limits[(int)gain.Type].Maximum}");
+            Lost(gain.Type, expected[(int)gain.Type] - State.Held(gain.Type), now, rng, log);
+            return;
+        }
+        // A loss made outside the session since it last settled counts before this gain hides it.
+        if (State.Held(gain.Type) < expected[(int)gain.Type])
+            Lost(gain.Type, expected[(int)gain.Type] - State.Held(gain.Type), now, rng, log);
+        if (ChargeTriggers.CannotGain(gain.Type, Observed))
+        {
+            log.Add($"{gain.Source}: cannot gain {Charges.Name(gain.Type)} charges");
             return;
         }
         int after = Math.Min(current.Maximum, State.Effective(gain.Type, current) + gain.Count);
@@ -213,10 +291,15 @@ public sealed class ChargeSession(Charges.State? state = null)
         // the gain leaves.
         var l = ChargeMaxima.LimitsOf(gain.Type, Observed, after);
         limits[(int)gain.Type] = l;
-        bool toMaximum = ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
+        bool toMaximum = gain.ToMaximum || ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
+        expected[(int)gain.Type] = State.Held(gain.Type);
+        if (l.Maximum > 0 && pendingGains.Count < 16) pendingGains.Add((gain.Type, now));
         log.Add($"{gain.Source}: {Charges.Label(gain.Type, Converted(gain.Type))} charges {before} -> {now2}/{l.Maximum}" +
             (toMaximum ? " (to maximum)" : "") + $", {l.DurationMs / 1000.0:0.###} s");
+        // "On reaching maximum" (Tulfall, Malachai's Loop, The Eternal Apple): only the gain that reaches it.
+        if (before < l.Maximum && now2 >= l.Maximum && !Converted(gain.Type))
+            foreach (var trigger in ChargeTriggers.OnMaximum(gain.Type, Observed)) Apply(trigger, now, rng, log);
     }
 
     /// <summary>A charge buff to send: the previous instance to remove (0: none) and, when <paramref name="Count"/> is

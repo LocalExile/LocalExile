@@ -21,21 +21,39 @@ public static partial class Game
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
-    // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
+    // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it. skillStats: the used
+    // skill's stats with its supports' (Power Charge on Critical); without them the gem's own.
     public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
-        int quality = 0, bool? melee = null, bool primary = true)
+        int quality = 0, bool? melee = null, bool primary = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (critical) conn.ElusiveCritPending = true;
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
         Func<string, int>? skill = null;
-        if (effect >= 0)
+        if (skillStats is { Count: > 0 })
+        {
+            var own = skillStats;
+            skill = name => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        }
+        else if (effect >= 0)
         {
             var own = SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
             skill = name => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         }
+        bool frozen, bleeding, marked, selfBleeding, selfPoisoned;
+        lock (conn.Monsters)
+        {
+            double now = ProjectileWorldTime(conn);
+            frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
+            bleeding = m.Bleeds.Burning;
+            // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
+            marked = m.Curses.All.Keys.Any(k => k.Caster == conn.PeerId && CurseCatalog.All.TryGetValue(k.Effect, out var c) && c.Mark);
+            selfBleeding = conn.IncomingAilments.Bleeding(now);
+            selfPoisoned = conn.IncomingAilments.PoisonStacks(now) > 0;
+        }
         ChargesOf(conn).Enqueue(new ChargeEvent.Hit(critical, spell, melee, m.Rarity, effect >= 0 ? SkillsFor(conn).EffectId(effect) : null,
-            skill, Killed: m.Dead || m.Life == 0, Primary: primary));
+            skill, Killed: m.Dead || m.Life == 0, Primary: primary, Frozen: frozen, Bleeding: bleeding, Marked: marked,
+            SelfBleeding: selfBleeding, SelfPoisoned: selfPoisoned));
         CurseCharges(conn, m, false);
     }
 
@@ -51,22 +69,52 @@ public static partial class Game
     {
         if (conn.PlayerLife == 0) return;
         bool frozen;
+        int poisons;
         lock (conn.Monsters)
         {
             double now = ProjectileWorldTime(conn);
             frozen = m.Ailments.FrozenAtDeath(now);
+            poisons = m.Poisons.Stacks(now);
             conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
         }
-        ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
         CurseCharges(conn, m, true);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
-    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
-    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
+    // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c). critical: the monster's hit was a critical
+    // strike. Daresso's Defiance's "You gain Onslaught for X seconds per Endurance Charge when Hit" counts the charges
+    // held before its own "You lose all Endurance Charges when Hit" (a ChargeGains rule) takes them.
+    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false, bool critical = false)
     {
-        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
+        bool onslaught = false;
+        lock (conn.Monsters)
+        {
+            var session = ChargesOf(conn);
+            int perCharge = session.ObservedStat(ChargeTriggers.OnslaughtPerEnduranceWhenHit);
+            int held = session.Converted(ChargeType.Endurance) ? 0 : session.Effective(ChargeType.Endurance);
+            double until = conn.Clock.Elapsed.TotalSeconds + perCharge / 1000.0 * held;
+            if (perCharge > 0 && held > 0 && conn.PlayerLife > 0 && until > KillOnslaughtOf(conn).Until)
+            {
+                KillOnslaughtOf(conn).Until = until;
+                onslaught = true;
+            }
+        }
+        ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit(critical));
         if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
+        // The callers hold the Monsters lock: the buff goes out from the thread pool.
+        if (onslaught && conn.Wire is (var remote, { } stream, var ciphers))
+            _ = Task.Run(() => SendKillOnslaught(remote, stream, ciphers, conn));
+    }
+
+    // A skill the player used, after its cost (CastGemSkill): the "when you use a Vaal Skill / Cast a Curse Spell /
+    // Throw a Trap" gains.
+    public static void ChargesOnSkillUse(ClientState conn, int effect, bool vaal)
+    {
+        if (effect < 0) return;
+        var skills = SkillsFor(conn);
+        bool curse = CurseCatalog.All.ContainsKey(skills.EffectId(effect) ?? "");
+        ChargesOf(conn).Enqueue(new ChargeEvent.SkillUse(vaal, curse, skills.HasType(effect, "Trapped")));
     }
 
     // Transfer: the charges go with the player to the area of the new ticket.
@@ -347,6 +395,7 @@ public static partial class Game
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                         inTown: InTown(conn), Random.Shared);
                     presentationPending = ChargePresentationPending(session);
+                    ChargeSideEffectsLocked(conn, session);
                     if (step.CountsChanged)
                     {
                         conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -380,6 +429,22 @@ public static partial class Game
             }
             catch (Exception) { break; }   // the connection has gone
         }
+    }
+
+    // Under the Monsters lock, after a step: the Life the loss triggers granted (Kingsguard), recovered as instant leech
+    // is and sent with the next vitals update, and the gains for "if you've gained a … Charge recently".
+    static void ChargeSideEffectsLocked(ClientState conn, ChargeSession session)
+    {
+        int life = session.TakeLifeGained();
+        if (life > 0 && conn.PlayerLife > 0)
+        {
+            var leech = LeechOf(conn);
+            uint before = conn.PlayerLife;
+            conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, before, life, ref leech.LifeInstantCarry, minimum: 1);
+            leech.InstantLifeChanged |= before != conn.PlayerLife;
+        }
+        foreach (var (type, at) in session.TakeGains())
+            conn.RecentEvents.Record(StatConditions.GainedCharge(Charges.Name(type)), at);
     }
 
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
