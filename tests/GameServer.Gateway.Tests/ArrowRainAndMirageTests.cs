@@ -418,9 +418,115 @@ public class ArrowRainAndMirageTests
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Different_weapon_mastery_reaches_shared_damage();
+        Physical_dot_taken_combines_real_curse_and_debuff_increases();
         Monster_elemental_modifiers_reach_damage_over_time();
         Righteous_fire_uses_player_damage_modifiers();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Physical_dot_taken_combines_real_curse_and_debuff_increases()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        using var b = new Battle("Vulnerability", "Puncture", "Maim Support");
+        var c = b.Conn;
+        var m = b.Enemy;
+        var gem = Game.GemSkillEffects(c).Single(g => g.Name == "Vulnerability");
+        var own = Game.SupportedSkill(c, gem.Id);
+        Assert.True(own.RequirementsMet);
+        Assert.Equal(15, own.Stats[Key("physical_damage_taken_+%")]);
+        Assert.False(Game.ApplyCurseLocked(c, b.Ally, gem.Id, 0, aura: false));
+        Assert.True(Game.ApplyCurseLocked(c, m, gem.Id, 0, aura: false));
+        Assert.Equal(15, m.Effects["physical_damage_taken_+%"]);
+        Assert.Equal(0, m.Mods.Effects["physical_damage_taken_+%"]);
+        var curse = Assert.Single(m.Curses.All.Values);
+        Assert.Equal((ushort)79, curse.Row);
+        Assert.Equal(8, curse.Until);
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Shock, 4, 0, _ => 0, _ => 0, stated: 20);
+        Assert.Equal(20, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 1));
+        Assert.True(m.Bleeds.Add(0, 100, 5)); // Controlled final DPS isolates target scaling from attack rolls.
+        void Tick(double to, uint expected)
+        {
+            uint before = m.Life, playerLife = c.PlayerLife;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(to));
+            Game.BleedMonsters("physical-dot", b.Stream, b.Ciphers, c).GetAwaiter().GetResult();
+            Assert.Equal(expected, before - m.Life);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(playerLife, c.PlayerLife);
+        }
+        Tick(1, 135); // Before the fix this actual bleed tick dealt 138.
+        m.Curses.Remove(c.PeerId, "Vulnerability");
+        Assert.Equal(0, m.Effects["physical_damage_taken_+%"]);
+        Tick(1.5, 60);
+        Assert.True(Game.ApplyCurseLocked(c, m, gem.Id, 1.5, aura: false));
+        Assert.Equal(15, m.Effects["physical_damage_taken_+%"]);
+
+        var attack = Game.GemSkillEffects(c).Single(g => g.Name == "Puncture");
+        var supported = Game.SupportedSkill(c, attack.Id);
+        Assert.Equal(30, supported.Stats[Key("maim_on_hit_%")]);
+        Assert.Equal(10, supported.Stats[Key("support_maimed_enemies_physical_damage_taken_+%")]);
+        Assert.Equal(10, supported.Stats[Key("support_maim_chance_physical_damage_+%_final")]);
+        // Guarantee only the chance; the admitted support supplies the target magnitude through the real hit handler.
+        Game.HitDebuffsOnHitLocked(m, n => n == "maim_on_hit_%" ? 100
+            : Program.Stats.Key(n) is uint key ? supported.Stats.GetValueOrDefault(key) : 0,
+            spell: false, critical: false, now: 1.5);
+        Assert.Equal(10, m.MaimedPhysicalTakenPct);
+        Assert.Equal(5.5, m.MaimedUntil);
+        Tick(2.5, 145); // Curse15 + shock20 + Maim10; support's source-side MORE is not another target factor.
+        foreach (var type in new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
+            Assert.Equal(1.2, Game.MonsterDotTaken(m, type, 2.5), 6);
+        void Factor(double at, double expected) => Assert.Equal(expected, Game.MonsterDotTaken(m, DamageType.Physical, at), 6);
+        m.PridePhysicalMore = 25;
+        Factor(2.5, 1.8125); // (1 + .15 + .2 + .1) * 1.25, not an increased-taken contribution.
+        m.TakenFromPlayer = (All: 0, Elemental: 100, Physical: 50);
+        m.IntimidatedUntil = m.UnnervedUntil = 20;
+        m.EncounterStats = new Dictionary<string, int> { ["rare_monster_mod_spell_damage_taken_+%_final"] = -90 };
+        Factor(2.5, 1.8125); // Elemental auras, Flesh and Stone and the hit-only debuffs do not alter physical DoT.
+        Factor(4, 1.5625); // Shock expired, Maim and the curse remain.
+        Factor(5.5, 1.4375); // Maim expired; the curse remains.
+        m.Curses.Expire(9.5);
+        Assert.Empty(m.Curses.All);
+        Factor(9.5, 1.25);
+        m.PridePhysicalMore = 0;
+        m.TakenFromPlayer = default;
+        m.EncounterStats = null;
+
+        // New applications replace warm recipient stats and honor actual curse-effect scaling.
+        c.PlayerStats[Key("curse_effect_+%")] = 50;
+        Assert.True(Game.ApplyCurseLocked(c, m, gem.Id, 10, aura: false));
+        Assert.Equal(22, m.Effects["physical_damage_taken_+%"]); // Truncated once by the existing curse consumer.
+        m.TakenFromPlayer = (All: 20, Elemental: 0, Physical: 0);
+        Factor(10, 1.42);
+        m.Mods = new([], [], new MonsterModEffects(new Dictionary<string, int> { ["curse_effect_on_self_+%"] = -50 }));
+        Assert.True(Game.ApplyCurseLocked(c, m, gem.Id, 10, aura: false));
+        Assert.Equal(15, m.Effects["physical_damage_taken_+%"]);
+        Factor(10, 1.35);
+        c.PlayerStats.Remove(Key("curse_effect_+%"));
+        Assert.True(Game.ApplyCurseLocked(c, m, gem.Id, 10, aura: false));
+        Assert.Equal(7, m.Effects["physical_damage_taken_+%"]);
+        Factor(10, 1.27);
+        m.Curses.Clear();
+        m.Mods = new([], [], new MonsterModEffects(new Dictionary<string, int> { ["hexproof"] = 1 }));
+        Assert.False(Game.ApplyCurseLocked(c, m, gem.Id, 10, aura: false));
+        Factor(10, 1.2);
+        m.Mods = MonsterModSet.None;
+        m.TakenFromPlayer = default;
+
+        void Taken(params (string Name, int Value)[] stats) =>
+            m.EncounterStats = stats.ToDictionary(s => s.Name, s => s.Value);
+        Taken(("base_damage_taken_+%", 50), ("physical_damage_taken_+%", -100));
+        Factor(10, .5); // Clamp the combined bucket, not the typed contribution first.
+        Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", -150));
+        Factor(10, 0);
+        m.MaimedUntil = 12;
+        m.MaimedPhysicalTakenPct = 25;
+        Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", 15));
+        Factor(10, 1.6);
+        Factor(12, 1.35);
+        Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", 15),
+            ("map_monster_damage_taken_+%_final_from_atlas_keystone", -40));
+        Factor(12, .81);
+        Taken(("physical_damage_taken_+%", 500), ("base_cannot_be_damaged", 1));
+        Factor(12, 0);
     }
 
     static void Monster_elemental_modifiers_reach_damage_over_time()

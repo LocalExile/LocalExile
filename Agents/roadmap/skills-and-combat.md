@@ -83,7 +83,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Damage: alternative quality, off-hand alternation, endpoint-only modifiers and official rounding.
     Righteous Fire's supported-skill modifiers, conditional DoT multipliers, remaining more scopes and native checks
     remain open; the player's increases and generic/fire DoT multipliers now reach its enemy burn.
-    Elemental target modifiers now reach matching DoT; other target-modifier scopes and native comparison remain open.
+    Physical/per-element target increases and Maim now add with general DoT damage taken; hit target composition,
+    other target-modifier scopes and native comparison remain open.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.

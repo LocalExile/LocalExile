@@ -188,8 +188,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Critical-strike elemental resistance rules (Inevitable Judgement). Docs: [20](../docs/protocol/20-damage.md) §4.
 - Client Buff descriptor research (#370, #466, offline only).
   Docs: [report](../docs/re/client-buff-descriptor-consumers.md).
-- Damage model: packets, conversion, ailments, penetration and player ES. Elemental target modifiers reach
-  matching DoT (server-tested; native parity open). Player ailments from ordinary hits,
+- Damage model: packets, conversion, ailments, penetration and player ES. Physical/per-element target increases
+  and Maim add with general DoT damage taken (server-tested; native parity open). Player ailments from ordinary hits,
   boss skills, ground and reflection share recent-freeze, automatic-flask and movement notifications.
   Native boss ailment chances and modifiers feed the ordinary hit application, with one avoidance roll per kind.
   Docs: [20](../docs/protocol/20-damage.md),

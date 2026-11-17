@@ -63,6 +63,10 @@ Izaro's Toggle Statues carry a signed elemental damage-taken modifier: Labyrinth
 BuffDefinitions 559–564 to Stats 2085/3688/3689 with -20, in both the first and returning trials.
 Those are reduced fire/cold/lightning damage taken, not resistance or a hit-only reduction. They add to the
 matching DoT's general and elemental increased/reduced damage-taken bucket; native damage parity is unverified.
+Vulnerability's BuffDefinitions 79 carries `physical_damage_taken_+%` (15 at gem level 1, 30 at 20;
+GrantedEffectStatSetsPerLevel 11135/11154). Maim Support's stat set 7844 grants 10 increased physical damage taken
+while maimed, separately from its source-side more physical damage. Both target increases add to general damage
+taken for physical DoT; Pride remains a separate more multiplier. Hit target composition is still a separate audit.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
