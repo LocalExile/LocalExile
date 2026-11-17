@@ -69,11 +69,12 @@ public sealed class MonsterIgnites
     // Spread: its proliferation radius in cells (0: it does not spread). Proliferated: the copy another monster's
     // spreading ignite puts on this one, set again every AI tick (<see cref="Proliferated"/>).
     readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false, int Spread = 0,
-        bool Proliferated = false);
+        bool Proliferated = false, int DamageTakenPct = 0);
     readonly List<Ignite> active = [];
     // The spreading ignites it had when it died: a corpse goes on spreading them until they end (wiki Ignite
     // Proliferation Support: the aura continues through death on intact corpses). They deal no damage.
     List<Ignite> corpse = [];
+    double corpseIgnitedUntil = double.NegativeInfinity;
 
     /// <summary>When an ignite was last applied (Controlled Blaze's "Enemy Ignited Recently" window).</summary>
     public double LastApplied { get; private set; }
@@ -120,6 +121,19 @@ public sealed class MonsterIgnites
     /// <summary>When the last of its ignites ends.</summary>
     public double Until => active.Count == 0 ? 0 : active.Max(i => i.Until);
 
+    /// <summary>The strongest damage-taken modifier retained by a currently live ignite.</summary>
+    public int DamageTaken(double now)
+    {
+        int value = 0;
+        foreach (var ignite in active)
+            if (ignite.From <= now && now < ignite.Until) value = Math.Max(value, ignite.DamageTakenPct);
+        return value;
+    }
+
+    /// <summary>Whether this monster or its intact corpse still has an unexpired ignite.</summary>
+    public bool IgnitedAt(double now) => active.Count > 0
+        ? active.Any(i => i.From <= now && now < i.Until) : now < corpseIgnitedUntil;
+
     /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns; the
     /// <see cref="Stacks"/> strongest together).</summary>
     public double PerSecond(double now) => Dealing(active.Where(i => i.From <= now && now < i.Until).ToList(), 0);
@@ -127,21 +141,29 @@ public sealed class MonsterIgnites
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>
-    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random)
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random) =>
+        TryApply(settings, critical, now, avoid, immune, random, 0);
+
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
+        int damageTakenPct)
     {
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         return Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(), settings.Seconds, settings.Aggravated,
-            settings.Spread);
+            settings.Spread, damageTakenPct);
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>
-    public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0)
+    public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0) =>
+        Add(now, perSecond, seconds, aggravated, spread, 0);
+
+    public bool Add(double now, double perSecond, double seconds, bool aggravated, int spread, int damageTakenPct)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, Math.Max(0, spread)));
+        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, Math.Max(0, spread),
+            DamageTakenPct: Math.Max(0, damageTakenPct)));
         LastApplied = now;
         return true;
     }
@@ -175,14 +197,22 @@ public sealed class MonsterIgnites
     public void Clear(bool burnt = false)
     {
         DiedBurning |= burnt || Burning;
-        if (active.Count > 0) corpse = active.Where(i => i.Spread > 0 && !i.Proliferated).ToList();
+        if (active.Count > 0)
+        {
+            corpseIgnitedUntil = Math.Max(corpseIgnitedUntil, active.Max(i => i.Until));
+            corpse = active.Where(i => i.Spread > 0 && !i.Proliferated).ToList();
+        }
         active.Clear();
         carry = 0;
         accrued = 0;
     }
 
     /// <summary>Drops a corpse's retained spreading ignites (shattered or consumed: nothing left to spread from).</summary>
-    public void RetireCorpse() => corpse = [];
+    public void RetireCorpse()
+    {
+        corpse = [];
+        corpseIgnitedUntil = double.NegativeInfinity;
+    }
 
     /// <summary>Its own live ignites that spread (a corpse's included): each an aura of its own radius in cells.</summary>
     public IEnumerable<(double DamagePerSecond, double Until, int Radius)> Spreads(double now) =>
