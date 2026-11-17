@@ -29,4 +29,30 @@ public class IdolRollTests
             }
         }
     }
+
+    [Fact]
+    public void Every_unique_Idol_the_client_limits_is_a_Minor_Idol_with_its_own_modifiers()
+    {
+        var items = Program.Items;
+        var uniques = new UniqueCatalog(items);
+        var words = GameServer.Core.ClientTables.Table("Words");
+        var names = GameServer.Core.ClientTables.Table("UniqueMapRelicLimits").Select(r => words[r.Int("Idol")].Text("Text")!).ToList();
+        Assert.Equal(41, names.Count);
+        var mods = new HashSet<ushort>();
+        foreach (string name in names)
+        {
+            var definition = uniques.All.Single(d => d.Name == name);
+            Assert.True(definition.EncounterOnly, name);   // not in the ordinary unique drops: only where Idols drop
+            var made = uniques.Create(definition, new Random(7))!;
+            Assert.Equal(("Minor Idol", ItemRarity.Unique), (items.ByHash(made.TypeHash)!.Name, made.Rarity));
+            Assert.Equal(words.First(w => w.Int("Wordlist") == 6 && w.Text("Text") == name).UInt("HASH32"), Assert.Single(made.NameWords));
+            var own = made.Mods.Where(m => m.Section == ModSection.Explicit).Select(m => items.Mods.ByHash(m.Hash)!).ToList();
+            // Twisted Wish: its own line and three of its seventeen reward lines; every other one has one modifier.
+            Assert.Equal(name == "Twisted Wish" ? 4 : 1, own.Count);
+            Assert.All(own, m => Assert.Equal(37, m.Domain));
+            Assert.Equal(own.Count, own.Select(m => m.Hash).Distinct().Count());
+            mods.Add(own[0].Hash);
+        }
+        Assert.Equal(41, mods.Count);
+    }
 }

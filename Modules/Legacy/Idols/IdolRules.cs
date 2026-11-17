@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Idols;
@@ -26,6 +27,29 @@ public static class IdolRules
     public static IReadOnlyList<Item> Placed(PlayerInventories items, ItemCatalog catalog) =>
         [.. items.Items(Row).Select(i => i.Item).Where(i => i.Identified && IsIdol(catalog.ByHash(i.TypeHash)))];
 
+    // UniqueMapRelicLimits: how many of a unique Idol may lie in the Idol inventory, by the name's Words HASH32, which
+    // is what a unique item carries as its name.
+    static readonly Lazy<Dictionary<uint, int>> UniqueLimits = new(() =>
+    {
+        var limits = new Dictionary<uint, int>();
+        if (!ClientTables.Has("UniqueMapRelicLimits") || !ClientTables.Has("Words")) return limits;
+        var words = ClientTables.Table("Words");
+        foreach (var row in ClientTables.Table("UniqueMapRelicLimits"))
+            if (row.Int("Idol") is int word && word >= 0 && word < words.Count)
+                limits[words[word].UInt("HASH32")] = row.Int("Limit");
+        return limits;
+    });
+
+    /// <summary>Why this Idol may not join the ones placed, or null: a unique Idol is limited to its
+    /// UniqueMapRelicLimits count (one of each).</summary>
+    public static string? LimitRefusal(PlayerInventories items, Item idol)
+    {
+        if (idol.Rarity != ItemRarity.Unique || idol.NameWords.Count == 0
+            || !UniqueLimits.Value.TryGetValue(idol.NameWords[0], out int limit)) return null;
+        int placed = items.Items(Row).Count(i => i.Item.Rarity == ItemRarity.Unique && i.Item.NameWords.Contains(idol.NameWords[0]));
+        return placed >= limit ? $"this unique Idol is limited to {limit}" : null;
+    }
+
     /// <summary>The map's modifiers with the Idols' stats added: unscaled, as the device's fragments are, so the map's
     /// modifier effect does not multiply them.</summary>
     public static MapMods With(MapMods mods, IReadOnlyDictionary<string, int> idols)
@@ -50,6 +74,8 @@ public static class IdolRules
 
     // GGG does not publish the Idols' drop rates: these are the server's own. A kill in a map drops an Idol with this
     // chance in 10,000 by the monster's rarity, three in four magic and the rest rare, the small bases more often.
+    // One Idol in UniqueShare is a unique one instead, each as likely as the next.
+    const int UniqueShare = 50;
     static int Chance(MonsterRarity rarity) => rarity switch
     {
         MonsterRarity.Unique => 3000, MonsterRarity.Rare => 500, MonsterRarity.Magic => 120, _ => 40,
@@ -64,9 +90,10 @@ public static class IdolRules
 
     /// <summary>The Idol a kill drops, unidentified, or null: a base whose drop level the monster has reached, at the
     /// monster's level.</summary>
-    public static Item? Drop(ItemCatalog catalog, ItemRolls rolls, int level, MonsterRarity rarity, double rate, Random random)
+    public static Item? Drop(ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques, int level, MonsterRarity rarity, double rate, Random random)
     {
         if (random.NextDouble() * 10_000 >= Chance(rarity) * rate) return null;
+        if (random.Next(UniqueShare) == 0 && Unique(catalog, uniques, level, random) is { } unique) return unique;
         var bases = Bases.Select(b => (Type: catalog.Find(b.Id), b.Weight))
             .Where(b => b.Type is { Supported: true } type && type.DropLevel <= level).ToList();
         int total = bases.Sum(b => b.Weight);
@@ -75,5 +102,13 @@ public static class IdolRules
         var chosen = bases.First(b => (pick -= b.Weight) < 0).Type!;
         var item = ItemCatalog.Create(chosen, random: random) with { ItemLevel = (byte)Math.Clamp(level, 1, 100) };
         return rolls.Roll(item, random.Next(4) == 0 ? ItemRarity.Rare : ItemRarity.Magic, random) with { Identified = false };
+    }
+
+    /// <summary>A unique Idol, unidentified: one of the uniques on an Idol base whose drop level the monster has reached.</summary>
+    public static Item? Unique(ItemCatalog catalog, UniqueCatalog uniques, int level, Random random)
+    {
+        var pool = uniques.All.Where(d => catalog.Find(d.BaseTypeId) is { Supported: true } type && IsIdol(type) && type.DropLevel <= level).ToList();
+        if (pool.Count == 0 || uniques.Create(pool[random.Next(pool.Count)], random) is not { } made) return null;
+        return made with { ItemLevel = (byte)Math.Clamp(level, 1, 100), Identified = false };
     }
 }

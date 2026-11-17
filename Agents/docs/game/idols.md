@@ -19,7 +19,7 @@ What that leaves out is under [Differences from the real league](#differences-fr
 | Modifiers | `Mods` domain 37: 208 prefixes and 344 suffixes (levels 68 to 78), and 98 more for the implicits and the unique Idols; the spawn tags are the sizes, `atlas_relic_small` to `atlas_relic_very_large`; each base has an implicit "increased Maps found" |
 | Inventories | rows 89 to 91, `MapRelics1` to `3`: kind 0x3b, 6 by 7, one per Atlas preset |
 | Cells | `MapRelicInventoryLayout`: 32 cells of the 6 by 7. Its `UnlockQuest` is a **league quest flag** id ([21](../protocol/21-hideouts.md) §1): 350 `UnlockedMapDevice` opens 20 cells; 4 need `AtlasIdolSlotsUnlocked1`, `3`, `5` or `6` (1464 to 1469), 5 name 361 to 365, which this client calls `RECLAIM_ME7` to `11`, and 3 name 1, `NEVER_SET` |
-| Uniques | `UniqueMapRelicLimits`: how many of a unique Idol count |
+| Uniques | `UniqueMapRelicLimits`: 41 unique Idols, one of each; three unique images (`ItemVisualIdentity` `AtlasRelicUnique1` to `3`), all 1 by 1 |
 | League stat | `Stats` row 21146 `league_enable_atlas_relics` (area stat 0x529b), the `LeagueAtlasRelics` mod |
 
 What the client does with them:
@@ -62,13 +62,35 @@ The panel binds to the inventory object of the row's first S→C 0xc0 in an area
 - **Drops.** Monsters in maps drop Idols unidentified, magic or rare, of a base whose drop level they reach
   (`GameEvents.Drops`). GGG does not publish the rates: the module's are its own (`IdolRules`), scaled by a setting.
 - **Rolls.** Idols have the jewels' affix caps, two a side and three or four on a rare (`ItemRolls`).
+- **Unique Idols.** One Idol drop in 50 is a unique one, each as likely as the next, and the Idol inventory takes one
+  of each (`UniqueMapRelicLimits`; the client's tooltip says "Limited to: 1" by itself).
 - **Settings** (`settings.json`): `enableAtlasTree` (off, the default: the league stat is sent and the client hides the
   Atlas passive tree, as in the real league; on: Idols and the tree together) and `dropRate`.
+
+## The unique Idols
+
+The client has no table that says which `Mods` rows a unique has, so the 41 are world.db rows
+(`unique_items` and its tables), all on the Minor Idol and kept out of the ordinary unique drops.
+The client data is enough to tell them, because **a unique Idol is an Atlas passive made an item**:
+
+- 36 have the name of an Atlas passive (`PassiveSkills`).
+  The ten `atlas_disable_league_N` notables (Black Thumb: no Harvest; Loved by the Sun: no Abyss; …) each have exactly
+  one `UniqueMapRelicDisable…` row with their three stats.
+  The 26 keystones (Eye of the Djinn, Singular Focus, …) have the row of their name, `UniqueMapRelic<Name>`; 19 of them
+  carry the keystone's own stats, the others an Idol version of them.
+- Five have no Atlas passive and rows of their own: Smash and Grab (`UniqueMapRelicSmashAndGrab`), Well Supplied,
+  Perceived Greatness and Twisted Wish (`UniqueRelic<Name>`), and Crystallised Power, which is left with
+  `UniqueMapRelicEssenceBoss`.
+- Twisted Wish also rolls three of the 17 `UniqueMapRelicTwistedWish…` rows.
+  That count and the images' groups are not in the client data: they are PoEDB's (the "disable" Idols and Refiner's
+  Bargain the first image, the keystones the second, the five without a passive the third).
+  Eye of the Djinn and Lone Adventurer were not on the pages read and take the keystones' image.
 
 ## Differences from the real league
 
 - **20 Idol cells instead of 32, and none of them gated.** The real league's Idol inventory has 32 cells, 12 of them
   unlocked by Atlas objectives, and three loadouts; the side panel has one loadout of 20 cells, all open from the start.
 - Ctrl + click does not move an Idol: pick it up and put it down.
-- Unique Idols and their limits, and Kingsmarch's Idol gambling, are not there.
+- Kingsmarch's Idol gambling is not there, nor the two Ruthless versions of unique Idols (`UniqueMapRelicHardMode…`).
+- How often an Idol is unique is the server's own number, like the other drop rates.
 - With the tree hidden the server still takes an Atlas passive allocation, which only a dev command can send.

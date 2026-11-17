@@ -25,8 +25,9 @@ public sealed class IdolsModule : IModule
         GameEvents.InventorySlot.Add(id, (_, slot) =>
             slot.Row == IdolRules.Row ? slot with { Kind = IdolRules.PanelKind } : null);
         GameEvents.InventoryRefusal.Add(id, (conn, row, item) =>
-            row == IdolRules.Row && !IdolRules.IsIdol(ItemsFor(conn).ByHash(item.TypeHash))
-                ? "only Idols go in the Idol inventory" : null);
+            row != IdolRules.Row ? null
+            : !IdolRules.IsIdol(ItemsFor(conn).ByHash(item.TypeHash)) ? "only Idols go in the Idol inventory"
+            : IdolRules.LimitRefusal(ItemsOf(conn), item));
         GameEvents.MapOpening.Add(id, request =>
         {
             if (request.Campaign || request.Opening is not { } opening) return;
@@ -42,7 +43,7 @@ public sealed class IdolsModule : IModule
             {
                 var conn = roll.Conn;
                 if (roll.Cancel || MapRunOf(conn) is null) return;
-                if (IdolRules.Drop(ItemsFor(conn), RollsFor(conn), roll.Monster.Level, roll.Monster.Rarity, choices.DropRate, Random.Shared) is { } idol)
+                if (IdolRules.Drop(ItemsFor(conn), RollsFor(conn), UniquesFor(conn), roll.Monster.Level, roll.Monster.Rarity, choices.DropRate, Random.Shared) is { } idol)
                     roll.Made.Add(idol);
             });
     }

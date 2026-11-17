@@ -40,7 +40,7 @@ bench.
 - **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
   The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
 - **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
-  the unique Idols and their limits (`UniqueMapRelicLimits`); Kingsmarch's Idol gambling (`VillageIdolGamblingUnlocked`);
+  Kingsmarch's Idol gambling (`VillageIdolGamblingUnlocked`); the Ruthless versions of two unique Idols;
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 
