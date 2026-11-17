@@ -49,9 +49,10 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
   off-hand alternation, conditional damage and support/modifier scope; check equipment UI refresh live.
-  Attack base/added coefficients are separate; bow/wand flat additions, light-radius fire and Ritual boots' accuracy-derived
-  lightning have shared consumers. The boots' less-accuracy factor applies before dependent outputs.
-  Remaining weapon families, skill-specific added inputs and native checks stay in #368.
+  Attack base/added coefficients are separate; ordinary bow/wand/claw/dagger additions, light-radius fire and Ritual
+  boots' accuracy-derived lightning have shared consumers. The boots' less-accuracy factor applies before dependent outputs.
+  Remaining weapon families, special weapon identities (such as Varunastra), skill-specific added inputs and native
+  checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):

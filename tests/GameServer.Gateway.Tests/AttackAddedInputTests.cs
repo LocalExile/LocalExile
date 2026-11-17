@@ -38,7 +38,7 @@ public sealed class AttackAddedInputTests : IDisposable
     static uint Key(string name) => Program.Stats.Key(name)!.Value;
     void Set(string name, int value) => conn.PlayerStats[Key(name)] = value;
     static Item Make(string name) => ItemCatalog.Create(Program.Items.Find(name)!);
-    static Item Eye(string mod, int minimum, int maximum) => Make("Hypnotic Eye Jewel") with
+    static Item Eye(string mod, int minimum, int maximum, string name = "Hypnotic Eye Jewel") => Make(name) with
     {
         Rarity = ItemRarity.Magic,
         Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [minimum, maximum])],
@@ -53,8 +53,9 @@ public sealed class AttackAddedInputTests : IDisposable
     }
 
     [Fact]
-    public void Equipped_wand_and_light_radius_inputs_preserve_attack_scope_and_added_effectiveness()
+    public void Equipped_attack_additions_preserve_weapon_scope_and_added_effectiveness()
     {
+        Claw_and_dagger_additions_belong_to_the_attacking_hand();
         Accuracy_boots_apply_their_less_rating_before_the_attack_grant();
         var items = Game.ItemsOf(conn);
         items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"));
@@ -152,6 +153,98 @@ public sealed class AttackAddedInputTests : IDisposable
         var inactive = Game.CharacterPlayerStats(conn);
         Assert.Equal(0, inactive.GetValueOrDefault(Key(maximumFire)));
         Assert.Equal(0, inactive.GetValueOrDefault(Key("main_hand_maximum_fire_damage")));
+    }
+
+    void Claw_and_dagger_additions_belong_to_the_attacking_hand()
+    {
+        var items = Game.ItemsOf(conn);
+        items.Add(PlayerInventories.Belt, 0, 0, Make("Stygian Vise"));
+        var belt = items.Items(PlayerInventories.Belt).Single();
+        void Equip(byte row, string? name)
+        {
+            if (items.Items(row) is [var current]) items.Remove(row, current.Id);
+            if (name is not null) items.Add(row, 0, 0, Make(name));
+        }
+        foreach (var (type, family, mod, minimum, maximum) in new[]
+        {
+            (DamageType.Physical, "claws", "AbyssAddedPhysicalDamageWithClawsJewel1", 2, 3),
+            (DamageType.Lightning, "claws", "AbyssAddedLightningDamageWithClawsJewel1__", 1, 19),
+            (DamageType.Fire, "claws", "AbyssAddedFireDamageWithClawsJewel1", 5, 11),
+            (DamageType.Cold, "claws", "AbyssAddedColdDamageWithClawsJewel1", 4, 9),
+            (DamageType.Chaos, "claws", "AbyssAddedChaosDamageWithClawsJewel1", 4, 9),
+            (DamageType.Physical, "daggers", "AbyssAddedPhysicalDamageWithDaggersJewel1", 2, 3),
+            (DamageType.Lightning, "daggers", "AbyssAddedLightningDamageWithDaggersJewel1", 1, 19),
+            (DamageType.Fire, "daggers", "AbyssAddedFireDamageWithDaggersJewel1", 5, 11),
+            (DamageType.Cold, "daggers", "AbyssAddedColdDamageWithDaggersJewel1", 4, 9),
+            (DamageType.Chaos, "daggers", "AbyssAddedChaosDamageWithDaggersJewel1", 4, 9),
+        })
+        {
+            string slug = type.ToString().ToLowerInvariant();
+            string minimumStat = $"attack_minimum_added_{slug}_damage_with_{family}",
+                maximumStat = $"attack_maximum_added_{slug}_damage_with_{family}";
+            var source = Program.Items.Mods.ById(mod)!;
+            Assert.Equal(new[] { minimumStat, maximumStat }, source.Stats.Select(s => s.Id));
+            Assert.All(source.Stats, s => Assert.False(s.Local));
+            items.Change(PlayerInventories.Belt, belt.Id, item => item with
+            { Sockets = [new(SocketColour.Abyss, Eye(mod, minimum, maximum, "Murderous Eye Jewel"))] });
+            Equip(PlayerInventories.Weapon1, family == "claws" ? "Nailed Fist" : "Glass Shank");
+            Equip(PlayerInventories.Offhand1, family == "claws" ? "Glass Shank" : "Nailed Fist");
+            if (type == DamageType.Lightning)
+            {
+                var held = items.Items(PlayerInventories.Weapon1).Single();
+                items.Change(PlayerInventories.Weapon1, held.Id, item => item with
+                {
+                    Rarity = ItemRarity.Magic,
+                    Mods = [new(ModSection.Explicit, Program.Items.Mods.ById("LocalAddedLightningDamage1")!.Hash, [1, 5])],
+                });
+            }
+            var character = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+            int Get(string name) => Program.Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+            Assert.Equal(minimum, Get(minimumStat));
+            Assert.Equal(maximum, Get(maximumStat));
+            var weapon = Game.WeaponFor(conn);
+            var local = weapon.LocalDamage![type];
+            var accuracy = new AttackAccuracyProfile(Game.PlayerAccuracy(conn));
+            Assert.Equal(new DamageRange(local.Min + minimum, local.Max + maximum),
+                SupportedAttackDamage.Raw(weapon, Get, accuracy)[type]);
+            Assert.Equal(new DamageRange(local.Min * 2 + minimum * 1.5, local.Max * 2 + maximum * 1.5),
+                SupportedAttackDamage.Raw(weapon, Get, accuracy, 20_000, 15_000)[type]);
+            Assert.Equal(new DamageRange(local.Min + minimum, local.Max + maximum),
+                Game.AttackHit(weapon, character, melee: true, accuracy)[type]);
+            Assert.Equal((int)local.Min + minimum, Get($"main_hand_minimum_{slug}_damage"));
+            Assert.Equal((int)local.Max + maximum, Get($"main_hand_maximum_{slug}_damage"));
+            Assert.Equal(local, Game.WeaponFor(conn).LocalDamage![type]);
+            var off = Game.OffhandWeaponFor(conn)!;
+            Assert.Equal(off.LocalDamage![type], SupportedAttackDamage.Raw(off, Get, accuracy)[type]);
+            Assert.Equal((int)off.LocalDamage![type].Max, Get($"off_hand_maximum_{slug}_damage"));
+            Assert.Equal(0, DamageStats.RawAdded(DamagePacket.Empty, Get, spell: true)[type].Max);
+
+            // The eligible family in the other hand must not grant damage to this hand's different weapon.
+            Equip(PlayerInventories.Weapon1, family == "claws" ? "Glass Shank" : "Nailed Fist");
+            Equip(PlayerInventories.Offhand1, family == "claws" ? "Nailed Fist" : "Carving Knife");
+            character = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+            weapon = Game.WeaponFor(conn);
+            off = Game.OffhandWeaponFor(conn)!;
+            Assert.Equal(weapon.LocalDamage![type], SupportedAttackDamage.Raw(weapon, Get, accuracy)[type]);
+            Assert.Equal(new DamageRange(off.LocalDamage![type].Min + minimum, off.LocalDamage![type].Max + maximum),
+                SupportedAttackDamage.Raw(off, Get, accuracy)[type]);
+            Assert.Equal((int)off.LocalDamage![type].Max + maximum, Get($"off_hand_maximum_{slug}_damage"));
+        }
+        // The final source is dagger chaos. Rune Daggers share the native Dagger family; unrelated hands do not.
+        Equip(PlayerInventories.Offhand1, null);
+        foreach (var (name, expected) in new (string?, int)[]
+        {
+            ("Carving Knife", 9), ("Nailed Fist", 0), ("Rusted Sword", 0), ("Crude Bow", 0),
+            ("Driftwood Wand", 0), ("Driftwood Club", 0), (null, 0),
+        })
+        {
+            Equip(PlayerInventories.Weapon1, name);
+            var character = Game.FinalPlayerStats(conn).ToDictionary(s => s.Item1, s => s.Item2);
+            Assert.Equal(expected, Game.AttackHit(Game.WeaponFor(conn), character, melee: true,
+                accuracy: new(Game.PlayerAccuracy(conn)))[DamageType.Chaos].Max);
+        }
+        Equip(PlayerInventories.Weapon1, null);
+        items.Remove(PlayerInventories.Belt, belt.Id);
     }
 
     void Accuracy_boots_apply_their_less_rating_before_the_attack_grant()

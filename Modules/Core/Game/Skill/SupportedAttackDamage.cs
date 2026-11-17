@@ -37,7 +37,7 @@ public static class SupportedAttackDamage
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a
     /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase. A bow's
     /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables);
-    /// a wand's attacks take the corresponding wand ranges.
+    /// wands, claws and both dagger classes take their corresponding weapon-family ranges.
     /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
     public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get, AttackAccuracyProfile accuracy,
         int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
@@ -59,6 +59,17 @@ public static class SupportedAttackDamage
             added = added.Add(DamageType.Cold, new(
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
                 dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+        string? family = weapon.ItemClass switch
+        {
+            "Claw" => "claws", "Dagger" or "Rune Dagger" => "daggers", _ => null,
+        };
+        if (family is not null)
+            foreach (var type in DamageTypes.ConversionOrder)
+            {
+                string slug = type.ToString().ToLowerInvariant();
+                added = added.Add(type, new(get($"attack_minimum_added_{slug}_damage_with_{family}"),
+                    get($"attack_maximum_added_{slug}_damage_with_{family}")));
+            }
         if (weapon.WieldingWand)
             foreach (var (type, suffix) in WandAddedRanges)
                 added = added.Add(type, new(get($"attack_minimum_added_{suffix}"), get($"attack_maximum_added_{suffix}")));

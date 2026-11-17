@@ -415,6 +415,109 @@ public class ArrowRainAndMirageTests
         Spellblade_requires_an_active_one_hand_melee_weapon();
         Spellblade_transfers_each_active_weapon_before_spell_scaling();
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
+        Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Claw_and_dagger_projectiles_keep_the_released_hand_and_source()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        static Item Weapon(string name) => ItemCatalog.Create(Program.Items.Find(name)!);
+        foreach (var (name, itemClass, other, mod, maximum, ineligible) in new[]
+        {
+            ("Nailed Fist", "Claw", "Glass Shank", "AbyssAddedLightningDamageWithClawsJewel1__", 19, "Imperial Claw"),
+            ("Carving Knife", "Rune Dagger", "Nailed Fist", "AbyssAddedLightningDamageWithDaggersJewel1", 20, "Demon Dagger"),
+        })
+        {
+            using var b = new Battle("Spectral Throw", "Fireball", "Spellblade Support", "Shield Charge");
+            var c = b.Conn;
+            c.PlayerStats[Key("global_cannot_crit")] = 1;
+            c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+            c.PlayerStats[Key("lightning_damage_+%")] = 100;
+            var items = Game.ItemsOf(c);
+            var host = items.Items(PlayerInventories.Weapon1).Single();
+            var activeType = Program.Items.ByHash(host.Item.Sockets[0].Gem!.TypeHash)!;
+            var body = items.Add(PlayerInventories.BodyArmour, 0, 0, Weapon("Simple Robe") with
+            {
+                ItemLevel = 100,
+                Sockets = [host.Item.Sockets[0] with { Gem = host.Item.Sockets[0].Gem! with
+                    { GemExperience = Program.Items.Gem(activeType)!.ExperienceFor(2) } }, .. host.Item.Sockets.Skip(1)],
+                Links = [1, 2, 1],
+            })!;
+            items.Change(PlayerInventories.Weapon1, host.Id, _ => Weapon(name));
+            items.Add(PlayerInventories.Offhand1, 0, 0, Weapon(other));
+            items.Add(PlayerInventories.Weapon2, 0, 0, Weapon("Rusted Sword"));
+            var jewel = Weapon("Murderous Eye Jewel") with
+            {
+                Rarity = ItemRarity.Magic,
+                Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [1, maximum])],
+            };
+            var belt = items.Add(PlayerInventories.Belt, 0, 0, Weapon("Stygian Vise") with
+            { Sockets = [new(SocketColour.Abyss, jewel)] })!;
+            var attack = Game.GemSkillEffects(c).Single(g => g.Name == "Spectral Throw");
+            var spell = Game.GemSkillEffects(c).Single(g => g.Name == "Fireball");
+            Assert.Null(Game.WeaponRestricted(c, attack.Effect));
+            Assert.Equal(itemClass, Game.WeaponFor(c).ItemClass);
+            Assert.Equal((10_260, 10_260), Game.SkillsFor(c).DamageCoefficients(attack.Effect, attack.Level));
+            // Native level-two Spectral Throw has base/added offsets260:102.6% before increased lightning.
+            var raw = new DamageRange(1.026, maximum * 1026 / 1000d);
+            var hit = new DamageRange(2.052, maximum * 2052 / 1000d);
+            Assert.Equal(raw, Game.SupportedHitInputsFor(c, attack.Id)!.Raw[DamageType.Lightning]);
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, attack.Id, weapon: Game.OffhandWeaponFor(c))!.Raw[DamageType.Lightning].Max);
+            Assert.Equal(hit, Game.SupportedProjectileHit(c, attack.Id, area: false)[DamageType.Lightning]);
+            var panel = Game.PlayerSkills(c).Single(s => s.Id == attack.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal((int)hit.Min, panel[Key("main_hand_minimum_lightning_damage")]);
+            Assert.Equal((int)hit.Max, panel[Key("main_hand_maximum_lightning_damage")]);
+            Assert.Equal(0, panel.GetValueOrDefault(Key("off_hand_maximum_lightning_damage")));
+            var off = items.Items(PlayerInventories.Offhand1).Single();
+            items.Change(PlayerInventories.Offhand1, off.Id, _ => Weapon(name));
+            Assert.Equal(hit, Game.SupportedOffHandHit(c, attack.Id, Game.OffhandWeaponFor(c)!)[DamageType.Lightning]);
+            var both = Game.PlayerSkills(c).Single(s => s.Id == attack.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal((int)hit.Max, both[Key("off_hand_maximum_lightning_damage")]);
+            // The real shield override must not inherit the eligible weapon still held in the main hand.
+            items.Change(PlayerInventories.Offhand1, off.Id, _ => Weapon("Splintered Tower Shield"));
+            var charge = Game.GemSkillEffects(c).Single(g => g.Name == "Shield Charge");
+            Assert.Null(Game.WeaponRestricted(c, charge.Effect));
+            var shield = Assert.IsType<SkillCatalog.Unarmed>(Game.ShieldWeapon(c, charge.Id));
+            Assert.Null(shield.ItemClass);
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, charge.Id, weapon: shield)!.Raw[DamageType.Lightning].Max);
+            var shieldPanel = Game.PlayerSkills(c).Single(s => s.Id == charge.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal(0, shieldPanel.GetValueOrDefault(Key("main_hand_maximum_lightning_damage")));
+            items.Change(PlayerInventories.Offhand1, off.Id, _ => Weapon(other));
+            uint spellblade = Key("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage");
+            Assert.Equal(40, Game.SupportedSkill(c, spell.Id).Stats[spellblade]);
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, spell.Id)!.Raw[DamageType.Lightning].Max);
+            items.Change(PlayerInventories.BodyArmour, body.Id, item => item with { Links = [1, 1, 1, 1] });
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, spell.Id)!.Raw[DamageType.Lightning].Max);
+            items.Change(PlayerInventories.BodyArmour, body.Id, item => item with { Links = [1, 2, 1] });
+
+            // The jewel and body-socketed skill remain active when a high-level weapon becomes unusable.
+            items.Change(PlayerInventories.Weapon1, host.Id, _ => Weapon(ineligible));
+            c.Experience = CharacterStats.ExperienceFor(50);
+            c.Pools = Game.PoolsFor(c, 50);
+            Assert.Null(Game.ActiveMainHand(c));
+            Assert.Equal(2, Game.GemSkillEffects(c).Single(g => g.Id == attack.Id).Level);
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, attack.Id)!.Raw[DamageType.Lightning].Max);
+            c.Experience = CharacterStats.ExperienceFor(100);
+            c.Pools = Game.PoolsFor(c, 100);
+            items.Change(PlayerInventories.Weapon1, host.Id, _ => Weapon(name));
+            Assert.Equal(raw, Game.SupportedHitInputsFor(c, attack.Id)!.Raw[DamageType.Lightning]);
+
+            var use = Game.CaptureGemProjectile(c, b.Session, attack.Id, attack, (120, 100), new(0));
+            var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+            Assert.Equal(hit, shot.Hit[DamageType.Lightning]);
+            Assert.Equal(1, use.Profile.Count);
+            b.Session.Runtime.Release(use);
+            items.SwapWeaponSets();
+            Assert.Equal("One Hand Sword", Game.WeaponFor(c).ItemClass);
+            Assert.Equal(attack.Id, Game.GemSkillEffects(c).Single(g => g.Name == "Spectral Throw").Id);
+            Assert.Equal(0, Game.SupportedHitInputsFor(c, attack.Id)!.Raw[DamageType.Lightning].Max);
+            items.Remove(PlayerInventories.Belt, belt.Id);
+            Assert.Equal(hit, shot.Hit[DamageType.Lightning]);
+            // Advance only through the outgoing leg, before the existing Spectral Throw return begins.
+            b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+            Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, (uint)hit.Min, (uint)hit.Max);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        }
     }
 
     static void Weapon_cold_per_dexterity_stays_with_its_source()

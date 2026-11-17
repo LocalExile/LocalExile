@@ -279,6 +279,12 @@ The `AbyssAdded*DamageWithWandsJewel` modifiers supply these ranges through equi
 They enter added damage for the attacking wand before its skill's added effectiveness, not the local weapon base.
 Other weapon families and spells do not receive them; their native panel and hit presentation remain unverified.
 
+The claw/dagger pairs are global Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815 and 14155-14158.
+Their descriptions (2121-2122, 2131-2132, 2139-2140, 2147-2148, 2154-2155) restrict the additions to that hand's
+attacks. The dagger descriptions reference `ReminderTextDaggerRuneDagger` (ReminderText 157): Rune Daggers count
+as Daggers. `AbyssAdded*DamageWithClaws/DaggersJewel` has positive spawn weight for `abyss_jewel_melee` (234), the
+Murderous Eye Jewel tag. Native panel/hit parity and special weapon-identity overrides remain unverified.
+
 Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
 `minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).
 Native stat description 9405 applies the range per 1% light radius **above base**. The modifier's 2-5 therefore gives

@@ -102,6 +102,7 @@ public static partial class Game
         return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
         {
             LocalDamage = local.Damage, LocalSources = SupportedAttackDamage.WeaponSources(item, catalog.Mods),
+            ItemClass = type.Class,
             WieldingWand = type.Class == "Wand", Bow = type.Class == "Bow", Melee = type.Class is not ("Wand" or "Bow"),
         };
     }
