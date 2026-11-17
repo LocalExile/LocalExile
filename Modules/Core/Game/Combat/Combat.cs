@@ -1935,7 +1935,7 @@ public static partial class Game
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
                 uint lifeBefore = m.Life;
                 applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
-                    cull: Cull.Of(player, skillStats, critical, spell));
+                    cull: Cull.Of(player, skillStats, critical, spell), cullPlayer: player);
                 if (applied is not null)
                 {
                     // Cruelty: a hit of a Cruelty-supported skill grants its buff, scaled by the damage the hit dealt
@@ -2247,11 +2247,11 @@ public static partial class Game
     // it hits from) is not the player's hit for his hit-recently.
     public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null,
-        Cull cull = default)
+        Cull cull = default, IReadOnlyDictionary<uint, int>? cullPlayer = null)
     {
         if (m.Dead || m.Life == 0) return null;
         uint before = m.Life;
-        (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
+        (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player, cullPlayer);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
         if (allyAt is null)
         {

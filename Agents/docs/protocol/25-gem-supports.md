@@ -83,8 +83,10 @@ The support's quality stat `recover_%_maximum_life_on_cull` (0.1 per 1% quality)
 on a cull, applied at once and sent with the next vitals update like instant leech.
 Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the weapon-local, flask, stun
 and "crit recently" conditional sources, the "Culled Recently" stats or the onslaught buff on cull. The target-state
-conditional sources (bleeding, burning, frozen, cursed, marked and poacher's-marked enemies, and a hit that leaves the
-enemy under 10% Life) now cull at 10%, and flat Life and Mana gained on cull are granted.
+conditional sources (burning — including Righteous Fire's own burn — frozen, cursed, marked and poacher's-marked
+enemies, and a hit that leaves the enemy under 10% Life) now cull at 10%, and flat Life and Mana gained on cull are
+granted. The weapon-local bleeding source (`local/main_hand/off_hand_culling_strike_vs_bleeding_enemies`) needs the
+hit's weapon context and remains outside this implementation.
 
 Green supports with a condition or an execution of their own now run: Cull the Weak culls normal and magic enemies at
 `kill_normal_or_magic_enemy_on_hit_if_under_x%_life` (Culling Strike's share still applies to every rarity), Pacifism's
