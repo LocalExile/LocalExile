@@ -93,4 +93,5 @@ The client data is enough to tell them, because **a unique Idol is an Atlas pass
 - Ctrl + click does not move an Idol: pick it up and put it down.
 - Kingsmarch's Idol gambling is not there, nor the two Ruthless versions of unique Idols (`UniqueMapRelicHardMode…`).
 - How often an Idol is unique is the server's own number, like the other drop rates.
-- With the tree hidden the server still takes an Atlas passive allocation, which only a dev command can send.
+- Hiding the tree does not switch it off on the server: Atlas passives allocated while the tree was enabled, or
+  allocated through a dev command, can still affect maps after the tree is disabled.
