@@ -58,6 +58,7 @@ public static partial class Game
             conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        SelfBuffsOnKill(conn);
         CurseCharges(conn, m, true);
     }
 
