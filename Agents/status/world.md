@@ -111,10 +111,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats, the type a
   Strongboxes row by weight and the area and atlas stats (live: opened in The Crossroads, The Riverways and a Geode
-  map). Boxes roll normal, magic or rare with chest-domain mods (not tried live), which act on their loot and guards;
-  the loot drops once the guards are dead, and a box may close to be opened again. Currency changes a closed box
-  (C→S 0x74). Unique boxes and the trap and curse mods (display only) are not implemented.
-  Source: `Modules/Core/Content/Strongbox`; [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+  map). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods (not tried live); the content,
+  item and guard mods act. Display only: Summons Skeletons, Rogue Exile, Revive, the stream of monsters, gems with
+  experience, the three Diviner's card suffixes and the trap, ground, curse and explosion mods; and the atlas's
+  `map_strongbox_scarab_more_likely_%`. The loot drops once the guards are dead (any connection in the instance), and a
+  box may close once to be opened again. Currency changes a closed box (C→S 0x74); a Vaal Orb locks it and its
+  contents drop corrupted (flag only). Our own: `__col2` as the item count, Jumbled Abundance's one-in-four strongboxes.
+  Unique boxes are not implemented. Source: `Modules/Core/Content/Strongbox`;
+  [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

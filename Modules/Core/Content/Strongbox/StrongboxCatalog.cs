@@ -15,8 +15,8 @@ public static class StrongboxCatalog
     /// else from its id (Arcanist: currency, Artisan: quality currency), else the general drop table.</summary>
     public enum Contents { General, Currency, QualityCurrency, Armour, Weapon, Jewellery, Gem, Map, Card, Scarab }
 
-    /// <param name="Items">The Strongboxes row's <c>__col2</c> (5, 10, 12, 15): read as the box's base item count
-    /// (assumed: Armourer's 15, Blacksmith's 12, Large and Ornate 10, the rest 5).</param>
+    /// <param name="Items">The Strongboxes row's <c>__col2</c> (5, 10, 12, 15): read as the box's base item count.
+    /// ASSUMED meaning (unnamed column; it fits Armourer's 15, Blacksmith's 12, Large and Ornate 10, the rest 5).</param>
     /// <param name="WeightStat">The area stat (client key) that raises the weight in percent, or 0.</param>
     /// <param name="HiddenRarity">The chest mods' <c>chest_hidden_item_rarity_+%</c> (Ornate: 500).</param>
     /// <param name="SummonRarity">The chest mods' <c>summoned_monster_rarity</c> (ChestSummonNormals: normal).</param>

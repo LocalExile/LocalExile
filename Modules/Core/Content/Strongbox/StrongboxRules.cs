@@ -46,7 +46,8 @@ public static class StrongboxRules
         var s = ExtraTerrainFeatures.LeagueStruct(area, AmbushRow.Value);
         int count = ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(Seed(seed, "count")), AmbushRow.Value);
         // Jumbled Abundance: each of its X additional contents is a strongbox, an imprisoned monster, a shrine or a rogue
-        // exile; the strongboxes are this module's (one in four of them, assumed even). Not when the area excludes them.
+        // exile; the strongboxes are this module's. INVENTED split: one in four (no source says how the X are divided).
+        // Not when the area excludes strongboxes.
         int jumbled = 0;
         if (s.Max > 0 && area.Stat((int)StatKey("map_contains_X_additional_strongboxes_essences_shrines_or_rogue_exiles")) is int x and > 0)
         {

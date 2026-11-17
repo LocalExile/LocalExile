@@ -24,7 +24,9 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
     /// <summary>ObjectMagicProperties' identified flag (u16 0x08) on an object without mods: without it the client's
-    /// nameplate adds an "Unidentified" line under the name (03-area-and-world.md, shrine objects). Off by default.</summary>
+    /// nameplate adds an "Unidentified" line under the name (03-area-and-world.md, shrine objects). Off by default.
+    /// With <see cref="Mods"/> it is not read: that path always writes identified (the client reads the explicit list
+    /// only of an identified object).</summary>
     public bool Identified { get; init; }
     /// <summary>ObjectMagicProperties' rarity (flags bits 0-2, as a monster's: 0 normal, 1 magic, 2 rare). 0 by default.</summary>
     public byte Rarity { get; init; }

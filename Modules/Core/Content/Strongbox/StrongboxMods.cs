@@ -12,8 +12,9 @@ namespace GameServer.Modules.Strongbox;
 /// </summary>
 public static class StrongboxMods
 {
-    /// <summary>A box's base chances to be rare, else magic, in percent. Assumed: no client table gives a chest's rarity
-    /// odds (Strongboxes, Chests, Rarity and ChestEffects have none), so these are the server's own.</summary>
+    /// <summary>A box's base chances to be rare, else magic, in percent. INVENTED (our own values, not the game's): no
+    /// client table gives a chest's rarity odds (Strongboxes, Chests, Rarity and ChestEffects have none) and no public
+    /// source states them. Constants rather than settings: no other module exposes its drop odds as a setting.</summary>
     public const int RareChance = 10, MagicChance = 35;
 
     /// <summary>The chest domain (Mods.Domain).</summary>
