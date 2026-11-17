@@ -163,20 +163,50 @@ public static partial class Game
                 if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
-                visuals.Clear(); output.Writer.TryComplete();
+                visuals.Clear(); later.Clear(); output.Writer.TryComplete();
             }
         }
 
-        public void Enqueue(Func<Task> intent)
+        public void Enqueue(Func<Task> intent) => Write(intent, keepsWorldGroup: false);
+
+        // keepsWorldGroup: an intent that a world group may be sent ahead of (an immediate packet, a later item's marker);
+        // anything else closes the open group, so no record goes out before an intent queued ahead of it.
+        void Write(Func<Task> intent, bool keepsWorldGroup)
         {
             lock (Conn.Monsters)
             {
+                if (!keepsWorldGroup) openWorld = null;
                 if (!Active || output.Writer.TryWrite(intent)) return;
                 // Never stall gameplay or silently lose ordered lifecycle/inventory packets on a slow socket.
                 Console.WriteLine($"[gateway] {remote} projectile output backlog exceeded 8192 intents; closing connection");
                 Conn.Closed = true; Invalidate(); stream.Close();
             }
         }
+        // A kill's aftermath (its loot roll, its explosion, the remaining-monsters count) waits behind the presentation
+        // queued with it: one output queue ran them in order, so the next monster's life update of the same Fireball
+        // explosion waited for the loot roll of the one before (live 2026-11-17: 60-160 ms between the life updates of one
+        // explosion's kills). Such work goes back behind whatever was queued when its turn came, each item on its own turn,
+        // for at most LaterYield, and the later work keeps its own order. A shorter bound (250 ms) let one pile's twelve
+        // loot rolls run back to back and held the next Fireball's hits 300 ms.
+        readonly System.Collections.Concurrent.ConcurrentQueue<(Func<Task> Work, long Since)> later = new();
+        static readonly TimeSpan LaterYield = TimeSpan.FromSeconds(2);
+        public void EnqueueLater(Func<Task> work)
+        {
+            later.Enqueue((work, System.Diagnostics.Stopwatch.GetTimestamp()));
+            Write(RunLater, keepsWorldGroup: true);
+        }
+        Task RunLater()
+        {
+            if (!later.TryPeek(out var next)) return Task.CompletedTask;
+            // Each later item has one marker in the queue (this one runs): the rest of the queue's count is presentation.
+            if (output.Reader.Count > later.Count - 1 && System.Diagnostics.Stopwatch.GetElapsedTime(next.Since) < LaterYield)
+            {
+                Write(RunLater, keepsWorldGroup: true);
+                return Task.CompletedTask;
+            }
+            return later.TryDequeue(out next) ? next.Work() : Task.CompletedTask;
+        }
+
         public void PresentCharges() => Packet(() =>
         {
             _ = CharacterPlayerStats(Conn);
@@ -185,7 +215,7 @@ public static partial class Game
             return packet;
         });
         public void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
-        public void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
+        public void Packet(Func<byte[]?> snapshot, string? log = null) => Write(async () =>
         {
             while (Active)
             {
@@ -202,7 +232,7 @@ public static partial class Game
                 if (completed) return;
                 await Task.Delay(16);
             }
-        });
+        }, keepsWorldGroup: true);
 
         public void World(uint id, byte[] bytes, string? log = null)
         {
@@ -213,8 +243,89 @@ public static partial class Game
             WorldRecords(id, () => snapshot() is { } bytes ? [bytes] : null, log);
         public void Create(uint id, Func<byte[]?> snapshot, bool wake = false, string? log = null) =>
             WorldRecords(id, () => snapshot() is { } bytes ? [bytes] : null, log, create: true, wake: wake);
+        // A lockstep client's plain world records queued together (one projectile step's hits: each target's life, its hit
+        // message, its recovery) go out in one admission, so they share a frame: one by one, each waited for the gate
+        // and the Monsters lock behind the AI and the other loops, and one explosion's twelve life updates reached the
+        // client over two or three frames, 80-130 ms after it (sync trace 2026-11-18). A record for an object whose
+        // removal is under way drops out; a group that cannot be admitted goes record by record as before. An object's
+        // create or removal queued meanwhile (a flight's end, an explosion's effect) bars only that object: its later
+        // records start a group behind it, the other objects' records still join (a create closing the group split one
+        // explosion's life updates over three frames).
+        sealed class WorldGroup
+        {
+            public readonly List<(uint Id, Func<byte[][]?> Snapshot, string? Log)> Items = [];
+            public readonly HashSet<uint> Barred = [];
+        }
+        WorldGroup? openWorld;
+
         public void WorldRecords(uint id, Func<byte[][]?> snapshot, string? log = null, bool create = false,
-            bool remove = false, bool wake = false) => Enqueue(async () =>
+            bool remove = false, bool wake = false)
+        {
+            if (!Conn.LockstepClient)
+            {
+                Enqueue(() => SendWorldRecordsNow(id, snapshot, log, create, remove, wake));
+                return;
+            }
+            lock (Conn.Monsters)
+            {
+                if (create || remove)
+                {
+                    openWorld?.Barred.Add(id);
+                    Write(() => SendWorldRecordsNow(id, snapshot, log, create, remove, wake), keepsWorldGroup: true);
+                    return;
+                }
+                if (openWorld is { } open && !open.Barred.Contains(id))
+                {
+                    open.Items.Add((id, snapshot, log));
+                    return;
+                }
+                var group = new WorldGroup();
+                group.Items.Add((id, snapshot, log));
+                Write(() => SendWorldGroup(group.Items), keepsWorldGroup: false);
+                openWorld = group;
+            }
+        }
+
+        async Task SendWorldGroup(List<(uint Id, Func<byte[][]?> Snapshot, string? Log)> group)
+        {
+            lock (Conn.Monsters) if (ReferenceEquals(openWorld?.Items, group)) openWorld = null;
+            if (group.Count == 1)
+            {
+                await SendWorldRecordsNow(group[0].Id, group[0].Snapshot, group[0].Log, false, false, false);
+                return;
+            }
+            var world = Conn.WorldOutput;
+            var targets = new Dictionary<uint, WorldObject>();
+            foreach (var (id, _, _) in group)
+                if (!targets.ContainsKey(id) && world.PublishedObject(id) is { } target
+                    && target.State != WorldObject.BirthState.Retired && !target.RemovalRequested) targets[id] = target;
+            while (Active)
+            {
+                bool completed = false, paused = false;
+                bool admitted = await SendWorldBatch(Conn, [.. targets.Values.Distinct()], _ =>
+                {
+                    lock (Conn.Monsters)
+                    {
+                        if (!Active || Conn.Paused) { paused = true; return null; }
+                        completed = true;
+                        List<OutputRecord> records = [];
+                        foreach (var (id, snapshot, log) in group)
+                            if (targets.TryGetValue(id, out var target) && snapshot() is { } bytes)
+                                foreach (var record in bytes)
+                                    if (record.Length > 0) records.Add(PresentedRecord(target, record, log));
+                        return records.Count == 0 ? null : new([.. records]);
+                    }
+                }, transport: (remote, stream, ciphers));
+                // Admitted, or projected with nothing to send: done. Refused before its projection (a target not ready at
+                // the gate) and not for a pause: record by record, as before.
+                if (admitted || completed || world.Closed) return;
+                if (!paused) break;
+                await Task.Delay(16);
+            }
+            if (Active) foreach (var (id, snapshot, log) in group) await SendWorldRecordsNow(id, snapshot, log, false, false, false);
+        }
+
+        async Task SendWorldRecordsNow(uint id, Func<byte[][]?> snapshot, string? log, bool create, bool remove, bool wake)
         {
             while (Active)
             {
@@ -250,7 +361,7 @@ public static partial class Game
                 if (completed || Conn.WorldOutput.Closed) return;
                 await Task.Delay(16);
             }
-        });
+        }
 
         async Task RunOutput()
         {

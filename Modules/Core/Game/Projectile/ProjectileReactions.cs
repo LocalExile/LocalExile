@@ -126,18 +126,20 @@ public static partial class Game
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
-            if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
+            // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
+            // the projectile step's world group, and the first kill's life update went a frame before the others.
+            session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
+            if (OnslaughtOnKill(conn)) session.EnqueueLater(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
-            session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
+            session.EnqueueLater(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
-            session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
+            session.EnqueueLater(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
-        foreach (var send in kill.Afterwards) session.Enqueue(send);
+        foreach (var send in kill.Afterwards) session.EnqueueLater(send);
         uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
@@ -170,11 +172,11 @@ public static partial class Game
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
         // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
         // Game.MonsterKilled (MonsterRemaining.cs).
-        session.Enqueue(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
+        session.EnqueueLater(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
-        // output task runs after it.
-        session.Enqueue(() =>
+        // output task runs after it, behind the hits queued with it (EnqueueLater).
+        session.EnqueueLater(() =>
         {
             CommitProjectileLoot(session, monster, position);
             return Task.CompletedTask;
@@ -223,8 +225,10 @@ public static partial class Game
     {
         var conn = session.Conn;
         if (HardcoreProgressBlocked(conn)) return;
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // Built only for a flask that can still gain: a full flask bar (the common case in a pack fight) needs no stats,
+        // and every kill of an explosion asked for the full snapshot under the lock.
+        Dictionary<uint, int>? stats = null;
+        int Get(string name) => Stats.Key(name) is uint key ? (stats ??= CharacterPlayerStats(conn)).GetValueOrDefault(key) : 0;
         var items = ItemsOf(conn);
         var changed = new List<InventoryItem>();
         foreach (var flask in items.Items(PlayerInventories.Flask))
