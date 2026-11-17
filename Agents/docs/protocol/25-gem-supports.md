@@ -305,5 +305,7 @@ Other generic triggers remain unavailable.
 Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
 actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.
 Triggered roots use server projectile objects because there is no local input action to predict them.
+Such an object plays its rig's impact clip where it stops (`projectile_clips`, Fireball's `fireball_explode`) and stays
+for the clip's length; removed at once it showed no explosion, which the client plays itself for its own cast.
 The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
 Native targeting, visual parity and threshold timing require client verification.

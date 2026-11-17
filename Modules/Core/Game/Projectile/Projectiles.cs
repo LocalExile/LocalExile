@@ -511,6 +511,17 @@ public static partial class Game
             if (!valid && value.Kind != ProjectileEventKind.End) return;
             int x = (int)Math.Round(value.Position.X), y = (int)Math.Round(value.Position.Y);
             var presentation = PresentationFor(p);
+            // A gem skill's server-drawn projectile plays its rig's impact clip where it stops (Projectiles.dat
+            // ImpactAnimationIds: Fireball's fireball_explode), as a monster's does. Without one the object was only
+            // removed, so a triggered, totem, trap or mine Fireball showed no explosion, while the client plays it for
+            // its own cast (live 2026-11-17).
+            if (presentation.ImpactClip is null && !presentation.StayOnImpact && p.Use.Payload is ProjectileOffense
+                && SkillsFor(Conn).Clips(p.Profile.Id)?.Impact is { } rigImpact)
+                presentation = presentation with
+                {
+                    ImpactClip = rigImpact.Index,
+                    ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
+                };
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"

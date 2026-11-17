@@ -116,6 +116,7 @@ Nothing yet.
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
   CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
+  Server-drawn gem projectiles (triggers, totems) play their impact clip, such as Fireball's explosion.
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
