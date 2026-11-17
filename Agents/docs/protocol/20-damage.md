@@ -59,6 +59,10 @@ does the mirror pass through the player's resistances. Damage over time is outsi
 penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
 monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
 before the ignites, the burn took only the mods' resistance).
+Izaro's Toggle Statues carry a signed elemental damage-taken modifier: LabyrinthSecretEffects 16–21 map
+BuffDefinitions 559–564 to Stats 2085/3688/3689 with -20, in both the first and returning trials.
+Those are reduced fire/cold/lightning damage taken, not resistance or a hit-only reduction. They add to the
+matching DoT's general and elemental increased/reduced damage-taken bucket; native damage parity is unverified.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same

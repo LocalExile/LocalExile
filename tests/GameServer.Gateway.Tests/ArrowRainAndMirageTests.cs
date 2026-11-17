@@ -418,8 +418,114 @@ public class ArrowRainAndMirageTests
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
         Different_weapon_mastery_reaches_shared_damage();
+        Monster_elemental_modifiers_reach_damage_over_time();
         Righteous_fire_uses_player_damage_modifiers();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Monster_elemental_modifiers_reach_damage_over_time()
+    {
+        // Precompiled Mods bind to this exact public signature, not to optional-argument source syntax.
+        Assert.NotNull(typeof(Game).GetMethod(nameof(Game.MonsterDamageTaken),
+            [typeof(SpawnedMonster), typeof(bool), typeof(double), typeof(bool), typeof(bool), typeof(bool)]));
+        using var b = new Battle("Righteous Fire");
+        var c = b.Conn;
+        var m = b.Enemy;
+        c.Pools = Game.PoolsFor(c, 100);
+        m.Walk.Teleport(110, 100, 0);
+        b.Ally.Walk.Teleport(110, 100, 0);
+        var fire = IzaroEffects.Of(IzaroStatues.Mechanic, 1, returning: false).Single(e => e.Element == 0);
+        Assert.Equal("ToggleStatuesNormal_Fire", fire.Id);
+        Assert.Equal((ushort)559, fire.Buff);
+        Assert.Equal(-20, fire.Stats["fire_damage_taken_+%"]);
+        m.EncounterStats = IzaroEffects.Sum([fire]);
+        Assert.Equal(-20, m.Effects["fire_damage_taken_+%"]);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        Game.ActivateRighteousFire("elemental-dot", b.Stream, b.Ciphers, c, gem.Id,
+            gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
+        var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        double baseDps = (c.PlayerMaxLife + c.Pools.EnergyShield) * .7;
+        void Burn(double factor)
+        {
+            m.Life = m.MaxLife;
+            m.Burn = 0;
+            uint playerLife = c.PlayerLife;
+            Game.BurnAround("elemental-dot", b.Stream, b.Ciphers, c, rf, .5).GetAwaiter().GetResult();
+            Assert.Equal((int)Math.Floor(baseDps * factor * .5), (int)(m.MaxLife - m.Life));
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(playerLife, c.PlayerLife);
+            Assert.DoesNotContain(201u, rf.Auras.Keys);
+        }
+        Burn(.8); // Real Normal statue: the original failure was 435 instead of 348.
+        m.EncounterStats = null;
+        Burn(1);
+        m.EncounterStats = IzaroEffects.Sum([fire]);
+        Burn(.8);
+
+        DamageType[] elements = [DamageType.Fire, DamageType.Cold, DamageType.Lightning];
+        string[] names = ["fire", "cold", "lightning"];
+        foreach (int tier in new[] { 1, 2, 3, 4 })
+        foreach (bool returning in new[] { false, true })
+        foreach (var effect in IzaroEffects.Of(IzaroStatues.Mechanic, tier, returning))
+        {
+            Assert.Equal(-20, effect.Stats[names[effect.Element] + "_damage_taken_+%"]);
+            m.EncounterStats = IzaroEffects.Sum([effect]);
+            foreach (var type in elements)
+                Assert.Equal(type == elements[effect.Element] ? .8 : 1, Game.MonsterDotTaken(m, type), 6);
+            Assert.Equal(1, Game.MonsterDotTaken(m, DamageType.Physical));
+            Assert.Equal(1, Game.MonsterDotTaken(m, DamageType.Chaos));
+            Burn(effect.Element == 0 ? .8 : 1);
+        }
+
+        void Taken(params (string Name, int Value)[] stats) =>
+            m.EncounterStats = stats.ToDictionary(s => s.Name, s => s.Value);
+        // Typed and general increases share one bucket, including signed reductions and the final zero clamp.
+        Taken(("base_damage_taken_+%", 30), ("fire_damage_taken_+%", 20),
+            ("cold_damage_taken_+%", -10), ("lightning_damage_taken_+%", -50));
+        Assert.Equal(1.5, Game.MonsterDotTaken(m, DamageType.Fire), 6);
+        Assert.Equal(1.2, Game.MonsterDotTaken(m, DamageType.Cold), 6);
+        Assert.Equal(.8, Game.MonsterDotTaken(m, DamageType.Lightning), 6);
+        Assert.Equal(1.3, Game.MonsterDotTaken(m, DamageType.Physical), 6);
+        Assert.Equal(1.3, Game.MonsterDotTaken(m, DamageType.Chaos), 6);
+        Burn(1.5);
+        Taken(("base_damage_taken_+%", 50), ("fire_damage_taken_+%", -100));
+        Burn(.5);
+        Taken(("base_damage_taken_+%", 20), ("fire_damage_taken_+%", -150));
+        Burn(0);
+
+        Taken(("base_damage_taken_+%", 20), ("fire_damage_taken_+%", -20));
+        m.TakenFromPlayer = (All: 10, Elemental: 30, Physical: 0);
+        Assert.Equal(1.4, Game.MonsterDotTaken(m, DamageType.Fire, 0), 6);
+        m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Shock, 4, 0, _ => 0, _ => 0, stated: 20);
+        Assert.Equal(1.6, Game.MonsterDotTaken(m, DamageType.Fire, 0), 6);
+        Assert.Equal(1.4, Game.MonsterDotTaken(m, DamageType.Fire, 4), 6);
+        m.TakenFromPlayer = default;
+        // Use a time after the controlled shock expires for the remaining factor checks.
+        void Factor(double expected) => Assert.Equal(expected, Game.MonsterDotTaken(m, DamageType.Fire, 4), 6);
+        Taken(("fire_damage_taken_+%", -20), ("base_fire_damage_resistance_%", 50));
+        Factor(.4);
+        Taken(("fire_damage_taken_+%", -20), ("base_fire_damage_resistance_%", 200));
+        Factor(.2);
+        Taken(("fire_damage_taken_+%", -20), ("base_fire_damage_resistance_%", 200),
+            ("additional_maximum_all_elemental_resistances_%", 10));
+        Factor(.12);
+        Taken(("fire_damage_taken_+%", -20), ("base_fire_damage_resistance_%", -20));
+        Factor(.96);
+        Taken(("fire_damage_taken_+%", -20), ("rare_monster_mod_spell_damage_taken_+%_final", -90));
+        Factor(.8); // RF and ignites are not spell hits.
+        Taken(("fire_damage_taken_+%", -20), ("map_monster_damage_taken_+%_final_from_atlas_keystone", -40));
+        Factor(.48);
+        Taken(("fire_damage_taken_+%", 500), ("base_cannot_be_damaged", 1));
+        Factor(0);
+
+        // The shared consumer also feeds ignites; changing the target does not replace the applied ignite.
+        m.EncounterStats = IzaroEffects.Sum([fire]);
+        Assert.True(m.Ignites.Add(4, 100, 4));
+        Assert.Equal(80, m.Ignites.Advance(5, Game.MonsterDotTaken(m, DamageType.Fire, 5)));
+        m.EncounterStats = null;
+        Assert.Equal(100, m.Ignites.Advance(6, Game.MonsterDotTaken(m, DamageType.Fire, 6)));
+        m.EncounterStats = IzaroEffects.Sum([fire]);
+        Assert.Equal(80, m.Ignites.Advance(7, Game.MonsterDotTaken(m, DamageType.Fire, 7)));
     }
 
     static void Righteous_fire_uses_player_damage_modifiers()
