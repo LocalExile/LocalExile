@@ -221,6 +221,7 @@ public static partial class Game
             int damage = MonsterTakesMitigated(m, mitigated, spellDamage, now);
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
+            OwnedKillLocked(m, hit.Life);
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
             if (!m.Dead)
                 foreach (var effect in m.Ailments.Inflict(mitigated, false, m.MaxLife, now,
@@ -245,6 +246,7 @@ public static partial class Game
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total)); ground.Carry[id] = total - damage;
             if (damage <= 0 || ApplyMonsterHitLocked(conn, monster, damage, allyAt: ground.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, monster, now); hit = hit with { StageStarts = false }; }
+            OwnedKillLocked(monster, hit.Life);
             CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, "Fire Trap burning ground", playerKill: false);
         }
         foreach (var ground in conn.Placed.Grounds.ToArray())

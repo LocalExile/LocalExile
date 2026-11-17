@@ -496,7 +496,12 @@ character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of me
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter's
 `gain_magic_monster_mods_on_kill_%_chance` (20) steals a magic monster's affixes on that chance into 60 s stacks of their
 own, shown with `stolen_mods_buff_experimented` (BuffDefinitions 1653, "Replica Headhunter"), and its
-`damage_+%_vs_magic_monsters` scales hits on magic monsters as the rare one does.
+`damage_+%_vs_magic_monsters` scales hits on magic monsters as the rare one does. Both steal on the wearer's own kills
+and on their minions', totems', traps' and mines' (`Game.KilledByPlayerOrOwned`), never on a party member's: the wiki's
+Headhunter mechanics count those as an exception to "you"; Replica Headhunter is taken to follow it. Such kills reach
+`GameEvents.Kill` with `PlayerKill` false, so their kill sites (minion hits, traps and mines, Fire Trap's ground, Arc
+totems, totem projectiles) mark the monster first; a Mirage Archer's kills and an ownerless damage-over-time death are
+not marked.
 
 **Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
 its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack

@@ -361,7 +361,7 @@ public static partial class Game
             AreaHit = SupportedHitFrom(areaInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
-            ActualCaster = totem is null ? null : TotemCasterStats(player),
+            ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own),
             MirageSource = totem is null && Own("support_mirage_archer_base_duration") > 0 ? SupportedSkill(conn, skillId) : null,
