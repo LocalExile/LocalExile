@@ -385,6 +385,13 @@ public static partial class Game
             lock (conn.Monsters) frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
             stats[frenzyBucket] = stats.GetValueOrDefault(frenzyBucket) + skillPerFrenzy * frenzy;
         }
+        // The Frenzy gem's own "5% more Attack Speed per Frenzy Charge" (a more multiplier of value x charges).
+        if (Get("frenzy_skill_attack_speed_+%_final_per_frenzy_charge") is int frenzyMore and not 0)
+        {
+            int frenzy;
+            lock (conn.Monsters) frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
+            more *= Math.Max(.01, 1 + (double)frenzyMore * frenzy / 100);
+        }
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         more *= CombatRushMore(conn, skillId, gem, conn.Clock.Elapsed.TotalSeconds);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
@@ -528,6 +535,9 @@ public static partial class Game
         }
         if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
+        // The Frenzy gem's "5% more Attack Damage per Frenzy Charge": its hit and the ailments from it.
+        if (attack && Get("frenzy_skill_attack_damage_+%_final_per_frenzy_charge") is int frenzyMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + (double)frenzyMore * Get("current_frenzy_charges") / 100));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         return new(raw, Get, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,

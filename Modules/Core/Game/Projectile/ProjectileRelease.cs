@@ -363,7 +363,7 @@ public static partial class Game
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
-            SkillStats = new Dictionary<uint, int>(own),
+            SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             MirageSource = totem is null && Own("support_mirage_archer_base_duration") > 0 ? SupportedSkill(conn, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId),
             Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),

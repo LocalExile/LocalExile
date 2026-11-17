@@ -4015,7 +4015,7 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   takes charges away: Replica Fragility, Replica Pacifism and Replica Powerlessness store `-1` ("Lose an
   Endurance Charge each second") and lose one each second, never below the minimum; every other use of
   the stat is positive. Skills: the Frenzy gem's hit gives a Frenzy Charge once per use (ActiveSkills `frenzy`;
-  without a Frenzy projectile row it hits as an area, and only its first target counts), Power Siphon's
+  it fires the weapon's projectile, and only the volley's first enemy hit counts), Power Siphon's
   killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
