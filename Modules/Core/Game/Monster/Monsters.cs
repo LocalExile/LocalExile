@@ -120,12 +120,10 @@ public static partial class Game
             friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
             unrisen: saved.Unrisen, placement: MonsterPlacement.Established);
 
-    // A pack the area holds back until the player comes near (PopulateArea): created a few at a time, nearest first.
-    // The tick is deliberately small — at most this many monsters every tick — so the combat lock is never held across a
-    // crowd while the player is playing, which is what stalled packet builders inside the send gate when the whole
-    // population ran at once (live 2026-11-17).
-    const int PopulationRevealCells = 70;
-    const int PendingMonstersPerTick = 6;
+    // A pack the area holds back until the player comes near (PopulateArea): created a few at a time, nearest first, and
+    // well outside the view so one never appears in front of him (a screen is ~50 cells across; this is about two).
+    const int PopulationRevealCells = 120;
+    const int PendingMonstersPerTick = 8;
     const int PendingMonstersTickMilliseconds = 250;
 
     static bool RevealPack(AreaPopulation.Spawn s, (int X, int Y) here) =>
