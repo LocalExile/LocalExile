@@ -259,8 +259,9 @@ static class AtlasFeature
     }
 
     // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node and budget, save the preset and send all three
-    // presets back so the client and the save agree. The client presents the tree's own connectivity; the server does
-    // not yet have the Atlas graph, so it does not re-check pathing.
+    // presets back so the client and the save agree. The server holds the Atlas graph (client.db) and refuses a node that
+    // is off it, an icon-only node, an allocation not touching the start or an allocated node, and a refund that
+    // would cut allocated nodes off from the start.
     internal static async Task ChangeAtlasPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         byte preset, uint node, bool allocate)
     {
@@ -274,6 +275,17 @@ static class AtlasFeature
         }
         var nodes = conn.AtlasPassives[preset];
         var character = CharacterName(conn);
+        var links = AtlasPassiveNodes.Links;
+        if (links.Count > 0 && (allocate
+                ? !nodes.Contains((ushort)node) && (passive.IsJustIcon
+                    || !AtlasPassives.CanAllocate(nodes, (ushort)node, links, AtlasPassives.StartGraphId))
+                : nodes.Contains((ushort)node) && !AtlasPassives.CanRefund(nodes, (ushort)node, links, AtlasPassives.StartGraphId)))
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {passive.Name} ({node}) " +
+                "refused: an icon, off the graph or not connected to the start, or it would disconnect the tree");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
+            return;
+        }
         if (allocate)
         {
             if (nodes.Contains((ushort)node))

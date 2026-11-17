@@ -160,7 +160,7 @@ def projectile_clips(doc):
 
 def passive_skill_graphs(doc):
     graphs, nodes, groups, members = [], [], [], []
-    for name in ("normal", "phrecia"):
+    for name in ("normal", "phrecia", "atlas"):
         if name not in doc:
             continue
         g = len(graphs)

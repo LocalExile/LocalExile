@@ -10,7 +10,7 @@ using GameServer.Core;
 public sealed class AtlasPassives(string folder = "data")
 {
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
-        IReadOnlyList<(uint Key, int Value)> Stats);
+        IReadOnlyList<(uint Key, int Value)> Stats, bool IsJustIcon = false);
 
     readonly Lazy<Dictionary<ushort, Node>> _nodes = new(() => LoadNodes(folder));
 
@@ -19,6 +19,49 @@ public sealed class AtlasPassives(string folder = "data")
     public int Count => _nodes.Value.Count;
 
     public bool Loaded => _nodes.Value.Count > 0;
+
+    readonly Lazy<Dictionary<ushort, HashSet<ushort>>> _links = new(() =>
+        PassiveGraphs.Available && PassiveGraphs.Graph("atlas") is not null ? PassiveGraphs.Links("atlas") : []);
+
+    /// <summary>The Atlas graph's undirected links by node (client.db passive_graph_nodes, graph "atlas"); empty when the
+    /// database has no Atlas graph.</summary>
+    public IReadOnlyDictionary<ushort, HashSet<ushort>> Links => _links.Value;
+
+    /// <summary>The graph's one root, the start node.</summary>
+    public const ushort StartGraphId = 29045;
+
+    /// <summary>Whether the player may allocate <paramref name="node"/> on top of <paramref name="allocated"/>: it is on the
+    /// graph, is not the start, and touches the start or an allocated node (the graph's edges have no direction).</summary>
+    public static bool CanAllocate(IReadOnlyCollection<ushort> allocated, ushort node,
+        IReadOnlyDictionary<ushort, HashSet<ushort>> links, ushort start)
+    {
+        if (node == start || !links.TryGetValue(node, out var next)) return false;
+        return next.Contains(start) || next.Any(n => allocated.Contains(n));
+    }
+
+    /// <summary>Whether the player may refund <paramref name="node"/>: no other allocated node may lose its path from the
+    /// start through allocated nodes (a node already cut off, such as one an old save holds, does not block).</summary>
+    public static bool CanRefund(IReadOnlyCollection<ushort> allocated, ushort node,
+        IReadOnlyDictionary<ushort, HashSet<ushort>> links, ushort start)
+    {
+        var reached = Reached(allocated, links, start);
+        var after = Reached(allocated.Where(n => n != node).ToList(), links, start);
+        return after.Count == reached.Count - (reached.Contains(node) ? 1 : 0);
+    }
+
+    static HashSet<ushort> Reached(IReadOnlyCollection<ushort> allocated, IReadOnlyDictionary<ushort, HashSet<ushort>> links,
+        ushort start)
+    {
+        var rest = allocated.ToHashSet();
+        var seen = new HashSet<ushort>();
+        var open = new Stack<ushort>();
+        open.Push(start);
+        while (open.Count > 0)
+            if (links.TryGetValue(open.Pop(), out var next))
+                foreach (ushort n in next)
+                    if (rest.Contains(n) && seen.Add(n)) open.Push(n);
+        return seen;
+    }
 
     public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
 
@@ -39,7 +82,7 @@ public sealed class AtlasPassives(string folder = "data")
             for (int i = 0; i < keys.Count && i < 5; i++)
                 stats.Add(((uint)keys[i] + 1, row.Int($"Stat{i + 1}Value")));
             nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, id, row.Text("Name") ?? "",
-                row.Bool("IsNotable"), row.Bool("IsKeystone"), stats));
+                row.Bool("IsNotable"), row.Bool("IsKeystone"), stats, row.Bool("IsJustIcon")));
         }
         return nodes;
     }

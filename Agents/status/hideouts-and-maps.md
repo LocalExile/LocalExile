@@ -33,8 +33,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion. A fresh save earns its first map point on its first completion. The Atlas
-  graph itself is still the client's, so connectivity is left to it.
+  completion. A fresh save earns its first map point on its first completion. The server
+  holds the Atlas graph (client.db `passive_graph*`, graph `atlas`) and refuses an allocation off the graph, of an
+  icon-only node (the masteries), or not touching the start or an allocated node, and a refund that cuts allocated nodes
+  off from the start (`AtlasPassives.CanAllocate/CanRefund`; not yet tried live). A save's old nodes are kept
+  as they are.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
