@@ -223,8 +223,9 @@ public static partial class Game
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
             if (!m.Dead)
-                m.Ailments.Inflict(mitigated, false, m.MaxLife, now,
-                    n => GolemStat(placed.Own, n) + GolemStat(player, n), n => m.Effects[n], Random.Shared);
+                foreach (var effect in m.Ailments.Inflict(mitigated, false, m.MaxLife, now,
+                    n => GolemStat(placed.Own, n) + GolemStat(player, n), n => m.Effects[n], Random.Shared))
+                    InflictedLocked(conn, m, effect);
         }
     }
 

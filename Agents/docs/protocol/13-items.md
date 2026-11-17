@@ -508,10 +508,13 @@ alternate hands on the server yet.
 result is a debuff on the enemy, so every source of damage to it gains it (hits and damage over time, a party member's,
 minions', unowned). A party shares its monsters, so each wearer's enemy-debuff step keeps the wearer's own value on each
 living hostile monster, keyed by its PeerId (`SpawnedMonster.SetSourceValue`); a non-wearer, unequipping or death clears
-only that wearer's entry, and leaving the instance (`Left`) removes the leaver's. Several wearers' increases add, as
-increased damage taken does. The server does not record who inflicted an ailment, so the count (`AilmentTypesOn`:
-ignite, chill, freeze, shock, bleed, poison) includes anyone's ailments; scorch, brittle and sap exist in the game and
-count there, but the server does not model them.
+only that wearer's entry, and leaving the instance (`Left`) removes the leaver's. Each player's ignite, chill, freeze,
+shock, bleed and poison applications (their hits, their totems', traps' and mines', Arctic Armour, Brine Bound,
+Within the Tempest, Berek's Respite, Bino's spread) mark the type as theirs on the monster until that ailment of theirs
+would end (`InflictedLocked`, `SpawnedMonster.MarkSource`), and proliferation passes the marks on; minions' ailments are
+not their owner's. A wearer counts the types they marked that are still on the monster (`AilmentTypesInflicted`), and
+the enemy takes the sum over the wearers. A mark lasts the ailment's duration when applied, so a later change of its
+expiry rate is not followed. Scorch, brittle and sap count in the game, but the server does not model them.
 
 **Forbidden Shako and its Replica** (`GemSupports.ItemCandidates`): each RandomSupportUnique mod rolls
 `local_random_support_gem_index[_1]` (1-172) and `local_random_support_gem_level[_1]`; the description shows the index
