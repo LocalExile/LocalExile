@@ -184,7 +184,12 @@ public static partial class Game
     /// profane ground (+100% increased, PoB's SelfCritChance INC for enemies on Profane Ground), on consecrated ground with
     /// Bottled Faith's increase (null without it), and on both (the increases add). Picked per target at the hit.</summary>
     public readonly record struct GroundCritical(int? Profane, int? Consecrated, int? Both,
-        int? BlindedProfane = null, int? BlindedConsecrated = null, int? BlindedBoth = null);
+        int? BlindedProfane, int? BlindedConsecrated, int? BlindedBoth)
+    {
+        public GroundCritical(int? profane, int? consecrated, int? both) : this(profane, consecrated, both, null, null, null) { }
+        public void Deconstruct(out int? profane, out int? consecrated, out int? both) =>
+            (profane, consecrated, both) = (Profane, Consecrated, Both);
+    }
 
     static GroundCritical GroundCriticalWith(ClientState conn, Func<long, int?> with, int blinded)
     {
@@ -224,7 +229,10 @@ public static partial class Game
         conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
 
     // A passive-granted spell's chances against a target on the player's grounds, from its own chance function.
-    public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with, int blinded = 0) =>
+    public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with) =>
+        SpellCriticalChanceVsGround(conn, with, 0);
+
+    public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with, int blinded) =>
         GroundCriticalWith(conn, extra => with(extra), blinded);
 
     // A supported gem's chances against a target on the player's grounds (GroundCritical).

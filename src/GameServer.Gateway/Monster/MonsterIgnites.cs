@@ -140,8 +140,11 @@ public sealed class MonsterIgnites
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random) =>
+        TryApply(settings, critical, now, avoid, immune, random, 0);
+
     public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
-        int damageTakenPct = 0)
+        int damageTakenPct)
     {
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
@@ -151,8 +154,10 @@ public sealed class MonsterIgnites
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>
-    public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0,
-        int damageTakenPct = 0)
+    public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0) =>
+        Add(now, perSecond, seconds, aggravated, spread, 0);
+
+    public bool Add(double now, double perSecond, double seconds, bool aggravated, int spread, int damageTakenPct)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }

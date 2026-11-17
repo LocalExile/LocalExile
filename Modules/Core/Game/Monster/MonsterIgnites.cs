@@ -48,7 +48,7 @@ public static partial class Game
     public static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
-                damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
