@@ -41,6 +41,9 @@ public static class ServerLevels
         /// <summary>The placed rooms that have pack points, with those points (<see cref="AreaPopulation.PackRooms"/>).</summary>
         public IReadOnlyList<AreaPopulation.PlacedRoom> PackRooms { get; init; } = [];
         public long Milliseconds { get; init; }
+        /// <summary>The extra terrain features the generator rolled for this (area, seed, stats): what a module reads in
+        /// GameEvents.AreaGenerated to know which league encounters the instance has (the generator's own draws, no new ones).</summary>
+        public IReadOnlyList<ExtraTerrainFeatures.Feature> Features { get; init; } = [];
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
         /// <summary>Every area transition object of the layout with its role from its room's graph node
@@ -327,7 +330,7 @@ public static class ServerLevels
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),
                 AreaObjects.QuestObjects(files, result), walk.Projectile)
             {
-                TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
+                TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records, Features = result.Features,
                 Exits = exits.Exits, Entrances = exits.Entrances,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)

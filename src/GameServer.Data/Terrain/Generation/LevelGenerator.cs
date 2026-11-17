@@ -57,9 +57,13 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
 }
 
 /// <summary>The generated tile grid and the subgraph records (rectangle, master, placed rooms) the doodad stage
-/// (<see cref="DoodadStage"/>) runs over.</summary>
+/// (<see cref="DoodadStage"/>) runs over. <see cref="Features"/> is the extra terrain features the generator rolled,
+/// as it rolled them (no draws of their own).</summary>
 public sealed record GenerationResult(TileGrid Grid, LevelRandom Random, TopologyInfo Topology, IReadOnlyList<string> Notes,
-    IReadOnlyList<DoodadRecord> Records);
+    IReadOnlyList<DoodadRecord> Records)
+{
+    public IReadOnlyList<ExtraTerrainFeatures.Feature> Features { get; init; } = [];
+}
 
 /// <summary>The server's port of the client's level generator (<c>0x142054070</c>, Agents/docs/re/011-level-generation.md).
 /// Ported so far: .dgr layouts (one node: towns; several: dungeons, Agents/docs/re/011-level-generation.md §3c2) and
@@ -133,7 +137,7 @@ public static class LevelGenerator
             grid = gen.Generate(topology.Graph, orientation);
             records = gen.Records;
         }
-        return new GenerationResult(grid, rng, topology, notes, records);
+        return new GenerationResult(grid, rng, topology, notes, records) { Features = features.ToArray() };
     }
 
     static List<TopologyInfo> Choices(IReadOnlyList<TopologyInfo> topologies, int variant, string areaId)

@@ -128,6 +128,7 @@ Vaal side area and trial forcing, shrine and breach counts) and `0x141ea8530` mi
 chance; checked live on five maps with area stats by the client's tile hash (2026-11-14), not yet draw by draw
 (traces do not record the stats). The WorldAreas row in memory
 is the `.datc64` row, so `AreaInfo.Load` reads these offsets from the file (`RawDat`).
+Stat 10209 (`map_nuke_everything`) clears the league rolls, but stat 15661 (Tangle, Cleansing Fire) still rolls first.
 
 **The extra room pool** (generator +0x40, `ExtraRoomPool.cs`). Each rolled feature that is an `ExtraTerrainFeatures`
 row (`0x141f2f390`: by id; the Vaal side area flag, the discoverable hideout and the shrine count are not rows) goes
