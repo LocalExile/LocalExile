@@ -3,8 +3,8 @@
 ## In one line
 
 One official meteor = **one object on the client**: `Meteor_Rain.ao` (`MiscAnimated` row `AtlasExileOrionMeteorRain`,
-HASH32 **2133148678** (= the HASH32 of `MiscAnimated` row 3622; the `0x7F254406` the earlier document wrote is a
-mis-copy — in the client it is actually `sub_14228BED0(&v16, 2133148678, &v25)`). This attribute id is **hard-coded** in
+HASH32 **2133148678** (= `0x7F254406`, the HASH32 of `MiscAnimated` row 3622; the client looks it up with
+`sub_14228BED0(&v16, 2133148678, &v25)`). This attribute id is **hard-coded** in
 the `OrionMeteor` action class, **each action instance builds exactly one** of them, and it lands on the action's landing
 point. ⇒ **The "whole rain" does not grow out of the client on its own**: the rain = N action instances, and the N actions
 have to be sent by the server one at a time.
@@ -33,7 +33,7 @@ client draws nothing**), so today there is **damage but no rain**.
 | `10942 AtlasOrionMeteor` / `10943`, `10944` / `10945 AtlasOrionMeteorGroundEffect` / `10946 …Temp` | AS 1570, CastTime 1000 (10942's Animation is empty, SkillID 1) |
 | The animation slots | 34 = `SpellAreaOfEffectLightning`, 22 = `SpellAreaOfEffect` (`Animation.json`) |
 | The apparition's / the body's `.act` | the apparition: `SpellAreaOfEffectLightning = "meteor_shower_01"`, `SpellAreaOfEffect = "carpet_bomb_01"`; the body has `beam_barrage_abort_03` / `beam_barrage_01` in the same slots |
-| The art | `MiscAnimated` row 3622 `AtlasExileOrionMeteorRain`, HASH32 **2133148678** (`0x7F254406` is a mis-copy) → `…/AtlasExiles/Orion/destruction_assets/meteors/Meteor_Rain.ao` |
+| The art | `MiscAnimated` row 3622 `AtlasExileOrionMeteorRain`, HASH32 **2133148678** (`0x7F254406`) → `…/AtlasExiles/Orion/destruction_assets/meteors/Meteor_Rain.ao` |
 | The scorched ground | BuffDefinitions 1449 `atlas_orion_meteor_ground` → GroundEffectTypes 17 `OrionMeteor` → GroundEffects 159 `meteor_ground.ao` (`["loop"]`, the end is `fadeout`) |
 
 ### Ground markers (`GeometryTrigger.dat`) — the meteor family is nothing but empty rows
