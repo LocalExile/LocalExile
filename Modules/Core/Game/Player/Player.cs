@@ -272,16 +272,19 @@ public static partial class Game
 
     public static LifeReservation.Value LifeReservationOf(ClientState conn)
     {
-        if (conn.StatSourcesCache is { } qualified)
-            PublishQualifiedItemLifeReservationPercent(conn, qualified.Key.QualifiedItemLifeReservationPercent);
-        int itemPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int valueOverride)
-            ? valueOverride : conn.QualifiedItemLifeReservationPercent;
-        var value = LifeReservation.Of(conn.Pools, itemPercent,
-            conn.Auras.Values, AdditionalLifeReservation(conn));
-        conn.PlayerLifeCap = value.Unreserved;
-        // The usable cap is an invariant even when a caller only asks for it to build a snapshot.
-        conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, value);
-        return value;
+        lock (conn.Monsters)
+        {
+            if (conn.StatSourcesCache is { } qualified)
+                PublishQualifiedItemLifeReservationPercent(conn, qualified.Key.QualifiedItemLifeReservationPercent);
+            int itemPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int valueOverride)
+                ? valueOverride : conn.QualifiedItemLifeReservationPercent;
+            var value = LifeReservation.Of(conn.Pools, itemPercent,
+                conn.Auras.Values, AdditionalLifeReservation(conn));
+            conn.PlayerLifeCap = value.Unreserved;
+            // Authoritative resource paths reconcile the usable cap under the combat lock.
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, value);
+            return value;
+        }
     }
     public static int ReservedLife(ClientState conn) => LifeReservationOf(conn).Reserved;
     public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
@@ -289,9 +292,8 @@ public static partial class Game
     // Every player Life pool update carries the shared owner's reserved amount.
     public static byte[] PlayerLifeUpdate(ClientState conn)
     {
-        // Reconcile the owner before sampling current Life: its first query can lower the usable cap.
-        var reservation = LifeReservationOf(conn);
-        return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, (uint)reservation.Reserved);
+        lock (conn.Monsters)
+            return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife);
     }
 
     // 0x1b1 for the mana pool: every update carries the reserved amount, or the client would clear it. The pool and the

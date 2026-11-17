@@ -423,7 +423,6 @@ public static partial class Game
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
                     rageGranted = RageOnHitLocked(conn, attack: true, melee: true, critical, skillStats, player: player);
-                InflictMonsterBlind(conn, id, m, now, BlindInputs(player, skillStats));
                 CombatRushOnHit(conn, skillStats, now);
                 HallowOnMeleeHit(conn, m, skillStats, now);
                 ExcommunicateOnMeleeHit(conn, m, skillStats, now);

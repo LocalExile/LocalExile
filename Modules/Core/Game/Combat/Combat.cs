@@ -2464,7 +2464,7 @@ public static partial class Game
                     {
                         ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0);
                         if (reflected.Count > 0 && player is not null)
-                            ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+                            ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
                             settleKill: singleStrikeTarget is not null);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
@@ -2489,7 +2489,7 @@ public static partial class Game
             if (sweepStats is { } stats) stats.Dispose();
         }
         if (reflected.Count > 0 && player is not null)
-            using (ProjectileMutation(conn, advance: scheduledSession is null)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+            using (ProjectileMutation(conn, advance: scheduledSession is null)) ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         foreach (var (deadId, dead) in deaths)
             if (scheduledSession is { } scheduled)
                 CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, Random.Shared);

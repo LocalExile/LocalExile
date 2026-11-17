@@ -252,6 +252,15 @@ public static partial class Game
         else ReflectAilmentsLocked(conn, added, now, player, random);
     }
 
+    internal static void ReflectPendingAilmentsLocked(ClientState conn, List<MonsterElementalAilments.Effect> pending,
+        double now, IReadOnlyDictionary<uint, int> player, Random random)
+    {
+        if (pending.Count == 0) return;
+        var accepted = pending.ToArray();
+        pending.Clear();
+        ReflectAilmentsLocked(conn, accepted, now, player, random);
+    }
+
     /// <summary>Mirrored: the ailments a hit added act on the player as well (wiki Reflect), as they landed, then through
     /// the player's own modifiers; the exact reflected magnitude is not verified. A new freeze cancels the player's action.
     /// Under the Monsters lock.</summary>
