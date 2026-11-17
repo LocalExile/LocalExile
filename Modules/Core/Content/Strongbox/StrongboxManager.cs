@@ -17,7 +17,11 @@ public static class StrongboxManager
     const string PlanKey = "Strongbox/plan";
 
     /// <summary>A planned box: its Strongboxes row, cell, facing, current object id and whether it was opened.</summary>
-    sealed record Box(int Row, int X, int Y, float Rotation, uint Id, bool Opened, byte Rarity = 0, RolledMod[]? Mods = null)
+    /// <param name="Guards">The ambush's monster ids, while its loot waits for them (<paramref name="Pending"/>).</param>
+    /// <param name="Looted">The opened box dropped its loot.</param>
+    /// <param name="Reopened">The box closed again after an opening.</param>
+    sealed record Box(int Row, int X, int Y, float Rotation, uint Id, bool Opened, byte Rarity = 0, RolledMod[]? Mods = null,
+        uint[]? Guards = null, bool Pending = false, bool Looted = false, bool Reopened = false)
     {
         public IReadOnlyList<ItemMod> Explicits => [.. (Mods ?? []).Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))];
     }
@@ -34,6 +38,8 @@ public static class StrongboxManager
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        /// <summary>When <see cref="Tick"/> next looks at the pending boxes (connection clock seconds).</summary>
+        public double NextCheck;
     }
 
     static readonly ConditionalWeakTable<InstanceState, SharedArea> Areas = new();
@@ -82,7 +88,7 @@ public static class StrongboxManager
         foreach (var (x, y) in spots)
         {
             if (StrongboxRules.Pick(StrongboxCatalog.All, hardMode, level, stats, rng) is not { } type) break;
-            byte rarity = StrongboxMods.RollRarity(StatOf(stats), rng);
+            byte rarity = type.Rollable ? StrongboxMods.RollRarity(StatOf(stats), rng) : (byte)0;
             var mods = StrongboxMods.Roll(ItemsFor(conn).Mods, type, rarity, level, StatOf(stats), rng);
             boxes.Add(new Box(type.Row, x, y, (float)(rng.NextDouble() * Math.Tau), conn.TakeObjectId(), false, rarity, Kept(mods)));
         }
@@ -178,8 +184,10 @@ public static class StrongboxManager
         foreach (int index in near) await Open(conn, index, "warcry");
     }
 
-    /// <summary>Opens the box (the first opener only): its replacement for every connection that has it, then its ambush
-    /// and its loot, rolled and dropped for the opener.</summary>
+    /// <summary>Opens the box (the first opener only): its replacement for every connection that has it, then its ambush.
+    /// Its loot waits for the guards (the chest mods' <c>chest_delay_drops_until_daemons_finish</c>; "only once all of the
+    /// ambushing monsters are slain will a strongbox relinquish its loot"): <see cref="Tick"/> drops it when none is
+    /// alive; a box whose ambush spawned nothing drops it at once.</summary>
     static async Task Open(ClientState conn, int index, string how)
     {
         if (conn.Instance is not { } instance) return;
@@ -194,29 +202,106 @@ public static class StrongboxManager
                 || StrongboxCatalog.ByRow(boxes[index].Row) is not { } found) return;
             type = found;
             var closed = boxes[index];
-            first = !boxes.Any(b => b.Opened);
+            first = !boxes.Any(b => b.Opened || b.Reopened);
             opened = closed with { Opened = true, Id = conn.TakeObjectId() };
             boxes[index] = opened;
             Save(instance, boxes);
-            Console.WriteLine($"[gateway] {conn.Wire.Remote} strongbox 0x{closed.Id:x} {type.Name} at ({closed.X}, {closed.Y}) opened ({how}) by " +
-                $"{CharacterName(conn)}: now 0x{opened.Id:x}");
-            foreach (var member in Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance) && !c.Closed && !c.LeavingArea))
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} strongbox 0x{closed.Id:x} {Describe(conn, closed)} at ({closed.X}, {closed.Y}) " +
+                $"opened ({how}) by {CharacterName(conn)}: now 0x{opened.Id:x}");
+            await Replace(instance, index, closed, opened);
+        }
+        finally { area.Gate.Release(); }
+        var guards = await Ambush(conn, type, opened, AreaLevel(conn), AreaStats(conn), first, new Random());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Boxes is { } boxes && index < boxes.Count && boxes[index].Id == opened.Id && guards.Count > 0)
             {
-                if (!Presented.TryGetValue(member, out var shown)) continue;
-                uint old;
-                lock (shown) if (!shown.TryGetValue(index, out old) || old != closed.Id) continue;
-                member.RemoveBlocker(old);
-                var (remote, stream, ciphers) = member.Wire;
-                await SendWorldRemoval(remote, stream, ciphers, member, old, null);
-                await Present(member, index, opened);
+                boxes[index] = boxes[index] with { Guards = [.. guards], Pending = true };
+                Save(instance, boxes);
+                Console.WriteLine($"[gateway] {conn.Wire.Remote} strongbox 0x{opened.Id:x}: its loot waits for {guards.Count} guard(s)");
+                return;
             }
         }
         finally { area.Gate.Release(); }
+        await Release(conn, index, opened.Id);
+    }
+
+    /// <summary>The box's replacement (a new id, another state) for every connection that was sent the old one.</summary>
+    static async Task Replace(InstanceState instance, int index, Box old, Box now)
+    {
+        foreach (var member in Program.InGame.Keys.Where(c => ReferenceEquals(c.Instance, instance) && !c.Closed && !c.LeavingArea))
+        {
+            if (!Presented.TryGetValue(member, out var shown)) continue;
+            uint sent;
+            lock (shown) if (!shown.TryGetValue(index, out sent) || sent != old.Id) continue;
+            member.RemoveBlocker(sent);
+            var (remote, stream, ciphers) = member.Wire;
+            await SendWorldRemoval(remote, stream, ciphers, member, sent, null);
+            await Present(member, index, now);
+        }
+    }
+
+    /// <summary>GameEvents.Tick: about once a second, a box whose guards are all dead (gone from the instance's monsters,
+    /// or dead in it) drops its loot.</summary>
+    public static async Task Tick(ClientState conn)
+    {
+        if (conn.Instance is not { } instance || conn.Closed || conn.LeavingArea || !conn.MonstersPlaced
+            || !Areas.TryGetValue(instance, out var area) || area.Boxes is not { } boxes) return;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (now < area.NextCheck) return;
+        area.NextCheck = now + 1;
+        List<(int Index, uint Id)> ready = [];
+        lock (conn.Monsters)
+            for (int i = 0; i < boxes.Count; i++)
+                if (boxes[i] is { Pending: true } box && !(box.Guards ?? []).Any(id =>
+                        conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0))
+                    ready.Add((i, box.Id));
+        foreach (var (index, id) in ready)
+        {
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} strongbox 0x{id:x}: its guards are dead");
+            await Release(conn, index, id);
+        }
+    }
+
+    /// <summary>The opened box's loot, once; then <c>map_strongbox_close_after_opening_chance_%</c> (and a box's
+    /// <c>strongbox_close_after_opening_chance</c>) may close it again, under a new id, to be opened once more.</summary>
+    static async Task Release(ClientState conn, int index, uint id)
+    {
+        if (conn.Instance is not { } instance) return;
+        var area = Areas.GetOrCreateValue(instance);
+        Box box;
+        StrongboxCatalog.Entry type;
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Boxes is not { } boxes || index >= boxes.Count || boxes[index].Id != id || boxes[index].Looted
+                || StrongboxCatalog.ByRow(boxes[index].Row) is not { } found) return;
+            type = found;
+            box = boxes[index] = boxes[index] with { Pending = false, Looted = true };
+            Save(instance, boxes);
+        }
+        finally { area.Gate.Release(); }
         var stats = AreaStats(conn);
-        int level = AreaLevel(conn);
         var rng = new Random();
-        await Ambush(conn, type, opened, level, stats, first, rng);
-        await DropLoot(conn, type, opened, level, stats, rng);
+        await DropLoot(conn, type, box, AreaLevel(conn), stats, rng);
+        int close = StatOf(stats)("map_strongbox_close_after_opening_chance_%")
+            + StrongboxMods.Stat(ItemsFor(conn).Mods, type, box.Explicits, "strongbox_close_after_opening_chance");
+        if (close <= 0 || rng.Next(100) >= close) return;
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Boxes is not { } boxes || index >= boxes.Count || boxes[index].Id != id) return;
+            var closed = boxes[index] with
+            {
+                Id = conn.TakeObjectId(), Opened = false, Looted = false, Pending = false, Guards = null, Reopened = true,
+            };
+            boxes[index] = closed;
+            Save(instance, boxes);
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} strongbox 0x{id:x} closes again ({close}% chance): now 0x{closed.Id:x}, openable once more");
+            await Replace(instance, index, box, closed);
+        }
+        finally { area.Gate.Release(); }
     }
 
     /// <summary>The box's guards: what its mods summon (each mod with <c>summoned_monster_rarity</c>: its

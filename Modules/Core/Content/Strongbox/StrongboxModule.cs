@@ -17,6 +17,7 @@ public sealed class StrongboxModule : IModule
         GameEvents.AreaGenerated.Add(id, StrongboxManager.SpawnArea);
         GameEvents.ObjectUse.Add(id, StrongboxManager.Use);
         GameEvents.ChestsOpened.Add(id, StrongboxManager.OpenNear);
+        GameEvents.Tick.Add(id, (conn, _) => StrongboxManager.Tick(conn));
         module.Lifetime.Own(StrongboxManager.Lifetime());
     }
 }

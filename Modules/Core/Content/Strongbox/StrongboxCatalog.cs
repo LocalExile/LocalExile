@@ -26,6 +26,14 @@ public static class StrongboxCatalog
         StateMachineData? States, int Size, int Weight, int WeightHardMode, uint WeightStat, int MinLevel, int MaxLevel,
         int Items, Contents Kind, int HiddenRarity, MonsterRarity SummonRarity, IReadOnlySet<string> Tags, IReadOnlyList<int> Implicits)
     {
+        /// <summary>Strongboxes <c>__col4</c>: false on the fixed boxes (the Grandmaster's caches, the unique chests'
+        /// bases, Atziri's Vessel, the Breach box, Ventor's box) and true on every box that spawns. Read (inferred) as "rolls
+        /// a rarity and mods".</summary>
+        public bool Rollable { get; init; } = true;
+        /// <summary>Strongboxes <c>__col7</c>: true on Arcanist's, Artisan's, the map tiers of Cartographer's, Gemcutter's,
+        /// Jeweller's, Ornate and Diviner's, false on the plain, Large, Armourer's and Blacksmith's. Read (inferred) as the
+        /// "rarer varieties" <c>map_strongbox_rare_boxes_weighting_multiplier</c> makes more likely.</summary>
+        public bool Rarer { get; init; }
         /// <summary>Whether the object can be written: QuestObject's components and a StateMachine.</summary>
         public bool Supported => States is not null && QuestObject.CanSerialize(Components, true);
 
@@ -85,7 +93,11 @@ public static class StrongboxCatalog
                 ObjectTypes.StateMachine(type, shared), size, row.IntOrNull("SpawnWeight") ?? 0, row.IntOrNull("SpawnWeightHardmode") ?? 0,
                 row.IntOrNull("SpawnWeightIncrease") is int increase ? (uint)increase + 1 : 0,
                 chest.IntOrNull("MinLevel") ?? 0, max, Math.Max(1, row.IntOrNull("__col2") ?? 1), KindOf(id, chestTags),
-                hiddenRarity, summon, chestTags, chest.Ints("ModsKeys")));
+                hiddenRarity, summon, chestTags, chest.Ints("ModsKeys"))
+            {
+                Rollable = row.BoolOrNull("__col4") ?? true,
+                Rarer = row.BoolOrNull("__col7") ?? false,
+            });
         }
         return result;
     }

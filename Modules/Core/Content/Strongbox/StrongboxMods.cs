@@ -44,7 +44,7 @@ public static class StrongboxMods
     public static List<ItemMod> Roll(ModCatalog catalog, StrongboxCatalog.Entry box, byte rarity, int level, Func<string, int> stat, Random rng)
     {
         var rolled = new List<ItemMod>();
-        if (rarity == 0 || !Counts.Value.TryGetValue(rarity, out var limits) || limits.Max <= 0) return rolled;
+        if (rarity == 0 || !box.Rollable || !Counts.Value.TryGetValue(rarity, out var limits) || limits.Max <= 0) return rolled;
         int count = rng.Next(Math.Max(1, limits.Min), limits.Max + 1);
         var pool = catalog.All.Where(m => m.Domain == ChestDomain && m.GenerationType is 1 or 2 && !m.EssenceOnly
             && m.Level <= level && m.Stats.Count > 0 && m.WeightFor(box.Tags) > 0).ToList();

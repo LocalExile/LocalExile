@@ -16,6 +16,8 @@ namespace GameServer.Modules.Strongbox;
 /// </summary>
 public static class StrongboxRules
 {
+    static uint StatKey(string name) => Stats.Key(name) ?? 0;
+
     /// <summary>A seed of this module's own for one purpose, from the instance seed.</summary>
     public static uint Seed(uint seed, string purpose) => unchecked(seed * 0x9e3779b1u ^ InstanceEntities.ObjectTypeHash("Strongbox/" + purpose));
 
@@ -43,7 +45,16 @@ public static class StrongboxRules
         }
         var s = ExtraTerrainFeatures.LeagueStruct(area, AmbushRow.Value);
         int count = ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(Seed(seed, "count")), AmbushRow.Value);
-        return (count, $"chance {s.C0}%, follow-up {s.C1}%, bonus {s.C2}%, base {s.Base}, most {s.Max}");
+        // Jumbled Abundance: each of its X additional contents is a strongbox, an imprisoned monster, a shrine or a rogue
+        // exile; the strongboxes are this module's (one in four of them, assumed even). Not when the area excludes them.
+        int jumbled = 0;
+        if (s.Max > 0 && area.Stat((int)StatKey("map_contains_X_additional_strongboxes_essences_shrines_or_rogue_exiles")) is int x and > 0)
+        {
+            var rng = new Random(unchecked((int)Seed(seed, "jumbled")));
+            for (int i = 0; i < x; i++) if (rng.Next(4) == 0) jumbled++;
+        }
+        return (count + jumbled, $"chance {s.C0}%, follow-up {s.C1}%, bonus {s.C2}%, base {s.Base}, most {s.Max}" +
+            (jumbled > 0 ? $", Jumbled Abundance +{jumbled}" : ""));
     }
 
     /// <summary>A box type by its weight (HardMode's weight in a HardMode league) × (100 + its weight stat) / 100, among
@@ -51,12 +62,21 @@ public static class StrongboxRules
     public static StrongboxCatalog.Entry? Pick(IReadOnlyList<StrongboxCatalog.Entry> types, bool hardMode, int level,
         IReadOnlyDictionary<uint, int> stats, Random rng)
     {
+        // map_strongboxes_chance_to_be_operatives_%: an Operative's Strongbox (its weight is 0, so only this places one).
+        if (stats.GetValueOrDefault(StatKey("map_strongboxes_chance_to_be_operatives_%")) is int operatives and > 0
+            && rng.Next(100) < operatives
+            && types.FirstOrDefault(t => t.Supported && t.Kind == StrongboxCatalog.Contents.Scarab
+                && t.Type.EndsWith("HardMode", StringComparison.Ordinal) == hardMode && level >= t.MinLevel && level <= t.MaxLevel) is { } operative)
+            return operative;
+        // map_strongbox_rare_boxes_weighting_multiplier ("more likely to be rarer varieties"): × the rarer types' weight.
+        int rarer = stats.GetValueOrDefault(StatKey("map_strongbox_rare_boxes_weighting_multiplier"));
         var pool = new List<(StrongboxCatalog.Entry Type, long Weight)>();
         foreach (var t in types)
         {
             if (!t.Supported || level < t.MinLevel || level > t.MaxLevel) continue;
             long weight = (long)(hardMode ? t.WeightHardMode : t.Weight)
                 * Math.Max(0, 100 + (t.WeightStat != 0 ? stats.GetValueOrDefault(t.WeightStat) : 0)) / 100;
+            if (t.Rarer && rarer > 1) weight *= rarer;
             if (weight > 0) pool.Add((t, weight));
         }
         long total = pool.Sum(p => p.Weight);
