@@ -69,14 +69,16 @@ public static partial class Game
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
         return WithOverheat(conn, skillId, BleedSettings(SupportedAilmentRows(conn, skillId, "main_hand", weapon), "main_hand",
             name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false));
+            weapon is null ? MainHandLocalSources(conn) : weapon.LocalSources, melee, bow: false));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    // hand: the dual-wielded use's swinging weapon (AttackHands), else the main hand's.
+    public static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? hand = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        var weapon = WeaponFor(conn);
+        var weapon = hand ?? WeaponFor(conn);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
             "main_hand", Get, weapon.LocalSources, melee: true, bow: false);

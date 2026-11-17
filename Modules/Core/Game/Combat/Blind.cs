@@ -176,9 +176,11 @@ public static partial class Game
     // The default attack's (and an ordinary bow's) chance against a Blinded target: the main hand's base with the pooled
     // attack increases and the vs-Blinded one, as Pools.AttackCriticalStrikeChance is built. A release keeps the
     // unprohibited chance, as the bow's ordinary one; the roll checks the prohibitions.
-    public static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+    // hand: the swinging hand of a dual-wielded use (AttackHands), whose weapon base replaces the main hand's.
+    public static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false,
+        AttackHand hand = AttackHand.Main) =>
         StatOf(player, VsBlindedCriticalStat) is not (not 0 and var extra)
-            ? null : AttackCriticalChanceWith(conn, player, extra, release);
+            ? null : AttackCriticalChanceWith(conn, player, extra, release, hand);
 
     /// <summary>A hit's chances against a target on the player's grounds, worked out once from the chance's base: on
     /// profane ground (+100% increased, PoB's SelfCritChance INC for enemies on Profane Ground), on consecrated ground with
@@ -214,19 +216,22 @@ public static partial class Game
     }
 
     // The default attack's (and an ordinary bow's) chances against a target on the player's grounds (GroundCritical).
-    public static GroundCritical AttackCriticalChanceVsGround(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
-        GroundCriticalWith(conn, extra => AttackCriticalChanceWith(conn, player, extra, release), StatOf(player, VsBlindedCriticalStat));
+    public static GroundCritical AttackCriticalChanceVsGround(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false,
+        AttackHand hand = AttackHand.Main) =>
+        GroundCriticalWith(conn, extra => AttackCriticalChanceWith(conn, player, extra, release, hand), StatOf(player, VsBlindedCriticalStat));
 
-    static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
+    static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release,
+        AttackHand hand)
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
-        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct + extra,
+        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(conn, hand), conn.Pools.CriticalStrikeChancePct + extra,
             name => release && IsCriticalProhibition(name) ? 0 : StatOf(player, name));
     }
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
-    public static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
-        conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
+    public static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release, int? weaponCritical = null) =>
+        conn.Pools.VsBlindedCriticalPct is not 0 and var extra
+            ? SupportedCriticalChanceFor(conn, skillId, release, extra, weaponCritical) : null;
 
     // A passive-granted spell's chances against a target on the player's grounds, from its own chance function.
     public static GroundCritical SpellCriticalChanceVsGround(ClientState conn, Func<long, int> with) =>
@@ -236,8 +241,9 @@ public static partial class Game
         GroundCriticalWith(conn, extra => with(extra), blinded);
 
     // A supported gem's chances against a target on the player's grounds (GroundCritical).
-    public static GroundCritical SupportedCriticalChanceVsGround(ClientState conn, ushort skillId, bool release) =>
-        GroundCriticalWith(conn, extra => SupportedCriticalChanceFor(conn, skillId, release, extra), conn.Pools.VsBlindedCriticalPct);
+    public static GroundCritical SupportedCriticalChanceVsGround(ClientState conn, ushort skillId, bool release, int? weaponCritical = null) =>
+        GroundCriticalWith(conn, extra => SupportedCriticalChanceFor(conn, skillId, release, extra, weaponCritical),
+            conn.Pools.VsBlindedCriticalPct);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).

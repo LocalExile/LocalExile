@@ -75,11 +75,12 @@ public static partial class Game
         Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
             CharacterPlayerStats(conn), actionSpeed: PlayerActionFactor(conn)));
 
-    public static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
+    public static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds, ushort sequence = 0)
     {
         // The supported skill's own speed includes its gem/support inputs; the generic fallback is for callers without
-        // a skill id (ordinary weapon timing). Keep the gate and the interval CastGemSkill reserves on the same value.
-        seconds = skillId != 0 ? SupportedAttackSeconds(conn, skillId) : SkillAttackSeconds(conn, effect, level);
+        // a skill id (ordinary weapon timing). Keep the gate and the interval CastGemSkill reserves on the same value:
+        // both take the use's hand (AttackHands, from its sequence).
+        seconds = skillId != 0 ? SupportedAttackSeconds(conn, skillId, sequence) : SkillAttackSeconds(conn, effect, level);
         double now = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters) return AttackTiming.Ready(now, conn.NextAttackAt, seconds);
     }
@@ -300,7 +301,7 @@ public static partial class Game
                 if (!conn.Paused && conn.Clock.Elapsed.TotalSeconds >= arrive) break;
                 await Task.Delay(16);
             }
-            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _)) return;
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _, use.Slot)) return;
             (int X, int Y) aim = (use.X, use.Y);
             (int X, int Y) stop = default;
             // Not in reach of the aim (no path, an aim off the map, a body in the way): the client's action ends without
@@ -339,13 +340,15 @@ public static partial class Game
         if (m.OwnerId is not null) return;
         int projectileEpoch;
         lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
-        var weapon = WeaponFor(conn);
+        // Dual wielding: this use's hand (AttackHands, from the client's sequence) gives its weapon, time and hit.
+        var hand = DefaultAttackHand(conn, use.Sequence);
+        var weapon = HandWeapon(conn, hand);
         string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
         bool ranged = ordinaryProjectile is not null;
         int precision = ranged ? RangedPrecision : 1;
         double now = conn.Clock.Elapsed.TotalSeconds, duration;
         lock (conn.Monsters) duration = Math.Max(TickSeconds,
-            weapon.AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
+            DefaultAttackSeconds(conn, hand, CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
         // The client sends one 0x24 per swing while the button is held; jitter makes the next one arrive a little before a
         // full attack time, so accept it up to a quarter of an attack early.
         lock (conn.Monsters)
@@ -406,7 +409,7 @@ public static partial class Game
             // The swing holds a lockstep player from when it began until the client lets a Move cut it short
             // (LockstepAttackSwings); the next attack waits the attack time (NextAttackAt). On a lockstep client the
             // next attack, the hit and the release take the attack time the swing began with, as the hold does.
-            if (started) duration = LockstepAttackSeconds(conn, use.SkillId);
+            if (started) duration = LockstepAttackSeconds(conn, use.SkillId, use.Sequence);
             conn.NextAttackAt = AttackTiming.After(begun, conn.NextAttackAt, duration);
             criticalRoll = CaptureSkillCriticalRoll(conn, SkillCatalog.FirstSkillId);
             inReach = SwingInReach(conn, m, stop, target, weapon.Range + 2);
@@ -419,7 +422,7 @@ public static partial class Game
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
-        string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
+        string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s{HandNote(conn, hand)}";
         if (ordinaryProjectile is { } projectileId)
         {
             // The runtime schedules the release first, anchored to this acceptance (a lockstep client's to its swing's
@@ -496,7 +499,7 @@ public static partial class Game
                 // never on an existing impale bonus or on generic damage/DoT.
                 var player = CharacterPlayerStats(conn);
                 var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources)
-                    with { Rating = PlayerAccuracy(conn, player) };
+                    with { Rating = HandAccuracy(conn, hand, player) };
                 double contactAt = conn.Clock.Elapsed.TotalSeconds;
                 int hitChance = AttackHitChanceAt(conn, targetId, m, contactAt, accuracy, player);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, conn.AttackAccuracyRandom))
@@ -517,8 +520,9 @@ public static partial class Game
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
-                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
-                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
+                critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, HandAttackCriticalChance(conn, hand, player),
+                        AttackCriticalChanceVsBlinded(conn, player, hand: hand), AttackCriticalChanceVsGround(conn, player, hand: hand)),
+                        ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
@@ -552,12 +556,12 @@ public static partial class Game
                 if (critical) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
-                    at, Random.Shared, poison: DefaultAttackPoison(conn, player));
-                if (life > 0 && DefaultAttackIgnite(conn, player) is var defaultIgnite && defaultIgnite.CanIgnite(ownRolled)
+                    at, Random.Shared, poison: DefaultAttackPoison(conn, player, weapon));
+                if (life > 0 && DefaultAttackIgnite(conn, player, weapon) is var defaultIgnite && defaultIgnite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(conn, targetId, m, defaultIgnite, critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
-                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at) is { } cut)
+                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player, weapon), critical, at) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
@@ -582,7 +586,7 @@ public static partial class Game
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
-                $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
+                $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}{HandNote(conn, hand)}" +
                 (resistance is { } note ? $", {note}" : "") +
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
                 (impaled ? $", impaled ({impaleStacks} stack(s), {impaleStored:0.#} stored)" : "") +
@@ -614,12 +618,13 @@ public static partial class Game
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
-            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Sequence))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                 return;
             }
-            var weapon = WeaponFor(conn);
+            // The reach of the weapon this use swings (AttackHands): a dual-wielded off hand walks up to its own.
+            var weapon = HandWeapon(conn, AttackHandFor(conn, use.SkillId, use.Sequence));
             int precision = AttackPrecision(conn);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int action = 0;
@@ -697,7 +702,7 @@ public static partial class Game
         bool leapSkill = gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
         bool immediateAttack = gem.Name is not null && !IsTotemSkill(conn, use.SkillId)
             && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect);
-        if (immediateAttack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds))
+        if (immediateAttack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds, use.Sequence))
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {immediateAttackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             return;
@@ -882,7 +887,7 @@ public static partial class Game
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
             && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
         {
-            double duration = SupportedAttackSeconds(conn, skillId);
+            double duration = SupportedAttackSeconds(conn, skillId, sequence);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
             bool ready;
             lock (conn.Monsters)
@@ -928,7 +933,7 @@ public static partial class Game
                     // Reserve the whole paid use before cost publication can yield to another held input.
                     if (!IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
                         && !SkillsFor(conn).IsChannelled(gem.Effect))
-                        ReserveMeleeRepeats(conn, skillId, SupportedAttackSeconds(conn, skillId));
+                        ReserveMeleeRepeats(conn, skillId, SupportedAttackSeconds(conn, skillId, sequence));
                 }
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
@@ -1351,7 +1356,7 @@ public static partial class Game
         // Multistrike repeats are swings of the same paid use, each a full attack time apart.
         int spellRepeats = SpellRepeats(conn, skillId, gem.Effect);
         int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(conn, skillId);
-        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId) : 0;
+        double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(conn, skillId, sequence) : 0;
         if (meleeRepeats > 0) actionToken ??= conn.ActionCount;
         var repeatStats = meleeRepeats > 0 ? SupportedSkill(conn, skillId).Stats : null;
         double? repeatRuthless = repeatStats is null ? null : RuthlessBlowMore(conn, skillId,
@@ -1720,7 +1725,9 @@ public static partial class Game
             return;
         }
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
-        var weapon = WeaponFor(conn);
+        // A dual-wielded attack's hand for this use (AttackHands): its weapon, time, hit, chance and local modifiers.
+        var hand = spell ? AttackHand.Main : AttackHandFor(conn, skillId, sequence);
+        var weapon = HandWeapon(conn, hand);
         int? castDuration = spell && !immediate ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
         // Ruthless: whether this use is its skill's Ruthless Blow, counted as it starts.
@@ -1734,7 +1741,7 @@ public static partial class Game
         double contactFraction = 0;
         lock (conn.Monsters) delay = spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject)) + repeatDelay
-            : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId), out contactClip, out contactFraction)
+            : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId, hand), out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
@@ -1930,21 +1937,24 @@ public static partial class Game
                     player = CharacterPlayerStats(conn);
                     // A shield skill swings the shield (ShieldWeapon), which carries no local modifiers of the main hand.
                     var shield = spell ? null : ShieldWeapon(conn, skillId);
-                    var local = spell || shield is not null ? null : MainHandLocalSources(conn);
+                    var local = spell || shield is not null ? null : HandLocalSources(conn, hand);
+                    var swingWeapon = shield ?? OffHandSwing(conn, hand);
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
-                    sweepHit = SupportedHitFor(conn, skillId, suppress: true, weapon: shield, charges: discharge?.Charges, addedChaos: addedChaos);
+                    sweepHit = shield is not null ? SupportedHitFor(conn, skillId, suppress: true, weapon: shield, charges: discharge?.Charges, addedChaos: addedChaos)
+                        : SupportedSwingHit(conn, skillId, hand, w => SupportedHitFor(conn, skillId, suppress: true, weapon: w,
+                            charges: discharge?.Charges, addedChaos: addedChaos));
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     if (scaledBlastChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
                     if (spell && repeat > 0) sweepHit = sweepHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
-                    if (!spell) accuracy = SupportedAccuracy(conn, skillId);
+                    if (!spell) accuracy = SupportedAccuracy(conn, skillId, hand);
                     leech = HitLeechSources(player, !spell, skillStats, local);
                     impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
                     criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
-                    ignite = SupportedIgnite(conn, skillId, spell, player, shield);
-                    bleed = SupportedBleed(conn, skillId, spell, player, shield, melee: SkillsFor(conn).IsMelee(gem.Effect));
-                    poison = SupportedPoison(conn, skillId, spell, player, shield, addedChaos);
+                    ignite = SupportedIgnite(conn, skillId, spell, player, swingWeapon);
+                    bleed = SupportedBleed(conn, skillId, spell, player, swingWeapon, melee: SkillsFor(conn).IsMelee(gem.Effect));
+                    poison = SupportedPoison(conn, skillId, spell, player, swingWeapon, addedChaos);
                     if (!spell && repeat > 0)
                     {
                         double repeatMore = MeleeRepeatDamageMore(conn, skillId, repeat);
@@ -1984,9 +1994,9 @@ public static partial class Game
                     m.HallowingFlameUntil = 0;
                 }
                 // The shared roll meets each target's current chance: a source can change between targets.
-                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
-                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
+                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId, hand),
+                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false, SwingWeaponCritical(conn, hand)),
+                    SupportedCriticalChanceVsGround(conn, skillId, release: false, SwingWeaponCritical(conn, hand)));
                 critical = RollCriticalStrike(conn, criticalChance, skillStats,
                         attack: !spell, skillRoll: criticalRoll, player: player)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
@@ -2083,7 +2093,7 @@ public static partial class Game
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
             await NotifyMonsterHitCore(remote, stream, ciphers, conn, id, m, hit, damage,
-                $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
+                $"{gem.Name}{(hammer is null ? "" : " (holy hammer)")}{(critical ? " (critical)" : "")}{(spell ? "" : HandNote(conn, hand))}{(resistance is null ? "" : $", {resistance}")}",
                 log: true, melee: melee ?? !spell, sequence: sequence, deaths: deaths, hitCode: hitCode, stun: stun,
                 critical: critical, impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null);
             await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
@@ -2106,7 +2116,7 @@ public static partial class Game
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
-        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(hammer is not null ? "holy hammer" : spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(hammer is not null ? "holy hammer" : spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact}{(spell ? "" : HandNote(conn, hand))} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
         // An immediate (triggered) spell has no cast clip to draw Discharge's explosion: the server draws it.
         if (discharge is not null
             && SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count)
@@ -2131,7 +2141,7 @@ public static partial class Game
         if (strikeIndex == 0 && strikes > 1)
         {
             (double gap, bool keyframe) = GemAttackStrikeGap(conn, contactClip);
-            double next = contactAt + gap * SupportedAttackSeconds(conn, skillId);
+            double next = contactAt + gap * SupportedAttackSeconds(conn, skillId, hand);
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, next - conn.Clock.Elapsed.TotalSeconds)));
             await WhilePaused(conn);
             if (Replaced() || conn.Closed || !Current()) return;

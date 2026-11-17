@@ -307,7 +307,7 @@ public static partial class Game
                 () => LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail)
             {
                 GroundTarget = aim,
-                GroundAttackSeconds = () => LockstepAttackSeconds(conn, skill),
+                GroundAttackSeconds = () => LockstepAttackSeconds(conn, skill, sequence),
             };
         }
         try
@@ -396,9 +396,10 @@ public static partial class Game
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
-    static double LockstepAttackSeconds(ClientState conn, ushort skill) => skill == SkillCatalog.FirstSkillId
-        ? Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn))
-        : SupportedAttackSeconds(conn, skill);
+    // A dual-wielded use takes its own hand's time (AttackHands, from the use's sequence).
+    static double LockstepAttackSeconds(ClientState conn, ushort skill, ushort sequence) => skill == SkillCatalog.FirstSkillId
+        ? Math.Max(TickSeconds, DefaultAttackSeconds(conn, sequence, CharacterPlayerStats(conn)) / PlayerActionFactor(conn))
+        : SupportedAttackSeconds(conn, skill, sequence);
 
     // When, after a swing's start, the client lets a Move cut the attack short: its clip's lock_cancelling keyframe where
     // it has one, else its contact (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s into a
@@ -409,7 +410,7 @@ public static partial class Game
     // an attack gem's cut-in is taken as the attack1 contact's fraction of the attack (AttackContactDelay).
     public static double LockstepAttackCutIn(ClientState conn, ushort skill, ushort sequence = 0)
     {
-        double seconds = LockstepAttackSeconds(conn, skill);
+        double seconds = LockstepAttackSeconds(conn, skill, sequence);
         if (skill != SkillCatalog.FirstSkillId) return AttackContactDelay(conn, seconds, approach: false);
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         return Animations.DefaultAttackCutInSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, seconds);

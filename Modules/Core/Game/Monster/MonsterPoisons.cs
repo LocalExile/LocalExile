@@ -17,14 +17,16 @@ public static partial class Game
         return WithOverheat(conn, skillId,
             MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon, addedChaos: addedChaos), hand,
                 name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-                spell || weapon is not null ? null : MainHandLocalSources(conn)));
+                spell ? null : weapon is null ? MainHandLocalSources(conn) : weapon.LocalSources));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    // hand: the dual-wielded use's swinging weapon (AttackHands), else the main hand's.
+    public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? hand = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        var weapon = WeaponFor(conn);
+        var weapon = hand ?? WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
             "main_hand", Get, weapon.LocalSources);
