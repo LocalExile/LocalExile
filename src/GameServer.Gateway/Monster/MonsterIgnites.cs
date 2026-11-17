@@ -74,6 +74,7 @@ public sealed class MonsterIgnites
     // The spreading ignites it had when it died: a corpse goes on spreading them until they end (wiki Ignite
     // Proliferation Support: the aura continues through death on intact corpses). They deal no damage.
     List<Ignite> corpse = [];
+    double corpseIgnitedUntil = double.NegativeInfinity;
 
     /// <summary>When an ignite was last applied (Controlled Blaze's "Enemy Ignited Recently" window).</summary>
     public double LastApplied { get; private set; }
@@ -130,8 +131,8 @@ public sealed class MonsterIgnites
     }
 
     /// <summary>Whether this monster or its intact corpse still has an unexpired ignite.</summary>
-    public bool IgnitedAt(double now) => (active.Count > 0 ? active : corpse)
-        .Any(i => i.From <= now && now < i.Until);
+    public bool IgnitedAt(double now) => active.Count > 0
+        ? active.Any(i => i.From <= now && now < i.Until) : now < corpseIgnitedUntil;
 
     /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns; the
     /// <see cref="Stacks"/> strongest together).</summary>
@@ -196,14 +197,22 @@ public sealed class MonsterIgnites
     public void Clear(bool burnt = false)
     {
         DiedBurning |= burnt || Burning;
-        if (active.Count > 0) corpse = active.Where(i => !i.Proliferated).ToList();
+        if (active.Count > 0)
+        {
+            corpseIgnitedUntil = Math.Max(corpseIgnitedUntil, active.Max(i => i.Until));
+            corpse = active.Where(i => i.Spread > 0 && !i.Proliferated).ToList();
+        }
         active.Clear();
         carry = 0;
         accrued = 0;
     }
 
     /// <summary>Drops a corpse's retained spreading ignites (shattered or consumed: nothing left to spread from).</summary>
-    public void RetireCorpse() => corpse = [];
+    public void RetireCorpse()
+    {
+        corpse = [];
+        corpseIgnitedUntil = double.NegativeInfinity;
+    }
 
     /// <summary>Its own live ignites that spread (a corpse's included): each an aura of its own radius in cells.</summary>
     public IEnumerable<(double DamagePerSecond, double Until, int Radius)> Spreads(double now) =>
