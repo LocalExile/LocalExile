@@ -31,8 +31,10 @@ public sealed class MinionTacticsTests
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
     static bool Hit(MinionUtilityTests.Fixture f, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
+        Invoke("RefreshGolemLocked", f.Conn, fighter, Game.CharacterPlayerStats(f.Conn), (double?)now);
         var a = fighter.Abilities.First() with { Attack = new(0x4000, 1, 20,
             DamagePacket.Of(DamageType.Physical, 100, 100)) { Spell = true }, Crit = 0 };
+        fighter.Abilities = [a];
         return (bool)Invoke("GolemHitLocked", "test", f.Stream, f.Ciphers, f.Conn, fighter, a, id, target, now)!;
     }
 
