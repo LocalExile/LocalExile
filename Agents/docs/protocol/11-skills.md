@@ -3092,6 +3092,12 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+  Every player area site reads `Game.SkillAreaStats`: the player's stats hold `base_skill_area_of_effect_+%` and the
+  panel total `skill_area_of_effect_+%` that already includes it, so only the skill's own base form is kept, and the
+  type-scoped increases (`melee_skills_…`, `attack_…`, `warcry_skill_…`, `vaal_skills_…`, totem, trap and mine) are
+  added to the total for a skill of that type. A support's more area multiplies the modifier, so a radius grows by its
+  square root (Fist of War's 59% is ×1.26). Durations go through `SkillDurationModifiers.Seconds`, whose `Kinds`
+  (warcry, Vaal, buff, secondary) pick the type-scoped increases.
 - **Passive blind aura** (`PassiveBuffAuras.BlindTemplate`, §10e). `SaboteurBlind` (Devout of Solaris, Born in the
   Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
   distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
