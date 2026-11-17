@@ -15,6 +15,16 @@ public static partial class Game
         return (ushort)336;
     });
 
+    // The buff's own BuffVisuals row 340 has only the icon; raider_phasing_buff carries the client's phase.epk
+    // (the blue model effect), so the buff is added with that visual override.
+    static readonly Lazy<ushort> PhasingVisualRow = new(() =>
+    {
+        if (!ClientTables.Has("BuffVisuals")) return (ushort)813;
+        foreach (var row in ClientTables.Table("BuffVisuals"))
+            if (row.Text("Id") == "raider_phasing_buff") return (ushort)row.Index;
+        return (ushort)813;
+    });
+
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
     /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). The player tick publishes the stat the
     /// client's pathfinder reads and the Phasing Buff icon.</summary>
@@ -52,7 +62,8 @@ public static partial class Game
                     conn.PhasingBuff = conn.NextBuff++;
                     conn.PhasingSentUntil = until;
                     buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow.Value, PlayerId,
-                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null);
+                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
+                        visual: PhasingVisualRow.Value);
                     Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} for {(timed ? $"{until - now:0.###} s" : "the flask effect")} (row {PhasingBuffRow.Value})");
                     statBytes = PhaseStat(conn.IsPhasing);
                 }
@@ -60,7 +71,8 @@ public static partial class Game
                 {
                     conn.PhasingSentUntil = until;
                     buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow.Value, PlayerId,
-                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null);
+                        u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
+                        visual: PhasingVisualRow.Value);
                 }
             }
             else if (conn.PhasingBuff != 0)
