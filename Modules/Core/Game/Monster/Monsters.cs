@@ -120,6 +120,52 @@ public static partial class Game
             friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
             unrisen: saved.Unrisen, placement: MonsterPlacement.Established);
 
+    // A pack the area holds back until the player comes near (PopulateArea): created a few at a time, nearest first.
+    // The tick is deliberately small — at most this many monsters every tick — so the combat lock is never held across a
+    // crowd while the player is playing, which is what stalled packet builders inside the send gate when the whole
+    // population ran at once (live 2026-11-17).
+    const int PopulationRevealCells = 70;
+    const int PendingMonstersPerTick = 6;
+    const int PendingMonstersTickMilliseconds = 250;
+
+    static bool RevealPack(AreaPopulation.Spawn s, (int X, int Y) here) =>
+        s.Rarity == MonsterRarity.Unique || Dist((s.X, s.Y), here) <= PopulationRevealCells;
+
+    public static async Task RunPendingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, PlayerUpdatesState updates)
+    {
+        while (PlayerUpdatesCurrent(conn, updates))
+        {
+            await Task.Delay(PendingMonstersTickMilliseconds, updates.Stop.Token);
+            if (!PlayerUpdatesCurrent(conn, updates)) break;
+            try { await SpawnPendingMonsters(remote, stream, ciphers, conn); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { break; }
+        }
+    }
+
+    static async Task SpawnPendingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        List<AreaPopulation.Spawn> due = [];
+        byte level;
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PendingMonsters.Count == 0) return;
+            var here = conn.Walk.Position(AreaTime(conn));
+            level = conn.PendingMonsterLevel;
+            for (int i = 0; i < conn.PendingMonsters.Count && due.Count < PendingMonstersPerTick; i++)
+            {
+                var s = conn.PendingMonsters[i];
+                if (!RevealPack(s, here)) continue;
+                due.Add(s);
+                conn.PendingMonsters.RemoveAt(i--);
+            }
+        }
+        foreach (var s in due)
+            if (Monsters.Find(s.Variety.ToString()) is { } variety)
+                await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y,
+                    log: false, alone: false, bulk: true);
+    }
+
     public static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
@@ -560,13 +606,28 @@ public static partial class Game
         if (MapRunOf(conn) is { Area.Level: > 0 } run)
             areaLevel = run.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
+        // Only the packs the player can see are created now; the rest wait until he comes near (RunPendingMonsters).
+        // Writing every monster of an area at the entry is 156 KB behind a client that is still on its loading screen,
+        // which blocks the send gate for the whole of it: the first flask or movement after the entry then waited a
+        // second for the gate (live 2026-11-17).
+        var here = conn.Walk.Position(AreaTime(conn));
+        var near = new List<AreaPopulation.Spawn>(spawns.Count);
+        lock (conn.Monsters) conn.PendingMonsters.Clear();
         foreach (var s in spawns)
+        {
+            if (RevealPack(s, here)) near.Add(s);
+            else lock (conn.Monsters) { conn.PendingMonsters.Add(s); conn.PendingMonsterLevel = level; }
+        }
+        // Nearest first, so a walked-toward pack is the first one created.
+        lock (conn.Monsters)
+            conn.PendingMonsters.Sort((a, b) => Dist((a.X, a.Y), here).CompareTo(Dist((b.X, b.Y), here)));
+        foreach (var s in near)
         {
             var variety = Monsters.Find(s.Variety.ToString())!;
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false, bulk: true);
         }
-        Phase($"{spawns.Count} monsters");
+        Phase($"{spawns.Count} monsters ({near.Count} now, {spawns.Count - near.Count} as he walks)");
         int extra = 0;
         if (MapRunOf(conn) is { ItemRow: > 0 } opening)
         {
