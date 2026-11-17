@@ -196,16 +196,17 @@ public static partial class Game
         var packets = new List<byte[]>();
         packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
         ClampReservedResources(conn);
-        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
+        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff
+            && a.AffectsSelf == b.AffectsSelf;
         foreach (var old in conn.PresentedAuras.Values)
-            if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))
+            if ((!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current)) && old.AffectsSelf)
                 packets.AddRange(AuraCatalog.EndPackets(old, PlayerId));
         foreach (var id in conn.PresentedAuras.Keys.ToArray())
             if (!conn.Auras.TryGetValue(id, out var current) || !Same(conn.PresentedAuras[id], current))
                 conn.PresentedAuras.Remove(id);
         if (conn.AuraStatsDirty || replay)
             foreach (var aura in conn.Auras.Values)
-                if (!conn.PresentedAuras.ContainsKey(aura.SkillId))
+                if (!conn.PresentedAuras.ContainsKey(aura.SkillId) && aura.AffectsSelf)
                 {
                     packets.AddRange(AuraBuffs(aura));
                     conn.PresentedAuras[aura.SkillId] = aura;

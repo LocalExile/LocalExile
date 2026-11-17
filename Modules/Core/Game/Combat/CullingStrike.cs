@@ -35,6 +35,24 @@ public static partial class Game
         m.LastHitBy = conn;
         int threshold = m.Rarity is MonsterRarity.Normal or MonsterRarity.Magic
             ? Math.Max(cull.Threshold, cull.NormalMagicThreshold) : cull.Threshold;
+        // Conditional culling sources that depend on the target's state (poedb Culling Strike / passives): each grants
+        // the standard 10% cull when its condition holds. The weapon-local, flask, stun and "crit recently" sources need
+        // extra context and stay outside this (they are not target-state). Pacifism (CannotKill) is never overridden.
+        if (threshold == 0 && !cull.CannotKill && player is not null)
+        {
+            int Get(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+            bool applies = false;
+            if (Get("culling_strike_on_burning_enemies") != 0 && m.Ignites.Burning) applies = true;
+            if (Get("culling_strike_on_frozen_enemies") != 0
+                && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, conn.Clock.Elapsed.TotalSeconds) > 0) applies = true;
+            if (Get("culling_strike_vs_bleeding_enemies") != 0 && m.Bleeds.Burning) applies = true;
+            if (Get("culling_strike_vs_cursed_enemies") != 0 && m.Curses.All.Count > 0) applies = true;
+            if (Get("culling_strike_vs_marked_enemy") != 0 && m.Curses.All.Values.Any(c => c.Mark)) applies = true;
+            if (Get("culling_strike_on_enemies_affected_by_poachers_mark") != 0
+                && m.Curses.All.Values.Any(c => c.Effect == "PoachersMark")) applies = true;
+            if (Get("culled_if_hit_while_under_10%_life") != 0 && m.Life * 100L <= m.MaxLife * 10L) applies = true;
+            if (applies) threshold = 10;
+        }
         if (cull.CannotKill)
         {
             // Pacifism: the hit cannot kill, so it leaves one Life and the cull below has nothing left to take.
@@ -54,6 +72,20 @@ public static partial class Game
             conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, before, conn.PlayerMaxLife * cull.RecoverLifePct / 100d,
                 ref leech.LifeInstantCarry, minimum: 1);
             leech.InstantLifeChanged |= before != conn.PlayerLife;
+        }
+        if (hit.Life == 0 && player is not null)
+        {
+            int lifeGained = Stats.Key("life_gained_on_cull") is uint lk ? player.GetValueOrDefault(lk) : 0;
+            int manaGained = Stats.Key("mana_gained_on_cull") is uint mk ? player.GetValueOrDefault(mk) : 0;
+            if (lifeGained > 0 && conn.PlayerLife > 0)
+            {
+                var leech = LeechOf(conn);
+                uint before = conn.PlayerLife;
+                conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + lifeGained);
+                leech.InstantLifeChanged |= before != conn.PlayerLife;
+            }
+            if (manaGained > 0)
+                conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + manaGained);
         }
         return hit;
     }
