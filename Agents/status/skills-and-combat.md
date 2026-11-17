@@ -157,6 +157,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps. Predator grants Signal
   Prey and supported minions prioritize its target with their damage bonus. Feeding Frenzy procs on minion hits and
   shares its timed damage and speed buff; aggressive and defensive targeting ranges remain open.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Absolution's hit
+  debuff and rare/unique hit chance generate sentinels; at the limit they refresh a sentinel's life and duration.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
