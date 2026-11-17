@@ -227,6 +227,9 @@ public sealed partial class ReservationCurseSummonTests
             Game.EnsureOwnAuraPools(conn);
             Assert.DoesNotContain(claritySource, conn.Auras.Keys);
             Assert.Contains("Clarity", CharacterSaves.Remembered(conn.Character!).Auras);
+            Game.ReconcileOwnAuras(conn, validateSkills: true);
+            Assert.DoesNotContain(claritySource, conn.Auras.Keys);
+            Assert.Contains("Clarity", CharacterSaves.Remembered(conn.Character!).Auras);
             conn.PlayerStats.Remove(efficiency);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.Contains(claritySource, conn.Auras.Keys);
