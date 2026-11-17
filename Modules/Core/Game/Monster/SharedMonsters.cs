@@ -573,6 +573,7 @@ public static partial class Game
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                     packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life }).Blob()));
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                    if (InstanceEntities.MonsterEquipmentUpdate(id, o.Object) is { } peerStance) packets.Presentation(id, peerStance);
                     if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
                         packets.World(id, display);
                     if (!conn.LockstepClient && m.Destination != (m.X, m.Y))
@@ -733,6 +734,7 @@ public static partial class Game
                             shown = shown with { TransitionState = MonsterEmerge.RisenState(v) };
                         packets.Create(id, InstanceEntities.CreateObject(id, o.Type, shown.Blob()));
                         packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                        if (InstanceEntities.MonsterEquipmentUpdate(id, shown) is { } stance) packets.Presentation(id, stance);
                         if (MonsterRarityBuffs.Row(o.Rarity) is ushort glow) packets.Presentation(id, InstanceEntities.AddBuff(id, conn.NextBuff++, glow));
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);

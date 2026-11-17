@@ -133,7 +133,9 @@ public static partial class Game
     }
 
     /// <summary>It holds a weapon in each hand: its off hand is no shield (ItemStances 10) or quiver (9).</summary>
-    public static bool DualWields(MonsterCatalog.Variety variety) => variety.Weapons.Any(w => w.Slot == 1 && w.Stance is not (9 or 10));
+    // A second weapon in the off hand: not a shield or a quiver (stances 9, 10), nor an entry that is no weapon (stance 0xff:
+    // a bow, which is held in that hand, MonsterCatalog's bow records).
+    public static bool DualWields(MonsterCatalog.Variety variety) => variety.Weapons.Any(w => w.Slot == 1 && w.Stance is not (9 or 10 or 0xff));
 
     // The native selector seeds the clip from this action (0x141e9fa80). Keep its contact and launch point together;
     // another action may start on the actor while this shot is in flight. Scripted releases retain their own recipe.
@@ -279,7 +281,7 @@ public static partial class Game
             Spell = spell,
             Scripted = kingActor || brine || atlas,
             // A weapon in the off hand, not a shield (ItemStances 10) or a quiver (9).
-            DualWielding = ownedLooks?.Any(l => l.Slot == 1 && l.Stance is not (9 or 10)) == true,
+            DualWielding = ownedLooks?.Any(l => l.Slot == 1 && l.Stance is not (9 or 10 or 0xff)) == true,
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
@@ -383,6 +385,9 @@ public static partial class Game
             else await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), !log ? null : $"0x01a9 monster 0x{id:x} enters wake zone");
             if (farBoss && log) Console.WriteLine($"[gateway] {remote} boss 0x{id:x} {variety} created asleep: far from the player");
         }
+        // Its weapons' stance: the client picks it only when the equipment changes (InstanceEntities.MonsterEquipmentUpdate).
+        if (InstanceEntities.MonsterEquipmentUpdate(id, monster) is { } stance)
+            await SendWorldRecord(remote, stream, ciphers, conn, id, stance, !log ? null : $"0x02bc monster 0x{id:x} equipment (its stance)");
         // A magic or rare monster's glow is a buff of its own (MonsterRarityBuffs.cs), cancelled by the client at death.
         if (MonsterRarityBuffs.Row(rarity) is ushort glow)
         {

@@ -317,11 +317,20 @@ public sealed class MonsterCatalog
             }
         }
         var rangedVisuals = RangedWeaponVisuals(folder);
-        bool RangedWeapon(ClientRow row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
-            .Any(name => row.Ints(name).Any(rangedVisuals.Contains));
+        // Its art is a base bow's or wand's, or its main hand is of those classes: a unique's art is no base item's
+        // (Ainsley Varrich's Windripper, UniqueBow9), and his Default Attack and Elemental Hit swung in melee with no arrow.
+        var rangedClasses = ClientTables.Has("ItemClasses")
+            ? ClientTables.Table("ItemClasses").Select((r, i) => (Id: r.Text("Id"), i)).Where(p => p.Id is "Bow" or "Wand").Select(p => p.i).ToHashSet()
+            : new HashSet<int>();
+        bool RangedWeapon(ClientRow row) => row.IntOrNull("MainHand_ItemClassesKey") is int hand && rangedClasses.Contains(hand)
+            || new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }.Any(name => row.Ints(name).Any(rangedVisuals.Contains));
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
+        // The ItemClasses row of bows, and the type and stance of a model entry that is no weapon (as Game.BowSetup's).
+        int bowClass = ClientTables.Has("ItemClasses")
+            ? ClientTables.Table("ItemClasses").Select(r => r.Text("Id")).ToList().IndexOf("Bow") : -1;
+        const byte NoWeaponType = 0x68, NoStance = 0xff;
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
         {
             var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
@@ -333,7 +342,20 @@ public sealed class MonsterCatalog
                     held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
             }
             Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
-            Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            // A bow is held as a player's is (13-items.md "Bow model records"): the row's Weapon1 is the arrow in the
+            // right hand (slot 0, the Bow type and stance), its Weapon2 the bow in the left (slot 1), its Back the quiver
+            // (slot 7), both of those no weapon (0x68) and no stance. The row names no off-hand class for it: every one
+            // of the 518 bow varieties lists the arrow first and the bow second (Ainsley Varrich held only an arrow).
+            if (row.IntOrNull("MainHand_ItemClassesKey") == bowClass && row.IsNull("OffHand_ItemClassesKey"))
+            {
+                void Worn(byte slot, int visual)
+                {
+                    if (visual >= 0 && visual < visualHashes.Count) held.Add(new(slot, visualHashes[visual], NoStance, NoWeaponType));
+                }
+                Worn(1, row.Ints("Weapon2_ItemVisualIdentityKeys").FirstOrDefault(-1));
+                Worn(7, row.IntOrNull("Back_ItemVisualIdentityKey") ?? -1);
+            }
+            else Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
             return held;
         }
         var rows = new List<Variety>();

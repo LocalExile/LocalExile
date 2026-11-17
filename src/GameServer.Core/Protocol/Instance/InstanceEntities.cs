@@ -416,6 +416,18 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.InventoriesComponentIndex, w.ToArray());
     }
 
+    /// <summary>A monster's Inventories component again (0x2bc), or null when it wears nothing. The client picks an
+    /// actor's stance (its animation set, 0x141e9da30) when its equipment changes, never at its creation: a Rogue Exile
+    /// with a bow, created wearing it, stood and attacked in the unarmed stance with the arrow showing in its hand.</summary>
+    public static byte[]? MonsterEquipmentUpdate(uint id, MonsterObject monster)
+    {
+        int index = monster.Components.ToList().IndexOf("Inventories");
+        if (index < 0 || monster.Equipped is not { Count: > 0 } equipped) return null;
+        var w = new BlobWriter();
+        PlayerObject.WriteInventories(w, equipped);
+        return ComponentUpdate(id, (byte)index, w.ToArray());
+    }
+
     public static byte[] StatsUpdate(uint entityId, IReadOnlyList<(uint Stat, int Value)> stats)
     {
         var w = new LoginWriter().U16(StatsUpdateId).U32(entityId).U32(0).U16(0);
