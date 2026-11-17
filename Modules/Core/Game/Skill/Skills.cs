@@ -886,6 +886,10 @@ public static partial class Game
                     Get("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana));
             if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
                 Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
+            if (SkillsFor(conn).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
+                foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
+                    if (HitSummonDefinition(SkillsFor(conn).EffectId(effect), rarity) is { } sentinel)
+                        Publish(sentinel.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, sentinel, supported));
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
                 Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
                     n => GolemStat(playerStats, n)));
@@ -1085,6 +1089,7 @@ public static partial class Game
 
     public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
+        if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(conn).EffectId(effect)) is { } beastKind)
         {

@@ -156,9 +156,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Predator targeting and Feeding Frenzy buffs; aggressive/defensive ranges remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
-- Absolution hit/death summons and sentinel life/duration refresh. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Absolution and Dominating sentinels, Phantasms and direct Vaal Skeletons. Docs: [11](../docs/protocol/11-skills.md) §10h.
+  Vaal Skeleton totem, trap and mine casts are refused before spending souls or starting an action.
 - Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
-  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
