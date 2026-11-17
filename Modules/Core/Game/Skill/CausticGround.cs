@@ -18,6 +18,9 @@ public static partial class Game
         static readonly string[] CausticArrowGround = [.. Enumerable.Range(1, 5).Select(i =>
             $"Metadata/Effects/Spells/ground_effects_v2/caustic_arrow_ground/caustic_arrow_0{i}.ao")];
         const int CausticArrowGroundArtRadius = 120;
+        // The row's end effect is the art's "fadeout" clip. Its index is a guess: the rigs in projectile_clips number
+        // their clips by name, which puts "fadeout" before "loop". The 0.6 s it is given is a guess too.
+        const uint CausticFadeoutClip = 0;
 
         readonly ConditionalWeakTable<SpawnedMonster, CausticCover> causticCover = new();
 
@@ -53,7 +56,7 @@ public static partial class Game
         {
             if (ao is not null)
                 Effect((int)Math.Round(centre.X), (int)Math.Round(centre.Y), ao, ProjectileRuntime.Time(duration), radius,
-                    artRadius: CausticArrowGroundArtRadius);
+                    artRadius: CausticArrowGroundArtRadius, endClip: (CausticFadeoutClip, ProjectileRuntime.Time(.6)));
             long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
             void Tick()
             {

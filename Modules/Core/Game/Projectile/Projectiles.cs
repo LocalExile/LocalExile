@@ -650,7 +650,7 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0, int? artRadius = null)
+            float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null)
         {
             uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
@@ -673,7 +673,11 @@ public static partial class Game
                 visual.Created = true;
                 return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
             }, wake: true);
-            Runtime.Schedule(Runtime.Now + lifetime, () =>
+            // endClip: a clip the art plays when its time is up (a ground's fade-out); the object goes after it.
+            if (endClip is { } ending)
+                Runtime.Schedule(Runtime.Now + lifetime, () => WorldRecords(id, () => visual.Created && !visual.Ended
+                    ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
+            Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), () =>
             {
                 visual.Ended = true;
                 WorldRecords(id, () =>
