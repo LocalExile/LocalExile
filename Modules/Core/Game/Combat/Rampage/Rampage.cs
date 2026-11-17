@@ -213,24 +213,46 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentRampageWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-            CharacterPlayerStats(conn);
+            var stats = CharacterPlayerStats(conn);
             var value = conn.Rampage.Current;
             if (value == conn.SentRampage) return null;
             var bytes = new List<byte>();
-            if (conn.RampageBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.RampageBuff));
-            conn.RampageBuff = 0;
+            // The same buff instance takes the new count; replacing it every kill cost a remove and an add.
             if (value.Active)
             {
-                conn.RampageBuff = conn.NextBuff++;
+                if (conn.RampageBuff == 0) conn.RampageBuff = conn.NextBuff++;
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.RampageBuff, RampageCatalog.BuffDefinitionRow,
                     PlayerId, u68: BitConverter.SingleToUInt32Bits((float)value.RemainingSeconds(ProjectileWorldTime(conn))),
                     stacks: (ushort)value.Stacks));
             }
-            conn.ApplyMovementSpeed();
-            bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-            bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+            else if (conn.RampageBuff != 0)
+            {
+                bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.RampageBuff));
+                conn.RampageBuff = 0;
+            }
+            // Damage and movement change every 20 stacks; rarity and area at their own group sizes. The full stat and
+            // skill snapshots are ~39 KB together, so they follow only those changes. current_rampage_stacks changes
+            // every kill and is one small stat update (the buff row reads its count from it).
+            int rarityPer = Stats.Key("item_found_rarity_+1%_per_X_rampage_stacks") is uint rarityKey
+                ? stats.GetValueOrDefault(rarityKey) : 0;
+            int areaPer = Stats.Key("area_of_effect_+%_per_25_rampage_stacks") is uint areaKey
+                ? stats.GetValueOrDefault(areaKey) : 0;
+            var signature = (value.Active ? 1 : 0, value.DamagePercent, value.MovementPercent,
+                RampageRarity(value.Stacks, rarityPer), RampageRarity(value.Stacks, 25) * areaPer);
+            if (signature != conn.SentRampageStat)
+            {
+                conn.ApplyMovementSpeed();
+                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+                conn.SentRampageStat = signature;
+            }
+            else if (Stats.Key("current_rampage_stacks") is uint current && value.Stacks != conn.SentRampageStacks)
+            {
+                bytes.AddRange(InstanceEntities.StatsUpdate(PlayerId, [(current, value.Stacks)]));
+            }
+            conn.SentRampageStacks = value.Stacks;
             conn.SentRampage = value;
-            return [.. bytes];
+            return bytes.Count == 0 ? null : [.. bytes];
         }
     }
 

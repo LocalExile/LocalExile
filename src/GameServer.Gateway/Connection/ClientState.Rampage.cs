@@ -23,6 +23,10 @@ public sealed partial class ClientState
     public HashSet<uint> RetiredCombatObjects { get; } = [];
     public HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
     public RampageState.Value SentRampage { get; set; }
+    // The stat-driving part of the last published streak: the full stats go out only when one of these changes,
+    // while current_rampage_stacks (every kill) goes as one partial stat update.
+    public (int Active, int Damage, int Movement, int Rarity, int Area)? SentRampageStat;
+    public int SentRampageStacks;
     public ushort RampageBuff { get; set; }
     public double? RampageTransferAt;
     public double VaalPreventionUntil;
@@ -66,6 +70,8 @@ public sealed partial class ClientState
             ElusiveMovementPct = 0;
             ElusiveEffectPercent = -1;
             SentRampage = default;
+            SentRampageStat = null;
+            SentRampageStacks = 0;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
             if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));
