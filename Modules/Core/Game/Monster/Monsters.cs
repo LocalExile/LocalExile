@@ -338,15 +338,20 @@ public static partial class Game
                 MonsterType: ((ushort)variety.Row, level)));
         else
         {
-            // Decided and built before the gate: the builder takes the combat lock, and holding the gate while waiting for
-            // it stalled the next cast behind the monster AI — 297 ms on one spawn (live 2026-11-17).
-            byte[]? types;
-            lock (conn.Monsters)
-                types = CurrentGameWork && !conn.Closed && !conn.LeavingArea
-                    && (ownedCurrent is null || ownedCurrent()) && conn.MonsterTypes.Add((variety.Row, level))
-                    ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null;
-            if (types is not null)
-                await Send(remote, stream, ciphers, types, $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})");
+            // A type the client already has needs no send, and so no turn at the gate: holding the gate while waiting
+            // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
+            // A new one is registered and written in one turn at the gate, so no other producer's create of this type
+            // can be written before its 0x20.
+            bool known;
+            lock (conn.Monsters) known = conn.MonsterTypes.Contains((variety.Row, level));
+            if (!known)
+                await Send(remote, stream, ciphers, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
+                {
+                    lock (conn.Monsters)
+                        return CurrentGameWork && !conn.Closed && !conn.LeavingArea
+                            && (ownedCurrent is null || ownedCurrent()) && conn.MonsterTypes.Add((variety.Row, level))
+                            ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null;
+                });
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
