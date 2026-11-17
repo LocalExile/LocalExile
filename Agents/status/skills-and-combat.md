@@ -65,6 +65,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
+- Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 
