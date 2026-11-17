@@ -171,7 +171,9 @@ public static partial class Game
     public static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, GroundCritical? vsGround = null) =>
         Math.Clamp((GroundCriticalOn(conn, target, vsGround) is int ground ? ground
         : vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance)
-        + (conn.Monsters.GetValueOrDefault(target)?.Curses["enemy_additional_critical_strike_chance_against_self"] ?? 0), 0, 10000);
+        + (conn.Monsters.GetValueOrDefault(target) is { } m
+            ? m.Curses["enemy_additional_critical_strike_chance_against_self"] + BrittleCriticalChance(m, ProjectileWorldTime(conn)) : 0),
+        0, 10000);
 
     // The default attack's (and an ordinary bow's) chance against a Blinded target: the main hand's base with the pooled
     // attack increases and the vs-Blinded one, as Pools.AttackCriticalStrikeChance is built. A release keeps the

@@ -2,12 +2,15 @@ using GameServer.Core.World;
 
 /// <summary>
 /// The chill, freeze and shock the player's hits put on one monster (wiki Chill, Freeze and Shock; PoB CalcOffence's
-/// non-damaging ailments). Each inflicted ailment keeps its own magnitude and duration; only the strongest of a kind
-/// applies. They stay on a corpse until they run out. Guarded by the Monsters lock, on the connection's pauseable clock.
+/// non-damaging ailments), and the other non-damaging elemental ailments the rules add with <see cref="Add"/>. Each
+/// inflicted ailment keeps its own magnitude and duration; only the strongest of a kind applies, whoever inflicted it.
+/// They stay on a corpse until they run out. Guarded by the Monsters lock, on the connection's pauseable clock.
 /// </summary>
 public sealed class MonsterElementalAilments
 {
-    public enum Kind { Chill, Freeze, Shock }
+    // Scorch, Brittle and Sap: the stats name them scorch, frostburn and sap (StatName). Brittle's magnitude is in
+    // hundredths of a percent, the unit of the stat its buff grants.
+    public enum Kind { Chill, Freeze, Shock, Scorch, Brittle, Sap }
     public sealed record Effect(Kind Kind, double From, double Until, double Magnitude)
     {
         // Glacial Wave: a chill from a hit of a player with enemies_chilled_by_hits_take_damage_increased_by_chill_effect
@@ -140,11 +143,21 @@ public sealed class MonsterElementalAilments
         return effect >= 5 ? effect : 0;
     }
 
-    static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
+    static string Name(Kind kind) => StatName(kind);
+
+    /// <summary>The name the stats give a kind (virtual_X_duration_+%, immune_to_X, avoid_X_%): Brittle's is frostburn.</summary>
+    public static string StatName(Kind kind) => kind == Kind.Brittle ? "frostburn" : kind.ToString().ToLowerInvariant();
+
+    /// <summary>The past form in its cannot_be_X stats.</summary>
+    public static string Past(Kind kind) => kind switch
+    {
+        Kind.Chill => "chilled", Kind.Freeze => "frozen", Kind.Shock => "shocked",
+        Kind.Scorch => "scorched", Kind.Brittle => "frostburned", _ => "sapped",
+    };
 
     static bool Immune(Kind kind, Func<string, int> get)
     {
-        string past = kind switch { Kind.Chill => "chilled", Kind.Freeze => "frozen", _ => "shocked" };
+        string past = Past(kind);
         return get($"immune_to_{Name(kind)}") != 0 || get($"cannot_be_{past}") != 0 || get($"base_cannot_be_{past}") != 0;
     }
 
@@ -230,9 +243,43 @@ public sealed class MonsterElementalAilments
     /// never_ignite_chill_freeze_shock, and the per-ailment never_* stats; never_freeze_or_chill covers both cold
     /// ailments.</summary>
     public static bool CannotInflict(string ailment, Func<string, int> attacker) =>
-        attacker("cannot_inflict_status_ailments") != 0 || attacker("never_ignite_chill_freeze_shock") != 0
-        || attacker($"never_{ailment}") != 0
+        attacker("cannot_inflict_status_ailments") != 0 || attacker($"never_{ailment}") != 0
+        || ailment is "ignite" or "chill" or "freeze" or "shock"
+            && (attacker("never_ignite_chill_freeze_shock") != 0 || classicProhibitions.Any(stat => attacker(stat) != 0))
         || ailment is "chill" or "freeze" && attacker("never_freeze_or_chill") != 0;
+
+    static System.Collections.Immutable.ImmutableArray<string> classicProhibitions = [];
+
+    /// <summary>A hand-over for modules: an attacker with any stat in <paramref name="stats"/> cannot inflict ignite,
+    /// chill, freeze or shock, as with never_ignite_chill_freeze_shock (<see cref="CannotInflict"/>). The framework names
+    /// none; disposing the result (the module's lifetime) takes back the stats it added.</summary>
+    public static IDisposable HandOverIgniteChillFreezeShockProhibitions(IReadOnlyCollection<string> stats)
+    {
+        string[] added = [];
+        System.Collections.Immutable.ImmutableInterlocked.Update(ref classicProhibitions, list =>
+        {
+            added = [.. stats.Distinct().Except(list)];
+            return list.AddRange(added);
+        });
+        return new ProhibitionHandOver(added);
+    }
+
+    sealed class ProhibitionHandOver(string[] added) : IDisposable
+    {
+        int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                System.Collections.Immutable.ImmutableInterlocked.Update(ref classicProhibitions, list => list.RemoveRange(added));
+        }
+    }
+
+    /// <summary>The damage of <paramref name="damage"/> that can inflict an ailment whose stats name it
+    /// <paramref name="ailment"/> ("scorch", "inflict_brittle", "sap": all_damage_can_X, a type's X_damage_can_X and
+    /// all_damage_from_critical_strikes_can_X), <paramref name="own"/> being its element.</summary>
+    public static double DamageThatCan(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker,
+        bool critical) => Inflicting(ailment, own, damage, attacker, critical);
 
     /// <summary>Brine Bound (chance_to_freeze_enemies_for_1_second_when_hit_%): a freeze of a set base duration, through
     /// the same duration modifiers, threshold, minimum and immunity as a hit's, spreading by the player's area modifier
@@ -327,11 +374,20 @@ public sealed class MonsterElementalAilments
         return effect;
     }
 
+    /// <summary>An ailment the rules worked out (its kind, start, base end and magnitude after the effect modifiers):
+    /// through the attacker's and target's duration modifiers and the target's immunity, then kept beside the others of
+    /// its kind, the strongest applying. Returns what was added, or null.</summary>
+    public Effect? Add(Effect effect, Func<string, int> attacker, Func<string, int> target) => Apply(effect, attacker, target);
+
     /// <summary>The buff instance each kind always has on its monster: the top of the range, which
     /// <see cref="ClientState.NextBuff"/> never hands out, so a monster's frequent ailment changes take nothing from the
-    /// connection's counter and never meet another buff's instance on the same object.</summary>
-    public static ushort Instance(Kind kind) => (ushort)(FirstInstance + (int)kind);
+    /// connection's counter and never meet another buff's instance on the same object. Chill, freeze and shock keep the
+    /// top three; the later kinds sit below the two the player's bleeding and poison buffs take.</summary>
+    public static ushort Instance(Kind kind) => kind <= Kind.Shock ? (ushort)(FirstInstance + (int)kind)
+        : (ushort)(LowestInstance + (kind - Kind.Scorch));
     public const ushort FirstInstance = ushort.MaxValue - 2;
+    /// <summary>The lowest of the fixed instances (<see cref="Instance"/> and the player's bleeding and poison buffs).</summary>
+    public const ushort LowestInstance = ushort.MaxValue - 7;
 
     /// <summary>The buffs to take off and put on so the client shows what applies at <paramref name="now"/>: a kind
     /// whose strongest magnitude changed is sent again (the old one removed first, on the same instance); expired effects
@@ -339,7 +395,7 @@ public sealed class MonsterElementalAilments
     public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now)
     {
         effects.RemoveAll(e => e.Until <= now);
-        for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
+        foreach (var kind in Enum.GetValues<Kind>())
             if (spread.TryGetValue(kind, out var copy) && copy.Until <= now) spread.Remove(kind);
         var changes = new List<(Kind, ushort?, ushort?, int)>();
         foreach (var kind in Enum.GetValues<Kind>())

@@ -974,7 +974,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get => Instance is { } i ? i.World.NextBuff : nextBuff;
         set
         {
-            ushort v = value is 0 or >= MonsterElementalAilments.FirstInstance ? (ushort)1 : value;
+            ushort v = value is 0 or >= MonsterElementalAilments.LowestInstance ? (ushort)1 : value;
             if (Instance is { } i) i.World.NextBuff = v; else nextBuff = v;
         }
     }

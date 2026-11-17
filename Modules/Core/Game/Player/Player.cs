@@ -580,6 +580,7 @@ public static partial class Game
         var criticalContext = CriticalContext(conn);
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
+        var alternateAilments = new int[AlternateAilments.Length];
         bool moving = conn.Walk.Moving(last);
         while (PlayerUpdatesCurrent(conn, updates))
         {
@@ -620,6 +621,8 @@ public static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
+            foreach (var (packet, log) in PlayerAlternateAilmentBuffs(conn, alternateAilments, tickNow))
+                await Send(remote, stream, ciphers, packet, log);
             IncomingDamagingAilments.State nextIncoming;
             IncomingDamagingAilments.State presented;
             int incomingEpoch;
@@ -1134,7 +1137,7 @@ public static partial class Game
             DamageType.Chaos => conn.Pools.ChaosResistance,
             _ => 0,
         };
-        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(conn);
+        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(conn) + PlayerScorchedResistance(conn, type);
     }
 
     // The per-type maximum from Character.ot's 75 plus the passive/gear maximum-resistance modifiers, hard-capped at 90.

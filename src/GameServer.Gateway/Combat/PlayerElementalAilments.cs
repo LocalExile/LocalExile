@@ -7,13 +7,19 @@ public sealed class PlayerElementalAilments
     // Target Metadata/Monsters/Monster.ot: critical_ailment_dot_multiplier_+ = 30.
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     public const double MonsterCriticalAilmentMultiplier = 1.3;
-    public enum Kind { Ignite, Chill, Freeze, Shock }
+    // The later kinds (Scorch, Brittle, Sap) have no ordinary hit rule here: the rules add them with Inflict. Brittle's
+    // magnitude is in hundredths of a percent, as on monsters (MonsterElementalAilments).
+    public enum Kind { Ignite, Chill, Freeze, Shock, Scorch, Brittle, Sap }
     /// <summary>The source skill's native ailment stats. Critical strikes and native chances share one application
     /// per kind, so the defender's avoidance is rolled once even when both would inflict the same ailment.</summary>
     public readonly record struct HitSettings(int IgniteChance, int FreezeChance, int ShockChance,
         int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
     {
         public bool NeverFreeze { get; init; }
+        /// <summary>The source skill's chances to inflict the ailments the rules add with <see cref="Inflict"/>.</summary>
+        public int ScorchChance { get; init; }
+        public int BrittleChance { get; init; }
+        public int SapChance { get; init; }
     }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
@@ -70,9 +76,10 @@ public sealed class PlayerElementalAilments
     public double DamageTakenFactor(double now, int increasedPct = 0) =>
         Math.Max(0, 1 + ((unaffectedByShock ? 0 : Magnitude(Kind.Shock, now)) + increasedPct) / 100);
 
-    static string Name(Kind kind) => kind.ToString().ToLowerInvariant();
+    static string Name(Kind kind) => kind == Kind.Brittle ? "frostburn" : kind.ToString().ToLowerInvariant();
     static bool Immune(Kind kind, Func<string, int> get) => get($"immune_to_{Name(kind)}") != 0
-        || get($"cannot_be_{kind switch { Kind.Ignite => "ignited", Kind.Chill => "chilled", Kind.Freeze => "frozen", _ => "shocked" }}") != 0;
+        || get($"cannot_be_{kind switch { Kind.Ignite => "ignited", Kind.Chill => "chilled", Kind.Freeze => "frozen",
+            Kind.Shock => "shocked", Kind.Scorch => "scorched", Kind.Brittle => "frostburned", _ => "sapped" }}") != 0;
 
     public void Reconcile(Func<string, int> get)
     {
@@ -140,6 +147,7 @@ public sealed class PlayerElementalAilments
 
     // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it
     // landed with: then the player's own effect and duration modifiers, caps, immunity and avoidance, as for a hit.
+    // Another kind arrives with its effect on the player already worked out, through duration, immunity and avoidance.
     public void Inflict(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random)
     {
         lock (effects)

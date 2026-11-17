@@ -10,7 +10,14 @@ public static partial class Game
         get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
         get("always_shock") != 0 ? 100 : get("base_chance_to_shock_%"),
         get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
-        get("active_skill_ignite_damage_+%_final")) { NeverFreeze = get("never_freeze") != 0 };
+        get("active_skill_ignite_damage_+%_final"))
+    {
+        NeverFreeze = get("never_freeze") != 0,
+        // Scorch, Brittle and Sap (AlternateAilmentsOnPlayerLocked): the boss skills' chance_to_scorch_% and the like.
+        ScorchChance = get("chance_to_scorch_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
+        BrittleChance = get("chance_to_inflict_frostburn_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
+        SapChance = get("chance_to_inflict_sapped_%") + get("chance_to_inflict_scorch_brittle_sap_%"),
+    };
 
     public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
