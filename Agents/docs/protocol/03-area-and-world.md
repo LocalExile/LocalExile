@@ -183,3 +183,15 @@ Shrine, MinimapIcon, InteractionAction (Render and Targetable are in the type bu
 
 See also: the shrine buff is a normal `0x01c1` on a BuffDefinitions row (the Shrines row's `Player_ShrineBuffsKey` template),
 and the click that claims it is C→S 0x24, answered with 0x01ab `ActionStarted`/`ActionEnded` like any walked-up object.
+
+## Strongbox objects (`Metadata/Chests/StrongBoxes/*`)
+
+A strongbox reads the Rhoa Nest's chest components plus StateMachine: Positioned, BaseEvents, Animated, Chest, Stats,
+ObjectMagicProperties, InteractionAction, MinimapIcon, StateMachine (`read` 9; Render and Targetable are client-only).
+`Strongbox.ot` defines the shared states `opened; started;` and, in its client block,
+`on_or_create_state_opened_1 = { HideMinimapIcon(); }`: a box created with `opened` = 1 has no minimap marker.
+Its `.ot` names no model (Animated `animated_object` is empty); the Chests row's `AOFiles` does, and the server
+writes it in Animated. The HardMode rows (`…HardMode`) have no `.ot`: their Chests `InheritsFrom` is `Strongbox`.
+`CoreLeagues` row 3 "Ambush" has no ExtraTerrainFeatures row, so the client's level generator never rolls it.
+Not verified live: whether the box plays its opening (`.ao` animation `open`) when created opened under a new id, and
+what `started` does.

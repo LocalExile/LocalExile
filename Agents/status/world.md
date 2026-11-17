@@ -109,6 +109,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
+- Strongboxes (not yet tried live): an area's count is the client's Ambush league roll with the instance's area stats,
+  the type a Strongboxes row by weight, area level and `map_strongboxes_+%_chance_to_be_*`. A walk-up click or a
+  chest-opening warcry opens one: one area pack (two with `map_strongboxes_additional_pack_chance_%`) and its loot.
+  Boxes are normal (no rolled chest mods); reopening, corrupted and rare boxes are not implemented.
+  Source: `Modules/Core/Content/Strongbox`; [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped

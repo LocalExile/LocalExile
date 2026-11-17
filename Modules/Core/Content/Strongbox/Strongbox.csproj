@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Strongboxes (the Ambush league mechanic) as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+</Project>
