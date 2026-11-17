@@ -12,6 +12,8 @@ public sealed class GolemState
         public GolemCatalog.Definition Definition = definition;
         public ushort Source = source;
         public int GemLevel, Quality, Limit;
+        public MonsterModSet InheritedMods = MonsterModSet.None;
+        public object? SourceIdentity;
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
         public double Regeneration, Shield, MaximumShield;
         public int Combo;

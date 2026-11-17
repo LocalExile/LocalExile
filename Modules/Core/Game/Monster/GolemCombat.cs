@@ -98,7 +98,7 @@ public static partial class Game
         var target = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
                 && !p.Value.Asleep && !conn.AsleepMonsters.Contains(p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
-            .Where(t => Dist(t.At, here) <= m.AggroRange && Dist(t.At, owner) <= 100)
+            .Where(t => Dist(t.At, here) <= m.AggroRange && (!follows || Dist(t.At, owner) <= 100))
             .OrderBy(t => Dist(t.At, here)).FirstOrDefault();
         if (target.M is null) { if (follows) GolemFollowLocked(conn, g, owner, now); return; }
         g.Target = target.Key;
@@ -121,7 +121,8 @@ public static partial class Game
     }
 
     static bool GolemUsable(GolemState.Golem g, GolemState.Ability a) =>
-        g.Definition.Kind == "Absolution" ? a.Effect is 11994 or 11995
+        g.Definition.Kind == "Phantasm" ? a.Effect is 9427 or 9428
+        : g.Definition.Kind == "Absolution" ? a.Effect is 11994 or 11995
         : g.Definition.Kind == "Zombie" ? g.Definition.Id == "RaiseZombieAltX" ? a.Effect == 5590
             : g.Definition.Id == "RaiseZombieAltY" ? a.Effect == 7133 : a.Effect != 7133 : a.Effect switch
     {
@@ -260,7 +261,7 @@ public static partial class Game
             GolemPulsesLocked(remote, stream, ciphers, conn, g, now); return;
         }
         bool area = GolemStat(a.Stats, "is_area_damage") != 0 || a.Effect is 136 or 349 or 2563 or 3347 or 10799 or 10800 or 869 or 4839 or 9927 or 9928;
-        var centre = a.Effect is 3347 or 10799 or 10800 or 869 ? action.Aim : at;
+        var centre = a.Effect is 3347 or 10799 or 10800 or 869 or 11994 or 11995 ? action.Aim : at;
         if (a.Effect == 869)
         {
             var end = action.Aim;
@@ -353,6 +354,7 @@ public static partial class Game
         { CommitBossStage(remote, stream, ciphers, conn, id, target, now); hit = hit with { StageStarts = false }; }
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id, flags: (ushort)(0x4601 | (critical ? 0x20 : 0)), kind: 2,
             u34: 450), null, id, target, WorldId: g.Id));
+        PhantasmsOnHitLocked(conn, target, g.Source, now, Random.Shared, g);
         CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}");
         if (!target.Dead)
         {
@@ -379,7 +381,7 @@ public static partial class Game
             Range = p.Lobbed ? distance : Math.Max(60, distance + 10), Lobbed = p.Lobbed,
             Count = nova ? 14 : Math.Max(1, p.Count), SpreadRadians = nova ? Math.PI * 2 : p.SpreadRadians,
             DirectDamage = !p.Lobbed,
-            Pierce = a.Effect == 2378 ? int.MaxValue : Math.Max(0, GolemStat(g.Own, "number_of_additional_projectiles_to_pierce")),
+            Pierce = a.Effect == 2378 || GolemStat(a.Stats, "always_pierce") != 0 ? int.MaxValue : Math.Max(0, GolemStat(g.Own, "number_of_additional_projectiles_to_pierce")),
             EndArea = p.Lobbed ? new("golem mortar", a.Radius) : null,
             EndAreaReasons = p.Lobbed ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
         };

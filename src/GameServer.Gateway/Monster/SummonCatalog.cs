@@ -69,7 +69,7 @@ public sealed class SummonedMinions
         GameServer.Core.Protocol.Instance.Item? Gem, double Until);
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse);
+        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "");
     public readonly List<HitSummon> HitSummons = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
     public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null, uint? Host = null, int? Socket = null);
