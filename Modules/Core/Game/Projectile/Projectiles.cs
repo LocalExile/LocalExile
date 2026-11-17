@@ -124,7 +124,7 @@ public static partial class Game
                 if (!Conn.Paused)
                 {
                     TickChannelTriggers(Conn, this, Conn.Clock.Elapsed.TotalSeconds);
-                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                    Runtime.AdvanceTo(Bounded(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds))));
                 }
             }
         }
@@ -138,6 +138,13 @@ public static partial class Game
                 Runtime.AdvanceTo(at);
             }
         }
+
+        // How far the 30 Hz pump may step the simulation in one turn of the combat lock. A stalled connection (an area
+        // entry, a long handler) leaves the runtime more than a second behind, and one unbounded step of all of it ran
+        // under the lock: 283 ms, with every input and cast waiting behind it (live 2026-11-17). The rest is stepped by the
+        // following ticks, so after a stall the flights trail the clock by at most this much.
+        const double CatchUpSeconds = 0.1;
+        long Bounded(long at) => Math.Min(at, Runtime.Now + ProjectileRuntime.Time(CatchUpSeconds));
 
         public void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release)
         {
