@@ -908,6 +908,9 @@ public static class AreaPopulation
     // scripts/re/atlas room-points): the rooms with monster or start points per area.
     static readonly Lazy<RoomIndex?> RoomFits = new(LoadRoomIndex);
 
+    /// <summary>Reads the room index at startup: the first area populated reads it (0.23 s).</summary>
+    public static void Warm() => _ = RoomFits.Value;
+
     static RoomIndex? LoadRoomIndex()
     {
         if (ClientTables.TableOrNull("room_point_rooms") is not { } roomRows) return null;

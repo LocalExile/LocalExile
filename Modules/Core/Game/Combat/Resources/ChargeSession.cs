@@ -44,6 +44,34 @@ public sealed class ChargeSession(Charges.State? state = null)
     public bool Pending => !events.IsEmpty;
 
     /// <summary>
+    /// Whether the ticker must give <see cref="State"/> the character's expiry rate before the next <see cref="Step"/>:
+    /// a charge is held (its deadline follows the rate), an event waits (its gain is timed by it), or a periodic stat
+    /// may grant one in the step. Otherwise a step can gain or expire nothing, and the rate costs a full stat build 20
+    /// times a second for nothing. A gain rolled outside the ticker (a projectile hit's own <see cref="Step"/>, an
+    /// accepted hit's <see cref="Admit"/>) comes with the character's stats: <see cref="TimeGains"/> takes the rate
+    /// from those.
+    /// </summary>
+    public bool TimesCharges
+    {
+        get
+        {
+            if (Pending || Holds) return true;
+            for (int i = 0; i < ChargeGains.Periodics.Count; i++)
+                if (Observed(ChargeGains.Periodics[i].Stat) != 0) return true;
+            return false;
+        }
+    }
+
+    bool Holds => State.Held(ChargeType.Endurance) > 0 || State.Held(ChargeType.Frenzy) > 0 || State.Held(ChargeType.Power) > 0;
+
+    // With nothing held the ticker may have left the rate as it last was (TimesCharges): a gain rolled with these stats
+    // is timed by their rate. Held charges keep the ticker's, as their deadlines always did.
+    void TimeGains(double now, Func<string, int> stats)
+    {
+        if (!Holds) State.SetExpiryRate(now, RecipientEffectTime.Rate(3, stats));
+    }
+
+    /// <summary>
     /// The character's stats as they are now (<paramref name="get"/>: by Stats.dat Id): the limits of each type and
     /// the stats the session reads between events (the periodic gains, the gain-to-maximum chances, the duration
     /// stats), kept until the next observation.
@@ -103,6 +131,7 @@ public sealed class ChargeSession(Charges.State? state = null)
         }
         else
         {
+            if (stats is not null && Pending) TimeGains(now, stats);
             while (stats is not null && events.TryDequeue(out var e)) ApplyEvent(e, now, stats, weapon, rng, log);
             if (!inTown)
                 foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng))
@@ -117,7 +146,11 @@ public sealed class ChargeSession(Charges.State? state = null)
         Func<WeaponProfile> weapon, bool alive, Random rng)
     {
         var log = new List<string>();
-        if (alive) foreach (var e in accepted) ApplyEvent(e, now, stats, weapon, rng, log);
+        if (alive)
+        {
+            TimeGains(now, stats);
+            foreach (var e in accepted) ApplyEvent(e, now, stats, weapon, rng, log);
+        }
         return Finish(now, log);
     }
 

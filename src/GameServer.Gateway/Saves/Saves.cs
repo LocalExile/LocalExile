@@ -59,6 +59,17 @@ public static class Saves
         });
     });
 
+    /// <summary>Whether the character has a save and its saved experience, without reading the rest of the save (not
+    /// counted in <see cref="CharacterReads"/>).</summary>
+    public static (bool Saved, uint? Experience) CharacterExperience(string character)
+    {
+        try { return SaveRows.CharacterExperience(Db, character); }
+        catch (Exception e) when (e is InvalidDataException or InvalidCastException or OverflowException)
+        {
+            throw Unreadable(SaveDatabase.Table.Characters, character, e);
+        }
+    }
+
     /// <summary>How many times a character's save was read from its tables since the Gateway started (counted under the
     /// database's lock). A whole save is costly to read (its items and their mods), so what runs many times a second must
     /// not add to this: the lag probe prints its rate (ConnectionPerformance.RuntimeSummary), and CharacterSaves.Look

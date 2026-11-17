@@ -30,6 +30,15 @@ public static class SaveRows
         WriteCharacterRow(db, id, save);
     });
 
+    /// <summary>Whether the character has a save (not a deleted one) and the experience it holds, from its row alone: the
+    /// same row and value <see cref="LoadCharacter"/> gives, without its items, mods and lists.</summary>
+    public static (bool Saved, uint? Experience) CharacterExperience(SaveDatabase db, string name) => db.Read(() =>
+    {
+        using var c = db.Command("SELECT experience FROM character_saves WHERE name = $name AND deleted_utc IS NULL", ("$name", name));
+        using var r = c.ExecuteReader();
+        return r.Read() ? (true, (uint?)new Row(r).Long("experience")) : (false, null);
+    });
+
     static long? CharacterId(SaveDatabase db, string name)
     {
         using var c = db.Command("SELECT id FROM character_saves WHERE name = $name AND deleted_utc IS NULL", ("$name", name));

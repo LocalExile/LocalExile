@@ -651,6 +651,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
         Lazy<HashSet<int>> Of(string typeId, bool added = false) => new(() => Effects(_rows.Value, typeId, added));
 
+        /// <summary>Reads the three tables now; each set is still worked out on its first use.</summary>
+        public void Warm() => _ = _rows.Value;
+
         // Any named type a caller asks for (Trap, Mine, Totem, ...): resolved once and reused, like the fixed sets.
         readonly Dictionary<string, Lazy<HashSet<int>>> _byId = new(StringComparer.Ordinal);
 
@@ -983,6 +986,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         _ = _monsterMeleeClocks.Value;
         _ = _actions.Value;
+    }
+
+    /// <summary>Builds, at startup, what the first arrival in an area reads of the skills: the monsters' contacts,
+    /// summons and projectiles and the skill types' rows, with the melee clocks. They are built on first use otherwise,
+    /// which was inside the first player's arrival, while the monsters were being placed (2026-11-17: about 0.5 s).</summary>
+    public void Warm()
+    {
+        WarmMonsterMeleeClocks();
+        _ = _monsterContacts.Value; _ = _summonedMonsters.Value; _ = _monsterProjectiles.Value;
+        _skillTypes.Warm();
     }
 
     private readonly Lazy<Dictionary<string, MonsterClipContact[]>> _monsterMeleeClocks = new(() =>
