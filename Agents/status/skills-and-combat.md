@@ -159,6 +159,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   shares its timed damage and speed buff; aggressive and defensive targeting ranges remain open.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps. Absolution's hit
   debuff and rare/unique hit chance generate sentinels; at the limit they refresh a sentinel's life and duration.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Bear Trap's secondary
+  hit targets one enemy, shares its panel inputs and excludes attack/spell damage modifiers; its immobilise and
+  decaying debuff remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.
