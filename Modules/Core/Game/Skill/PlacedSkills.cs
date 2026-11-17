@@ -227,20 +227,32 @@ public static partial class Game
         bytes.AddRange(records.Bytes());
     }
 
-    // One use detonates every mine in sequence, 0.2 s apart in the order they arm. A mine that is not armed yet goes off
-    // once it is, and a mine already in the sequence keeps its place when the skill is used again: before, a use took
-    // only the armed mines and restarted the sequence, so mines thrown just before it needed another use.
+    // The wait before a mine of a detonation sequence goes off after the one before it: the mine's detonation time
+    // (base_mine_detonation_time_ms, 250 in every 3.29.3c mine row) at 10% more detonation speed for each mine before
+    // it in the sequence (Detonate Mines' display_mine_deontation_mechanics_detonation_speed_+%_final_per_sequence_mine).
+    public static double MineSequenceGap(int milliseconds, int prior) =>
+        (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
+
+    // One use detonates every mine in sequence, in the order they arm: the first at once, each later one after its gap.
+    // A mine that is not armed yet goes off once it is. A use during a running sequence adds the new mines to its end
+    // and keeps its speed; a use after the last queued mine has gone off starts a new sequence.
     public static void DetonateMinesLocked(ClientState conn, double now)
     {
-        double next = Math.Max(now, conn.Placed.NextChain);
+        bool running = conn.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
+        double next = running ? conn.Placed.NextChain : now;
+        int prior = running ? conn.Placed.Chain : 0;
         foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
-            next = Math.Max(next, mine.Armed);
+            int time = GolemStat(mine.Own, "base_mine_detonation_time_ms");
+            if (time <= 0) time = GolemStat(mine.Own, "support_remote_mine_2_base_mine_detonation_time_ms");
+            if (prior > 0) next += MineSequenceGap(time, prior);
+            next = Math.Max(Math.Max(next, now), mine.Armed);
             mine.DetonateAt = next;
-            next += .2;
+            prior++;
         }
         conn.Placed.NextChain = next;
+        conn.Placed.Chain = prior;
     }
 
     public static bool CanDetonateMines(ClientState conn) =>

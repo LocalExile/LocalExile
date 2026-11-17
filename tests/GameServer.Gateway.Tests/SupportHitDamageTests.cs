@@ -214,6 +214,9 @@ public sealed class SupportHitDamageTests
         Assert.All(Enumerable.Range(1, 40), i => Assert.True(
             Game.Dist(Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)), (100, 100)) <= 11));
         Assert.Contains(Enumerable.Range(1, 40), i => Game.PlacedThrowPoint((100, 100), 3, 0, new Random(i)) != (100, 100));
+        // A detonation sequence speeds up: 250 ms, then 10% more detonation speed for each mine already gone off.
+        Assert.Equal(new[] { .25, .25 / 1.1, .25 / 1.5, .1 }, new[] { Game.MineSequenceGap(250, 0),
+            Game.MineSequenceGap(0, 1), Game.MineSequenceGap(250, 5), Game.MineSequenceGap(200, 10) });
         Assert.Equal(0, Game.SwiftAssemblyExtra(Get(), new Random(1)));
         Assert.Equal(3, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_3_additional_trap_mine", 100)), new Random(1)));
         Assert.Equal(1, Game.SwiftAssemblyExtra(Get(("support_additional_trap_mine_%_chance_for_1_additional_trap_mine", 100)), new Random(1)));
