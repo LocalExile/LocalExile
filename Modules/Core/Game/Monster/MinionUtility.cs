@@ -77,6 +77,7 @@ static partial class Game
         foreach (var (id, corpse) in corpses)
         {
             corpse.CorpseConsumed = true;
+            NoteCorpseConsumedLocked(conn, corpse);
             conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
         }

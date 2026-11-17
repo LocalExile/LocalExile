@@ -208,7 +208,9 @@ public static partial class Game
                     int physical = fleshBlood && living && fleshPhysical > 0 && distance <= fleshRadius
                         ? (int)Math.Round(fleshPhysical * AuraCatalog.DistanceEffect(distance, fleshRadius), MidpointRounding.AwayFromZero)
                         : 0;
-                    m.TakenFromPlayer = (taunted ? config.TauntedDamageTakenPct : 0, elemental, physical);
+                    // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
+                    int consecrated = living ? conn.FlaskGrounds.ConsecratedEnemyDamageTaken(m.Walk.Position(now)) : 0;
+                    m.TakenFromPlayer = ((taunted ? config.TauntedDamageTakenPct : 0) + consecrated, elemental, physical);
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;

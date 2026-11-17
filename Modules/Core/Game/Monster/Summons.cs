@@ -187,7 +187,11 @@ public static partial class Game
                 && GemSkillInstanceDisabled(conn, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null,
             owned: (id, monster) =>
             {
-                if (consumed is not null) consumed.CorpseConsumed = true;
+                if (consumed is not null)
+                {
+                    consumed.CorpseConsumed = true;
+                    NoteCorpseConsumedLocked(conn, consumed);
+                }
                 if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 if (replacing is uint oldId && conn.Summons.Fighters.TryGetValue(oldId, out var old))

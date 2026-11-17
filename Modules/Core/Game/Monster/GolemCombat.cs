@@ -93,6 +93,7 @@ public static partial class Game
             if (corpse.Value is not null)
             {
                 corpse.Value.CorpseConsumed = true;
+                NoteCorpseConsumedLocked(conn, corpse.Value);
                 g.CorpseEmpowered = true; m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife / 5);
                 GolemReserveLocked(conn, g, consume, corpse.Key, corpse.Value, corpse.Value.Walk.Position(now), now);
                 return;

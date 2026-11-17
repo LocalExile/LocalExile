@@ -15,6 +15,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md) §8.
 - Utility flasks and the Iron Flask's Ward. Docs: [13](../docs/protocol/13-items.md) §8a,
   [Antiquarian](../docs/game/antiquarian.md).
+- Unique flasks' "during effect" mechanics: Dying Sun, Oriath's End, Divination Distillate, Bottled Faith, Cinderswallow
+  Urn, Rumi's Concoction and its Replica (no Petrified), Stormblood. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Items: the start kit, moving, equipping, sockets, dropping, stacks and `/item`.
   Docs: [13](../docs/protocol/13-items.md) §4a.
 - Item mods: rarities, mod lists, magic and rare rolls, identification and their stats on the character.

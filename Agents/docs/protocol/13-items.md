@@ -1541,7 +1541,16 @@ all unique acquisition/conditional mechanics, native tooltip behavior or officia
 
 The "during effect" suffixes (`UtilityFlasks.DuringEffect`) count while the flask runs, scaled by its effect: increased
 armour (`local_flask_armour_+%_while_healing` → `physical_damage_reduction_rating_+%`), increased evasion, movement
-speed, additional elemental resistances, increased critical strike chance and increased Ward; the
+speed, additional elemental resistances, increased critical strike chance, increased Ward, and Dying Sun's increased
+area of effect (`base_skill_area_of_effect_+%`) and additional projectiles (`number_of_additional_projectiles`), and
+Oriath's End's kill explosion chance; on life, mana and hybrid flasks the same list counts while that use's own recovery
+runs, ending early when the pools fill (`UtilityFlasks.RecoveryDuringEffects`: Divination Distillate's rarity, quantity,
+light radius and resistances). Unique flask mechanics on top: Bottled Faith's ground has tripled radius, and ground
+created during its effect keeps its increased damage taken for enemies on it, with its crit chance against them read
+per target at the hit (`Game.GroundCritical`, computed with Rational Doctrine's profane increase); Cinderswallow Urn's
+ignites during the effect add damage taken until they end, and a consumed corpse that died ignited recharges it (paid
+by the flask-charge loop); Rumi's block adds before increased block; Stormblood lets a critical strike's every damage
+type count for shock, chill and freeze (Sap, Brittle and the Replica Rumi's Petrified are not modelled); the
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
