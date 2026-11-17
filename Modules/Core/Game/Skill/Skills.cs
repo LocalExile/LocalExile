@@ -1131,28 +1131,6 @@ public static partial class Game
             GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment));
     }
 
-    // The passives' granted skills (GrantedSkillsOf) follow the gems, with Gem 0 and their fixed level.
-    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
-        string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
-        LeagueRuntime league, IReadOnlyList<PassiveGrantedSkills.Grant> granted)
-    {
-        var catalog = league.HardMode ? HardModeItems.Value : Items;
-        string name = string.IsNullOrEmpty(character) ? "Exile" : character;
-        var gems = places
-            .Where(g => catalog.ByHash(g.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
-            .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
-        var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
-                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool.Value);
-        // Gems in an inactive item grant nothing, but keep their id.
-        for (int i = 0; i < gems.Count; i++)
-            if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
-                yield return (id, gems[i].Effect, catalog.GemName(gems[i].Gem), catalog.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
-        for (int i = 0; i < granted.Count; i++)
-            if (ids[gems.Count + i] is ushort id)
-                yield return (id, granted[i].Effect, granted[i].EffectId, granted[i].Level, 0, 0);
-    }
-
     public static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
