@@ -85,11 +85,16 @@ public static partial class Game
         }
     }
 
-    static double ToxicPodDps(Func<string,int> get, Func<string,int> own)
+    static double ToxicPodDps(Func<string,int> get, Func<string,int> own) => ChaosGroundDps(get, own, "toxic_rain_damage_+%");
+
+    // A projectile attack's chaos damage over time in an area: Toxic Rain's pods and Caustic Arrow's ground.
+    // skillIncrease: the skill's own increased damage stat, if it has one.
+    static double ChaosGroundDps(Func<string,int> get, Func<string,int> own, string? skillIncrease)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get("damage_+%") + get("chaos_damage_+%") + get("area_damage_+%")
-            + get("projectile_damage_+%") + get("damage_over_time_+%") + get("chaos_damage_over_time_+%") + get("toxic_rain_damage_+%");
+            + get("projectile_damage_+%") + get("damage_over_time_+%") + get("chaos_damage_over_time_+%")
+            + (skillIncrease is null ? 0 : get(skillIncrease));
         double more = 1;
         foreach (var stat in new[] { "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
             "support_efficacy_damage_over_time_+%_final", "support_phys_chaos_projectile_chaos_damage_over_time_+%_final",

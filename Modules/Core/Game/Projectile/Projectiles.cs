@@ -522,6 +522,7 @@ public static partial class Game
                     ImpactClip = rigImpact.Index,
                     ImpactLifetime = ProjectileRuntime.Time(Math.Max(0.1, rigImpact.Ms / 1000.0)),
                 };
+            if (valid) CausticGroundAtEnd(value);
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {remote} projectile end use={p.UseId} entity={p.Id}"
                     + $" reason={value.Reason} position={value.Position} metadata={p.Profile.Id}"
@@ -649,11 +650,12 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0)
+            float animationValue = 0, uint animatedId = 0, int? artRadius = null)
         {
             uint id = Conn.TakeObjectId();
-            // Native area art radii are world units; simulation radii are grid cells.
-            float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
+            // Native area art radii are world units; simulation radii are grid cells. artRadius: the art's radius when
+            // MiscAnimated has no row for it (a GroundEffects piece).
+            float scale = radius is double r && (Art.ArtRadius(ao) ?? artRadius) is int nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
             var effect = new EffectObject(x, y, ao)
             {

@@ -144,6 +144,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
+- Caustic Arrow leaves caustic ground: chaos damage over time that does not stack, drawn as one scaled piece of
+  the ground art; the client's own ground effect and its radius await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
