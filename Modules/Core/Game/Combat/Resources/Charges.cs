@@ -336,9 +336,14 @@ public static partial class Game
                     if (!PlayerUpdatesCurrent(conn, updates)) break;
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
-                    var recipient = CharacterPlayerStats(conn);
-                    session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
-                        name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
+                    // Charges are gained only by a waiting event, so with none held and none waiting there is no
+                    // deadline to retime and no gain to time: skip the full stat build (20 a second per connection).
+                    if (session.Pending || HoldsCharges(session.State))
+                    {
+                        var recipient = CharacterPlayerStats(conn);
+                        session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
+                            name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
+                    }
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
                         inTown: InTown(conn), Random.Shared);
                     presentationPending = ChargePresentationPending(session);
@@ -375,6 +380,13 @@ public static partial class Game
             }
             catch (Exception) { break; }   // the connection has gone
         }
+    }
+
+    static bool HoldsCharges(Charges.State state)
+    {
+        foreach (var type in Charges.Types)
+            if (state.Held(type) > 0) return true;
+        return false;
     }
 
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
