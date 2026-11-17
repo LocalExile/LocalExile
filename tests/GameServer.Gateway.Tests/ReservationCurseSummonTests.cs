@@ -1048,7 +1048,7 @@ public sealed partial class ReservationCurseSummonTests
                                             Accuracy = 100, CriticalChance = 0, CriticalMultiplier = 100,
                                             AccuracyProfile = new AttackAccuracyProfile(100, 0, 0, true),
                                             AlwaysHits = true, CriticalRoll = null, VsBlindedCriticalChance = null,
-                                            VsProfaneCriticalChance = null, SecondFormCriticalChance = null,
+                                            VsGroundCriticalChance = null, SecondFormCriticalChance = null,
                                             AreaHit = null, Penetration = default, ResistanceMods = default,
                                             ImpaleChance = 0, ImpaleSettings = null, CriticalImpaleSettings = null,
                                             Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
@@ -1526,7 +1526,7 @@ public sealed partial class ReservationCurseSummonTests
                                         {
                                             Accuracy = 100, CriticalChance = 0, CriticalMultiplier = 100,
                                             AccuracyProfile = null, AlwaysHits = true, CriticalRoll = null,
-                                            VsBlindedCriticalChance = null, VsProfaneCriticalChance = null,
+                                            VsBlindedCriticalChance = null, VsGroundCriticalChance = null,
                                             SecondFormCriticalChance = null, Penetration = default,
                                             ResistanceMods = default, ImpaleChance = 0, ImpaleSettings = null,
                                             CriticalImpaleSettings = null,
