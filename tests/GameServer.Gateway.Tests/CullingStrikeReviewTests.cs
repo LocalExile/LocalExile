@@ -48,9 +48,16 @@ public sealed class CullingStrikeReviewTests
         {
             var conn = Player(); conn.PlayerLife = 490;
             conn.PetrifiedBlood.Activate(1, 2, loseOverTimePct: 81, preventPct: 40, lifeCostPct: 40,
-                manaPercent: 3500, lowLifeThresholdPct: 40, buff: 7, now: 0);
+                manaPercent: 3500, lowLifeThresholdPct: 50, buff: 7, now: 0);
             Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, target(), 900, cull, cullPlayer: gain).Life);
-            Assert.Equal(490u, conn.PlayerLife); // above Low Life, so Life recovery stops where it is
+            Assert.Equal(500u, conn.PlayerLife); // shared recovery stops at Low Life
+        }
+        {
+            var conn = Player(); conn.PlayerLife = 590;
+            conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Arrogance", "Arrogance", 1, 1, 0, 4000, ReservesLife: true);
+            Assert.Equal(600u, conn.PlayerUnreservedLife);
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, target(), 900, cull, cullPlayer: gain).Life);
+            Assert.Equal(600u, conn.PlayerLife); // a gain cannot cross reserved Life
         }
         {
             var conn = Player(); conn.PlayerLife = 490;
