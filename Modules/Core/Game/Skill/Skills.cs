@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.World;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
@@ -861,8 +862,11 @@ public static partial class Game
             }
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
-                Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
-                    $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
+                // Per gem, every time a stat rebuild walks the bar: 1264 lines (up to 64 in one second) in a 3-minute
+                // fight, ~45 KB/s of log, which the rebuild then waited on. Only under Game_TRACE=skills.
+                if (ServerTrace.Enabled("skills"))
+                    Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
+                        $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
                 yield return skill with { Supports = [.. supported.Supports.Select(s => SkillsFor(conn).FindByRow(0, s.Effect.Row, s.Gem.Level))
                     .OfType<GrantedSkill>().Select(s => new GrantedSupport(s.EffectsPerLevelRow, s.StatSetsPerLevelRow)
                     { ExtraStatSets = [.. s.ExtraStatSets.Select(e => e.Row)] })] };
