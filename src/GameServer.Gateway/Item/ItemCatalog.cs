@@ -247,8 +247,8 @@ public sealed class ItemCatalog
         /// <summary>SkillGems GemColour: 1 red (strength), 2 green (dexterity), 3 blue (intelligence), 4 white.</summary>
         public int Colour { get; init; }
 
-        /// <summary>A Vaal gem's own row (IsVaalVariant), or an Awakened or exceptional upgrade (RegularVariant set, not
-        /// an ordinary GemProgressionN experience type as Greater Volley's).</summary>
+        /// <summary>A Vaal gem's own row (IsVaalVariant), or an Awakened or exceptional upgrade (RegularVariant set, with
+        /// an experience type other than an ordinary GemProgressionN).</summary>
         public bool IsVaalOrAwakened { get; init; }
 
         /// <summary>An Awakened row (its SkillGems RegularVariant names the ordinary gem it upgrades); its name starts
@@ -549,11 +549,9 @@ public sealed class ItemCatalog
         {
             bool vaal = r.Bool("IsVaalVariant");
             int expType = Row(r, "ItemExperienceType");
-            // RegularVariant links an upgrade to the gem it upgrades; its experience type tells which kind it is.
-            // GemProgressionN: an ordinary upgrade (Greater Multiple Projectiles, Greater Volley), sold like any gem.
-            // GemProgressionExceptional: a Greater/exceptional support (Greater Multistrike, Hextoad, ...), creatable.
-            // GemProgressionExceptionalPlus: Awakened Empower/Enhance/Enlighten, creatable.
-            // GemProgressionPlusN: the ordinary Awakened supports, which 3.29 disables for normal play.
+            // RegularVariant links an upgrade to the gem it upgrades; its experience type tells which kind it is:
+            // GemProgressionN an ordinary gem, GemProgressionExceptional[Plus] an exceptional support, and
+            // GemProgressionPlusN an ordinary Awakened support, which 3.29 disables for normal play (not created).
             string expId = expType >= 0 && expType < xt.Count ? xt[expType].Text("Id") ?? "" : "";
             bool upgrade = Row(r, "RegularVariant") >= 0;
             bool ordinaryUpgrade = upgrade && expId.Length > "GemProgression".Length
