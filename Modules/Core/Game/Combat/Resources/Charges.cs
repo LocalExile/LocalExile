@@ -237,7 +237,7 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(conn, effect, player, own);
         double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
         int epoch = conn.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own, DurationKinds(conn, effect));
         double buffEffect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("warcry_buff_effect_+%")) / 100d);
         _ = Task.Run(async () =>
         {

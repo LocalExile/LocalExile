@@ -577,7 +577,7 @@ public static partial class Game
                 && Stats.Key("skill_effect_duration") is uint durationKey)
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
-                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
+                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0, DurationKinds(conn, effect)));
             // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
             // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_14289d210) derives from these
             // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).

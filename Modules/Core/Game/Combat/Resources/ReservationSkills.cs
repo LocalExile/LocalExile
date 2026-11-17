@@ -45,11 +45,9 @@ public static partial class Game
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
         int ms = ReservationStat(conn, aura, name);
-        return Math.Max(0, (ms > 0 ? ms : fallback) / 1000.0 * (1 + Get("skill_effect_duration_+%") / 100.0)
-            * Math.Max(0, 1 + Get("support_increased_duration_skill_effect_duration_+%_final") / 100.0)
-            * Math.Max(0, 1 + Get("support_reduced_duration_skill_effect_duration_+%_final") / 100.0));
+        return SkillDurationModifiers.Seconds(ms > 0 ? ms : fallback, n => GolemStat(player, n), n => GolemStat(skill.Stats, n),
+            DurationKinds(conn, aura.Effect));
     }
 
     static void ReservationHitLocked(ClientState conn, SpawnedMonster target)

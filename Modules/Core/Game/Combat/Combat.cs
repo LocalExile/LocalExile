@@ -2188,8 +2188,11 @@ public static partial class Game
             }
             else
             {
+                // The player's own and the skill's own increases each once: Area holds both.
+                var player = CharacterPlayerStats(conn);
+                int Player(string name) => GolemStat(player, name);
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
-                double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
+                double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Player, Own, DurationKinds(conn, gem.Effect));
                 // The rate the client's controller holds: the combined_main_hand_attack_speed_+% of the skill list it last
                 // received, not the character's attack speed now (a Rage or charge change since is not in it until the
                 // list goes out again).
