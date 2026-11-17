@@ -100,6 +100,21 @@ public sealed class CombatCacheTests
         Assert.Same(uncorrupted, Game.AdornedJewel(uncorrupted, 100));
     }
 
+    [Fact]
+    public void A_session_lists_its_actors_in_contact_order()
+    {
+        // The runtime decides contacts by id, then generation, and sorts a list that comes otherwise at every step.
+        var conn = new ClientState(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        foreach (uint id in new[] { 0x3005u, 0x3001u, 0x3003u })
+            conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
+        conn.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession("order", null!, new(new byte[64], false), conn);
+        Assert.Equal([Program.PlayerId, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
+        conn.PlayerLife = 0;
+        Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
+    }
+
     sealed class Arena : IProjectileWorld
     {
         public readonly List<ProjectileActor> Targets = [];

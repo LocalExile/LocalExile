@@ -301,13 +301,25 @@ public static partial class Game
             // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
             // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
             if (actorOf.Count > 2 * result.Count + 64) PruneActors();
+            // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
+            // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
             foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
-                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+                InOrder(result, new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
-                result.Add(playerActor ??= new(new(PlayerId, epoch), 1,
+                InOrder(result, playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
+        }
+
+        static readonly Comparer<ProjectileActor> ContactOrder = Comparer<ProjectileActor>.Create((a, b) =>
+            a.Key.Id != b.Key.Id ? a.Key.Id.CompareTo(b.Key.Id) : a.Key.Generation.CompareTo(b.Key.Generation));
+
+        static void InOrder(List<ProjectileActor> actors, ProjectileActor actor)
+        {
+            int at = actors.Count == 0 || ContactOrder.Compare(actors[^1], actor) <= 0 ? actors.Count
+                : actors.BinarySearch(actor, ContactOrder);
+            actors.Insert(at < 0 ? ~at : at, actor);
         }
 
         void PruneActors()
