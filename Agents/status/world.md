@@ -106,7 +106,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Source: `Modules/Core/World/Shrines`, `src/GameServer.Gateway/World/Shrines`, `ShrineTests`.
   Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
   Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
-  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
+  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Items' shrine buffs (not
+  checked live): Blunderbore's lesser Brutal and Massive and Screams of the Desiccated's Acceleration without flasks
+  last while granted, The Golden Charlatan's random basic shrine 30 s after a rare or unique kill. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The

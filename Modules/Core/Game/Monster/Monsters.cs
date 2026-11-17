@@ -1852,7 +1852,11 @@ public static partial class Game
 
     /// <summary>What a monster's hit on the player did (CommitMonsterHitLocked), for the packets that present it.</summary>
     public sealed record MonsterHitOutcome(byte[] HitPacket, uint Life, uint Mana, uint ManaBefore, int Damage, int RawDamage,
-        bool Blocked, bool Critical, PlayerRecoveryIntent? Recovery, RecentEnemyHits.Decision Armour, bool Spirit = false);
+        bool Blocked, bool Critical, PlayerRecoveryIntent? Recovery, RecentEnemyHits.Decision Armour, bool Spirit = false)
+    {
+        /// <summary>The physical damage reflected to the melee attacker (Bramblejack), dealt by <see cref="PresentMonsterHit"/>.</summary>
+        public int Reflected { get; init; }
+    }
 
     // The monster's hit on the player, committed under the Monsters lock at the moment it lands: reach (melee only),
     // evasion, the mod-rolled packet, block, armour, resistances, ailments, recovery and death. Null when it misses or is
@@ -2034,7 +2038,34 @@ public static partial class Game
         // its own stun roll; the player's recovery is the authoritative 0x1d1 (SendPlayerHitRecovery).
         var packet = InstanceProtocol.ActionHit(id, sequence, PlayerId, flags: MonsterHitFlags(blocked, monsterCritical), kind: 0x03,
             code: HitCode(mitigated), angle: HitAngle(here.X - from.X, here.Y - from.Y));
-        return new(packet, life, conn.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit);
+        // Bramblejack: "X% of Melee Physical Damage taken reflected to Attacker", from the physical damage this melee hit dealt.
+        int reflected = !a.Spell && !a.Ranged && physicalDamage > 0
+            && StatOf("melee_physical_damage_taken_%_to_deal_to_attacker") is > 0 and var reflectPct
+            ? (int)Math.Min(int.MaxValue, (long)physicalDamage * reflectPct / 100) : 0;
+        return new(packet, life, conn.PlayerMana, manaBefore, damage, rawDamage, blocked, monsterCritical, recovery, armour, spirit)
+            { Reflected = reflected };
+    }
+
+    // Damage reflected to a monster that hit the player: not a hit (no evasion, block or on-hit effects), off its life as a
+    // damage over time is, with the kill as the player's.
+    static async Task ReflectToAttacker(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, int damage)
+    {
+        uint life;
+        bool stageStarts;
+        SpawnedMonster? m;
+        lock (conn.Monsters)
+        {
+            if (!conn.Monsters.TryGetValue(id, out m) || m.Dead || m.Life == 0 || conn.Closed || conn.LeavingArea) return;
+            (m.Life, stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+            life = m.Life;
+            if (life == 0) { m.Dead = true; m.LastHitBy = conn; CollectVaalSoulAtDeathLocked(conn, m); }
+            if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, conn.Clock.Elapsed.TotalSeconds);
+        }
+        if (life == 0)
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+            $"0x01b1 monster 0x{id:x} ({m.Label}) takes {damage} reflected physical damage, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
+        if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
     }
 
     // The packets after a committed hit: energy shield, native recovery, the life bar and life, mana, death or flask charges.
@@ -2067,6 +2098,7 @@ public static partial class Game
             if (!hit.Blocked) await SendAttackerSlows(remote, stream, ciphers, conn);
             await GainFlaskChargesWhenHit(remote, stream, ciphers, conn);
         }
+        if (hit.Reflected > 0 && CurrentGameWork) await ReflectToAttacker(remote, stream, ciphers, conn, id, hit.Reflected);
     }
 
     public const string AttackerSlow = "enemies_that_hit_you_with_attack_recently_attack_speed_+%";

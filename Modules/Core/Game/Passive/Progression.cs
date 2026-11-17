@@ -957,7 +957,12 @@ public static partial class Game
             IntelligencePct = bonus.Attributes.IntelligencePct + bonus.IntelligencePct + (long)bonus.AllAttributesPct,
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
-        bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
+        // The Golden Charlatan: "+1 to Maximum Mana per 2 Intelligence", flat mana as the per-Dexterity one is.
+        int perTwoIntelligence = PoolSource("maximum_mana_+_per_2_intelligence", EquipmentStat("maximum_mana_+_per_2_intelligence"));
+        bonus = bonus with
+        {
+            AdditionalMana = (long)finalAttributes.Dexterity * perDexterity + (long)finalAttributes.Intelligence / 2 * perTwoIntelligence,
+        };
         var pools = CharacterStats.For(classInfo, level, bonus);
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
