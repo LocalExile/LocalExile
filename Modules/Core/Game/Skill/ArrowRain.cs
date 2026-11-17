@@ -65,6 +65,10 @@ public static partial class Game
         // A server effect does not start its .ao's default_animation: Toxic Rain's shoot-up art (spores_shootup.ao,
         // one clip "animate" that carries its vine trails) drew nothing until the clip was sent (live 2026-11-17).
         session.RainArt(use.Origin, up, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: toxic ? 0 : null);
+        // shortcut: the client flies the skill's arrow model up itself (toxic_rain_projectile, rain_of_spores/arrow.ao,
+        // a fixed mesh); how is not read. Its streak and flash at the archer are stood in for by the falling arrow's
+        // art, played once where the shot leaves.
+        if (toxic) session.RainArt(use.Origin, down, 1, rotation: Facing(ProjectileSession.Vector(aim) - use.Origin), clip: 0);
         double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
