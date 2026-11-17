@@ -13,5 +13,12 @@ public class TownPortalExpiryTests
         Assert.True(PortalsFeature.OriginExpired(new() { Ok = true, Instances = [] }, 42));
         Assert.False(PortalsFeature.OriginExpired(new() { Ok = false, Instances = [] }, 42));
         Assert.False(PortalsFeature.OriginExpired(new() { Ok = true }, 42));
+
+        var conn = SpellTotemExecutionTests.Connection("TownPortalArrival");
+        var town = AreaLayouts.For(AreaTransitionCatalog.HashOf("1_2_town")!.Value, 1);
+        conn.Use(town);
+        var portal = PortalsFeature.TownPortalPosition(conn);
+        conn.Use(town with { SpawnX = town.SpawnX + 60, SpawnY = town.SpawnY + 40 });
+        Assert.Equal(portal, PortalsFeature.TownPortalPosition(conn));
     }
 }

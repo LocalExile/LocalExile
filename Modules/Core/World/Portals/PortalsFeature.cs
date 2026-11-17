@@ -240,13 +240,20 @@ static class PortalsFeature
         }
         if (open.LeadsTo != conn.Layout.Hash || await ExpireTownPortal(conn, open) || conn.Closed || conn.LeavingArea
             || !OpenPortals.TryGetValue(CharacterName(conn), out var current) || current != open) return;
-        var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
+        var (x, y) = TownPortalPosition(conn);
         uint id = conn.TakeObjectId();
         if (!await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}")) return;
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.BackPortal = (id, x, y);
         global::Game.ListPortal(remote, stream, ciphers, conn, id, open.Area, "the portal back", MapPortalListMs);
+    }
+
+    internal static (int X, int Y) TownPortalPosition(ClientState conn)
+    {
+        // The connection's spawn follows its latest entrance or waypoint arrival; the standing portal does not.
+        var town = AreaLayouts.For(conn.Layout.Hash, conn.Seed);
+        return town.Near((town.SpawnX + 4, town.SpawnY));
     }
 
     // A Portal Scroll used (C→S 0x58) outside towns and hideouts: one scroll is spent and a portal opens where the player
