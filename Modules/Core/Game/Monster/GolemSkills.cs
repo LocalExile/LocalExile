@@ -131,13 +131,15 @@ public static partial class Game
                 double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
                 damage = damage.Add(DamageType.Chaos, new(added, added));
             }
-            foreach (var type in DamageTypes.ConversionOrder)
-            {
-                string slug = type.ToString().ToLowerInvariant();
-                int min = mods[$"global_minimum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage"];
-                int max = mods[$"global_maximum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage"];
-                if (max != 0) damage = damage.Add(type, new(min, max));
-            }
+            // Flat damage augments an existing hit; it must not turn movement, auras or DoTs into attacks.
+            if (damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+                foreach (var type in DamageTypes.ConversionOrder)
+                {
+                    string slug = type.ToString().ToLowerInvariant();
+                    int min = mods[$"global_minimum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_minimum_added_{slug}_damage"];
+                    int max = mods[$"global_maximum_added_{slug}_damage"] + mods[$"{(spell ? "spell" : "attack")}_maximum_added_{slug}_damage"];
+                    if (max != 0) damage = damage.Add(type, new(min, max));
+                }
             var conversion = new DamageConversion();
             foreach (var type in DamageTypes.ConversionOrder.Where(t => t != DamageType.Physical))
             {
