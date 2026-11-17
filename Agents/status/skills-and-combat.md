@@ -108,6 +108,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   native per-hand flags retain the actual sword type. Its native presentation and other identity consumers remain open.
   Fan of Blades supplies either-hand additional attack projectiles and attacking-hand projectile hit increases,
   including Survivors; mixed hands, allocation/refund and released snapshots have automated checks, not native validation.
+  DualWield3's different-weapon-type condition feeds generic damage for hits, ailments and Essence Drain snapshots;
+  weapon subclasses, Varunastra and equipment/source changes have automated coverage, not native validation.
   New skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).

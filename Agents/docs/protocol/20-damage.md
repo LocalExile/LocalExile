@@ -297,6 +297,14 @@ accepts either active hand's type 10/12/16 or either Varunastra alias, once per 
 hand's identity and joins the existing increased bucket. Melee components, spells and ailments receive no damage
 increase. These are data/RE and automated server checks, including Survivors; native panel/hit parity is unverified.
 
+Dual Wielding Mastery's `DualWield3` (mastery effect 125, HASH16 46493) grants 60% generic increased damage through
+Stat 15135, `damage_+%_while_wielding_two_different_weapon_types` (description 6194).
+[Pinned PoB's condition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcPerform.lua#L159-L242)
+accepts Varunastra alone in either active hand; ordinary/thrusting swords share a type, while mace/sceptre and
+dagger/rune dagger differ. The increase joins the generic bucket before hit, ailment and Essence Drain snapshots;
+it does not require the hit to use either weapon. Source removal, inactive hands and stored weapon sets have
+automated controls. These type distinctions follow the reference model; native execution remains unverified.
+
 Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
 `minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).
 Native stat description 9405 applies the range per 1% light radius **above base**. The modifier's 2-5 therefore gives

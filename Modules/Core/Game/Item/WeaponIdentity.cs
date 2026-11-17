@@ -29,6 +29,15 @@ public static class WeaponIdentity
         get("main_hand_weapon_type") is 10 or 12 or 16 || get("off_hand_weapon_type") is 10 or 12 or 16
         || get(MainAllOneHandMelee) != 0 || get(OffAllOneHandMelee) != 0;
 
+    // Varunastra alone qualifies. Ordinary/thrusting swords share a type here; mace/sceptre and dagger/rune dagger do not.
+    public static bool WieldingDifferentTypes(Func<string, int> get)
+    {
+        if (get(MainAllOneHandMelee) != 0 || get(OffAllOneHandMelee) != 0) return true;
+        static bool OneHand(int type) => type is 0 or 1 or 3 or 5 or 6 or 7 or 10 or 12 or 16;
+        int main = get("main_hand_weapon_type"), off = get("off_hand_weapon_type");
+        return OneHand(main) && OneHand(off) && (main == 1 ? 0 : main) != (off == 1 ? 0 : off);
+    }
+
     public static bool Allows(IReadOnlyCollection<int> allowed, int? actualClass, bool allOneHandMelee = false) =>
         allowed.Count == 0 || actualClass is int row && allowed.Contains(row)
         || allOneHandMelee && allowed.Any(OneHandMeleeRows.Value.Contains);

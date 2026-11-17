@@ -417,7 +417,161 @@ public class ArrowRainAndMirageTests
         Spellblade_transfers_each_active_weapon_before_spell_scaling();
         Accuracy_boots_use_resolved_skill_and_hand_inputs();
         Fan_of_Blades_reaches_projectile_count_and_attack_damage();
+        Different_weapon_mastery_reaches_shared_damage();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
+    }
+
+    static void Different_weapon_mastery_reaches_shared_damage()
+    {
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        var uniques = new UniqueCatalog(Program.Items);
+        Item Make(string name) => name is "Varunastra" or "Le Heup of All"
+            ? uniques.Create(name, new Random(17))! : ItemCatalog.Create(Program.Items.Find(name)!);
+        using var b = new Battle("Spectral Throw", "Fireball", "Bear Trap", "Essence Drain");
+        var c = b.Conn;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("spell_damage_+%")] = 0; // keep the wand's unrelated implicit out of the chaos control
+        c.PlayerStats[Key("attack_minimum_added_chaos_damage")] = 10;
+        c.PlayerStats[Key("attack_maximum_added_chaos_damage")] = 10;
+        c.PlayerStats[Key("spell_minimum_added_chaos_damage")] = 10;
+        c.PlayerStats[Key("spell_maximum_added_chaos_damage")] = 10;
+        var items = Game.ItemsOf(c);
+        var main = items.Items(PlayerInventories.Weapon1).Single();
+        items.Add(PlayerInventories.BodyArmour, 0, 0, Make("Simple Robe") with
+            { Sockets = main.Item.Sockets, Links = [1, 1, 1, 1] });
+        items.Add(6, 0, 0, Make("Le Heup of All"));
+        void Hands(string? mainName, string? offName)
+        {
+            foreach (var (row, name) in new (byte, string?)[]
+                { (PlayerInventories.Weapon1, mainName), (PlayerInventories.Offhand1, offName) })
+            {
+                if (items.Items(row) is [var held]) items.Remove(row, held.Id);
+                if (name is not null) items.Add(row, 0, 0, Make(name));
+            }
+            c.Pools = Game.PoolsFor(c, 100);
+        }
+        const ushort node = 8872;
+        var effect = Program.Passives.EffectsFor(node).Single(e => e.Id == "DualWield3");
+        Assert.Equal((ushort)46493, effect.Hash);
+        Assert.Contains((Key("damage_+%_while_wielding_two_different_weapon_types"), 60), effect.Stats);
+        void Select(bool enabled)
+        {
+            var masteries = new Dictionary<ushort, ushort>(c.MasteryEffects);
+            if (enabled) { c.Passives.Add(node); masteries[node] = effect.Hash; }
+            else { c.Passives.Remove(node); masteries.Remove(node); }
+            c.MasteryEffects = masteries;
+            c.Pools = Game.PoolsFor(c, 100);
+        }
+        Dictionary<uint, int> Stats() => Game.FinalPlayerStats(c).ToDictionary(s => s.Item1, s => s.Item2);
+        Hands("Nailed Fist", "Rusted Sword");
+        int ringDamage = Stats().GetValueOrDefault(Key("damage_+%"));
+        Assert.InRange(ringDamage, 10, 30);
+        var attack = Game.GemSkillEffects(c).Single(g => g.Name == "Spectral Throw");
+        var spell = Game.GemSkillEffects(c).Single(g => g.Name == "Fireball");
+        var secondary = Game.GemSkillEffects(c).Single(g => g.Name == "Bear Trap");
+        var drain = Game.GemSkillEffects(c).Single(g => g.Name == "Essence Drain");
+        var drainBase = Assert.IsType<MonsterEssenceDrain.Cast>(Game.EssenceDrainCast(c, drain.Id, drain.Effect));
+        Assert.True(drainBase.DamagePerSecond > 0);
+        var secondaryBase = Game.SupportedHitFor(c, secondary.Id, suppress: false);
+        Assert.True(secondaryBase[DamageType.Physical].Min > 0);
+        var poisonBase = Game.SupportedAilmentRows(c, attack.Id, "main_hand").ToDictionary(r => r.Stat, r => r.Value);
+        var igniteBase = Game.SupportedAilmentRows(c, spell.Id, "spell").ToDictionary(r => r.Stat, r => r.Value);
+        Assert.Contains(poisonBase, r => r.Key.Contains("poison") && r.Value > 0);
+        Assert.Contains(igniteBase, r => r.Key.Contains("ignite") && r.Value > 0);
+        Select(true);
+        Assert.Equal(60, Stats()[Key("damage_+%_while_wielding_two_different_weapon_types")]);
+        double factor = (100 + ringDamage + 60) / 100.0;
+        Assert.Equal(10 * factor, Game.SupportedHitFor(c, attack.Id, suppress: false)[DamageType.Chaos].Min, 6);
+        Assert.Equal(30 * factor, Game.SupportedProjectileHit(c, spell.Id, area: false)[DamageType.Chaos].Min, 6);
+        double ratio = (100 + ringDamage + 60.0) / (100 + ringDamage);
+        Assert.Equal(drainBase.DamagePerSecond * ratio,
+            Game.EssenceDrainCast(c, drain.Id, drain.Effect)!.DamagePerSecond, 6);
+        Assert.Equal(secondaryBase[DamageType.Physical].Min * ratio,
+            Game.SupportedHitFor(c, secondary.Id, suppress: false)[DamageType.Physical].Min, 6);
+        foreach (var (skill, hand, baseline) in new[] { (attack.Id, "main_hand", poisonBase), (spell.Id, "spell", igniteBase) })
+            foreach (var (stat, value) in Game.SupportedAilmentRows(c, skill, hand))
+                // Ailment panel values are whole damage per minute, rounded only when published.
+                Assert.InRange(value, (int)Math.Floor(baseline[stat] * ratio) - 1, (int)Math.Ceiling(baseline[stat] * ratio) + 1);
+        var panel = Game.PlayerSkills(c).Single(s => s.Id == attack.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal((int)(10 * factor), panel[Key("main_hand_minimum_chaos_damage")]);
+
+        foreach (var (mainName, offName, qualifies) in new (string?, string?, bool)[]
+        {
+            ("Nailed Fist", "Rusted Sword", true), ("Rusted Sword", "Nailed Fist", true),
+            ("Nailed Fist", "Nailed Fist", false), ("Rusted Sword", "Rusted Spike", false),
+            ("Rusted Spike", "Rusted Sword", false), ("Glass Shank", "Carving Knife", true),
+            ("Carving Knife", "Glass Shank", true), ("Carving Knife", "Carving Knife", false),
+            ("Driftwood Club", "Driftwood Sceptre", true), ("Driftwood Sceptre", "Driftwood Club", true),
+            ("Driftwood Sceptre", "Driftwood Sceptre", false), ("Driftwood Wand", "Driftwood Wand", false),
+            ("Rusted Sword", "Splintered Tower Shield", false), ("Corroded Blade", null, false),
+            ("Rusted Sword", null, false), (null, null, false),
+            ("Varunastra", null, true), ("Varunastra", "Splintered Tower Shield", true),
+            ("Varunastra", "Rusted Sword", true), ("Rusted Sword", "Varunastra", true), ("Varunastra", "Varunastra", true),
+        })
+        {
+            Hands(mainName, offName);
+            int expected = ringDamage + (qualifies ? 60 : 0);
+            Assert.Equal(expected, Stats().GetValueOrDefault(Key("damage_+%")));
+            Assert.Equal(expected, Stats().GetValueOrDefault(Key("damage_+%"))); // warm snapshot, no repeated addition
+            Assert.Equal(30 * (100 + expected) / 100.0,
+                Game.SupportedProjectileHit(c, spell.Id, area: false)[DamageType.Chaos].Min, 6);
+        }
+        Hands(null, null);
+        c.PlayerStats[Key("unarmed_counts_as_dual_wielding")] = 1;
+        Assert.Equal(1, Stats()[Key("is_dual_wielding")]);
+        Assert.Equal(ringDamage, Stats().GetValueOrDefault(Key("damage_+%")));
+        c.PlayerStats.Remove(Key("unarmed_counts_as_dual_wielding"));
+
+        Hands("Rusted Sword", "Imperial Claw");
+        Assert.Equal(ringDamage + 60, Stats()[Key("damage_+%")]);
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 100;
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Null(Game.ActiveOffHand(c));
+        Assert.Equal(ringDamage, Stats().GetValueOrDefault(Key("damage_+%")));
+        c.PlayerStats[Key("virtual_dexterity_for_requirements")] = 1000;
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(ringDamage + 60, Stats()[Key("damage_+%")]);
+        Hands("Rusted Sword", "Splintered Tower Shield");
+        items.Add(14, 0, 0, Make("Varunastra"));
+        Assert.Equal(ringDamage, Stats().GetValueOrDefault(Key("damage_+%")));
+        items.SwapWeaponSets();
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(ringDamage + 60, Stats()[Key("damage_+%")]);
+        items.SwapWeaponSets();
+        Hands("Nailed Fist", "Rusted Sword");
+        Select(false);
+        Assert.Equal(0, Stats().GetValueOrDefault(Key("damage_+%_while_wielding_two_different_weapon_types")));
+        Assert.Equal(ringDamage, Stats().GetValueOrDefault(Key("damage_+%")));
+        Select(true);
+        c.PlayerStats[Key("damage_+%")] = 7;
+        Assert.Equal(7, Stats()[Key("damage_+%")]);
+        c.PlayerStats.Remove(Key("damage_+%"));
+        Assert.Equal(ringDamage + 60, Stats()[Key("damage_+%")]);
+
+        items.Change(14, items.Items(14).Single().Id, _ => Make("Rusted Sword"));
+        var released = Game.CaptureGemProjectile(c, b.Session, spell.Id, spell, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(released.Payload);
+        Assert.Equal(30 * factor, shot.Hit[DamageType.Chaos].Min, 6);
+        var drainUse = Game.CaptureGemProjectile(c, b.Session, drain.Id, drain, (120, 100), new(0));
+        var drainShot = Assert.IsType<ProjectileOffense>(drainUse.Payload);
+        var releasedDrain = Assert.IsType<MonsterEssenceDrain.Cast>(drainShot.EssenceDrain);
+        Assert.Equal(drainBase.DamagePerSecond * ratio, releasedDrain.DamagePerSecond, 6);
+        b.Session.Runtime.Release(drainUse);
+        items.SwapWeaponSets();
+        Select(false);
+        Assert.Equal(30 * (100 + ringDamage) / 100.0,
+            Game.SupportedProjectileHit(c, spell.Id, area: false)[DamageType.Chaos].Min, 6);
+        Assert.Equal(30 * factor, shot.Hit[DamageType.Chaos].Min, 6);
+        Assert.Equal(drainBase.DamagePerSecond, Game.EssenceDrainCast(c, drain.Id, drain.Effect)!.DamagePerSecond, 6);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+        Assert.Same(releasedDrain, b.Enemy.EssenceDrain.Active);
+        Assert.Equal(drainBase.DamagePerSecond * ratio, b.Enemy.EssenceDrain.Active!.DamagePerSecond, 6);
+        uint minimum = (uint)drainShot.Hit.Components.Sum(part => Math.Floor(part.Range.Min));
+        uint maximum = (uint)drainShot.Hit.Components.Sum(part => Math.Floor(part.Range.Max))
+            + (uint)Math.Ceiling(releasedDrain.DamagePerSecond * .4);
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, minimum, maximum);
+        Assert.True(b.Ally.EssenceDrain.Idle);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
     }
 
     static void Fan_of_Blades_reaches_projectile_count_and_attack_damage()

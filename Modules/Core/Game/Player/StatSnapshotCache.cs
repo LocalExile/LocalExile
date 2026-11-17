@@ -251,6 +251,11 @@ public static partial class Game
                 (WeaponIdentity.OffAllOneHandMelee, offLocal) })
                 if (Stats.Key(name) is uint identity && !devSet.Contains(identity))
                     stats[identity] = WeaponIdentity.AllOneHandMelee(local) ? 1 : 0;
+            // Dual Wielding Mastery's generic increase applies to hits and damage over time, once per fresh snapshot.
+            if (Get("damage_+%_while_wielding_two_different_weapon_types") is int differentDamage and not 0
+                && WeaponIdentity.WieldingDifferentTypes(Get) && Stats.Key("damage_+%") is uint differentDamageKey
+                && !devSet.Contains(differentDamageKey))
+                stats[differentDamageKey] = Get("damage_+%") + differentDamage;
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
             if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))

@@ -52,8 +52,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   Attack base/added coefficients are separate; ordinary bow/wand/claw/dagger additions, light-radius fire and Ritual
   boots' accuracy-derived lightning have shared consumers. The boots' less-accuracy factor applies before dependent outputs.
   Varunastra feeds the shared additions and positive weapon conditions. Fan of Blades' either-hand projectile count
-  and attacking-hand hit increase have consumers; negative conditions, different-type predicates, other projectile
-  inputs, remaining weapon families, skill-specific added inputs and native checks stay open (#368).
+  and attacking-hand hit increase have consumers, as does DualWield3's different-type generic damage condition.
+  Negative conditions, other different-type consumers, other projectile inputs, remaining weapon families,
+  skill-specific added inputs and native checks stay open (#368).
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
