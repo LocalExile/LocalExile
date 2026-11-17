@@ -154,6 +154,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Raging Spirit's quality rolls extra summons for manual, triggered and totem releases.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
   Spell totems summon minion groups, golems, corpse minions and animated equipment from valid sources.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps. Predator grants Signal
+  Prey and supported minions prioritize its target with their damage bonus. Feeding Frenzy procs on minion hits and
+  shares its timed damage and speed buff; aggressive and defensive targeting ranges remain open.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, Raging Spirit summons and ballistas; placement validates the linked source again at release.

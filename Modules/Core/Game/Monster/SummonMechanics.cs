@@ -13,6 +13,14 @@ public static partial class Game
                 result ??= new(sources); result[key] = result.GetValueOrDefault(key) + value;
             }
             if (AreaTime(conn) < conn.Summons.HolyRegenerationUntil) Add("base_life_regeneration_rate_per_minute", conn.Summons.HolyRegenerationPerMinute);
+            if (AreaTime(conn) < conn.Summons.FeedingFrenzyUntil && conn.PlayerLife > 0)
+            {
+                Add("has_puppet_master", 1);
+                Add("puppet_master_minion_damage_+%_final", 10);
+                Add("minion_movement_speed_+%", 10);
+                Add("minion_attack_speed_+%", 10);
+                Add("minion_cast_speed_+%", 10);
+            }
             foreach (var name in new[] { "damage", "maximum_life" })
                 Add("active_skill_non_reaper_minion_" + name + "_+%_final", conn.Summons.Fighters.Values
                     .Where(g => g.Definition.Kind == "Reaper" && !g.Monster.Dead)
