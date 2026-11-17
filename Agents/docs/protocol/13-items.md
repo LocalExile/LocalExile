@@ -517,7 +517,9 @@ count there, but the server does not model them.
 `local_random_support_gem_index[_1]` (1-172) and `local_random_support_gem_level[_1]`; the description shows the index
 through `display_indexable_support`, which is IndexableSupportGems' `Index` column (row + 1), whose `SupportGem` is a
 SkillGems row. Its first GemVariants entry's GrantedEffect supports every gem socketed in the helmet, as other "Socketed
-Gems are Supported by" mods do, at the rolled level (25-35 reads the nearest GrantedEffectsPerLevel row).
+Gems are Supported by" mods do, at the rolled level (every listed support has GrantedEffectsPerLevel rows to 40). The table
+is the pool: Empower, Enhance, Enlighten and the other gems that cannot roll are not in it. Two rolls of one gem keep the
+higher level (`GemSupports.Resolve`, one per family).
 
 **Kalandra's Touch** (`RingReflections`, Progression's equipment sum): a ring with `local_ring_duplicate_other_ring`
 ("Reflects opposite Ring") in the left or right ring slot (rows 6/7) adds a copy of the other slot's ring to the
