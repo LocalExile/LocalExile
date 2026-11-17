@@ -204,6 +204,11 @@ public sealed class SupportHitDamageTests
         Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get(("mine_laying_speed_+%", 50),
             ("support_minefield_mine_throwing_speed_+%_final", -55)), mine: true), 9);
         Assert.Equal(15, Game.TrapTriggerRadius(Get(("trap_trigger_radius_+%", 50))), 9);
+        // A trap or mine fires at the nearest enemy that is not on it, else straight away from the player.
+        Assert.Equal((110, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(100, 100), (130, 100), (110, 100), (300, 100)]));
+        Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));
+        Assert.Equal((100, 80), Game.PlacedProjectileAim((100, 100), (100, 130), []));
+        Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (100, 100), []));
         // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
         foreach (var (name, value) in new[] { ("support_trap_damage_+%_final", -20),
             ("support_trap_and_mine_damage_+%_final", 30), ("support_clustertrap_damage_+%_final", -61),

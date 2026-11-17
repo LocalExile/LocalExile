@@ -212,6 +212,17 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, placed.At.X, placed.At.Y, arm, 0xffff, 0x0408));
     }
 
+    // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
+    // stand on it, and with none in range 20 cells straight away from the player, so that it still uses its skill.
+    public static (int X, int Y) PlacedProjectileAim((int X, int Y) at, (int X, int Y) player, IEnumerable<(int X, int Y)> enemies)
+    {
+        var near = enemies.Where(e => Dist(e, at) is >= 1 and <= 60).OrderBy(e => Dist(e, at)).ToArray();
+        if (near.Length > 0) return near[0];
+        double away = Dist(at, player);
+        return away < 1 ? (at.X + 20, at.Y)
+            : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
+    }
+
     static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
@@ -229,17 +240,18 @@ public static partial class Game
         // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
         // does a triggered spell's: no local input action predicts it.
         var payload = GemSkillEffects(conn).FirstOrDefault(g => g.Id == placed.Skill);
-        if (!bear && target.Value is not null && Dist(aim, placed.At) >= 1 && payload.Name is not null
-            && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
+        if (!bear && payload.Name is not null && payload.Effect == placed.Effect && UsesProjectileRuntime(placed.Effect)
             && ResolveProjectileDefinition(placed.Effect) is not null)
         {
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             var lifetime = CombatLifetime;
             var critical = CaptureSkillCriticalRoll(conn, placed.Skill);
             var at = placed.At;
+            var shot = PlacedProjectileAim(at, conn.Walk.Position(now), conn.Monsters.Values
+                .Where(m => m is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Walk.Position(now)));
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, aim, critical, from: at);
+                var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
                 return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
             });
