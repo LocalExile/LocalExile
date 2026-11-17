@@ -1440,6 +1440,67 @@ public static partial class Game
         }
     }
 
+    // Only an admitted ordinary melee swing with complete clock metadata uses this progress clock. The area clock
+    // stops during a pause; generations and the same presence/recovery checks as other contacts cancel stale work.
+    public static async Task<bool> WaitMonsterMeleeContact(ClientState conn, uint id, SpawnedMonster m, int action)
+    {
+        if (!CurrentGameWork) return false;
+        while (true)
+        {
+            lock (conn.Monsters)
+            {
+                if (!MonsterActionCurrent(conn, id, m, action)
+                    || m.MeleeClock is not { } clock || clock.Generation != action) return false;
+                if (!conn.Paused && clock.Clock.Elapsed(AreaTime(conn)) >= clock.Contact) return true;
+            }
+            await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+        }
+    }
+
+    // Melee is Animation.dat category 1 (its column 2 is false), so Actor.slow_animations_go_to_idle controls the
+    // native clamp. Unknown resource composition or clip metadata retains the existing fraction-based schedule.
+    // Round the pre-action-speed period as MonsterAttack.Stats does: native animation setup reads those integer ms.
+    public static double? MonsterMeleeContactSeconds(SkillCatalog.MonsterClipContact? clip, bool? slowAnimationsGoToIdle,
+        double attackSeconds) => clip is { ClockMetadataAvailable: true, ContactMs: { } contact }
+            && slowAnimationsGoToIdle is { } idle
+        ? AnimationEventClock.Seconds(clip.LengthMs, contact, Math.Round(attackSeconds * 1000) / 1000,
+            idle, clip.SlowBeginMs, clip.SlowEndMs, clip.BudgetSeconds)
+        : null;
+
+    public static bool BeginMonsterMeleeClockLocked(ClientState conn, SpawnedMonster m, int action, ushort sequence,
+        double startedAt, double now)
+    {
+        if (m.ActionGeneration != action || m.SwingGeneration != action) return false;
+        m.MeleeClock = null;
+        if (m.Attack is not { InPlace: false, Release: null, Projectile: null, Summon: null, DualWielding: false } attack
+            || m.Variety is not { } variety)
+            return false;
+        var catalog = SkillsFor(conn);
+        // Special melee skills and kit-owned/custom skill ids can select other animation categories. Only the
+        // native Melee action is established here; off-hand selection likewise needs its own clip metadata.
+        if (catalog.ActionName(attack.SkillId) != "Melee") return false;
+        double period = MonsterSwingSeconds(conn, m, now);
+        if (MonsterMeleeContactSeconds(catalog.MeleeClock(variety.Id, sequence), variety.SlowAnimationsGoToIdle, period)
+            is not { } contact) return false;
+        // Native body +0x1f8 changes when virtual_action_speed_+% is published, independently of the clip's raw
+        // speed. Use the same rounded stat, rather than folding an unrounded action factor into the clip duration.
+        var clock = new ActionTimeClock(startedAt, Math.Max(0, 1 + m.Ailments.SentActionSpeed / 100d));
+        double duration = Math.Round(period * 1000) / 1000;
+        m.MeleeClock = (action, clock, contact, duration, conn.LockstepActionTail);
+        m.BusyUntil = clock.Deadline(duration) + conn.LockstepActionTail;
+        return true;
+    }
+
+    // Called when the AI queues an action-speed stat, as its walk retiming is; the packet is sent by the ensuing
+    // dispatch. Freeze keeps its existing AI cancellation/contact suppression path, without a -100 speed stat.
+    public static void RetimeMonsterMeleeClockLocked(SpawnedMonster m, double now, int actionSpeedPercent)
+    {
+        if (m.MeleeClock is not { } clock || clock.Generation != m.ActionGeneration || m.SwingGeneration != clock.Generation) return;
+        bool recovering = clock.Clock.Elapsed(now) < clock.Duration;
+        clock.Clock.SetRate(now, Math.Max(0, 1 + actionSpeedPercent / 100d));
+        if (recovering) m.BusyUntil = clock.Clock.Deadline(clock.Duration) + clock.Tail;
+    }
+
     // Commit the flinch with native Actor TakeHit recovery, which cancels the current walk/attack and blocks new
     // actions. ActionEnded or a rig-only AnimationUpdate leaves Positioned's movement advancing underneath the clip.
     // If the send gate was busy, recovery starts when sent; a pause does not consume that recovery time.
@@ -1550,6 +1611,7 @@ public static partial class Game
             if (acceptedFactor <= 0) return null;
             seconds = MonsterSwingSeconds(conn, m, now) / acceptedFactor;
         }
+        m.MeleeClock = null;
         m.BusyUntil = startedAt + seconds + conn.LockstepActionTail;
         if (a.Summon is { } summoning) m.SummonReadyAt = startedAt + summoning.CooldownSeconds;
         m.SwingGeneration = action;
@@ -1580,16 +1642,26 @@ public static partial class Game
         {
             double begunSeconds;
             ushort begunSeq;
+            bool nativeClock;
             lock (conn.Monsters)
             {
+                if (!MonsterActionCurrent(conn, id, m, action)) return;
                 double factor = MonsterActionFactor(m, begun);
                 if (factor == 0) return;
                 begunSeconds = MonsterSwingSeconds(conn, m, begun) / factor;
                 begunSeq = m.Sequence;
+                nativeClock = BeginMonsterMeleeClockLocked(conn, m, action, begunSeq, begun, begun);
             }
             if (ServerTrace.Ai) Console.WriteLine($"[gateway] {remote} monster 0x{id:x} ({m.Label}) swings at the player from its walk-up, begun {conn.Clock.Elapsed.TotalSeconds - begun:0.000} s ago, attack time {begunSeconds:0.00} s");
-            double begunContact = (m.Variety is { } v ? SkillsFor(conn).MonsterContact(v.Id, "Melee", begunSeq)?.ContactFraction : null) ?? 0.5;
-            if (!await WaitMonsterActionTime(conn, id, m, action, begun + begunSeconds * begunContact)) return;
+            if (nativeClock)
+            {
+                if (!await WaitMonsterMeleeContact(conn, id, m, action)) return;
+            }
+            else
+            {
+                double begunContact = (m.Variety is { } v ? SkillsFor(conn).MonsterContact(v.Id, "Melee", begunSeq)?.ContactFraction : null) ?? 0.5;
+                if (!await WaitMonsterActionTime(conn, id, m, action, begun + begunSeconds * begunContact)) return;
+            }
             await MonsterContact(remote, stream, ciphers, conn, id, m, action, begunSeq, a);
             return;
         }
@@ -1614,11 +1686,13 @@ public static partial class Game
             seq = sequence ?? conn.NextActionSequence();
         }
         double startedAt = 0;
+        bool meleeClock = false;
         (int X, int Y)? projectileAim = null;
         bool walkUp = use is null && !area && !a.InPlace;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {
-            if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, AreaTime(conn), seq) is not { } order) return null;
+            double now = AreaTime(conn);
+            if (MonsterSwingOrderLocked(conn, m, a, action, use is null && !area, seconds, now, seq) is not { } order) return null;
             (startedAt, seconds, seq) = (order.StartedAt, order.Seconds, order.Sequence);
             var (from, player) = (order.From, order.Player);
             // The client-drawn straight mortar retains the action order's aim throughout its windup
@@ -1626,6 +1700,7 @@ public static partial class Game
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = player;
             if (walkUp && !conn.LockstepClient) seq = m.NextSequence();
             a = MonsterAttackForSequence(conn, m, a, seq);
+            if (walkUp) meleeClock = BeginMonsterMeleeClockLocked(conn, m, action, seq, startedAt, now);
             // A summoning skill's action (ActionTypes SummonSpecificMonstersInFront) plays nothing on the client (live
             // 2026-11-01: the Immolator stayed shut): its actor's clip is played instead (0x1d1, SummonAnimation).
             if (a.Summon is not null) return InstanceProtocol.ActorAnimation(id, (float)seconds, SummonAnimation);
@@ -1633,19 +1708,26 @@ public static partial class Game
                 : InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, a.SkillId, seq, conn.MonsterOrderFlags, targetObjectId: PlayerId);
         }, a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
             : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player, attack time {seconds:0.00} s")) return;
-        // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by
-        // their clip too), half the attack time without rig data.
-        double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
-            ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
-        if (conn.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
+        if (meleeClock)
         {
-            // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
-            // Starting between frames lets the server hit a moving player before the visible flight reaches them.
-            LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, nativeProjectile, action, projectileAim,
-                LockstepShotAt(startedAt, seconds * contact), seq);
-            return;
+            if (!await WaitMonsterMeleeContact(conn, id, m, action)) return;
         }
-        if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
+        else
+        {
+            // Other contacts retain their fraction of the attack time, or half without rig data. A known melee
+            // clock does not select this unused fallback or load the legacy contact corpus at its first swing.
+            double contact = a.Release?.Fraction ?? (walkUp && m.Variety is { } variety
+                ? SkillsFor(conn).MonsterContact(variety.Id, "Melee", seq)?.ContactFraction : null) ?? 0.5;
+            if (conn.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
+            {
+                // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
+                // Starting between frames lets the server hit a moving player before the visible flight reaches them.
+                LaunchMonsterProjectile(remote, stream, ciphers, conn, id, m, a, nativeProjectile, action, projectileAim,
+                    LockstepShotAt(startedAt, seconds * contact), seq);
+                return;
+            }
+            if (!await WaitMonsterActionTime(conn, id, m, action, startedAt + seconds * contact)) return;
+        }
         if (a.Summon is { } summon)
         {
             await MonsterSummon(remote, stream, ciphers, conn, id, m, summon);

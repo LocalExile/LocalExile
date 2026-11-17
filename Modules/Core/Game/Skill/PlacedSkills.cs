@@ -181,11 +181,16 @@ public static partial class Game
     static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
+        bool bear = SkillsFor(conn).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
+        bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(conn), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
             && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
+        if (bear) target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+                && Dist(p.Value.Walk.Position(now), placed.At) <= radius)
+            .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
         var aim = target.Value?.Walk.Position(now) ?? placed.At;
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
-        double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
             var playerSources = CharacterPlayerStats(conn);
@@ -209,10 +214,11 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         foreach (var (id, m) in conn.Monsters)
         {
-            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } || Dist(m.Walk.Position(now), placed.At) > radius) continue;
+            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+                || bear && id != target.Key || Dist(m.Walk.Position(now), placed.At) > radius) continue;
             var rolled = placed.Damage.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesMitigated(m, mitigated, true, now);
+            int damage = MonsterTakesMitigated(m, mitigated, spellDamage, now);
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);

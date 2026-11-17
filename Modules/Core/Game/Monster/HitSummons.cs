@@ -95,7 +95,7 @@ public static partial class Game
                     continue;
                 }
             }
-            uint id = await SummonFighter(remote, stream, ciphers, conn, request.Source, definition,
+            uint id = await SummonFighterCore(remote, stream, ciphers, conn, request.Source, definition,
                 request.Monster.Walk.Position(now), current: Current, triggered: true,
                 consumedCorpse: request.ConsumeCorpse ? request.Monster : null,
                 inheritedMods: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
@@ -110,7 +110,7 @@ public static partial class Game
 
     static void ConsumeHitSummonCorpseLocked(ClientState conn, SummonedMinions.HitSummon request)
     {
-        request.Monster.CorpseConsumed = true;
+        ConsumeSummonCorpseLocked(conn, request.Monster);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(request.Target), "Sentinel corpse consumed",
             WorldId: request.Target, RemovesObject: true));
     }

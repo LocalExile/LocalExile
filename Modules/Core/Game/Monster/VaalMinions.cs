@@ -100,7 +100,7 @@ public static partial class Game
         var upgrade=new Dictionary<uint,int>();
         foreach(string name in new[]{"vaal_upgrade_minion_damage_+%_final","vaal_upgrade_minion_damage_taken_+%_final"})
             if(Stats.Key(name) is uint key) upgrade[key]=GolemStat(gem.Stats,name);
-        return await SummonFighter(remote,stream,ciphers,conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
+        return await SummonFighterCore(remote,stream,ciphers,conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
             current:()=>current()&&GolemCurrent(conn,old)&&!old.Monster.Dead&&SameTriggerSource(gem,SupportedSkill(conn,source)),
             life:old.Monster.Life/(double)old.Monster.MaxLife,remaining:duration,replacing:old.Id,triggered:true,
             inheritedMods:old.InheritedMods,rarity:old.Monster.Rarity,retainedStats:upgrade)!=0;

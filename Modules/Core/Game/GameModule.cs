@@ -30,6 +30,9 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
+        // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
+        Program.Skills.WarmMonsterMeleeClocks();
+        Rules.HardModeSkills.Value.WarmMonsterMeleeClocks();
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());
         string id = module.Manifest.Id;

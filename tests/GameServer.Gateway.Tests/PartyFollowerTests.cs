@@ -54,7 +54,7 @@ public sealed class PartyFollowerTests
     }
 
     [Fact]
-    public void Followers_clear_the_entrance_remain_calm_and_balance_attacking_with_catching_up()
+    public async Task Followers_clear_the_entrance_remain_calm_and_balance_attacking_with_catching_up()
     {
         ControlledPlayerBuildChecks.VerifyCampaignBuilds();
         using var runtime = new Runtime();
@@ -146,6 +146,7 @@ public sealed class PartyFollowerTests
         var isolated = new ClientState(new(1, "pocket", 300, 300, 100, 100,
             (x, y) => x <= 105 || x >= 115, []), 1, 1);
         Assert.True(Game.ControlledFollowerPoint(isolated, leader, arrival: true).X <= 105);
+        await ControlledPlayerBuildChecks.VerifyReservationAttackSelection(runtime, wire);
     }
 
     [Fact]
