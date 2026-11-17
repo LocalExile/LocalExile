@@ -115,6 +115,38 @@ public sealed class CombatCacheTests
         Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
     }
 
+    [Fact]
+    public void A_session_keeps_its_actor_records_and_allocates_only_the_list_at_each_step()
+    {
+        // The runtime asks for the actors at every simulation step, thousands of times a second in a crowd.
+        const int monsters = 400;
+        var conn = new ClientState(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        for (uint i = 0; i < monsters; i++)
+            conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
+        conn.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession("records", null!, new(new byte[64], false), conn);
+
+        var first = session.Actors(0, 0);
+        var second = session.Actors(0, 0);
+        Assert.Equal(monsters + 3, first.Count);
+        Assert.NotSame(first, second);   // the runtime holds one list while a hit changes the next
+        for (int i = 0; i < first.Count; i++) Assert.Same(first[i], second[i]);
+        // A monster whose walk was replaced gets a new record, and only that one.
+        conn.Monsters[0x3000].Walk = new(120, 100, 0);
+        var third = session.Actors(0, 0);
+        Assert.Equal(1, Enumerable.Range(0, first.Count).Count(i => !ReferenceEquals(first[i], third[i])));
+
+        // The list is a reference per actor. A closure per monster at every call was 24 bytes more each (49 KB a step
+        // with 1000 monsters, 2026-11-16): allow twice the list, far below that.
+        for (int i = 0; i < 50; i++) session.Actors(0, 0);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        const int calls = 100;
+        for (int i = 0; i < calls; i++) session.Actors(0, 0);
+        long each = (GC.GetAllocatedBytesForCurrentThread() - before) / calls;
+        Assert.InRange(each, 8 * monsters, 16 * monsters + 1024);
+    }
+
     sealed class Arena : IProjectileWorld
     {
         public readonly List<ProjectileActor> Targets = [];
