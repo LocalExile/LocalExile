@@ -1326,24 +1326,19 @@ public static partial class Game
             }
         }
         List<ushort> gone = [], added = [];
-        // Built before the send gate: the skill records carry every skill's stat list (17 KB of the old player object),
-        // and building them inside the gate held the combat lock and the gate together for hundreds of milliseconds on a
-        // lockstep client (live 2026-11-17: EnemyDebuffsTick's 604 ms, and this is the same shape). The state the packet
-        // reflects is taken under the same lock as before.
-        byte[] skillsPacket;
-        using (conn.Performance.Lock(conn.Monsters, "stats"))
+        // Built at the send gate, as every full stat and Actor refresh is (SendPlayerStatSnapshot): the packet that is
+        // written last is then the one built last, the own-aura records it depends on go with it, and a lockstep client
+        // gets it as a world record of the player.
+        await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () =>
         {
-            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             var skills = PlayerSkills(conn);
             gone = conn.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !conn.ClientSkillIds.Contains(id)).ToList();
             conn.ClientSkillIds = [.. skills.Select(s => s.Id)];
             RecordPlayerSkills(conn, skills);
-            skillsPacket = PlayerSkillsWithVaalSouls(conn, skills, gone);
-        }
-        if (!conn.DeferSkillStats)
-            await Send(remote, stream, ciphers, skillsPacket, "0x02bc player Actor: current skill stats",
-                still: () => !conn.Closed && !conn.LeavingArea);        if (!CurrentGameRules) return;
+            return PlayerSkillsWithVaalSouls(conn, skills, gone);
+        }, "0x02bc player Actor: current skill stats");
+        if (!CurrentGameRules) return;
         await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (gone.Count > 0) await EndSkillEffects(remote, stream, ciphers, conn, gone);
 

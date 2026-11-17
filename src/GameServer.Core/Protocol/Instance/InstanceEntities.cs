@@ -1,6 +1,5 @@
 using System.Buffers.Binary;
 using System.Text;
-using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Protocol.Instance;
@@ -1154,12 +1153,6 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public IReadOnlyCollection<int>? LeagueQuestFlags { get; init => field = Owned.Collection(value); } = Owned.Collection(LeagueQuestFlags);
     public IReadOnlyList<VaalSoulBudget>? Souls { get; init => field = Owned.List(value); } = Owned.List(Souls);
 
-    /// <summary>Whether the created object's skill records carry their own stat lists. They are 17 KB of the 20 KB object
-    /// (9 skills, live 2026-11-17) and the same records arrive right after the create in the entry's 0x2bc "current skill
-    /// stats" (SendSkills). Off, the create is about 3 KB, so its write no longer holds the send gate while the client is
-    /// still loading the area.</summary>
-    public bool SkillStats { get; init; } = true;
-
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
     public float Rotation { get; init; }
@@ -1263,7 +1256,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);
-            WriteSkillList(w, Skills ?? [], Souls, SkillStats);
+            WriteSkillList(w, Skills ?? [], Souls);
         }
         else w.U8(0).U8(0);
         w.U8(0);            // tasks (0x141ee6950)
@@ -1281,10 +1274,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte ActorComponentIndex = 9;
 
     internal static void WriteSkillList(BlobWriter w, IReadOnlyList<GrantedSkill> skills,
-        IReadOnlyList<VaalSoulBudget>? souls = null, bool stats = true)
+        IReadOnlyList<VaalSoulBudget>? souls = null)
     {
         w.U8((byte)skills.Count);
-        foreach (var s in skills) WriteSkillRecord(w, s, stats);
+        foreach (var s in skills) WriteSkillRecord(w, s);
         WriteSoulBudgets(w, souls);
         w.U32(0);
     }
@@ -1296,7 +1289,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     }
 
     /// <summary>One skill record (<c>0x14219d650</c>), as the 0x40 list and the 0x20 update carry it.</summary>
-    internal static void WriteSkillRecord(BlobWriter w, GrantedSkill s, bool stats = true)
+    internal static void WriteSkillRecord(BlobWriter w, GrantedSkill s)
     {
         w.U16(s.Id)
          .U8(0).U32(s.EffectsPerLevelRow)      // GEPL reference
@@ -1317,8 +1310,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          // virtual_total_cooldown_count the client keeps the skill's cooldown and shows it on the skill bar
          // (0x141ef0f00 creates the cooldown record only when it is not 0; live 2026-10-21).
          .U32(0).U32(0).U32(s.CooldownMs).U8(s.CooldownBypassType)
-         .Stats(stats ? s.Stats : null);      // the skill's own stats
-        foreach (var (_, set) in s.ExtraStatSets) w.Stats(stats ? set : null);   // and one stat list per additional set
+         .Stats(s.Stats);                      // the skill's own stats
+        foreach (var (_, stats) in s.ExtraStatSets) w.Stats(stats);   // and one stat list per additional set
     }
 
     /// <summary>One Life pool (0x141e72410): u32 +0x30 current, u32 +0x10 reserved (flat), i16 +0x14 (reserved percent?),

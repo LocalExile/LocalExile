@@ -1188,10 +1188,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     readonly EmergeGround ownEmergeGround = new();
     // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
     public int SentMonstersRemaining = -1;
-    /// <summary>Set for the duration of an area entry: the 17 KB skill-record packet (0x2bc Actor) is not written while
-    /// the client is still on its loading screen, where it held the send gate for half a second. The entry clears it and
-    /// sends the records a moment after the frames start (Messages 0x7d).</summary>
-    public volatile bool DeferSkillStats;
     /// <summary>Packs of the area's population the player has not come near yet (Monsters.PopulateArea): each is created
     /// when it falls within the reveal radius, a few per tick, so the entry does not write every monster of the area at
     /// once (679 monsters, 156 KB, blocked behind the client's loading screen). Guarded by Monsters; the overlay counts

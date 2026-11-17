@@ -758,9 +758,6 @@ public static partial class Game
                     // An area with a Trial of Ascendancy gives the Lord's Labyrinth quest, before the player object carries the flags.
                     if (LabyrinthTrials.For(conn.Layout.Id) is not null && !conn.HasQuestFlag(Quests.LabyrinthQuestReceived))
                         await SetQuestFlags(remote, stream, ciphers, conn, [Quests.LabyrinthQuestReceived]);
-                    // The 17 KB skill records (0x2bc Actor) are not written while the client is on its loading screen: they
-                    // held the send gate ~0.5 s there and the first cast waited 300 ms behind them (live 2026-11-17).
-                    conn.DeferSkillStats = true;
                     await SendPlayer(remote, stream, ciphers, conn);
                     await PlayerEnteredArea(remote, stream, ciphers, conn);
                     await SendWaypoints(remote, stream, ciphers, conn);
@@ -805,9 +802,6 @@ public static partial class Game
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)
                         if (conn.OwnedCombatState is RampageWorld world) EnsureRampageWorker(conn, world);
-                    // The skill records follow just after the frames start, when the client is reading.
-                    conn.DeferSkillStats = false;
-                    SendAfter(0.3, () => SendSkills(remote, stream, ciphers, conn));
                 }
             }
         }
