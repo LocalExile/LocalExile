@@ -906,8 +906,11 @@ public static partial class Game
             // Only a pile whose create was admitted (SeenGround is set at that gate): asking for the removal of one not yet
             // sent marked its id as published, and its create, still to come in the kill's output, then failed and closed
             // the connection (live 2026-11-16). The next tick takes it.
+            // SeenGround alone is not that: the ground sync marks a pile the player's own kill put down as seen before
+            // the kill's output creates it (a projectile kill's drops wait in its session), so the world output must also
+            // hold the pile's create (live 2026-11-17: Fireball kills, auto-looted gold, the create failed).
             lock (conn.Monsters)
-                if (!conn.SeenGround.Contains(id)) return;
+                if (!conn.SeenGround.Contains(id) || !conn.WorldOutput.Has(id)) return;
             await SendWorldRemoval(remote, stream, ciphers, conn, id, log, atGate: () =>
             {
                 if (Take() is not { } bytes) return null;

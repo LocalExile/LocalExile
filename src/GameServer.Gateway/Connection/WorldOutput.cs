@@ -163,6 +163,14 @@ public sealed class WorldOutput
             var established = new WorldObject(this, id, true); objects.Add(id, established); return established;
         }
     }
+    /// <summary>Whether the id has an incarnation in this output: a create reserved, admitted or published. One without
+    /// is not known to have been created yet: <see cref="PublishedObject"/> would take it as established, and a create
+    /// still to come (a kill's queued drop) would then fail.</summary>
+    public bool Has(uint id)
+    {
+        lock (sync) return objects.ContainsKey(id);
+    }
+
     // The caller identifies an already published object. A pending birth is returned as pending, never bypassed.
     public WorldObject PublishedObject(uint id)
     {
