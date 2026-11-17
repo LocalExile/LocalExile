@@ -206,7 +206,9 @@ Proxy/trigger executors must supply their own actual caster and never reuse the 
 Spellblade's Stat 18860 names one-hand melee **weapon** damage, not the full attack's inputs.
 The [pinned PoB transfer](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L597-L610)
 reads the item's damage, excluding global attack additions and the generic additions a spell already receives.
-This corroborates the input scope and one-hand eligibility, not native panel/hit parity; dual wield and transfer rounding remain open.
+Its [exported stat description](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Data/StatDescriptions/gem_stat_descriptions.lua#L19369-L19384)
+specifies 60% contribution per weapon when two are equipped. The transfer floors each hand's endpoints separately
+before spell effectiveness. These are description/reference-model findings; native panel, hit and rounding parity remain unverified.
 Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.

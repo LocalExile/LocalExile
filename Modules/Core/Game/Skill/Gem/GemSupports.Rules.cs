@@ -519,11 +519,23 @@ public static partial class Game
         {
             if (ActiveMainHand(conn) is { Type: { } bladeType } bladeHand && OneHandMelee(bladeType))
             {
-                var bladeDamage = WeaponIn(conn, bladeHand)!.LocalDamage!;
+                var offHand = ActiveOffHand(conn);
+                var offWeapon = WeaponIn(conn, offHand);
+                long gain = (long)bladeGain * (offWeapon is null ? 100 : 60);
                 double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
                 // Only the item's damage transfers; global additions and attack-only grants are not weapon damage.
-                foreach (var (type, range) in bladeDamage.Components)
-                    raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
+                // Floor each hand's transfer before spell effectiveness. Keep the percentage numerator integral
+                // until division so a floating-point multiplier cannot move a whole-number endpoint below its floor.
+                void AddWeapon(SkillCatalog.Unarmed blade)
+                {
+                    foreach (var (type, range) in blade.LocalDamage!.Components)
+                        raw = raw.Add(type, new GameServer.Core.World.DamageRange(
+                            Math.Floor(range.Min * gain / 10_000d),
+                            Math.Floor(range.Max * gain / 10_000d)).Scale(effectiveness));
+                }
+                AddWeapon(WeaponIn(conn, bladeHand)!);
+                if (offHand is { Type: { } offType } && OneHandMelee(offType))
+                    AddWeapon(offWeapon!);
             }
         }
         if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)

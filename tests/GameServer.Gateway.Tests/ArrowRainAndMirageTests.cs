@@ -413,6 +413,7 @@ public class ArrowRainAndMirageTests
         Weapon_cold_per_dexterity_stays_with_its_source();
         Spellblade_takes_weapon_damage_without_global_attack_inputs();
         Spellblade_requires_an_active_one_hand_melee_weapon();
+        Spellblade_transfers_each_active_weapon_before_spell_scaling();
     }
 
     static void Weapon_cold_per_dexterity_stays_with_its_source()
@@ -648,6 +649,89 @@ public class ArrowRainAndMirageTests
         c.Experience = CharacterStats.ExperienceFor(100);
         c.Pools = Game.PoolsFor(c, 100);
         Assert.Equal(transferred, Lightning());
+    }
+
+    static void Spellblade_transfers_each_active_weapon_before_spell_scaling()
+    {
+        using var b = new Battle("Fireball", "Spellblade Support");
+        var c = b.Conn;
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+        c.PlayerStats[Key("base_deal_no_fire_damage")] = 1;
+        var items = Game.ItemsOf(c);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        var body = items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        { Sockets = host.Item.Sockets, Links = host.Item.Links })!;
+        items.Remove(PlayerInventories.Weapon1, host.Id);
+        var gem = Game.GemSkillEffects(c).Single();
+        Item Weapon(string name, string mod, int min, int max) => ItemCatalog.Create(Program.Items.Find(name)!) with
+        {
+            ItemLevel = 100, Rarity = ItemRarity.Magic,
+            Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(mod)!.Hash, [min, max])],
+        };
+        items.Add(PlayerInventories.Weapon1, 0, 0, Weapon("Rusted Sword", "LocalAddedColdDamage2", 7, 14));
+        var off = items.Add(PlayerInventories.Offhand1, 0, 0,
+            Weapon("Rusted Sword", "LocalAddedLightningDamage2", 2, 25))!;
+        DamageRange Cold() => Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Cold];
+        // 40% support * 60% per hand: floor each endpoint, then apply Fireball's 300% effectiveness.
+        Assert.Equal(new DamageRange(0, 18), Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning]);
+        Assert.Equal(new DamageRange(3, 9), Cold());
+        items.Change(PlayerInventories.Offhand1, off.Id,
+            _ => Weapon("Rusted Sword", "LocalAddedColdDamage2", 9, 16));
+        // Separate floors: (1+2, 3+3) * 3. Combining hands before rounding would produce 9-21.
+        Assert.Equal(new DamageRange(9, 18), Cold());
+        void SupportLevel(int level) => items.Change(PlayerInventories.BodyArmour, body.Id, item =>
+        {
+            var sockets = item.Sockets.ToArray();
+            var support = sockets[1].Gem!;
+            sockets[1] = sockets[1] with { Gem = support with
+            { GemExperience = Program.Items.Gem(Program.Items.ByHash(support.TypeHash)!)!.ExperienceFor(level) } };
+            return item with { Sockets = sockets };
+        });
+        SupportLevel(20);
+        Assert.Equal(135, Game.SupportedSkill(c, gem.Id).Stats[Key(
+            "support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage")]);
+        Assert.Equal(new DamageRange(36, 69), Cold());
+        SupportLevel(1);
+
+        items.Remove(PlayerInventories.Offhand1, off.Id);
+        Assert.Equal(new DamageRange(6, 15), Cold());
+        var shield = items.Add(PlayerInventories.Offhand1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!))!;
+        Assert.Equal(new DamageRange(6, 15), Cold());
+        items.Remove(PlayerInventories.Offhand1, shield.Id);
+        off = items.Add(PlayerInventories.Offhand1, 0, 0,
+            Weapon("Jewelled Foil", "LocalAddedColdDamage2", 9, 16))!;
+        c.Experience = CharacterStats.ExperienceFor(50);
+        c.Pools = Game.PoolsFor(c, 50);
+        Assert.Null(Game.ActiveOffHand(c));
+        Assert.Equal(40, Game.SupportedSkill(c, gem.Id).Stats[Key(
+            "support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage")]);
+        Assert.Equal(new DamageRange(6, 15), Cold());
+        c.Experience = CharacterStats.ExperienceFor(100);
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(new DamageRange(9, 18), Cold());
+
+        items.Add(PlayerInventories.Weapon2, 0, 0, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        items.Add(PlayerInventories.Offhand2, 0, 0, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        c.PlayerStats[Key("cold_damage_+%")] = 100;
+        var expected = new DamageRange(18, 36);
+        var panel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal(18, panel[Key("main_hand_minimum_cold_damage")]);
+        Assert.Equal(36, panel[Key("main_hand_maximum_cold_damage")]);
+        var use = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        Assert.Equal(expected, shot.Hit[DamageType.Cold]);
+        Assert.Equal(expected, shot.AreaHit![DamageType.Cold]);
+        b.Session.Runtime.Release(use);
+        items.SwapWeaponSets();
+        Assert.Equal(gem.Id, Game.GemSkillEffects(c).Single().Id);
+        Assert.Equal(0, Cold().Max);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(1));
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, 18u, 36u);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        Assert.Equal(expected, shot.Hit[DamageType.Cold]);
     }
 
     [Theory]

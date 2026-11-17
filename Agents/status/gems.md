@@ -94,8 +94,9 @@ Nothing yet.
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Spellblade takes an active one-hand melee weapon's local damage without importing global attack-only additions or counting generic additions twice;
-  native validation, dual wield and transfer rounding remain open ([25](../docs/protocol/25-gem-supports.md)).
+  Spellblade takes active one-hand melee weapons' local damage without importing global attack-only additions or counting generic additions twice;
+  dual wield contributes 60% per hand, rounded down per hand before spell effectiveness. Native panel/hit and rounding parity
+  remain unverified ([25](../docs/protocol/25-gem-supports.md)).
   Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
   keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
   ([25](../docs/protocol/25-gem-supports.md)).
