@@ -33,6 +33,8 @@ public static class StrongboxCatalog
             new QuestObject(x, y, Components, rotation, null, Model, 1, opened)
             {
                 StateMachine = opened ? States!.Set("opened", 1) : States,
+                // A normal box has nothing to identify: without the flag its nameplate reads "Unidentified" (live).
+                Identified = true,
             }.Blob();
     }
 
