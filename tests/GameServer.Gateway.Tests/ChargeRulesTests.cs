@@ -54,23 +54,22 @@ public sealed class ChargeRulesTests
     [Fact]
     public void PerChargeStatsScaleWithTheChargesHeldOrTheMaximum()
     {
-        // Auxium's 3% increased elemental attack damage per Power Charge, Deathmarked's 10% Mark effect per
+        // 5% reduced extra damage taken from critical strikes per Endurance Charge, Deathmarked's 10% Mark effect per
         // maximum Power Charge, Ahn's Contempt's 50% reduced extra damage from critical strikes with no Power Charges.
         var raw = new Dictionary<string, int>
         {
-            ["elemental_damage_with_attack_skills_+%_per_power_charge"] = 3,
+            ["self_critical_strike_multiplier_-%_per_endurance_charge"] = 5,
             ["mark_skills_curse_effect_+%_per_maximum_power_charge"] = 10,
             ["extra_damage_taken_from_crit_while_no_power_charges_+%"] = -50,
         };
+        // power: the Endurance and Power Charges held.
         Dictionary<string, int> Expand(int power, int maximum) => ChargeEffects.Expand(name => raw.GetValueOrDefault(name),
-            t => t == ChargeType.Power ? power : 0, null, ChargeScaling.Rules, ChargeScaling.Conditions,
+            t => t == ChargeType.Frenzy ? 0 : power, null, ChargeScaling.Rules, ChargeScaling.Conditions,
             t => t == ChargeType.Power ? maximum : 3);
         var held = Expand(power: 3, maximum: 4);
-        Assert.Equal(9, held["elemental_damage_with_attack_skills_+%"]);
+        Assert.Equal(15, held["base_self_critical_strike_multiplier_-%"]);
         Assert.Equal(40, held["mark_skills_curse_effect_+%"]);
-        Assert.False(held.ContainsKey("base_self_critical_strike_multiplier_-%"));
         var none = Expand(power: 0, maximum: 4);
-        Assert.False(none.ContainsKey("elemental_damage_with_attack_skills_+%"));
         Assert.Equal(40, none["mark_skills_curse_effect_+%"]);
         Assert.Equal(50, none["base_self_critical_strike_multiplier_-%"]);
         // Badge of the Brotherhood: the Frenzy maximum is the Power one; with Masterful Form the Endurance one follows.

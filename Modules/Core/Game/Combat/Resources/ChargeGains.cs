@@ -149,13 +149,11 @@ public static class ChargeGains
         new("unique_lose_a_power_charge_when_hit", ChargeType.Power, (e, _) => e is ChargeEvent.WhenHit, Flag: true, Does: Outcome.LoseOne),
         // "Lose all Power Charges when you Block" (Willclash)
         new("lose_all_power_charges_on_block", ChargeType.Power, (e, _) => e is ChargeEvent.Block, Flag: true, Does: Outcome.LoseAll),
-        // On using a skill: a Vaal skill (Yaomac's Accord, Sacrificial Heart), a curse (Anathema), a trap (Jaws of Agony)
+        // On using a skill: a Vaal skill (Yaomac's Accord), a curse (Anathema), a trap (Jaws of Agony)
         new("gain_frenzy_power_endurance_charges_on_vaal_skill_use", ChargeType.Endurance, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
         new("gain_frenzy_power_endurance_charges_on_vaal_skill_use", ChargeType.Frenzy, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
         new("gain_frenzy_power_endurance_charges_on_vaal_skill_use", ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true),
         new("gain_power_charge_on_vaal_skill_use_%", ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }),
-        new("gain_maximum_power_charges_on_vaal_skill_use", ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Vaal: true }, Flag: true,
-            Does: Outcome.ToMaximum),
         new("gain_power_charge_on_curse_cast_%", ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Curse: true }),
         new("gain_power_charge_when_throwing_trap_%", ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];

@@ -1,8 +1,7 @@
 /// <summary>
 /// Per-charge stats of passives and items beyond <see cref="ChargeEffects.PerCharge"/>, each into the stat the server
 /// already calculates with (stat descriptions for the wording; the targets are the plain stats of the same wording):
-/// Auxium's elemental attack damage, the Badge of the Brotherhood's Elusive effect and travel skill cooldown, Hyaon's
-/// Fury's damage taken, the "reduced Extra Damage from Critical Strikes per Endurance Charge" implicit;
+/// the "reduced Extra Damage from Critical Strikes per Endurance Charge" implicit;
 /// Assassin's Deathmarked "per maximum Power Charge" Mark effect and instant leech. <see cref="Conditions"/>: Ahn's
 /// Contempt's "reduced Extra Damage from Critical Strikes while you have no Power Charges". The "while at maximum …
 /// Charges" item stats are StatConditions' (ItemConditionFlags), not here.
@@ -15,10 +14,6 @@ public static class ChargeScaling
 
     public static readonly IReadOnlyList<ChargeEffects.Rule> Rules =
     [
-        P("elemental_damage_with_attack_skills_+%_per_power_charge", "elemental_damage_with_attack_skills_+%"),
-        P("elusive_effect_on_self_+%_per_power_charge", "elusive_effect_+%"),
-        F("travel_skills_cooldown_speed_+%_per_frenzy_charge", "travel_skill_cooldown_speed_+%"),
-        F("damage_taken_+%_per_frenzy_charge", "base_damage_taken_+%"),
         E("self_critical_strike_multiplier_-%_per_endurance_charge", "base_self_critical_strike_multiplier_-%"),
         new("mark_skills_curse_effect_+%_per_maximum_power_charge", ChargeType.Power, ["mark_skills_curse_effect_+%"], PerMaximum: true),
         new("leech_%_is_instant_per_maximum_power_charge", ChargeType.Power, ["leech_%_is_instant"], PerMaximum: true),
