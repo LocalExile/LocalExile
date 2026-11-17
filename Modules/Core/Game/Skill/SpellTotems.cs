@@ -161,7 +161,7 @@ public static partial class Game
                         if (!Current()) return;
                         if (summon is not null)
                             await CastSummon(remote, stream, ciphers, conn, totem.SkillId, summon, aim,
-                                summonTarget, conn.ActionInterruptionGeneration, Current, triggered: true);
+                                summonTarget, conn.ActionInterruptionGeneration, Current, triggered: true, playerConsumesCorpse: false);
                         else await CastGolem(remote, stream, ciphers, conn, totem.SkillId, golem!, aim,
                             conn.ActionInterruptionGeneration, Current, triggered: true);
                     });

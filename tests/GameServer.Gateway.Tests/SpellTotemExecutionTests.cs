@@ -194,6 +194,11 @@ public sealed class SpellTotemExecutionTests
                 if (summon?.Corpse == true)
                     conn.Monsters[901] = corpse = new("corpse", new(120, 100, 0), 0, 0, 1000)
                     { Hostile = true, Life = 0, Dead = true, Variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!, Level = 20 };
+                if (corpse is not null)
+                {
+                    corpse.Ignites.Add(0, 1, 1000);
+                    corpse.Ignites.Clear();
+                }
                 uint ground = 0;
                 if (summon?.Family is "AnimatedWeapon" or "AnimatedGuardian")
                     ground = conn.Instance.Ground.Add(new(120, 100, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!)));
@@ -209,7 +214,25 @@ public sealed class SpellTotemExecutionTests
                 int expected = active == "Summon Skeletons" ? 2 : 1;
                 Assert.Equal(expected, conn.Summons.Fighters.Count + conn.Golems.All.Count);
                 Assert.Equal(1000u, conn.PlayerMana);
-                if (corpse is not null) Assert.True(corpse.CorpseConsumed);
+                if (corpse is not null)
+                {
+                    Assert.True(corpse.CorpseConsumed);
+                    Assert.Equal(0, conn.IgnitedCorpsesConsumed); // The totem consumed it, not the flask owner.
+                    skill = Equip(conn, active, "SupportGemMinionDamage");
+                    foreach (bool triggered in new[] { false, true })
+                    {
+                        uint corpseId = triggered ? 903u : 902u;
+                        var playerCorpse = new SpawnedMonster("player corpse", new(120, 100, 0), 0, 0, 1000)
+                        { Hostile = true, Life = 0, Dead = true, Variety = corpse.Variety, Level = 20 };
+                        playerCorpse.Ignites.Add(0, 1, 1000);
+                        playerCorpse.Ignites.Clear();
+                        conn.Monsters[corpseId] = playerCorpse;
+                        Assert.NotEqual(0u, await Game.SummonFighter("player-summon", wire.Stream, wire.Ciphers,
+                            conn, skill, summon!, (120, 100), corpseId, triggered: triggered));
+                        Assert.True(playerCorpse.CorpseConsumed);
+                        Assert.Equal(triggered ? 2 : 1, conn.IgnitedCorpsesConsumed);
+                    }
+                }
                 if (ground != 0) Assert.Null(conn.Instance.Ground.Get(ground));
                 if (Program.Skills.CooldownMs(gem.Effect, gem.Level) > 0)
                 {

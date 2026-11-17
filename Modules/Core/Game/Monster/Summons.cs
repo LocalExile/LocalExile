@@ -87,7 +87,7 @@ public static partial class Game
 
     internal static Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
-        bool triggered = false) =>
+        bool triggered = false, bool playerConsumesCorpse = true) =>
         RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(conn, source);
@@ -106,24 +106,32 @@ public static partial class Game
                 {
                     var origin = conn.Walk.Position(AreaTime(conn));
                     var landing = MovementLanding(conn, gem.Effect, origin, aim);
-                    uint clone = await SummonFighter(remote, stream, ciphers, conn, source, definition,
-                        origin, target, current: current, triggered: triggered);
+                    uint clone = await SummonFighterCore(remote, stream, ciphers, conn, source, definition,
+                        origin, target, current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
                     if (clone == 0) return false;
                     await CommitTravelLanding(remote, stream, ciphers, conn, landing,
                         () => conn.Summons.Fighters.ContainsKey(clone));
                 }
-                else await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target,
-                    current: current, triggered: triggered);
+                else await SummonFighterCore(remote, stream, ciphers, conn, source, definition, aim, target,
+                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
             }
             SaveSummons(conn);
             return true;
         });
 
-    public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
-        bool triggered = false, SpawnedMonster? consumedCorpse = null)
+        bool triggered = false) =>
+        SummonFighterCore(remote, stream, ciphers, conn, source, definition, aim, target, restoredVariety, life,
+            current, restoredEquipment, remaining, replacing, triggered);
+
+    static async Task<uint> SummonFighterCore(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
+        string? restoredVariety = null, double life = 1, Func<bool>? current = null,
+        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
+        bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true)
     {
         var gem = SupportedSkill(conn, source);
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
@@ -187,11 +195,7 @@ public static partial class Game
                 && GemSkillInstanceDisabled(conn, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null,
             owned: (id, monster) =>
             {
-                if (consumed is not null)
-                {
-                    consumed.CorpseConsumed = true;
-                    NoteCorpseConsumedLocked(conn, consumed);
-                }
+                if (consumed is not null) ConsumeSummonCorpseLocked(conn, consumed, playerConsumesCorpse);
                 if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 if (replacing is uint oldId && conn.Summons.Fighters.TryGetValue(oldId, out var old))
@@ -212,6 +216,14 @@ public static partial class Game
                 conn.Minions.StatRevision++;
             });
         return id;
+    }
+
+    // Creating and refreshing a summon share one receipt. A proxy's consumption cannot recharge its owner's flask.
+    static void ConsumeSummonCorpseLocked(ClientState conn, SpawnedMonster corpse, bool playerConsumesCorpse = true)
+    {
+        if (corpse.CorpseConsumed) return;
+        corpse.CorpseConsumed = true;
+        if (playerConsumesCorpse) NoteCorpseConsumedLocked(conn, corpse);
     }
 
     static void RemoveSummonLocked(ClientState conn, GolemState.Golem fighter, double now)
