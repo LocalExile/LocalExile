@@ -81,9 +81,12 @@ public static partial class Game
     }
 
     // A declared single create; its common header is not inferred from an opaque concatenated send.
+    // `awaitBirth` holds the producer until the create is written. A presentation object that no later action depends
+    // on (a projectile, an effect) does not need that hold: a lockstep create is written at the next frame end, so each
+    // held create stalled its producer's queue for up to a frame.
     public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
         string? log = null, Func<bool>? still = null, bool wake = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null)
+        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null, bool awaitBirth = true)
     {
         var wire = transport ?? conn.Wire;
         if (!conn.LockstepClient)
@@ -115,7 +118,7 @@ public static partial class Game
                 : new(born);
         }, still, transport: transport, creates: reservations);
         // A producer may only start an action after the create's delimiter. No gameplay lock is held here.
-        return admitted && (QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
+        return admitted && (!awaitBirth || QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
     }
 
     public static Task<bool> SendWorldCreate(string remote, NetworkStream stream, ConnectionCiphers ciphers,

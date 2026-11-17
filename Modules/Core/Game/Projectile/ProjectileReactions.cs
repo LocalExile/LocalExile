@@ -151,7 +151,7 @@ public static partial class Game
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
-            session.World(PlayerId, InstanceEntities.PlayerExperienceUpdate(PlayerId, change.After));
+            session.PlayerExperience(change.After);
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
