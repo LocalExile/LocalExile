@@ -517,12 +517,12 @@ public static partial class Game
         // scaled by the spell's damage effectiveness like any other added damage.
         if (!attack && !secondary && Get("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage") is int bladeGain and > 0)
         {
-            var bladeWeapon = weapon ?? WeaponFor(conn);
-            if (bladeWeapon.Melee && bladeWeapon.LocalDamage is not null)
+            if (ActiveMainHand(conn) is { Type: { } bladeType } bladeHand && OneHandMelee(bladeType))
             {
+                var bladeDamage = WeaponIn(conn, bladeHand)!.LocalDamage!;
                 double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
                 // Only the item's damage transfers; global additions and attack-only grants are not weapon damage.
-                foreach (var (type, range) in bladeWeapon.LocalDamage.Components)
+                foreach (var (type, range) in bladeDamage.Components)
                     raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
             }
         }

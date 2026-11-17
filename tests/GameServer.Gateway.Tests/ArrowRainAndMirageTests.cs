@@ -412,6 +412,7 @@ public class ArrowRainAndMirageTests
         Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
         Weapon_cold_per_dexterity_stays_with_its_source();
         Spellblade_takes_weapon_damage_without_global_attack_inputs();
+        Spellblade_requires_an_active_one_hand_melee_weapon();
     }
 
     static void Weapon_cold_per_dexterity_stays_with_its_source()
@@ -573,6 +574,80 @@ public class ArrowRainAndMirageTests
         Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, (uint)expected.Min, (uint)expected.Max);
         Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
         Assert.Equal(expected, shot.Hit[DamageType.Lightning]);
+    }
+
+    static void Spellblade_requires_an_active_one_hand_melee_weapon()
+    {
+        using var b = new Battle("Fireball", "Spellblade Support");
+        var c = b.Conn;
+        static uint Key(string name) => Program.Stats.Key(name)!.Value;
+        c.PlayerStats[Key("global_cannot_crit")] = 1;
+        c.PlayerStats[Key("base_deal_no_physical_damage")] = 1;
+        c.PlayerStats[Key("base_deal_no_fire_damage")] = 1;
+        var items = Game.ItemsOf(c);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        // Keep the spell and support active independently of the equipped weapon and its requirements.
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        { Sockets = host.Item.Sockets, Links = host.Item.Links });
+        items.Remove(PlayerInventories.Weapon1, host.Id);
+        var gem = Game.GemSkillEffects(c).Single();
+        DamageRange Lightning() => Game.SupportedHitInputsFor(c, gem.Id)!.Raw[DamageType.Lightning];
+        Assert.Equal(0, Lightning().Max);
+
+        var local = Program.Items.Mods.ById("LocalAddedLightningDamage1")!;
+        Item Weapon(string name) => ItemCatalog.Create(Program.Items.Find(name)!) with
+        { Rarity = ItemRarity.Magic, Mods = [new(ModSection.Explicit, local.Hash, [1, 5])] };
+        var main = items.Add(PlayerInventories.Weapon1, 0, 0, Weapon("Rusted Sword"))!;
+        var transferred = Lightning();
+        Assert.True(transferred.Max > 0);
+        foreach (var (name, eligible) in new[]
+        {
+            ("Nailed Fist", true), ("Glass Shank", true), ("Carving Knife", true), ("Rusted Sword", true),
+            ("Rusted Spike", true), ("Rusted Hatchet", true), ("Driftwood Club", true), ("Driftwood Sceptre", true),
+            ("Corroded Blade", false), ("Stone Axe", false), ("Driftwood Maul", false),
+            ("Gnarled Branch", false), ("Iron Staff", false), ("Driftwood Wand", false), ("Crude Bow", false),
+        })
+        {
+            items.Change(PlayerInventories.Weapon1, main.Id, _ => Weapon(name));
+            Assert.Equal(gem.Id, Game.GemSkillEffects(c).Single().Id);
+            Assert.Equal(new DamageRange(1, 5), Game.WeaponFor(c).LocalDamage![DamageType.Lightning]);
+            var expected = eligible ? transferred : DamageRange.Zero;
+            Assert.True(expected == Lightning(), $"{name}: expected {expected}, actual {Lightning()}");
+            var panel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+            Assert.Equal((int)expected.Max, panel.GetValueOrDefault(Key("main_hand_maximum_lightning_damage")));
+        }
+
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => Weapon("Rusted Sword"));
+        var shield = items.Add(PlayerInventories.Offhand1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!))!;
+        Assert.Equal(transferred, Lightning());
+        items.Remove(PlayerInventories.Offhand1, shield.Id);
+        items.Add(PlayerInventories.Weapon2, 0, 0, Weapon("Gnarled Branch"));
+        var use = Game.CaptureGemProjectile(c, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        Assert.Equal(transferred, shot.Hit[DamageType.Lightning]);
+        Assert.Equal(transferred, shot.AreaHit![DamageType.Lightning]);
+        b.Session.Runtime.Release(use);
+        items.SwapWeaponSets();
+        Assert.Equal(0, Lightning().Max);
+        Assert.Equal(gem.Id, Game.GemSkillEffects(c).Single().Id);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(1));
+        Assert.InRange(b.Enemy.MaxLife - b.Enemy.Life, (uint)transferred.Min, (uint)transferred.Max);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        Assert.Equal(transferred, shot.Hit[DamageType.Lightning]);
+        items.SwapWeaponSets();
+        Assert.Equal(transferred, Lightning());
+
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => Weapon("Jewelled Foil"));
+        c.Experience = CharacterStats.ExperienceFor(50);
+        c.Pools = Game.PoolsFor(c, 50);
+        Assert.Null(Game.ActiveMainHand(c));
+        Assert.Equal(40, Game.SupportedSkill(c, gem.Id).Stats[Key(
+            "support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage")]);
+        Assert.Equal(0, Lightning().Max);
+        c.Experience = CharacterStats.ExperienceFor(100);
+        c.Pools = Game.PoolsFor(c, 100);
+        Assert.Equal(transferred, Lightning());
     }
 
     [Theory]

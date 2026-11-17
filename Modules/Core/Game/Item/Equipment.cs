@@ -124,6 +124,9 @@ public static partial class Game
     public static IReadOnlyDictionary<string, int>? MainHandLocalSources(ClientState conn) =>
         WeaponFor(conn).LocalSources;
 
+    static bool OneHandMelee(ItemCatalog.BaseType type) => type.Class is "Claw" or "Dagger" or "Rune Dagger"
+        or "One Hand Sword" or "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre";
+
     // Current actions and passive weapon conditions use only the hands' active rows. A normal weapon swap trades
     // these rows with 14/15 before recomputing pools; an explicit false is reserved for inspecting both stored sets.
     public static WeaponProfile WeaponProfileFor(ClientState conn, bool activeSet = true)
@@ -140,8 +143,6 @@ public static partial class Game
         // unarmed fallback (WeaponFor) is.
         ItemCatalog.BaseType? At(byte row) => rowItems(row).Where(i => !inactive(i.Id))
             .Select(i => catalog.ByHash(i.Item.TypeHash)).FirstOrDefault(t => t is not null);
-        static bool OneHandMelee(ItemCatalog.BaseType t) => t.Class is "Claw" or "Dagger" or "Rune Dagger"
-            or "One Hand Sword" or "Thrusting One Hand Sword" or "One Hand Axe" or "One Hand Mace" or "Sceptre";
         static bool OneHand(ItemCatalog.BaseType t) => OneHandMelee(t) || t.Class == "Wand";
         static bool TwoHandMelee(ItemCatalog.BaseType t) => t.Class is "Two Hand Sword" or "Two Hand Axe"
             or "Two Hand Mace" or "Staff" or "Warstaff";
