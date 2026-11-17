@@ -198,6 +198,16 @@ public static partial class Game
     public static int RampageRarity(int stacks, int perKills) =>
         perKills > 0 ? Math.Max(0, stacks) / perKills : 0;
 
+    // The 32 ms world loop offers a presentation every step; without this check each empty offer took the send
+    // gate (about 29 a second even when nothing had changed).
+    static bool RampagePresentationPending(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return CurrentRampageWork && conn.OwnedCombatState is RampageWorld
+                && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
+                && conn.Rampage.Current != conn.SentRampage;
+    }
+
     public static byte[]? RampagePresentation(ClientState conn)
     {
         lock (conn.Monsters)
@@ -243,8 +253,9 @@ public static partial class Game
             while (Current())
             {
                 await AdvanceRampageEffects(remote, stream, ciphers, conn);
-                await Send(remote, stream, ciphers, [], null, atGate: () =>
-                    Current() ? RampagePresentation(conn) : null);
+                if (RampagePresentationPending(conn))
+                    await Send(remote, stream, ciphers, [], null, atGate: () =>
+                        Current() ? RampagePresentation(conn) : null);
                 lock (conn.Monsters)
                     if (!runtime.Enabled && runtime.PendingRemoval.Count == 0 && runtime.PendingBuffRemoval.Count == 0
                         && runtime.Blinds.Count == 0) break;
