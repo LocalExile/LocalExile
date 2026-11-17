@@ -347,6 +347,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
     public (int All, int Elemental, int Physical) TakenFromPlayer;
+    // The player's increased damage taken for each type of ailment on it, as the enemy-debuff step last set it.
+    public int TakenPerAilmentTypePct;
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;

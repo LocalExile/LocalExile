@@ -498,6 +498,12 @@ made with that weapon doubles, before the triple-damage roll can override it. Th
 hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not
 alternate hands on the server yet.
 
+**Yoke of Suffering** (`ailment_types_apply_damage_taken_+%`, "for each type of Ailment you have inflicted on them"): the
+enemy-debuff step copies the player's value onto each living hostile monster (`TakenPerAilmentTypePct`), and
+`MonsterDamageTaken` adds it once per ailment type on the monster at that moment (`AilmentTypesOn`: ignite, chill,
+freeze, shock, bleed, poison) to its other increased damage taken, for hits and damage over time. The server does not
+record who inflicted a monster's ailments, so in a party any player's count; scorch, brittle and sap are not modelled.
+
 Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
 Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
 all-white Unset Ring socket are generated from the unique rows too; their link groups use the Jeweller's approximation.

@@ -16,7 +16,15 @@ public static partial class Game
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
+            + (m.TakenPerAilmentTypePct == 0 ? 0 : m.TakenPerAilmentTypePct * AilmentTypesOn(m, now))
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
+
+    /// <summary>The types of ailment the player's hits keep on a monster at <paramref name="now"/>: ignite, chill, freeze,
+    /// shock, bleed and poison (scorch, brittle and sap are not modelled), for "per type of Ailment you have inflicted".</summary>
+    public static int AilmentTypesOn(SpawnedMonster m, double now) =>
+        (m.Ignites.IgnitedAt(now) ? 1 : 0) + (m.Bleeds.IgnitedAt(now) ? 1 : 0) + (m.Poisons.Stacks(now) > 0 ? 1 : 0)
+        + (m.Ailments.Magnitude(Kind.Chill, now) > 0 ? 1 : 0) + (m.Ailments.Magnitude(Kind.Freeze, now) > 0 ? 1 : 0)
+        + (m.Ailments.Magnitude(Kind.Shock, now) > 0 ? 1 : 0);
 
     /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
     /// Berek's Respite (shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy): when it was shocked, each other living

@@ -73,6 +73,8 @@ public static partial class Game
                     auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
+                // Yoke of Suffering: "Enemies take X% increased Damage for each type of Ailment you have inflicted on them".
+                int perAilmentType = StatOf(player, "ailment_types_apply_damage_taken_+%");
                 var here = conn.Walk.Position(now);
                 uint? elementalKey = Stats.Key("elemental_damage_taken_+%");
                 // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp
@@ -211,6 +213,7 @@ public static partial class Game
                     // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
                     int consecrated = living ? conn.FlaskGrounds.ConsecratedEnemyDamageTaken(m.Walk.Position(now)) : 0;
                     m.TakenFromPlayer = ((taunted ? config.TauntedDamageTakenPct : 0) + consecrated, elemental, physical);
+                    m.TakenPerAilmentTypePct = living ? perAilmentType : 0;
                 }
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
