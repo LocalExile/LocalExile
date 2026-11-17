@@ -69,6 +69,12 @@ public static partial class Game
         // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
         if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
             foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        // The scarab's legacy stat is not a CoreLeagues forced-count input. Publish its count in the input both
+        // generators read, before the instance freezes its area stats; room placement and shrine ownership stay shared.
+        if (Stats.Key("map_leaguestone_additional_shrines") is uint shrineKey
+            && stats.GetValueOrDefault(shrineKey) > 0 && Stats.Key("map_num_extra_shrines") is uint countKey)
+            stats[countKey] = (int)Math.Min(int.MaxValue,
+                (long)stats.GetValueOrDefault(countKey) + stats[shrineKey]);
         // The derived counts.
         Set("map_rarity", (int)mods.MapRarity);
         Set("map_number_of_explicit_mods", mods.ExplicitMods.Count);
