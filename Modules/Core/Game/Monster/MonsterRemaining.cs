@@ -9,9 +9,7 @@ public static partial class Game
 
     public static int LivingMonstersLocked(ClientState conn) =>
         conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving)
-        // Packs an area still holds back until the player comes near (PopulateArea): they are in the area, so the
-        // overlay counts them, and an area reads cleared only once they have been created and killed.
-        + conn.PendingMonsters.Count;
+        + HeldBackLocked(conn).Count;
 
     sealed class RemainingDelivery
     {

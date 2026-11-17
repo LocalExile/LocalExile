@@ -114,54 +114,68 @@ public static partial class Game
 
     // SavedMonster's cell is established world state. The native Positioned reader (141e323f0) copies XY;
     // it does not run a nearest-clear search. This is shared by normal re-entry and population replay.
+    // A planned one (SavedMonster.Planned) is created as the area's population creates its monsters: at a clear cell
+    // by its planned one, with its mods rolled now. bulk: see SpawnMonster.
     public static Task<uint> RestoreMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, MonsterCatalog.Variety variety, SavedMonster saved) =>
-        SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
-            friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
-            unrisen: saved.Unrisen, placement: MonsterPlacement.Established);
+        ClientState conn, MonsterCatalog.Variety variety, SavedMonster saved, bool bulk = false) =>
+        saved.Planned
+            ? SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+                log: false, alone: false, bulk: bulk)
+            : SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+                friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
+                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
 
-    // A pack the area holds back until the player comes near (PopulateArea): created a few at a time, nearest first, and
-    // well outside the view so one never appears in front of him (a screen is ~50 cells across; this is about two).
-    const int PopulationRevealCells = 120;
-    const int PendingMonstersPerTick = 2;
-    const int PendingMonstersTickMilliseconds = 250;
+    // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
+    // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
+    // created yet, so it is on no client and nothing acts on it or sends about it. RevealHeldBack creates it when a
+    // player comes near: at once within PopulationRevealCells (a screen is about 50 cells across), and the nearest few
+    // per pass out to PopulationShowCells, the wake zone's return distance (Resync.cs), so a teleport into a full region
+    // is not one burst and none is created only to be put to sleep.
+    public const int PopulationRevealCells = 120;
+    public const int PopulationShowCells = WakeZoneReturn;
+    public const int PopulationShownPerPass = 6;
 
-    static bool RevealPack(AreaPopulation.Spawn s, (int X, int Y) here) =>
-        s.Rarity == MonsterRarity.Unique || Dist((s.X, s.Y), here) <= PopulationRevealCells;
+    // A unique or a monster with a boss bar is never held back: fights and quest scripts address it wherever the player
+    // stands, and KeepWakeZone wakes a far boss (SpawnMonster, farBoss).
+    static bool HeldBackAt(MonsterCatalog.Variety variety, MonsterRarity rarity, bool hostile, (int X, int Y) at, (int X, int Y) player) =>
+        hostile && rarity != MonsterRarity.Unique && !variety.BossHealthBar && Dist(at, player) > PopulationRevealCells;
 
-    public static async Task RunPendingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, PlayerUpdatesState updates)
+    /// <summary>The monsters the area still holds back: all hostile and alive. Under the Monsters lock.</summary>
+    public static IReadOnlyList<SavedMonster> HeldBackLocked(ClientState conn) =>
+        (IReadOnlyList<SavedMonster>?)conn.Instance?.World.HeldBackMonsters ?? [];
+
+    /// <summary>Creates the held-back monsters a player of the instance has come near. The runner's
+    /// SyncInstanceMonsters calls it, so they are created on the client whose messages the others mirror; the other
+    /// clients' next pass creates them there.</summary>
+    public static async Task RevealHeldBack(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        while (PlayerUpdatesCurrent(conn, updates))
-        {
-            await Task.Delay(PendingMonstersTickMilliseconds, updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
-            try { await SpawnPendingMonsters(remote, stream, ciphers, conn); }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { break; }
-        }
-    }
-
-    static async Task SpawnPendingMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        List<AreaPopulation.Spawn> due = [];
-        byte level;
+        var held = conn.Instance.World.HeldBackMonsters;
+        List<SavedMonster> due = [];
         lock (conn.Monsters)
         {
-            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PendingMonsters.Count == 0) return;
-            var here = conn.Walk.Position(AreaTime(conn));
-            level = conn.PendingMonsterLevel;
-            for (int i = 0; i < conn.PendingMonsters.Count && due.Count < PendingMonstersPerTick; i++)
+            if (held.Count == 0 || !CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            (int X, int Y)[] players = [.. InGame.Keys.Where(c => ReferenceEquals(c.Instance, conn.Instance)
+                && !c.Closed && !c.LeavingArea && c.PlayerSent).Select(c => c.Walk.Position(now))];
+            if (players.Length == 0) return;
+            List<(SavedMonster Held, double Distance)> ring = [];
+            foreach (var h in held)
             {
-                var s = conn.PendingMonsters[i];
-                if (!RevealPack(s, here)) continue;
-                due.Add(s);
-                conn.PendingMonsters.RemoveAt(i--);
+                double d = players.Min(p => Dist((h.X, h.Y), p));
+                if (d <= PopulationRevealCells) due.Add(h);
+                else if (d <= PopulationShowCells) ring.Add((h, d));
             }
+            due.AddRange(ring.OrderBy(r => r.Distance).Take(PopulationShownPerPass).Select(r => r.Held));
+            if (due.Count == 0) return;
+            held.RemoveAll(due.Contains);
         }
-        foreach (var s in due)
-            if (Monsters.Find(s.Variety.ToString()) is { } variety)
-                await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y,
-                    log: false, alone: false, bulk: true);
+        // They leave the roster before they are among the monsters: the overlay's count waits for the last of them.
+        using var recount = HoldMonstersRemaining(conn);
+        foreach (var h in due)
+            if (Monsters.Find(h.Variety.ToString()) is not { } variety
+                || await RestoreMonster(remote, stream, ciphers, conn, variety, h, bulk: true) == 0)
+                // Not created (this connection is going): the next runner's pass creates it.
+                lock (conn.Monsters) held.Add(h);
     }
 
     public static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
@@ -172,9 +186,8 @@ public static partial class Game
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
         Func<bool>? ownedAdmission = null, MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
-        // An area's population (PopulateArea) is created in bulk: its create carries the wake and neither waits for the
-        // birth, which on a lockstep client held a frame per monster (713 monsters, 477 ms) and, once the entry's work
-        // runs beside the client, would hold a frame each while the player is already moving.
+        // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
+        // producer does not wait for the birth, which on a lockstep client is a frame per monster.
         bool bulk = false)
     {
         movement ??= MonsterMovement.Default;
@@ -488,9 +501,12 @@ public static partial class Game
         if (conn.Instance.Monsters is { } saved)
         {
             conn.MonstersPlaced = true;
+            var arrival = conn.Walk.Position(AreaTime(conn));
             foreach (var s in saved)
-                if (Monsters.Find(s.Variety.ToString()) is { } kept)
-                    await RestoreMonster(remote, stream, ciphers, conn, kept, s);
+                if (Monsters.Find(s.Variety.ToString()) is not { } kept) continue;
+                else if (HeldBackAt(kept, s.Rarity, s.Hostile, (s.X, s.Y), arrival))
+                    lock (conn.Monsters) conn.Instance.World.HeldBackMonsters.Add(s);
+                else await RestoreMonster(remote, stream, ciphers, conn, kept, s);
             Console.WriteLine($"[gateway] {remote} area {layout.Id} monsters: {saved.Count} kept from the instance");
             return;
         }
@@ -614,28 +630,25 @@ public static partial class Game
         if (MapRunOf(conn) is { Area.Level: > 0 } run)
             areaLevel = run.Area.Level;
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
-        // Only the packs the player can see are created now; the rest wait until he comes near (RunPendingMonsters).
-        // Writing every monster of an area at the entry is 156 KB behind a client that is still on its loading screen,
-        // which blocks the send gate for the whole of it: the first flask or movement after the entry then waited a
-        // second for the gate (live 2026-11-17).
+        // Only the ones near the player are created now; the rest are the instance's held-back monsters and are created
+        // when a player comes near (HeldBackAt).
         var here = conn.Walk.Position(AreaTime(conn));
-        var near = new List<AreaPopulation.Spawn>(spawns.Count);
-        lock (conn.Monsters) conn.PendingMonsters.Clear();
+        int created = 0;
         foreach (var s in spawns)
         {
-            if (RevealPack(s, here)) near.Add(s);
-            else lock (conn.Monsters) { conn.PendingMonsters.Add(s); conn.PendingMonsterLevel = level; }
-        }
-        // Nearest first, so a walked-toward pack is the first one created.
-        lock (conn.Monsters)
-            conn.PendingMonsters.Sort((a, b) => Dist((a.X, a.Y), here).CompareTo(Dist((b.X, b.Y), here)));
-        foreach (var s in near)
-        {
             var variety = Monsters.Find(s.Variety.ToString())!;
+            if (HeldBackAt(variety, s.Rarity, hostile: true, (s.X, s.Y), here))
+            {
+                lock (conn.Monsters)
+                    conn.Instance.World.HeldBackMonsters.Add(new(s.Variety, level, s.Rarity, Hostile: true, s.X, s.Y,
+                        Life: uint.MaxValue, Unrisen: true) { Planned = true });
+                continue;
+            }
+            created++;
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false, bulk: true);
         }
-        Phase($"{spawns.Count} monsters ({near.Count} now, {spawns.Count - near.Count} as he walks)");
+        Phase($"{spawns.Count} monsters ({created} created now, {spawns.Count - created} when a player comes near)");
         int extra = 0;
         if (MapRunOf(conn) is { ItemRow: > 0 } opening)
         {

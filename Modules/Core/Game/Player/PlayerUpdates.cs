@@ -72,8 +72,7 @@ public static partial class Game
                 Drive(() => RunCharges(remote, stream, ciphers, conn, state)),
                 Drive(() => RunFortification(remote, stream, ciphers, conn, state)),
                 Drive(() => RunRage(remote, stream, ciphers, conn, state)),
-                // The packs the area holds back until the player comes near (Monsters.PopulateArea).
-                Drive(() => RunPendingMonsters(remote, stream, ciphers, conn, state)),                Drive(() => RunFlaskChargeRegen(remote, stream, ciphers, conn, state)),
+                Drive(() => RunFlaskChargeRegen(remote, stream, ciphers, conn, state)),
                 Drive(() => RunFlaskGrounds(remote, stream, ciphers, conn, state)),
                 Drive(() => RunPlayerMinions(remote, stream, ciphers, conn, state)),
                 Drive(() => RunFootstepSkills(remote, stream, ciphers, conn, state)),

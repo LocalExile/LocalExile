@@ -1188,13 +1188,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     readonly EmergeGround ownEmergeGround = new();
     // Last byte delivered to this client's monsters-remaining overlay, -1 before its first count. Under Monsters.
     public int SentMonstersRemaining = -1;
-    /// <summary>Packs of the area's population the player has not come near yet (Monsters.PopulateArea): each is created
-    /// when it falls within the reveal radius, a few per tick, so the entry does not write every monster of the area at
-    /// once (679 monsters, 156 KB, blocked behind the client's loading screen). Guarded by Monsters; the overlay counts
-    /// them (LivingMonstersLocked), and they are dropped when the area ends.</summary>
-    public readonly List<AreaPopulation.Spawn> PendingMonsters = [];
-    /// <summary>The level PendingMonsters are created at, set with them.</summary>
-    public byte PendingMonsterLevel;
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
