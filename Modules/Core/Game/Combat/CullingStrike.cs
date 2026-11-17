@@ -107,10 +107,11 @@ public static partial class Game
     }
 
     // Burning covers the supported non-ignite sources too. Righteous Fire only puts its aura on the monsters in range
-    // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own.
+    // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own. `m.Burn` is only
+    // the DoT's fractional carry and is never cleared, so it is not a burning signal.
     static bool BurningTarget(ClientState conn, SpawnedMonster m)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning || m.Burn > 0) return true;
+        if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
         return conn.RighteousFire is { } rf && conn.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));
     }
