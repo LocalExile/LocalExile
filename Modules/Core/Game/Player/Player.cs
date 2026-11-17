@@ -71,7 +71,8 @@ public static partial class Game
                     AuraCatalog.BuffRow(effectId, stance),
                     reservation.ManaFlat, reservation.ManaPercent,
                     LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
-                    Level: supported.Level, Quality: supported.Quality, SourceBuff: conn.NextBuff++,
+                    Level: supported.Level, Quality: supported.Quality,
+                    SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
@@ -82,13 +83,6 @@ public static partial class Game
         var savedAdmissions = savedList.Select(id => StanceCatalog.IsSource(id)
             ? StanceCatalog.RuntimeEffectId(id, conn.Stance) : id).ToArray();
         var admitted = AuraCatalog.Restore(savedAdmissions, candidates, conn.Pools, InTown(conn));
-        var admittedIds = admitted.Select(aura => aura.SkillId).ToHashSet();
-        // AuraCatalog.Restore filters over-budget families before this loop. Retire only the selected eligible
-        // candidate for each such family; unavailable, disabled, restricted and alias-only intents stay saved.
-        foreach (var aura in candidates.GroupBy(aura => StanceCatalog.IsStance(aura.EffectId)
-                         ? StanceCatalog.SourceFamily(aura.EffectId) : AuraCatalog.Family(aura.EffectId))
-                     .Select(group => group.First()).Where(aura => !admittedIds.Contains(aura.SkillId)))
-            CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
         var restored = new List<AuraCatalog.Aura>();
         foreach (var aura in admitted)
         {
@@ -97,7 +91,6 @@ public static partial class Game
             {
                 conn.Auras.Remove(aura.SkillId);
                 EndReservationRuntimeLocked(conn, aura);
-                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
             }
             else restored.Add(aura);
         }
@@ -106,7 +99,7 @@ public static partial class Game
             conn.AuraStatsDirty = true;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
-            // Restoration is a bulk admission: retire over-capacity saved intent before it reaches the wire.
+            // Restoration is a bulk admission: suspend over-capacity auras while retaining their intent.
             RepriceOwnAuras(conn, out bool poolsRebuilt);
             if (poolsRebuilt)
             {
