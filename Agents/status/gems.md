@@ -68,6 +68,8 @@ Nothing yet.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
   Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
+  The trap, mine and totem supports' own more or less damage scales the supported hit.
+  Their extra-throw patterns, throwing speed and charge generation remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).

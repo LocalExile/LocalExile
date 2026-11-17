@@ -26,7 +26,14 @@ public static class GemSupportDamage
         "support_pulverise_melee_area_damage_+%_final", "support_fortify_melee_damage_+%_final",
         "support_barrage_damage_+%_final", "support_cruelty_hit_damage_+%_final",
         "support_vicious_projectiles_physical_damage_+%_final", "support_vicious_projectiles_chaos_damage_+%_final",
-        "support_cast_while_channelling_triggered_skill_damage_+%_final", "support_cast_on_crit_spell_damage_+%_final", "cast_on_damage_taken_damage_+%_final", "inc_aoe_plus_more_area_damage_+%_final", "doedre_aura_damage_+%_final"
+        "support_cast_while_channelling_triggered_skill_damage_+%_final", "support_cast_on_crit_spell_damage_+%_final", "cast_on_damage_taken_damage_+%_final", "inc_aoe_plus_more_area_damage_+%_final", "doedre_aura_damage_+%_final",
+        // The trap, mine and totem supports' own more/less damage: Trap, Trap and Mine Damage, Cluster Traps,
+        // Multiple Traps, Blastchain Mine, High-Impact Mine, Locus Mine, Multiple Totems and Focused Ballista.
+        "support_trap_damage_+%_final", "support_trap_and_mine_damage_+%_final",
+        "support_clustertrap_damage_+%_final", "support_multithrow_damage_+%_final",
+        "support_gem_mine_damage_+%_final", "support_remote_mine_2_damage_+%_final",
+        "support_locus_mine_damage_+%_final", "support_additional_totem_damage_+%_final",
+        "support_focused_ballista_totem_damage_+%_final"
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.

@@ -196,6 +196,17 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, Use(3, Plain));
             Assert.False(counts.ContainsKey(3));
         }
+        // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
+        foreach (var (name, value) in new[] { ("support_trap_damage_+%_final", -20),
+            ("support_trap_and_mine_damage_+%_final", 30), ("support_clustertrap_damage_+%_final", -61),
+            ("support_multithrow_damage_+%_final", -58), ("support_gem_mine_damage_+%_final", -60),
+            ("support_remote_mine_2_damage_+%_final", -60), ("support_locus_mine_damage_+%_final", -30),
+            ("support_additional_totem_damage_+%_final", -40), ("support_focused_ballista_totem_damage_+%_final", 9) })
+        {
+            var (general, typed) = GemSupportDamage.Multipliers(DamageTypeHistory.Fire, [(name, value)], new HashSet<int> { 1 });
+            Assert.Equal(1 + value / 100.0, general, 9);
+            Assert.Equal(1, typed);
+        }
     }
 
     // Elemental Focus and the never-ailment stats stop the ailments they name; Overcharge's Shock as though dealing 690%
