@@ -466,7 +466,9 @@ Instilling-enchanted flask through the normal charge/buff path. Other trigger co
 Official mechanic reference: https://www.pathofexile.com/forum/view-thread/3147479 (Major New Content).
 
 **Mageblood's mechanic** (`Game.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
-from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask bar constantly apply their effects. The
+from `num_magic_utility_flasks_always_apply`; the Foulborn belt's mutated mod counts from the right instead,
+`num_magic_utility_flasks_always_apply_rightmost`) magic utility flasks in the flask bar constantly apply their effects;
+life, mana, normal and unique flasks between them are skipped. The
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
 (the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
 buff on the client with no duration (0x1c1 with the flask-bar cell and without bit 1), put on and taken off by a ticker
@@ -478,9 +480,10 @@ The running effects and the permanent ones are combined before the strongest-per
 already used when the belt went on counts once, not twice, while different effects still stack; the running effects keep
 their own duration and stay after the belt is removed.
 
-Not modelled yet: the "Magic Utility Flask Effects cannot be removed" backstop (nothing in the server removes a flask's
-effect), the Foulborn rightmost variant. Enkindling/Instilling server logic is described above. How the client draws a flask buff without a duration
-has not been seen live.
+"Magic Utility Flask Effects cannot be removed" needs no code yet: the server ends a flask effect only at expiry, on
+death and when the flask leaves the bar, as the game does, and has no remover (`remove_flask_effects_on_hit_%`,
+Nullifier-like monsters) for it to stop. Enkindling/Instilling server logic is described above. How the client draws a
+flask buff without a duration has not been seen live.
 
 **Headhunter's mechanic** (`StolenMods`, the UniqueBelts module): killing a rare monster with
 `gain_rare_monster_mods_on_kill_ms` on the character adds the stats of the rare's rolled affixes (not its rarity's
@@ -1630,9 +1633,9 @@ Quicksilver at once and a use while dead was refused; `/goto 1_1_town` during Ru
 off the bar ended its effect at once. Not seen live: the client actually walking faster or phasing through monsters (the
 bridge cannot make it walk), the tooltip's duration with quality.
 
-**Mageblood:** while the unique belt is worn, the leftmost magic utility flasks apply their effects permanently without
-charges or a duration (`Game.Mageblood`, §2e); using them is refused, and the character's stats are re-sent when the
-bar changes.
+**Mageblood:** while the unique belt is worn, the leftmost (Foulborn: rightmost) magic utility flasks apply their
+effects permanently without charges or a duration (`Game.Mageblood`, §2e); using them is refused, and the character's
+stats are re-sent when the bar changes.
 
 ## 8b. Flask charges
 
