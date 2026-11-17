@@ -193,5 +193,8 @@ ObjectMagicProperties, InteractionAction, MinimapIcon, StateMachine (`read` 9; R
 Its `.ot` names no model (Animated `animated_object` is empty); the Chests row's `AOFiles` does, and the server
 writes it in Animated. The HardMode rows (`…HardMode`) have no `.ot`: their Chests `InheritsFrom` is `Strongbox`.
 `CoreLeagues` row 3 "Ambush" has no ExtraTerrainFeatures row, so the client's level generator never rolls it.
-Not verified live: whether the box plays its opening (`.ao` animation `open`) when created opened under a new id, and
-what `started` does.
+Live (2026-11-17): a box created with ObjectMagicProperties flags `0x08` (identified) shows its name alone; without
+it the nameplate adds a red "Unidentified" line. A box's rarity and mods are written as a monster's (flags: rarity
+bits 0–2, `0x08`, `0x20` for the explicit list; then the list), not yet seen live. Opened again under a new id it shows
+opened with no minimap marker. A currency used on it is C→S 0x74 ([13](13-items.md)).
+Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
