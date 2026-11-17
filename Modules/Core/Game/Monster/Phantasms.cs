@@ -19,10 +19,17 @@ public static partial class Game
     }
 
     internal static void PhantasmsOnHitLocked(ClientState conn, SpawnedMonster victim, ushort source, double now,
-        Random random, GolemState.Golem? minion = null)
+        Random random, GolemState.Golem? minion = null, IReadOnlyDictionary<uint, int>? skill = null)
     {
         if (source == 0 || conn.PlayerLife == 0 || !victim.Hostile || minion?.Definition.Kind == "Phantasm"
             || minion?.Monster.Effects["cannot_spawn_support_ghosts"] > 0) return;
+        bool rareOrUnique = victim.Rarity is MonsterRarity.Rare or MonsterRarity.Unique;
+        bool killed = victim.Dead || victim.Life == 0;
+        if (!rareOrUnique && !killed) return;
+        var knownStats = minion?.Own ?? skill;
+        if (knownStats is not null
+            && (!rareOrUnique || GolemStat(knownStats, "chance_to_summon_support_ghost_on_hitting_rare_or_unique_%") <= 0)
+            && (!killed || GolemStat(knownStats, "chance_to_summon_support_ghost_on_killing_blow_%") <= 0)) return;
         var gem = SupportedSkill(conn, source);
         if (!gem.RequirementsMet || !gem.Supports.Any(s => s.Effect.Id == "SupportSummonPhantasm")) return;
         var target = conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, victim));
@@ -34,8 +41,8 @@ public static partial class Game
                 conn.Summons.HitSummons.Add(new(target.Key, victim, source, gem.Effect, gem.SourceGem, false,
                     "Phantasm", SummonSupportStamp(gem)));
         }
-        if (victim.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+        if (rareOrUnique)
             Roll("chance_to_summon_support_ghost_on_hitting_rare_or_unique_%");
-        if (victim.Dead || victim.Life == 0) Roll("chance_to_summon_support_ghost_on_killing_blow_%");
+        if (killed) Roll("chance_to_summon_support_ghost_on_killing_blow_%");
     }
 }
