@@ -27,6 +27,9 @@ public sealed partial class ClientState
     // while current_rampage_stacks (every kill) goes as one partial stat update.
     public (int Active, int Damage, int Movement, int Rarity, int Area)? SentRampageStat;
     public int SentRampageStacks;
+    // Explosion art budget: a burst of kill explosions should not create an effect object for every corpse.
+    public double ExplosionArtWindow;
+    public int ExplosionArtCount;
     public ushort RampageBuff { get; set; }
     public double? RampageTransferAt;
     public double VaalPreventionUntil;
@@ -72,6 +75,8 @@ public sealed partial class ClientState
             SentRampage = default;
             SentRampageStat = null;
             SentRampageStacks = 0;
+            ExplosionArtWindow = 0;
+            ExplosionArtCount = 0;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
             if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));
