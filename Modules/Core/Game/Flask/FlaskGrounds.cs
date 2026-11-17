@@ -20,10 +20,22 @@ public static partial class Game
                 TauntLocked(conn, at, radius, now, duration);
                 continue;
             }
+            int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? ConsecratedEnemyDamageTakenNow(conn) : 0;
             conn.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds,
-                QueueGroundArtLocked(conn, kind, at, radius)));
+                QueueGroundArtLocked(conn, kind, at, radius), taken));
+            Console.WriteLine($"[gateway] flask ground {kind} at ({at.X}, {at.Y}) radius {radius} for {seconds:0.##} s" +
+                (taken > 0 ? $", enemies on it take {taken}% increased damage" : ""));
         }
     }
+
+    /// <summary>Bottled Faith: the increased damage taken a consecrated ground created now applies to enemies on it
+    /// (the running flask effects' strongest).</summary>
+    static int ConsecratedEnemyDamageTakenNow(ClientState conn) =>
+        UtilityFlaskStat(conn, FlaskGrounds.EnemyDamageTakenStat);
+
+    /// <summary>The strongest value of a stat the running utility flasks grant (their "during effect" mods).</summary>
+    public static int UtilityFlaskStat(ClientState conn, string stat) =>
+        conn.UtilityFlaskEffects.MaximumStat(stat);
 
     public static Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, (int X, int Y) at)
@@ -98,7 +110,8 @@ public static partial class Game
             if (stale?.Object is uint old) pending.Packets.Add(new(InstanceProtocol.RemoveObject(old),
                 $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)", WorldId: old, RemovesObject: true));
             if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
-                double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make)));
+                double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make),
+                ConsecratedEnemyDamageTakenNow(conn)));
             if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)
             {
                 pending.Packets.Add(new(consecrated.Added

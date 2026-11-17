@@ -33,6 +33,9 @@ public sealed class MonsterCatalog(string folder = "data")
         /// 0x1ab only puts it on the order's from cell (no path search, no step: a unique Maven's orb, traced
         /// 2026-11-10), so it gets no chase, like a variety with MovementSpeed 0.</summary>
         public bool Immobile { get; init; }
+        /// <summary>The resolved Actor resource's slow_animations_go_to_idle flag. Null for legacy or incomplete
+        /// metadata, or varieties with addon types whose Actor overrides are not resolved here.</summary>
+        public bool? SlowAnimationsGoToIdle { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -286,6 +289,7 @@ public sealed class MonsterCatalog(string folder = "data")
         var blocking = new Dictionary<string, bool>();
         var phasing = new HashSet<string>();
         var immobile = new HashSet<string>();
+        var idleSlowAnimations = new Dictionary<string, bool?>();
         if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
             var sharedStates = ObjectTypes.SharedStates();
@@ -296,6 +300,7 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
                 if (t.BoolOrNull("phases") == true) phasing.Add(type);
                 if (t.BoolOrNull("immobile") == true) immobile.Add(type);
+                idleSlowAnimations[type] = t.BoolOrNull("actor_slow_animations_go_to_idle");
                 // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
                 if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
                 if (t.IntOrNull("transitionable_num_states") is int numStates)
@@ -355,6 +360,7 @@ public sealed class MonsterCatalog(string folder = "data")
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
+                        SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

@@ -15,6 +15,7 @@ public static partial class Game
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + (chaos ? WitheredTaken(m, now) : 0)
+            + m.Ignites.DamageTaken(now)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
     /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
@@ -152,6 +153,7 @@ public static partial class Game
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null)
     {
+        AbsolutionOnHitLocked(conn, m, skill, sourceSkill, now, random);
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
@@ -269,6 +271,7 @@ public static partial class Game
             int speed = (int)Math.Round(100 * (action - 1));
             if (speed != a.SentActionSpeed && Stats.Key("virtual_action_speed_+%") is uint key)
             {
+                RetimeMonsterMeleeClockLocked(m, now, speed);
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }

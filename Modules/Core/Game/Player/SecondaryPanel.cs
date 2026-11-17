@@ -9,7 +9,7 @@ public static partial class Game
     /// only (<see cref="PlayerHitDamage"/>, no added attack or spell damage), the twelve <c>secondary_*_damage</c>
     /// ranges, the critical chance (the skill's base with the generic increases) and multiplier, the critical-weighted
     /// Damage per Use (these skills ask for the average, not DPS) and the secondary ailment rows. Display rows only:
-    /// the trap's and herald's actual hits are not executed by the server.
+    /// a placed trap's actual hit uses the same secondary damage inputs.
     /// </summary>
     public static List<(string Stat, int Value)> SecondaryPanelRows(ClientState conn, Func<string, int> get,
         IReadOnlyDictionary<uint, int> player, SupportedGem supported, DamagePacket secondaryBase)
@@ -18,10 +18,11 @@ public static partial class Game
         int Own(string name) => Stats.Key(name) is uint key ? supported.Stats.GetValueOrDefault(key) : 0;
         var types = Supports.Of(supported.Effect)?.Types.ToHashSet() ?? [];
         var merged = MergeSkillStats(player, supported.Stats);
-        var conversion = DamageStats.Conversion(merged, Stats, attack: false);
+        var conversion = DamageStats.Conversion(merged, Stats, attack: null);
         var modifiers = supported.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         bool area = get("is_area_damage") != 0, projectile = get("base_is_projectile") != 0;
-        var hit = PlayerHitDamage.Resolve(secondaryBase, get, conversion, spell: false, area: area, projectile: projectile,
+        var raw = SecondaryRawHit(conn, supported, secondaryBase, get);
+        var hit = PlayerHitDamage.Resolve(raw, get, conversion, spell: false, area: area, projectile: projectile,
             supportModifiers: modifiers, skillTypes: types, secondary: true);
         int chance = SpellCriticalStrike.Chance(SkillsFor(conn).SpellCritChance(supported.Effect, supported.Level), Player, Own,
             playerIncrease: Player("critical_strike_chance_+%"));
@@ -40,7 +41,12 @@ public static partial class Game
         rows.Add(("display_hundred_times_damage_per_skill_use", SpellDamage.Display((hit.MinTotal, hit.MaxTotal), 0, factor).PerUse));
         rows.Add(("hundred_times_damage_per_second", 0));
         rows.AddRange(AilmentPanelStats.Compute(new("secondary", Spell: false),
-            secondaryBase, conversion, get));
+            raw, conversion, get));
         return rows;
     }
+
+    static DamagePacket SecondaryRawHit(ClientState conn, SupportedGem gem, DamagePacket basis, Func<string, int> get) =>
+        DamageStats.RawAdded(basis, name => name.StartsWith("spell_", StringComparison.Ordinal)
+            && name.Contains("_added_", StringComparison.Ordinal) ? 0 : get(name), spell: true,
+            AddedEffectiveness(conn, gem.Effect, gem.Level));
 }
