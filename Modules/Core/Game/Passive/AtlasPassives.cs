@@ -33,12 +33,14 @@ public sealed class AtlasPassives(string folder = "data", bool hardMode = false)
     public const ushort StartGraphId = 29045;
 
     /// <summary>Whether the player may allocate <paramref name="node"/> on top of <paramref name="allocated"/>: it is on the
-    /// graph, is not the start, and touches the start or an allocated node (the graph's edges have no direction).</summary>
+    /// graph, is not the start, and touches the start or an allocated node that is reached from the start (the graph's edges have no direction).</summary>
     public static bool CanAllocate(IReadOnlyCollection<ushort> allocated, ushort node,
         IReadOnlyDictionary<ushort, HashSet<ushort>> links, ushort start)
     {
         if (node == start || !links.TryGetValue(node, out var next)) return false;
-        return next.Contains(start) || next.Any(n => allocated.Contains(n));
+        if (next.Contains(start)) return true;
+        var reached = Reached(allocated, links, start);
+        return next.Any(reached.Contains);
     }
 
     /// <summary>Whether the player may refund <paramref name="node"/>: no other allocated node may lose its path from the
@@ -50,6 +52,11 @@ public sealed class AtlasPassives(string folder = "data", bool hardMode = false)
         var after = Reached(allocated.Where(n => n != node).ToList(), links, start);
         return after.Count == reached.Count - (reached.Contains(node) ? 1 : 0);
     }
+
+    /// <summary>Whether allocated <paramref name="node"/> is reached from the start through allocated nodes.</summary>
+    public static bool IsReached(IReadOnlyCollection<ushort> allocated, ushort node,
+        IReadOnlyDictionary<ushort, HashSet<ushort>> links, ushort start) =>
+        Reached(allocated, links, start).Contains(node);
 
     static HashSet<ushort> Reached(IReadOnlyCollection<ushort> allocated, IReadOnlyDictionary<ushort, HashSet<ushort>> links,
         ushort start)

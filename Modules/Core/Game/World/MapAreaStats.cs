@@ -34,7 +34,7 @@ public static partial class Game
         if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
         // The atlas: the active preset's nodes (HardMode vectors in a HardMode league), composed by the tree's rules.
         var presets = CharacterSaves.Load(map.Owner)?.AtlasPassivePresets ?? [];
-        int preset = AtlasActivePreset(map.Owner, presets.Count);
+        int preset = AtlasActivePreset(map.Owner, presets);
         var catalog = ServerLeagues.Resolve(null, request.League, LeagueCatalog.Startup).HardMode
             ? HardModeAtlasPassives.Value : AtlasPassiveNodes;
         var nodes = preset >= 0 ? presets[preset].Distinct().Select(id => catalog.Find(id)).OfType<AtlasPassives.Node>().ToList() : [];

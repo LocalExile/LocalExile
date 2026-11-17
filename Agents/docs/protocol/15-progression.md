@@ -104,7 +104,7 @@ yet confirmed on screen).
   saves it and answers with that preset's 0x3d alone. Tabs II and III ("Unlocked at 50/100 bonus Atlas objectives")
   are not locked here.
 - **C→S 0x3e/0x3f** allocate or refund one Atlas node (u8 the active preset, u32 BE node; 0x3f adds u8 the "gold
-  respec" flag of 0x36). A refund spends one respec point; an Orb of Unmaking grants one (the Atlas Book of Skill's two
+  respec" flag of 0x36). A refund spends one respec point (none for a stale node: icon-only, off the graph or cut off from the start); an Orb of Unmaking grants one (the Atlas Book of Skill's two
   are not modelled). **C→S 0x40** (the Atlas "Refund All", from 0x37's senders) and **0x41** (0x38's, the widget
   shown by 0x3d bit0) are 3 bytes, u8 the active preset, and are not handled. Completed maps:
   [21](21-hideouts.md) §4.

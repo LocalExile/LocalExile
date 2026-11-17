@@ -332,16 +332,19 @@ static class AtlasFeature
             }
             // A refund spends one respec point (the client's check 0x141ef3710), and may not take away the points
             // that the remaining nodes use (a node granting points, such as Unwavering Vision).
+            // A stale node (icon-only, off the graph or cut off from the start) is refunded free.
             var rest = nodes.Where(n => n != node).ToList();
-            if (respec == 0 || rest.Count > AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, rest, hardMode))
+            bool stale = links.Count > 0 && (passive.IsJustIcon || !links.ContainsKey((ushort)node)
+                || !AtlasPassives.IsReached(nodes, (ushort)node, links, AtlasPassives.StartGraphId));
+            if ((respec == 0 && !stale) || rest.Count > AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, rest, hardMode))
             {
                 Console.WriteLine($"[gateway] {remote} <= Atlas refund {passive.Name} ({node}) refused: " +
-                    (respec == 0 ? "no respec points" : "the remaining nodes need its points"));
+                    (respec == 0 && !stale ? "no respec points" : "the remaining nodes need its points"));
                 await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refund refused");
                 return;
             }
             nodes.Remove((ushort)node);
-            SetAtlasRespecPoints(conn, --respec);
+            if (!stale) SetAtlasRespecPoints(conn, --respec);
         }
         if (character is not null)
             CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);

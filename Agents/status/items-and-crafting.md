@@ -97,7 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/eldritch-ichor-coe.md).
 - **Eldritch Embers.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ember-coe.md).
-- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live).
+- **Cartographer's Chisel, Eldritch Chaos/Exalted Orb and Orb of Unmaking** (local rules, not checked live; the Orb grants one Atlas respec point).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".
 - **Orb of Binding, the Eldritch Orb of Annulment and the Tainted family** (local rules; the Tainted orbs live 2026-11-14).
   Docs: [13](../docs/protocol/13-items.md), "Ancient Orb, chisels and the Eldritch rerolls".

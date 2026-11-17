@@ -1090,7 +1090,12 @@ public static partial class Game
         lock (conn.Monsters)
         {
             respec = AtlasRespecPoints(conn);
-            if (respec == ushort.MaxValue || items.ConsumeOne(row, item.Id) is not { } consumed) return;
+            if (respec == ushort.MaxValue)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0058 use {type.Name}: Atlas respec points are already at the maximum");
+                return;
+            }
+            if (items.ConsumeOne(row, item.Id) is not { } consumed) return;
             taken = consumed;
             SetAtlasRespecPoints(conn, ++respec);
         }
