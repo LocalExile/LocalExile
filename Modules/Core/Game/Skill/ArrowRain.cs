@@ -78,12 +78,16 @@ public static partial class Game
                 else if (duration > 0)
                 {
                     session.RainArt(at, ArtOf("toxic_rain_place"), duration);
+                    // The pod is its own object type (rain_of_spores/BloomPod); only its model is drawn here.
+                    session.RainArt(at, ToxicPodModel, duration);
                     session.PlaceToxicPod(use, at, radius, duration, dps,
                         -Get("rain_of_spores_vines_movement_speed_+%_final"), -Get("minimum_rain_of_spores_movement_speed_+%_final_cap"), ArtOf("toxic_rain_explode"));
                 }
             });
         }
     }
+
+    const string ToxicPodModel = "Metadata/Effects/Spells/rain_of_spores/BloomPod.ao";
 
     static double ToxicPodDps(Func<string,int> get, Func<string,int> own) => ChaosGroundDps(get, own, "toxic_rain_damage_+%");
 
