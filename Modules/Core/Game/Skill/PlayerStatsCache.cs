@@ -176,6 +176,19 @@ public static partial class Game
         public string? Publish;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
+        // When (connection clock) a timed effect the last build read next changes (StatsChangeIn).
+        public double NextChange = double.PositiveInfinity;
+    }
+
+    // The earliest change the Stats phase's build being made heard of (StatsChangeIn), in seconds from now.
+    [ThreadStatic] static bool collectingChanges;
+    [ThreadStatic] static double buildNextChange;
+
+    /// <summary>For what a stat build reads that runs out or changes by itself (a buff's end, a "recently" window): it
+    /// changes in <paramref name="seconds"/>, and the player's stats are built again in the Stats phase then.</summary>
+    public static void StatsChangeIn(double seconds)
+    {
+        if (collectingChanges && seconds < buildNextChange) buildNextChange = Math.Max(0, seconds);
     }
     static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
 
@@ -202,13 +215,19 @@ public static partial class Game
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         var frame = FrameStatsOf.GetValue(conn, _ => new());
-        var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
+        double clock = conn.Clock.Elapsed.TotalSeconds;
+        var key = PlayerStatsKey(conn, clock);
         bool dirty;
-        lock (frame) dirty = frame.Dirty || frame.Stats is null || frame.Key is null || !SameSources(frame.Key, key);
+        lock (frame) dirty = frame.Dirty || frame.Stats is null || frame.Key is null || !SameSources(frame.Key, key)
+            || clock >= frame.NextChange;
         if (dirty)
         {
             lock (frame) frame.Dirty = false;
-            var stats = CharacterPlayerStatsSnapshot(conn, out double baseline, out _);
+            (collectingChanges, buildNextChange) = (true, double.PositiveInfinity);
+            Dictionary<uint, int> stats;
+            double baseline;
+            try { stats = CharacterPlayerStatsSnapshot(conn, out baseline, out _); }
+            finally { collectingChanges = false; frame.NextChange = clock + buildNextChange; }
             lock (frame) { frame.Stats = stats; frame.Baseline = baseline; frame.Key = key; }
         }
         else if (VerifyFrameStats) VerifyFrame(conn, frame);

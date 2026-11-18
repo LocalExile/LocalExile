@@ -26,9 +26,14 @@ public static partial class Game
     {
         if (!VaalAuraStates.TryGetValue(conn, out var aura)) return;
         lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && aura.Stat is string name && aura.Until > conn.Clock.Elapsed.TotalSeconds
-                && Stats.Key(name) is uint key)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (conn.PlayerLife > 0 && aura.Stat is string name && aura.Until > now && Stats.Key(name) is uint key)
+            {
                 stats[key] = 1;
+                StatsChangeIn(aura.Until - now);
+            }
+        }
     }
 
     static async Task<bool> ActivateVaalAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

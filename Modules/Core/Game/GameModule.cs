@@ -115,6 +115,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.CombatLifetime = module.Lifetime;
         // The game's systems in each area's own world (GameArea).
         AreaSetup.Load(module);
+        global::Game.LoadStats(module);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));

@@ -665,6 +665,11 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
+    /// <summary>The hand-over for a change of what the player's stats are built from: the game sets it (it builds them
+    /// again in its next Stats phase). An input the framework holds marks itself from its setter.</summary>
+    public static Action<ClientState>? StatsChanged;
+    public void MarkStatsDirty() => StatsChanged?.Invoke(this);
+
     public readonly CharacterBuildImports.Session BuildImport = new();
     public bool BuildFinalized;
     public bool Controlled, ControlledPrepared;

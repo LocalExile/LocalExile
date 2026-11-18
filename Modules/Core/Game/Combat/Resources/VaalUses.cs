@@ -24,8 +24,12 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.PlayerLife == 0) { conn.VaalPreventionUntil = 0; conn.VaalUse = null; }
-            if (conn.VaalPreventionUntil > VaalResourceTime(conn) && Stats.Key("has_soul_gain_prevention") is uint key)
+            double now = VaalResourceTime(conn);
+            if (conn.VaalPreventionUntil > now && Stats.Key("has_soul_gain_prevention") is uint key)
+            {
                 stats[key] = 1;
+                StatsChangeIn(conn.VaalPreventionUntil - now);
+            }
         }
     }
 

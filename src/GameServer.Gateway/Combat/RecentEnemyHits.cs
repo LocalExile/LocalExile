@@ -15,6 +15,9 @@ public sealed class RecentEnemyHits
     }
 
     public void Record(double now) { Count(now); contacts.Enqueue(now); }
+
+    /// <summary>Seconds until the count next drops (the oldest contact leaves the window); null when none is counted.</summary>
+    public double? NextChangeIn(double now) => Count(now) > 0 && contacts.TryPeek(out double at) ? at + RecentlySeconds - now : null;
     public void Clear() => contacts.Clear();
 
     // The 30% cap applies to the per-hit contribution, before adding the independent generic chance.

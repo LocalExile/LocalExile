@@ -15,6 +15,7 @@ public static partial class Game
     public static void AddRecentEnemyHitStatsLocked(ClientState conn, Dictionary<uint, int> stats)
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
+        if (conn.RecentEnemyHits.NextChangeIn(conn.Clock.Elapsed.TotalSeconds) is double left) StatsChangeIn(left);
         if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
         if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
     }

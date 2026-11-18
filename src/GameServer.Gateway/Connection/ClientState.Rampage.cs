@@ -35,7 +35,12 @@ public sealed partial class ClientState
     public int ExplosionArtCount;
     public ushort RampageBuff { get; set; }
     public double? RampageTransferAt;
-    public double VaalPreventionUntil;
+    public double VaalPreventionUntil
+    {
+        get => vaalPreventionUntil;
+        set { if (value != vaalPreventionUntil) { vaalPreventionUntil = value; MarkStatsDirty(); } }
+    }
+    double vaalPreventionUntil;
     public bool SentVaalPrevention;
     public object? VaalUseState;
     // Close Combat's Combat Rush: more Attack Speed for a travel skill (GemSupports.Rules.CombatRushOnHit).
