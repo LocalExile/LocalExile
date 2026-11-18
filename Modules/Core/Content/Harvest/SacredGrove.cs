@@ -290,15 +290,10 @@ public static class SacredGrove
 
     static bool Blocks(GroveObject o) => o.Type != SeedType || o.States.GetValueOrDefault("hatched") == 0 && o.States.GetValueOrDefault("withered") == 0;
 
-    static async Task Present(ClientState conn, GroveObject o, bool replace = false)
+    static async Task Present(ClientState conn, GroveObject o)
     {
         var shown = Presented.GetOrCreateValue(conn);
-        if (!replace && shown.Contains(o.Id) || Describe(o) is not var (quest, type)) return;
-        if (shown.Contains(o.Id))
-        {
-            var (remote, stream, ciphers) = conn.Wire;
-            await SendWorldRemoval(remote, stream, ciphers, conn, o.Id, null);
-        }
+        if (shown.Contains(o.Id) || Describe(o) is not var (quest, type)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
         await SendWorldCreate(conn, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
             wake: true, awaitBirth: false);
@@ -487,34 +482,12 @@ public static class SacredGrove
 
     static async Task Complete(ClientState conn, Area area, Grove grove, CropState crop)
     {
-        var tables = HarvestTables.Current;
         crop.Phase = Phase.Done;
         var changes = new List<(uint, string, int)> { (crop.Extractor, "current_state", 4) };
         foreach (var other in grove.Crops.Where(c => c != crop))
             changes.AddRange([(other.Extractor, "in_combat", 0), (other.Irrigator, "in_combat", 0)]);
-        var upgraded = new List<GroveObject>();
-        if (area.Stats.UpgradeOnCompletion && tables.Level(grove.Level) is { } values)
-            foreach (var other in grove.Crops.Where(c => c.Phase == Phase.Idle && c.Colour != crop.Colour))
-            {
-                if (GroveCrops.Upgrade(area.Random, tables, values, other.Colour, other.Seeds) is not { } seeds) continue;
-                other.Seeds = seeds;
-                grove.Objects[other.Extractor].Seeds = grove.Objects[other.Irrigator].Seeds = seeds;
-                upgraded.AddRange([grove.Objects[other.Extractor], grove.Objects[other.Irrigator]]);
-                var rows = Expand(seeds.OrderByDescending(s => tables.Seeds[s.Row].Tier)).ToList();
-                for (int s = 0; s < other.SeedObjects.Count && s < rows.Count; s++)
-                {
-                    var seed = grove.Objects[other.SeedObjects[s]];
-                    if (seed.Seeds is [{ } old] && old.Row == rows[s]) continue;
-                    seed.Seeds = [new(rows[s], 1)];
-                    seed.Model = tables.Seeds[rows[s]].Model;
-                    upgraded.Add(seed);
-                }
-            }
         Keep(conn, grove);
-        Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete" + (upgraded.Count > 0 ? $"; {upgraded.Count} objects upgraded" : ""));
+        Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete");
         await SetStates(conn, grove, changes);
-        foreach (var member in Members(conn))
-            foreach (var o in upgraded)
-                if (Presented.GetOrCreateValue(member).Contains(o.Id)) await Present(member, o, replace: true);
     }
 }

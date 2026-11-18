@@ -4,6 +4,9 @@ namespace GameServer.Modules.Harvest;
 /// The Sacred Grove's stats, taken once per instance from the map's composed area stats (<c>Game.MapModsOf</c>: the map's
 /// mods, the Atlas passives with their small-node scaling, scarabs, sextants and Idols, all in one sum). Nothing here
 /// reads allocated Atlas nodes: a passive, an Idol and a scarab that grant the same stat act the same.
+/// Not read: map_harvest_seeds_are_tier_1 and map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot.
+/// No 3.29 passive or mod grants them; the map load's "harvest" league block (MapAreaStats) carries both on maps whose
+/// groves still show Tier 2-4 seeds, so they are no crop rule there.
 /// </summary>
 public sealed record HarvestStats
 {
@@ -22,11 +25,9 @@ public sealed record HarvestStats
     public int Tier4FlatChance { get; init; }
     public int Tier3ChanceIncrease { get; init; }
     public bool AlwaysHighTier { get; init; }
-    public bool AllTier1 { get; init; }
     public bool AtLeastTier2 { get; init; }
     public int Tier2UpgradeChance { get; init; }
     public int Tier3UpgradeChance { get; init; }
-    public bool UpgradeOnCompletion { get; init; }
 
     // Activation and monsters.
     public int NotWitherChance { get; init; }
@@ -55,11 +56,9 @@ public sealed record HarvestStats
         Tier4FlatChance = mods.Get("map_harvest_plots_%_chance_to_spawn_tier4_seed"),
         Tier3ChanceIncrease = mods.Get("map_harvest_t3_chance_+%"),
         AlwaysHighTier = mods.Get("map_harvest_always_high_tier_seeds") != 0,
-        AllTier1 = mods.Get("map_harvest_seeds_are_tier_1") != 0,
         AtLeastTier2 = mods.Get("map_harvest_seeds_are_at_least_t2") != 0,
         Tier2UpgradeChance = mods.Get("map_harvest_seed_t2_upgrade_%_chance"),
         Tier3UpgradeChance = mods.Get("map_harvest_seed_t3_upgrade_%_chance"),
-        UpgradeOnCompletion = mods.Get("map_harvest_seeds_of_other_colours_have_chance_to_upgrade_on_completing_plot") != 0,
         NotWitherChance = mods.Get("map_harvest_chance_for_other_plot_to_not_wither_%"),
         AdditionalMonsterChance = mods.Get("map_harvest_seeds_%_chance_to_spawn_additional_monster"),
         DuplicatedMonsterChance = mods.Get("map_harvest_seeds_%_chance_to_spawn_duplicated_monsters"),

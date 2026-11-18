@@ -61,7 +61,7 @@ public static class GroveCrops
 
     /// <summary>The tier of each of a crop's 23 seeds (4, 3, 2, 1 counts): Tier 4 at the level's chance × (1 + the
     /// boss encounter increase) plus the flat chance; Tier 3 as Binom(rolls, chance × (1 + the T3 increase)); Tier 2 as
-    /// Binom(rolls, chance); the rest Tier 1. The memory-line rules and Crop Rotation's all-Tier-1 apply after.</summary>
+    /// Binom(rolls, chance); the rest Tier 1. At-least-Tier-2 and the upgrade chances apply after.</summary>
     public static int[] Tiers(Random random, HarvestTables.LevelValues level, HarvestStats stats)
     {
         var tiers = new int[5];
@@ -79,7 +79,6 @@ public static class GroveCrops
             int up3 = Binomial(random, tiers[2], stats.Tier3UpgradeChance / 100.0);
             tiers[1] -= up2; tiers[2] += up2 - up3; tiers[3] += up3;
         }
-        if (stats.AllTier1) tiers = [0, SeedsPerCrop, 0, 0, 0];
         return tiers;
     }
 
@@ -118,7 +117,7 @@ public static class GroveCrops
             crops.Add(new(site, 0, a, Species(random, tables, a, Tiers(random, level, stats))));
             crops.Add(new(site, 1, b, Species(random, tables, b, Tiers(random, level, stats))));
         }
-        if (stats.AlwaysHighTier && !stats.AllTier1)
+        if (stats.AlwaysHighTier)
             for (int colour = 1; colour <= 3; colour++)
             {
                 if (tables.ByColourTier[colour][4] is not { Length: > 0 } bosses) continue;
@@ -138,27 +137,5 @@ public static class GroveCrops
         if (list[lowest].Count == 0) list.RemoveAt(lowest);
         list.Insert(0, new(boss, 1));
         return list;
-    }
-
-    /// <summary>Crop Rotation on completing a plot: each seed of an unstarted crop of another colour rises a tier at the
-    /// level's chance for its tier (T1→T2, T2→T3, T3→T4), into a species of that tier. Null when nothing changed.</summary>
-    public static List<SeedCount>? Upgrade(Random random, HarvestTables tables, HarvestTables.LevelValues level, int colour,
-        IReadOnlyList<SeedCount> seeds)
-    {
-        var result = new List<SeedCount>();
-        bool changed = false;
-        foreach (var s in seeds)
-        {
-            int tier = tables.Seeds[s.Row].Tier;
-            int chance = tier switch { 1 => level.Upgrade1, 2 => level.Upgrade2, 3 => level.Upgrade3, _ => 0 };
-            int up = chance <= 0 || tier >= 4 || tables.ByColourTier[colour][tier + 1] is not { Length: > 0 } ? 0
-                : Binomial(random, s.Count, chance / 10000.0);
-            if (s.Count - up > 0) result.Add(s with { Count = s.Count - up });
-            if (up == 0) continue;
-            changed = true;
-            var next = tables.ByColourTier[colour][tier + 1];
-            result.Add(new(next[random.Next(next.Length)], up));
-        }
-        return changed ? [.. result.GroupBy(s => s.Row).Select(g => new SeedCount(g.Key, g.Sum(s => s.Count)))] : null;
     }
 }
