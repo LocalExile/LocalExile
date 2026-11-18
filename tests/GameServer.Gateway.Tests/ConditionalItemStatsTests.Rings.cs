@@ -9,8 +9,10 @@ public partial class ConditionalItemStatsTests
         // A recorded event answers its "haven't recently" form; one no production commit records stays unmodelled.
         var noEvents = new StatConditions.Subject(Recent: new HashSet<string>(), KnownRecent: Game.TrackedItemRecentEvents);
         Assert.Equal(StatConditions.State.Holds, StatConditions.Of("attack_speed_+%_if_havent_cast_dash_recently", noEvents));
-        Assert.Equal(StatConditions.State.NotModelled,
+        Assert.Equal(StatConditions.State.Holds,
             StatConditions.Of("lose_power_charge_each_second_if_not_detonated_mines_recently", noEvents));
+        Assert.Equal(StatConditions.State.NotModelled,
+            StatConditions.Of("damage_taken_+%_if_taunted_an_enemy_recently", noEvents));
         string path = Path.Combine(Path.GetTempPath(), $"localexile-ring-conditions-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         string character = "RingConditions" + Guid.NewGuid().ToString("N");

@@ -180,7 +180,7 @@ public static partial class Game
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
@@ -194,6 +194,8 @@ public static partial class Game
         StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
         StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
         StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
+        // Hit outcomes (RecordHit/RecordCriticalOutcome), mine detonation; the curse casts come from the constructor.
+        StatConditions.NonCrit, StatConditions.Crit8Seconds, StatConditions.DetonatedMine,
     };
     sealed class ConditionalItemPoolState
     {
