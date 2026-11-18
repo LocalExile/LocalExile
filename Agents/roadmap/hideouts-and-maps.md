@@ -31,7 +31,7 @@ bench.
   [game/maps.md](../docs/game/maps.md).
   Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
   are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards) and the Atlas graph validation;
+- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
   Voidstones; the map stash tab's layout (18 A5); the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 
@@ -54,7 +54,7 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
-  maps: the arrival point, a return portal, fragments and device recipes and map mods;
+  maps: remaining scarab engines, Ambush affixes, Essence corruption/skills and Evolution/Apparitions (#505);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).

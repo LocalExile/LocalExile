@@ -193,4 +193,23 @@ public class WorldOutputTests : IDisposable
         Assert.False(await cancelledOutput.AwaitBirths([reservation]));
         Assert.NotSame(reservation, cancelledOutput.NewObject(30));
     }
+
+    [Fact]
+    public void A_placeholder_for_an_unseen_id_yields_to_the_create_that_follows_it()
+    {
+        var output = new WorldOutput();
+        // A removal may name an ID whose create is still queued behind it: the record keeps a placeholder, not an
+        // incarnation, so the create that follows replaces it instead of failing the connection.
+        var placeholder = output.PublishedObject(40);
+        Assert.True(placeholder.Placeholder);
+        Assert.True(placeholder.IsReady);
+        var birth = output.NewObject(40);
+        Assert.NotSame(placeholder, birth);
+        Assert.False(placeholder.IsReady);
+        Assert.False(birth.IsReady);
+        // A create that really reached the client still needs its explicit removal before replacement.
+        Assert.Throws<InvalidOperationException>(() => output.NewObject(40));
+        var established = output.ExistingObject(41);
+        Assert.Throws<InvalidOperationException>(() => established.Retire());
+    }
 }

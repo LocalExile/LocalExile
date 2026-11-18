@@ -8,6 +8,7 @@ public static partial class Game
     public static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
     public static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
     public static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
+    public static readonly Lazy<AtlasPassives> HardModeAtlasPassives = new(() => new("data", hardMode: true));
     public static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
     public static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
     public static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));
@@ -59,7 +60,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            uint maxLife = conn.PlayerUnreservedLife, maxMana = (uint)UnreservedMana(conn);
+            uint maxLife = LifeCap(conn), maxMana = (uint)UnreservedMana(conn);
             (uint Life, uint Mana) initial;
             if (!LeagueFor(conn).Rules.PersistsVitals) initial = InitialVitals(false, null, maxLife, maxMana);
             else

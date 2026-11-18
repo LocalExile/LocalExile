@@ -147,6 +147,21 @@ public static class AreaPopulation
 
     public sealed record Spawn(int Variety, int X, int Y, MonsterRarity Rarity, string Pack);
 
+    public sealed record AdditionalPacks(string Source, IReadOnlyList<PackCatalog.Pack> Packs, int Count, double Size = 1);
+
+    /// <summary>Pack members around explicit encounter centres, using the ordinary member placement and count rules.</summary>
+    public static List<Spawn> AtPacks(IReadOnlyList<(PackCatalog.Pack Pack, int X, int Y, MonsterRarity Rarity)> packs,
+        Func<int, int, bool> walkable, Func<int, bool> spawnable, int seed, double size = 1,
+        IEnumerable<(int X, int Y)>? occupied = null)
+    {
+        var result = new List<Spawn>();
+        var taken = occupied is null ? [] : occupied.ToHashSet();
+        var random = new Random(seed);
+        foreach (var p in packs)
+            AddPack(result, taken, walkable, (p.X, p.Y), p.Pack, p.Rarity, true, random, spawnable, packSize: size);
+        return result;
+    }
+
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
     public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
 
@@ -275,12 +290,31 @@ public static class AreaPopulation
     /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
     /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
     /// traps); null: anywhere.</param>
+    // Keep the earlier CLR signatures for independently compiled modules and mods.
+    public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        PackScale scale, bool unassignedAtArrival, IReadOnlyList<RoomPoint>? roomPacks,
+        Func<int, int, bool>? scatterable,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards,
+        Func<int, bool>? guardSpawnable) =>
+        Plan(area, w, h, walkable, arrival, transitions, points, seed, spawnable, notes, scale, unassignedAtArrival,
+            roomPacks, scatterable, shrineGuards, guardSpawnable, null, true);
+
+    public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        PackScale scale, bool unassignedAtArrival, IReadOnlyList<RoomPoint>? roomPacks,
+        Func<int, int, bool>? scatterable,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards,
+        Func<int, bool>? guardSpawnable, IReadOnlyList<AdditionalPacks>? additionalPacks) =>
+        Plan(area, w, h, walkable, arrival, transitions, points, seed, spawnable, notes, scale, unassignedAtArrival,
+            roomPacks, scatterable, shrineGuards, guardSpawnable, additionalPacks, true);
+
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
-        Func<int, bool>? guardSpawnable = null)
+        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -335,6 +369,7 @@ public static class AreaPopulation
         {
             string name = p.Name["%area%-".Length..];
             if (!area.Named.TryGetValue(name, out var pack)) { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
+            if (!ordinaryPacks && name != "bosspack" && !pack.BossVarieties.Any(area.Bosses.Contains)) continue;
             // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses is
             // unique, and stands only once.
             int Row(int variety) => Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => area.Bosses[i] == variety && !placedRows.Contains(i), -1);
@@ -416,10 +451,10 @@ public static class AreaPopulation
                     : $": {mine.Count} around it at " + string.Join(" ", mine.Select(s =>
                         $"({s.X - at.X},{s.Y - at.Y})"))));
         }
-        if (packs.Count == 0) return spawns;
+        if (packs.Count == 0 && additionalPacks is not { Count: > 0 }) return spawns;
         // The layout's own pack points stand their packs first, where the room puts them (issue #668).
         int roomPlaced = 0;
-        foreach (var p in roomPacks ?? [])
+        foreach (var p in packs.Count == 0 || !ordinaryPacks ? [] : roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
                 var pack = PickPack(packs, rng);
@@ -429,11 +464,17 @@ public static class AreaPopulation
                 centres.Add((p.X, p.Y));
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
             }
-        var depth = Depth(w, h, walkable);
+        // One pass over the grid serves the depth flood, the reach flood and every member's cell: the delegate was asked
+        // up to eight times per cell, over 3.2 million cells on a generated map.
+        var cells = new bool[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                cells[y * w + x] = walkable(x, y);
+        var depth = Depth(w, h, cells);
         // A pack in a pocket the arrival cannot walk to is a monster the area's count keeps and nobody can kill: the
         // map reads "more than 50 monsters remaining" long after it was cleared. The walk map of a generated map has
         // such pockets (cells walled off from the entrance), so the packs stand only where the player can reach them.
-        var reach = Reachable(w, h, walkable, arrival);
+        var reach = Reachable(w, h, cells, arrival);
         var candidates = new List<(int X, int Y)>();
         int pocket = 0;
         for (int y = 0; y < h; y += 3)
@@ -448,6 +489,29 @@ public static class AreaPopulation
         if (pocket > 0)
             notes.Add($"{pocket} deep cell(s) the arrival cannot walk to stand no pack " +
                 $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
+        Shuffle(candidates, rng);
+        bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
+            && (reach is null || reach[y * w + x]) && cells[y * w + x];
+        foreach (var request in additionalPacks ?? [])
+        {
+            int placed = 0, first = spawns.Count;
+            var choices = request.Packs.Where(p => p.Entries.Count > 0 && p.Entries.All(e => spawnable(e.Variety))).ToList();
+            if (choices.Count > 0)
+                foreach (var c in candidates)
+                {
+                    if (placed >= request.Count) break;
+                    if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance))
+                        || centres.Any(o => Near(c, o, PackSpacing)) || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+                    var pack = choices[rng.Next(choices.Count)];
+                    int before = spawns.Count;
+                    AddPack(spawns, taken, ReachableMember, c, pack, RollRarity(rng.Next(100)), true, rng, spawnable, packSize: request.Size);
+                    if (spawns.Count == before) continue;
+                    centres.Add(c);
+                    placed++;
+                }
+            notes.Add($"additional packs {request.Source}: placed {placed}/{request.Count}, {spawns.Count - first} monsters");
+        }
+        if (packs.Count == 0 || !ordinaryPacks) return spawns;
         double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(packCells / (double)CellsPerPack
             * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density);
@@ -455,7 +519,6 @@ public static class AreaPopulation
         // already exceed that budget.
         wanted = Math.Max(0, wanted - roomPlaced) + scale.ExtraNormal + scale.ExtraMagic + scale.ExtraRare;
         if (wanted <= 0) { notes.Add($"{roomPlaced} room pack point(s) place the area's packs"); return spawns; }
-        Shuffle(candidates, rng);
         var plans = new List<((int X, int Y) At, PackCatalog.Pack Pack)>();
         foreach (var c in candidates)
         {
@@ -471,8 +534,6 @@ public static class AreaPopulation
             rarities[rng.Next(plans.Count)] = MonsterRarity.Rare;
         Promote(rarities, MonsterRarity.Rare, scale.ExtraRare + (int)Math.Round(plans.Count * scale.RareIncrease / 100.0));
         Promote(rarities, MonsterRarity.Magic, scale.ExtraMagic + (int)Math.Round(plans.Count * scale.MagicIncrease / 100.0));
-        bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
-            && (reach is null || reach[y * w + x]) && walkable(x, y);
         int scatteredStart = spawns.Count;
         int memberBudget = area.AreaId == TutorialObjects.Strand ? Math.Max(0, StrandMonsterTarget - 1 - scatteredStart) : int.MaxValue;
         int placedPacks = 0;
@@ -668,22 +729,36 @@ public static class AreaPopulation
     }
 
     /// <summary>Per cell: 0 when blocked, else the 4-neighbour distance to the nearest blocked cell.</summary>
-    static int[] Depth(int w, int h, Func<int, int, bool> walkable)
+    static int[] Depth(int w, int h, bool[] walkable)
     {
         var dist = new int[w * h];
         var q = new Queue<int>();
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                if (walkable(x, y)) dist[y * w + x] = int.MaxValue; else q.Enqueue(y * w + x);
+        for (int i = 0; i < dist.Length; i++)
+            if (walkable[i]) dist[i] = int.MaxValue; else q.Enqueue(i);
+        // The four neighbours written out: a per-cell array here allocated once per cell of the grid (3.2 million of
+        // them on a generated map) and was most of the pack plan's 368 ms (live 2026-11-17).
         while (q.Count > 0)
         {
-            int i = q.Dequeue(), x = i % w, y = i / w;
-            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            int i = q.Dequeue(), x = i % w, y = i / w, next = dist[i] + 1;
+            if (x > 0)
             {
-                int nx = x + dx, ny = y + dy;
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                int j = ny * w + nx;
-                if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.Enqueue(j); }
+                int j = i - 1;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (x + 1 < w)
+            {
+                int j = i + 1;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (y > 0)
+            {
+                int j = i - w;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (y + 1 < h)
+            {
+                int j = i + w;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
             }
         }
         return dist;
@@ -691,9 +766,18 @@ public static class AreaPopulation
 
     /// <summary>Per cell: whether the arrival walks to it (8 neighbours, so a diagonal squeeze counts). Null when the
     /// arrival is not itself a walkable cell, where the walk map cannot say which way the player comes in.</summary>
-    static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
+    public static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
     {
-        if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable(arrival.X, arrival.Y))
+        if (w <= 0 || h <= 0) return null;
+        var cells = new bool[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) cells[y * w + x] = walkable(x, y);
+        return Reachable(w, h, cells, arrival);
+    }
+
+    static bool[]? Reachable(int w, int h, bool[] walkable, (int X, int Y) arrival)
+    {
+        if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable[arrival.Y * w + arrival.X])
             return null;
         var seen = new bool[w * h];
         var q = new Queue<int>();
@@ -703,15 +787,19 @@ public static class AreaPopulation
         {
             int i = q.Dequeue(), x = i % w, y = i / w;
             for (int dy = -1; dy <= 1; dy++)
+            {
+                int ny = y + dy;
+                if ((uint)ny >= (uint)h) continue;
                 for (int dx = -1; dx <= 1; dx++)
                 {
-                    int nx = x + dx, ny = y + dy;
-                    if ((uint)nx >= (uint)w || (uint)ny >= (uint)h) continue;
+                    int nx = x + dx;
+                    if ((uint)nx >= (uint)w) continue;
                     int j = ny * w + nx;
-                    if (seen[j] || !walkable(nx, ny)) continue;
+                    if (seen[j] || !walkable[j]) continue;
                     seen[j] = true;
                     q.Enqueue(j);
                 }
+            }
         }
         return seen;
     }
