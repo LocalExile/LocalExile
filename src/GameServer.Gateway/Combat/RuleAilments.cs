@@ -15,6 +15,8 @@ public sealed class RuleAilments
     // What was last presented of each kind (Present): its strongest magnitude, truncated.
     readonly Dictionary<int, int> shown = [];
     double expiryRate = 1;
+    // instances.Count, published for Magnitude's lock-free empty check.
+    int count;
 
     /// <summary>Nothing runs and nothing is shown.</summary>
     public bool Idle { get { lock (instances) return instances.Count == 0 && shown.Count == 0; } }
@@ -23,6 +25,8 @@ public sealed class RuleAilments
     /// without a time).</summary>
     public double Magnitude(int kind, double now)
     {
+        // Read on every hit (resistances, critical chance); most stores are empty. A stale count only delays by one read.
+        if (Volatile.Read(ref count) == 0) return 0;
         lock (instances)
         {
             double strongest = 0;
@@ -43,6 +47,7 @@ public sealed class RuleAilments
             var added = new Instance(kind, now, now + seconds / expiryRate, magnitude);
             instances.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= magnitude && e.Until <= added.Until);
             instances.Add(added);
+            count = instances.Count;
             return added;
         }
     }
@@ -60,7 +65,7 @@ public sealed class RuleAilments
     }
 
     /// <summary>Ends every instance; the next <see cref="Present"/> reports the kinds that were shown as gone.</summary>
-    public void Clear() { lock (instances) instances.Clear(); }
+    public void Clear() { lock (instances) { instances.Clear(); count = 0; } }
 
     /// <summary>The kinds whose strongest magnitude (truncated) at <paramref name="now"/> differs from what was last
     /// presented, with the old and new values (0: none), in kind order; expired instances are dropped.</summary>
@@ -69,6 +74,7 @@ public sealed class RuleAilments
         lock (instances)
         {
             instances.RemoveAll(e => e.Until <= now);
+            count = instances.Count;
             var changes = new List<(int, int, int)>();
             foreach (int kind in instances.Select(e => e.Kind).Concat(shown.Keys).Distinct().Order().ToList())
             {

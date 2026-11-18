@@ -90,13 +90,22 @@ public static partial class Game
         || target($"virtual_cannot_be_{a.Past}") != 0 || a.Kind == AlternateKind.Brittle && target("cannot_gain_brittle") != 0;
 
     // The damage that can inflict it: its own element's, and another type's with all_damage_can_X, the type's
-    // X_damage_can_X or, on a critical strike, all_damage_from_critical_strikes_can_X (Stormblood).
+    // X_damage_can_X or, on a critical strike, all_damage_from_critical_strikes_can_X (Stormblood). Runs per hit with a
+    // source: the stat names are built once (AlternateCanNames), and no LINQ.
     static double AlternateInflicting(AlternateAilment a, DamagePacket damage, Func<string, int> attacker, bool critical)
     {
-        bool all = attacker($"all_damage_can_{a.Can}") != 0 || critical && attacker($"all_damage_from_critical_strikes_can_{a.Can}") != 0;
-        return damage.Components.Where(c => c.Type == a.Element || all
-            || attacker($"{c.Type.ToString().ToLowerInvariant()}_damage_can_{a.Can}") != 0).Sum(c => c.Range.Min);
+        var names = AlternateCanNames[(int)a.Kind];
+        bool all = attacker(names.All) != 0 || critical && attacker(names.FromCritical) != 0;
+        double sum = 0;
+        foreach (var c in damage.Components)
+            if (c.Type == a.Element || all || attacker(names.PerType[(int)c.Type]) != 0) sum += c.Range.Min;
+        return sum;
     }
+
+    static readonly (string All, string FromCritical, string[] PerType)[] AlternateCanNames = AlternateAilments
+        .Select(a => ($"all_damage_can_{a.Can}", $"all_damage_from_critical_strikes_can_{a.Can}",
+            Enum.GetValues<DamageType>().Select(t => $"{t.ToString().ToLowerInvariant()}_damage_can_{a.Can}").ToArray()))
+        .ToArray();
 
     /// <summary>
     /// The Scorch, Brittle and Sap one hit inflicts on <paramref name="target"/>'s store, from the damage it took per
@@ -115,13 +124,17 @@ public static partial class Game
         if (threshold <= 0) return added;
         bool secrets = critical && attacker(SecretsOfSuffering) != 0;
         int any = attacker(AnyAlternateChance);
-        double asThough = Math.Max(0, 1 + attacker("non_damaging_ailments_as_though_damage_+%_final") / 100.0);
         foreach (var a in AlternateAilments)
         {
+            // Per hit (Hot paths): a hit without a source of this ailment stops here, before any other stat is read.
+            bool sure = secrets || critical && attacker(a.OnCritical) != 0;
+            int chance = attacker(a.Chance) + any;
+            if (!sure && chance <= 0) continue;
             double inflicting = AlternateInflicting(a, damage, attacker, critical);
             if (inflicting <= 0) continue;
-            if (!(secrets || critical && attacker(a.OnCritical) != 0 || RandomRolls.Chance(attacker(a.Chance) + any, 100, random))
+            if (!(sure || RandomRolls.Chance(chance, 100, random))
                 || CannotInflictAlternate(a, attacker) || AlternateImmune(a, target)) continue;
+            double asThough = Math.Max(0, 1 + attacker("non_damaging_ailments_as_though_damage_+%_final") / 100.0);
             double scaled = threshold * (a.Threshold is { } stat ? Math.Max(0, 1 + target(stat) / 100.0) : 1);
             int magnitude = AlternateMagnitude(a, inflicting * asThough, scaled, AlternateEffectModifier(a, attacker, target));
             if (store.Add((int)a.Kind, now, AlternateSeconds(a, attacker), magnitude) is { } instance) added.Add((a, instance));
