@@ -251,6 +251,8 @@ public sealed class ItemCatalog
 
         /// <summary>A Vaal gem's own row (IsVaalVariant) or an awakened one (RegularVariant set).</summary>
         public bool IsVaalOrAwakened { get; init; }
+        /// <summary>The base item row SkillGems links to for its Vaal version, if it has one.</summary>
+        public int? VaalBaseRow { get; init; }
 
         /// <summary>An Awakened row (its SkillGems RegularVariant names the ordinary gem it upgrades); its name starts
         /// with "Awakened ". 3.29 keeps the rows but disables the ordinary awakened supports for normal play.</summary>
@@ -576,6 +578,7 @@ public sealed class ItemCatalog
                 thresholds.GetValueOrDefault(expType) ?? [])
             {
                 Colour = Row(r, "GemColour"), IsVaalOrAwakened = vaal || (!ordinaryUpgrade && Row(r, "RegularVariant") >= 0),
+                VaalBaseRow = r.IntOrNull("VaalVariant_BaseItemTypesKey"),
                 IsAwakened = baseName.StartsWith("Awakened ", StringComparison.Ordinal),
                 IsExceptional = exceptionalTags.Count > 0 ? exceptional : exceptionalFallback,
                 MtxSlotTypes = [.. r.Ints("MtxSlotTypes")],

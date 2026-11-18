@@ -9,6 +9,51 @@ public class QualityCurrencyTests
         public override double NextDouble() => value;
     }
 
+    sealed class GemCorruptionRandom(int outcome, bool increase = true) : Random
+    {
+        public override int Next(int maxValue) => maxValue == 4 ? outcome : increase ? 1 : 0;
+        public override int Next(int minValue, int maxValue) => maxValue - 1;
+    }
+
+    [Fact]
+    public void Vaal_orbs_corrupt_skill_and_support_gems_and_keep_the_matching_variant()
+    {
+        var items = Program.Items;
+        var rolls = new ItemRolls(items);
+        var (type, variant) = items.FindGem("Ground Slam of Earthshaking")!.Value;
+        var gem = items.Gem(type)!;
+        var original = ItemCatalog.Create(type) with
+        {
+            GemExperience = gem.ExperienceFor(20), GemVariant = variant.Index, Quality = 20, GemFlags = 4,
+        };
+        var currency = items.Find(CurrencyEffects.VaalOrb)!;
+        Item Apply(Item target, int outcome, bool increase = true)
+        {
+            Assert.True(CurrencyEffects.TryAction(items, rolls, target, currency,
+                new GemCorruptionRandom(outcome, increase), out var corrupted));
+            return Assert.IsType<Item>(corrupted);
+        }
+        Assert.Equal(original with { Corrupted = true }, Apply(original, 0));
+        Assert.Equal(21, items.GemLevel(Apply(original, 1)));
+        Assert.Equal(19, items.GemLevel(Apply(original, 1, increase: false)));
+        Assert.Equal(23, Apply(original, 2).Quality);
+        Assert.Equal(0, Apply(original, 2, increase: false).Quality);
+        var vaal = Apply(original, 3);
+        Assert.Equal("Vaal Ground Slam of Earthshaking", items.GemName(vaal));
+        Assert.Contains(variant.Effect, items.GemEffects(vaal));
+        Assert.Equal(20, items.GemLevel(vaal));
+        Assert.Equal(original.Quality, vaal.Quality);
+        Assert.Equal(original.GemFlags, vaal.GemFlags);
+        Assert.True(vaal.Corrupted);
+        Assert.NotEmpty(vaal.Payload());
+        Assert.Null(rolls.Vaal(vaal, items.ByHash(vaal.TypeHash)!, default, new GemCorruptionRandom(0)));
+        Assert.Null(rolls.Vaal(original with { Mirrored = true }, type, default, new GemCorruptionRandom(0)));
+
+        var support = ItemCatalog.Create(items.FindGem("Added Cold Damage Support")!.Value.Type);
+        Assert.Equal(support with { Corrupted = true }, Apply(support, 3));
+        Assert.Equal(1, items.GemLevel(Apply(support, 1, increase: false)));
+    }
+
     [Fact]
     public void Quality_currencies_follow_item_level_and_unique_rules()
     {
