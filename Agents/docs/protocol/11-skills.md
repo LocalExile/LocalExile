@@ -1560,6 +1560,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   rate change: `0x141ef1573..0x141ef15aa` only checks base/count changes or an existing zero rate.
   Likewise, SkillStats' `0x14219afcb..0x14219b047` checks modifier/count/override changes, not recovery percentage.
   Therefore updated 3398 alone leaves an active native entry at its old positive rate.
+  A 0x2bc cooldown entry is taken as published (`total` and `remaining` both apply: an 11.365 s entry at rate 2.13 ran
+  5.32 s), and a zero rate on it stops the ring with the icon dark and no sweep, as the official client's frozen entry
+  (`3.00 / 3.00 / rate 0`) shows; the press prediction the client makes from 0x1ce keeps its own rate
+  (`1 + 113 %` = 2.13 here), so the server's entry has to follow it. Every repeated entry replays the bar's cooldown
+  animation, so one press must publish one entry.
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.

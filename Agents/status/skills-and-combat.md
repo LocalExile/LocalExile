@@ -152,7 +152,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
   opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
-  landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+  landings across terrain gaps. A guard's bar entry is held at the skill's own cooldown with a zero recovery rate while
+  its buff runs and counts at the character's recovery after it, as the official client shows.
+  Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) §11, §12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
