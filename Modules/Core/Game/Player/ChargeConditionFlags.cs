@@ -19,11 +19,12 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key
             ? overrides.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
         var state = ChargesOf(conn).State;
+        Func<string, int> get = Get;   // one delegate for the three types: every stat lookup comes here
         foreach (var type in Charges.Types)
         {
-            var limits = ChargeMaxima.LimitsOf(type, Get, state.Held(type));
+            var limits = ChargeMaxima.LimitsOf(type, get, state.Held(type));
             SetChargeConditionFlags(flags, type, state.Effective(type, limits), limits.Maximum,
-                Get(Charges.ConversionFlag(type)) != 0, conn.PlayerLife > 0, ChargeScaling.CountsAsMaximum(type, Get));
+                Get(Charges.ConversionFlag(type)) != 0, conn.PlayerLife > 0, ChargeScaling.CountsAsMaximum(type, get));
         }
         return flags;
     }
