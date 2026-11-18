@@ -52,8 +52,11 @@ public static class AreaObjects
         return rooms;
     }
 
+    /// <remarks>The model is the one the client gives the record (<see cref="ClientModel"/>): The Sovereign's waypoint
+    /// record DeepwaterHubBoat_waypoint names Deepwater/Waypoint/waypoint.ao, and its virtual
+    /// DeepwaterHubBoat_waypoint.ao is no file.</remarks>
     public static List<PlacedTileObject> Transitions(TerrainCache files, GenerationResult result) =>
-        Place(files, result, t => files.IsTransitionType(t) || IsEffect(t), tile => files.HasTransition(tile));
+        Place(files, result, t => files.IsTransitionType(t) || IsEffect(t), tile => files.HasTransition(tile), (o, tdt) => ClientModel(files, o, tdt));
 
     /// <summary>The waypoints a placed .arm room holds as a server object line (type <c>Waypoint</c>) instead of a tile
     /// object: The Ledge's <c>Act1/Area5/Rooms/waypoint.arm</c>. Not in the recorder's .transitions.json (it records tile
@@ -118,8 +121,13 @@ public static class AreaObjects
     /// dungeon_bossrelease_v01_01_ball_replacement record: a static mesh, and bossrelease.ao with the animation its .ot
     /// plays on creation) is placed with that .ao, as the doodad stage takes it; live, the static model hung the client.</remarks>
     public static List<PlacedTileObject> TileObjects(TerrainCache files, GenerationResult result, Func<string, bool> keep) =>
-        Place(files, result, keep, _ => false, (o, tdt) => files.Text(o.VirtualModel(tdt)) is null
-            && o.Animation is { } ao && ao.EndsWith(".ao", StringComparison.OrdinalIgnoreCase) ? ao : o.VirtualModel(tdt));
+        Place(files, result, keep, _ => false, (o, tdt) => ClientModel(files, o, tdt));
+
+    // The record's model as the client holds it (record +0x38, which 0x142047e30 places): the virtual
+    // "<.tdt folder>/<name>.ao" when that file exists, else the .ao the record names.
+    static string ClientModel(TerrainCache files, TileObject o, string tdt) =>
+        files.Text(o.VirtualModel(tdt)) is null && o.Animation is { } ao && ao.EndsWith(".ao", StringComparison.OrdinalIgnoreCase)
+            ? ao : o.VirtualModel(tdt);
 
     // The tile objects of the types kept; a tile is looked at when it has one of them (has) or an effect.
     static List<PlacedTileObject> Place(TerrainCache files, GenerationResult result, Func<string, bool> keep, Func<TileDef, bool> has,
