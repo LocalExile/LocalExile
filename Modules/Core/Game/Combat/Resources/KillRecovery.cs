@@ -13,7 +13,7 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
 
     public static KillRecovery From(Func<string, int> get, int level)
     {
-        bool life = get("cannot_recover_life") == 0, shield = get("cannot_recover_energy_shield") == 0;
+        bool life = !LifeRecovery.NonLeechBlocked(get), shield = get("cannot_recover_energy_shield") == 0;
         return new(
             life ? get("base_life_gained_on_enemy_death") + get("life_gained_on_enemy_death_per_level") * level : 0,
             life ? get("recover_%_maximum_life_on_kill") : 0,

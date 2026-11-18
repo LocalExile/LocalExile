@@ -497,10 +497,9 @@ public static partial class Game
             {
                 conn.PlayerLife -= (uint)life;
                 lifeCost = (uint)life;
-                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
-            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ApplyPaidSupportCostsLocked(conn, skillId, own, cost, life);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
@@ -514,7 +513,8 @@ public static partial class Game
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
-        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
+        return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
+            ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
@@ -598,22 +598,22 @@ public static partial class Game
         return projected;
     }
 
-    // The canonical row named by the still-current owner and lease, for profile refreshes that are not output work.
-    private static bool RighteousFireSourceCurrentLocked(ClientState conn, RighteousFireState rf)
+    // Resolve the supported skill once for the physical source that owns the active burn.
+    private static SupportedGem? CurrentRighteousFireSkillLocked(ClientState conn, RighteousFireState rf)
     {
-        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return false;
+        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return null;
         using var scope = new PlayerStatScope(conn, fresh: true);
         var supported = SupportedSkill(conn, rf.Skill);
         var source = CurrentPlayerSkillSourceLocked(conn, rf.Skill);
         return supported.Effect >= 0 && supported.RequirementsMet
             && SkillsFor(conn).EffectId(supported.Effect) == "RighteousFire"
             && source is { Active: true } && source.Effect == supported.Effect
-            && source.Identity == lifetime.Key;
+            && source.Identity == lifetime.Key ? supported : null;
     }
 
     // Output and consumer work additionally retain the accepted outgoing-work guard.
     private static bool RighteousFireCurrentLocked(ClientState conn, RighteousFireState rf) =>
-        CurrentGameWork && RighteousFireSourceCurrentLocked(conn, rf);
+        CurrentGameWork && CurrentRighteousFireSkillLocked(conn, rf) is not null;
 
     private static bool RighteousFireRingCurrentLocked(ClientState conn, PlayerMinions.RighteousFireRingReceipt receipt) =>
         receipt.State.Ring == receipt.Ring && receipt.State.RingArt is not null
@@ -666,7 +666,7 @@ public static partial class Game
         if (conn.RighteousFire is not { } rf) return;
         lock (conn.Monsters)
         {
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "invalid Righteous Fire source at profile recompute");
@@ -674,10 +674,10 @@ public static partial class Game
             }
             using (new PlayerStatScope(conn, fresh: true))
             {
-                var supported = SupportedSkill(conn, rf.Skill);
                 int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
+                SetRighteousFireSupportProfileLocked(conn, rf, supported.Stats);
                 bool changed = rf.SpellDamageMore != more || rf.Radius != radius;
                 if (!changed) return;
                 rf.SpellDamageMore = more;
@@ -815,6 +815,7 @@ public static partial class Game
                     Instance = conn.Instance,
                 };
                 conn.RighteousFire = state;
+                SetRighteousFireSupportProfileLocked(conn, state, supported.Stats);
                 conn.Minions.StatRevision++;
                 // The initial create/wake/receipt are immutable originals captured in the same admission mutation. A
                 // profile writer after this boundary can replace the retained ring but cannot change what this
@@ -948,6 +949,16 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
+            // when the eight-second window ends (refreshed on each critical strike of the bound skill).
+            if (conn.ElementalOverloadBuff != 0 && conn.Clock.Elapsed.TotalSeconds >= conn.ElementalOverloadBuffUntil)
+            {
+                ushort overloadBuff = conn.ElementalOverloadBuff;
+                conn.ElementalOverloadBuff = 0;
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceEntities.RemoveBuff(PlayerId, overloadBuff), "0x01c2 elemental overload window ended");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
@@ -973,6 +984,9 @@ public static partial class Game
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
+            if (!conn.RuleAilments.Idle)
+                foreach (var (packet, log) in AlternateAilmentBuffs(PlayerId, "player", conn.RuleAilments, tickNow))
+                    await Send(remote, stream, ciphers, packet, log);
             IncomingDamagingAilments.State nextIncoming;
             IncomingDamagingAilments.State presented;
             int incomingEpoch;
@@ -1013,6 +1027,7 @@ public static partial class Game
             {
                 // A stationary, full-resource ally may otherwise send no stats or mana at all.
                 // Reconcile shared auras on the periodic gate too, so entry/exit never needs another action.
+                await SendTemporaryAuraExpiry(remote, stream, ciphers, conn);
                 if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
@@ -1063,7 +1078,7 @@ public static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
-            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
             if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
@@ -1142,7 +1157,7 @@ public static partial class Game
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
-        bool zealotsOath = false, convertLifeRegen = false;
+        bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
         double nextVitalsSave = last + 5;
@@ -1171,7 +1186,7 @@ public static partial class Game
                 now = updates.Schedule.ResourceNow(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) break;
                 rf = conn.RighteousFire;
-                if (rf is not null && !RighteousFireSourceCurrentLocked(conn, rf))
+                if (rf is not null && CurrentRighteousFireSkillLocked(conn, rf) is null)
                 {
                     if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                         QueueRighteousFireCleanupLocked(conn, stale, "Righteous Fire source became invalid at resource commit");
@@ -1208,6 +1223,7 @@ public static partial class Game
                     periodicRegenPerSecond = conn.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
+                    vaalPact = RecoveryStat("keystone_vaal_pact") != 0;
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                         Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
                     (ratesAt, cachedRf) = (now, rf);
@@ -1281,13 +1297,17 @@ public static partial class Game
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     if (!zealotsOath) nonFlaskLife += unhingedHitLife;
+                    // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
+                    // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
+                    // conversions under Zealot's Oath above still apply (the stats are not removed).
+                    if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - lifeTrap);
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)lifeAfter - lifeTrap), now);
                         if (trapDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
@@ -1297,7 +1317,8 @@ public static partial class Game
                     if (InGracePeriod(conn)) pbLoss = 0;
                     if (pbLoss > 0 && lifeAfter > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero));
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn,
+                            (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero)), now);
                         if (pbDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
@@ -1406,9 +1427,45 @@ public static partial class Game
         }
     }
 
+    // Each entry grants more or less damage to this fire area DoT once its support is admitted.
+    static readonly string[] RighteousFireSupportMore =
+    [
+        "support_burning_damage_+%_final", "support_gem_elemental_damage_+%_final",
+        "support_area_concentrate_area_damage_+%_final", "support_efficacy_damage_over_time_+%_final",
+        "support_rapid_decay_damage_over_time_+%_final", "support_reduced_duration_damage_+%_final",
+        "cast_on_damage_taken_damage_+%_final",
+    ];
+
+    static double RighteousFireEnemyDps(ClientState conn, RighteousFireState rf,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    {
+        int Own(string name) => own.GetValueOrDefault(Stats.Key(name)!.Value);
+        double Combined(string name)
+        {
+            uint key = Stats.Key(name)!.Value;
+            return (double)player.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        }
+        if (DamageStats.Prohibited(DamageType.Fire, Own)) return 0;
+        double basis = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
+            + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+        double increased = Combined("damage_+%") + Combined("fire_damage_+%") + Combined("elemental_damage_+%")
+            + Combined("damage_over_time_+%") + Combined("fire_damage_over_time_+%") + Combined("burn_damage_+%")
+            + Combined("area_damage_+%") + Combined("righteous_fire_damage_+%");
+        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        foreach (string stat in RighteousFireSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
+        double dotMultiplier = Combined("dot_multiplier_+") + Combined("fire_dot_multiplier_+");
+        dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
+        int deliriumMore = player.GetValueOrDefault(Stats.Key("delirium_aura_damage_over_time_+%_final")!.Value);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(player);
+    }
+
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
-    public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
+    public static Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds) =>
+        BurnAround(remote, stream, ciphers, conn, rf, seconds, null);
+
+    static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        RighteousFireState rf, double seconds, double? tickEnd)
     {
         if (!CurrentGameWork) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
@@ -1417,7 +1474,7 @@ public static partial class Game
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork) return;
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "stale Righteous Fire consumer retired");
@@ -1428,13 +1485,10 @@ public static partial class Game
             Dictionary<uint, int> playerStats;
             using (new PlayerStatScope(conn, fresh: true))
             {
-                perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
-                    + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
                 playerStats = CharacterPlayerStats(conn);
-                if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
-                    perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
-                perSecond *= ChargeDamageMore(playerStats);
+                perSecond = RighteousFireEnemyDps(conn, rf, playerStats, supported.Stats);
             }
+            perSecond *= RighteousFireTimedSupportFactor(rf, tickEnd ?? now, seconds);
             var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
                 .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
             var here = conn.Walk.Position(now);
@@ -1535,7 +1589,7 @@ public static partial class Game
             DamageType.Chaos => conn.Pools.ChaosResistance,
             _ => 0,
         };
-        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(conn);
+        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(conn) + PlayerScorchedResistance(conn, type);
     }
 
     // The per-type maximum from Character.ot's 75 plus the passive/gear maximum-resistance modifiers, hard-capped at 90.
@@ -1774,8 +1828,9 @@ public static partial class Game
         // The player's inventories (id = row + 1), needed by UI built on entering (flask bar → row 11), with the character's items.
         var items = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn));
         if (ItemsFor(conn).Error is not null) Console.WriteLine($"[gateway] items: {ItemsFor(conn).Error}");
-        foreach (var slot in InstanceInventories.PlayerDefaults)
+        foreach (var row in InstanceInventories.PlayerDefaults)
         {
+            var slot = GameEvents.ResolveInventorySlot(conn, row);
             var inside = items.Items(slot.Row);
             messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
                 InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));

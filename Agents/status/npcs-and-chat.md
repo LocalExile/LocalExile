@@ -6,6 +6,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
+- Gold gambling at the gamble NPCs (black-market window, 3.29 prices and rolls): [17](../docs/protocol/17-npcs.md) §5.
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
 
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
@@ -33,6 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and
   facing.
+  Estimated placements on blocked cells move to nearby walkable ground. Room placements and editable hideout furniture keep their coordinates.
   Their collision footprints now come from inherited OT metadata, including later-act NPC Id aliases.
   The shared routing and overlap correction covers spawned NPCs in towns and hideouts.
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives

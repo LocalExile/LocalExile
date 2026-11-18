@@ -36,8 +36,8 @@ seed; nothing is read from the docs:
 | Table | Rows |
 |---|---|
 | `drop_currency_weights` | `ItemDrops.Currency` (24 rows) and 12 more core orbs from `currency_drop_gaps` (estimated), each with its `BaseItemTypes.DropLevel` |
-| `drop_bosses` | `WorldAreas.Bosses_MonsterVarietiesKeys` (630 distinct boss ids); the category comes from the area's `IsUniqueMapArea`/`IsMapArea`/`IsLabyrinthArea`/`IsLabyrinthBossArea` flags, else `campaign` (act > 0) or `other` |
-| `drop_boss_items` | 108 rows: major boss unique pools (PoEDB), boss-only currency, the King in the Mists exact chances |
+| `drop_bosses` | `WorldAreas.Bosses_MonsterVarietiesKeys` (630 distinct boss ids), plus the three Tier 4 Sacred Grove bosses, which drop the Sacred Blossom, and Oshabi (634 rows); the category comes from the area's `IsUniqueMapArea`/`IsMapArea`/`IsLabyrinthArea`/`IsLabyrinthBossArea` flags, else `campaign` (act > 0) or `other` |
+| `drop_boss_items` | 120 rows: major boss unique pools (PoEDB), boss-only currency, the King in the Mists exact chances (109); the Tier 4 Sacred Grove bosses' Sacred Blossom (3); Oshabi's rewards (8) |
 | `drop_card_areas` | 555 area/card pairs from PoEDB |
 | `drop_card_sources` | the boss cards in `drop_boss_items` (currently The Endless Darkness) |
 | `drop_item_weights` | 531 rows: 422 cards and 109 scarabs from the poedata.dev MLE calculations (cards 3.27.0, scarabs 3.28.0) |
@@ -67,8 +67,11 @@ provenance. A change to the rows is a world update file (`sql/updates/pending_wo
   `drop_card_chance_pct` (0.5) and `drop_scarab_chance_pct` (0.2) per kill,
   scaled by item quantity; both are our own numbers (`system_settings`). The map
   device's card/scarab stats stay separate.
-- The boss tables are stored but no roll reads them yet; the current generic
-  unique rolls stay the fallback.
+- The generic rolls do not read the boss tables yet; the current generic unique
+  rolls stay the fallback. The Harvest module reads its own `drop_boss_items`
+  rows: the Sacred Blossom chance and Oshabi's rows. Under Oshabi, the `unique`
+  rows are the shares of one guaranteed unique and the other rows roll
+  independently.
 - A bad row fails the load with a line naming the table, key and value. Accept
   nothing silently: non-finite or negative weights, `chance` outside 0..1,
   duplicate keys and a confidence outside the three values are errors.

@@ -75,7 +75,7 @@ public static partial class Game
             || VaalMinionProxyDisabled(conn, gem.Effect, source) is not null || !Live()) return false;
         double now=AreaTime(conn);
         double duration=SkillDurationModifiers.Seconds(GolemStat(gem.Stats,"base_skill_effect_duration"),
-            n=>GolemStat(CharacterPlayerStats(conn),n),n=>GolemStat(gem.Stats,n));
+            n=>GolemStat(CharacterPlayerStats(conn),n),n=>GolemStat(gem.Stats,n),DurationKinds(conn,gem.Effect));
         if (SkillsFor(conn).EffectId(gem.Effect)=="VaalSummonSkeletons")
         {
             var definition=SummonData.Find("VaalSummonSkeletons")!;

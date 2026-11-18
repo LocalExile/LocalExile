@@ -10,23 +10,28 @@ namespace GameServer.Modules.Harvest;
 /// HarvestCraftOptions.dat (the HarvestCraftOptions client table): the recipes the native Horticrafting Station lists.
 /// The server executes the item recipes (targeted/affinity reforges, augments and modifier conversions) against the item
 /// in HarvestCraftingItem, and refuses the recipes for systems it does not model (influences, exchanges, enchants, gems).
-/// Costs are the exact lifeforce types and amounts from the table.
+/// Costs are the exact lifeforce types and amounts from the table, plus its Crystallised Rancour.
+/// GameMode is the column the Mods and BestiaryRecipes tables share: 0 every league, 1 not in Ruthless, 2 Ruthless only
+/// (the HardMode Mods and Einhar recipes are the 2 rows). <paramref name="hardMode"/> is the character's league.
 /// </summary>
-public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
+public sealed class HarvestCrafting(IItemCrafting items, string folder = "data", bool hardMode = false)
 {
     public enum Operation { Unsupported, ReforgeTag, ReforgeAffinity, AugmentTag, Convert }
 
     public sealed record Recipe(ushort Hash, string Id, Operation Operation, string? Tag, int Affinity,
-        IReadOnlyDictionary<string, string> Convert, IReadOnlyList<(uint Currency, int Amount)> Costs)
+        IReadOnlyDictionary<string, string> Convert, IReadOnlyList<(uint Currency, int Amount)> Costs,
+        int GameMode = 0, bool NoInfluence = false)
     {
         public bool Supported => Operation != Operation.Unsupported;
+        public bool InMode(bool hardMode) => GameMode switch { 1 => !hardMode, 2 => hardMode, _ => true };
     }
 
     // The four lifeforce currencies, resolved once from BaseItemTypes (the table has only the type number).
     public const string Wild = "Metadata/Items/Currency/HarvestSeedRed",
         Vivid = "Metadata/Items/Currency/HarvestSeedGreen",
         Primal = "Metadata/Items/Currency/HarvestSeedBlue",
-        Sacred = "Metadata/Items/Currency/HarvestSeedBoss";
+        Sacred = "Metadata/Items/Currency/HarvestSeedBoss",
+        Rancour = "Metadata/Items/Currency/HarvestSeedFaridun";
 
     static readonly string[] Metamods =
     [
@@ -42,8 +47,12 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
     /// this item (nothing is changed or spent).</summary>
     public CraftResult? Apply(ushort hash, Item item, Random rng)
     {
-        if (ByHash(hash) is not { } recipe || !recipe.Supported || item.Corrupted || item.Mirrored || !item.Identified ||
-            !item.Components.Contains("Mods") || items.HasExplicitStat(item, Metamods)) return null;
+        if (ByHash(hash) is not { } recipe || !recipe.Supported || !recipe.InMode(hardMode) || item.Corrupted ||
+            item.Mirrored || !item.Identified || item.Rarity == ItemRarity.Unique || !items.Modifiable(item) ||
+            items.HasExplicitStat(item, Metamods)) return null;
+        // "Reforge a Rare item": the item in the slot must already be rare. Augments are "from a non-Influenced item".
+        if (recipe.Operation is Operation.ReforgeTag or Operation.ReforgeAffinity && item.Rarity != ItemRarity.Rare ||
+            recipe.NoInfluence && item.Influences != ItemInfluence.None) return null;
         Item? result = recipe.Operation switch
         {
             Operation.ReforgeTag => items.RollRequiredTag(item, ItemRarity.Rare, rng, recipe.Tag!),
@@ -73,7 +82,7 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
             (Type: 2, Hash: catalog.TypeHash(Vivid) ?? 0),
             (Type: 3, Hash: catalog.TypeHash(Primal) ?? 0),
         };
-        uint sacred = catalog.TypeHash(Sacred) ?? 0;
+        uint sacred = catalog.TypeHash(Sacred) ?? 0, rancour = catalog.TypeHash(Rancour) ?? 0;
 
         // Conversion recipes point at a target by element; the reverse row lists the target's ModType groups, which is
         // how a source group is mapped to the same-tier group in the other element.
@@ -96,7 +105,7 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
             string command = row.Text("Command") ?? "";
             var parts = (row.Text("Parameters") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
             var costs = Costs(row.Int("LifeforceType"), row.Int("LifeforceCost"),
-                row.Int("SacredCost"), lifeforce, sacred);
+                row.Int("SacredCost"), lifeforce, sacred, row.Int("RancourCost"), rancour);
             Operation operation = Operation.Unsupported;
             string? tag = null;
             int affinity = 0;
@@ -133,13 +142,13 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
                 if (map.Count > 0) { operation = Operation.Convert; convertMap = map; }
             }
             result.Add(new((ushort)row.Int("HASH16"), id, operation, tag, affinity, convertMap,
-                costs ?? []));
+                costs ?? [], row.Int("GameMode"), parts.Contains("noinfluence", StringComparer.OrdinalIgnoreCase)));
         }
         return result;
     }
 
     static IReadOnlyList<(uint Currency, int Amount)>? Costs(int type, int amount, int sacred,
-        (int Type, uint Hash)[] lifeforce, uint sacredHash)
+        (int Type, uint Hash)[] lifeforce, uint sacredHash, int rancour, uint rancourHash)
     {
         var costs = new List<(uint, int)>();
         if (amount > 0)
@@ -152,6 +161,11 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
         {
             if (sacredHash == 0) return null;
             costs.Add((sacredHash, sacred));
+        }
+        if (rancour > 0)
+        {
+            if (rancourHash == 0) return null;
+            costs.Add((rancourHash, rancour));
         }
         return costs;
     }
