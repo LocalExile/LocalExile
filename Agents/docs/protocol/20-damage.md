@@ -121,8 +121,8 @@ The stats the server reads (whole percents, this client's Stats.dat names):
 The derived `main_hand_…`/`off_hand_…` and per-element display aliases are not raw inputs to combat.
 `WeaponIn` captures an immutable local-source dictionary with the weapon's damage. Ordinary melee uses that
 accepted weapon; ordinary bows freeze its penetration at release. Supported projectile/area attacks use their
-current main-hand weapon at contact, consistent with their existing damage path. Inactive-set items, shields and
-unqualified weapons cannot contribute. The current executors still lack off-hand attack selection.
+current swinging hand's weapon at contact (`AttackHands`, [11](11-skills.md) §4). Inactive-set items, shields and
+unqualified weapons cannot contribute.
 The source totals use wide intermediates and saturate once at the integer representation boundary.
 Either player or skill prohibition suppresses elemental penetration even if signed flag values would cancel.
 The non-critical companion is handled by the critical resistance rules below. The hand rows add the "with Weapons"
@@ -227,7 +227,7 @@ conversion fault in the filtered diagnostic capture. The native log retained fou
 this is not an exception-free-run claim. Evidence: `artifacts/issue75-completion/conversion-native/verified-matrix-independent.json`
 and `diagnostic-hook/conversion-final-diagnostic-assessment.json`.
 Monster, ailment and DoT consumers remain outside this player-hit change; conditional/minimum-/maximum-only
-operators, critical-weighted DPS, authoritative offhand alternation and official fractional parity remain open.
+operators, critical-weighted DPS and official fractional parity remain open.
 
 ## 2a. Equipped weapon-local damage
 
@@ -253,7 +253,7 @@ Pool, timing, charge and block conditions also use the active weapon profile; an
 cannot grant current speed, block or conditional bonuses. Shield base block requires an enabled active offhand.
 Pinned PoB `CalcSetup.lua` 840-845 excludes unselected weapon-set slots before `CalcPerform.lua` 147-153/221-227
 derives shield, unarmed and dual-wield conditions from the active item context.
-Offhand publication is covered separately from the still-unimplemented authoritative offhand attack alternation.
+Which hand an attack swings is `AttackHands` ([11](11-skills.md) §4).
 Alternative quality bonuses and local base-critical modifiers remain separate work.
 The player resolver retains visited-type qualifiers for destination/intermediate increases and typed more effects
 after conversion to Chaos. The separate 32-control conversion matrix above verifies that integration's local panel

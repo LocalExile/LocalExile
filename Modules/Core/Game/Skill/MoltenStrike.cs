@@ -142,7 +142,7 @@ public static partial class Game
 
         double ruthless = RuthlessBlowMore(conn, skillId, InitialStat);
         int meleeRepeats = MeleeAttackRepeats(conn, skillId);
-        double attackSeconds = SupportedAttackSeconds(conn, skillId);
+        double attackSeconds = SupportedAttackSeconds(conn, skillId, sequence);
         double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
         double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
         var roll = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
@@ -265,7 +265,9 @@ public static partial class Game
                 return;
             double now = ProjectileWorldTime(conn);
             var playerAt = conn.Walk.Position(now);
-            var weapon = WeaponFor(conn);
+            // A dual-wielded use's hand (AttackHands): its reach, hit, chance and local modifiers.
+            var hand = AttackHandFor(conn, skillId, sequence);
+            var weapon = HandWeapon(conn, hand);
             var skillStats = SupportedSkill(conn, skillId).Stats;
             int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
             if (Stat("base_deal_no_damage") != 0) return;
@@ -318,19 +320,20 @@ public static partial class Game
             }
 
             player = CharacterPlayerStats(conn);
-            var local = MainHandLocalSources(conn);
+            var local = HandLocalSources(conn, hand);
+            var swingWeapon = OffHandSwing(conn, hand);
             var pen = Penetration.Of(player, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(player, skillStats);
-            var meleeHit = SupportedHit(conn, skillId);
+            var meleeHit = SupportedSwingHit(conn, skillId, hand, w => SupportedHitFor(conn, skillId, suppress: true, weapon: w));
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
             int criticalMultiplierBase = SupportedCriticalMultiplier(conn, skillId);
-            var accuracy = SupportedAccuracy(conn, skillId);
+            var accuracy = SupportedAccuracy(conn, skillId, hand);
             var leech = HitLeechSources(player, true, skillStats, local);
             var impale = ImpaleStats.From(player, Stats, true, skillStats, local);
             var criticalImpale = ImpaleStats.From(player, Stats, true, skillStats, local, critical: true);
-            var ignite = SupportedIgnite(conn, skillId, spell: false, player);
-            var bleed = SupportedBleed(conn, skillId, spell: false, player, melee: true);
-            var poison = SupportedPoison(conn, skillId, spell: false, player);
+            var ignite = SupportedIgnite(conn, skillId, spell: false, player, swingWeapon);
+            var bleed = SupportedBleed(conn, skillId, spell: false, player, swingWeapon, melee: true);
+            var poison = SupportedPoison(conn, skillId, spell: false, player, swingWeapon);
             ignite = RepeatAilment(ignite, repeatMore);
             bleed = RepeatAilment(bleed, repeatMore);
             poison = RepeatAilment(poison, repeatMore);
@@ -367,9 +370,9 @@ public static partial class Game
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
-                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
+                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId, hand),
+                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false, SwingWeaponCritical(conn, hand)),
+                    SupportedCriticalChanceVsGround(conn, skillId, release: false, SwingWeaponCritical(conn, hand)));
                 bool critical = RollCriticalStrike(conn, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, player: player)
                     && EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);

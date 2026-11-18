@@ -74,8 +74,8 @@ public static partial class Game
             !dance && get("aggravate_inflicted_bleeding") != 0, rupture);
     }
 
-    /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
-    /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
+    /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; the swung weapon
+    /// (<paramref name="weapon"/>: a shield skill's shield, a dual-wielded off hand) brings its own local chance.</summary>
     public static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false,
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
@@ -93,7 +93,7 @@ public static partial class Game
             ? SupportedAilmentRows(conn, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
         return WithOverheat(conn, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false));
+            weapon is null ? MainHandLocalSources(conn) : weapon.LocalSources, melee, bow: false));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
