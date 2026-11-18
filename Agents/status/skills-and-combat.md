@@ -151,9 +151,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
+- Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
+  projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
+  Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
+  Puncture always bleeds, for its skill duration and with its more bleeding damage.
+  Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
+  guard refuses the next before its cost (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
+  swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
+  a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.

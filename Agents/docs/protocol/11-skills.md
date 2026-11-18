@@ -3066,6 +3066,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
   consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
   crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
+  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). Phase Run and Blood Rage send their rows
+  (`new_phase_run` 467 and `new_phase_run_damage` 468, not the older `phase_run` 65; `blood_rage` 11) as Flicker
+  Strike's buff is sent, with no additional-data list; whether their backends read one is not known (unchecked live).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
   Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
@@ -4084,8 +4087,9 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   takes charges away: Replica Fragility, Replica Pacifism and Replica Powerlessness store `-1` ("Lose an
   Endurance Charge each second") and lose one each second, never below the minimum; every other use of
   the stat is positive. Skills: the Frenzy gem's hit gives a Frenzy Charge once per use (ActiveSkills `frenzy`;
-  without a Frenzy projectile row it hits as an area, and only its first target counts), Power Siphon's
-  killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
+  it fires the weapon's projectile, and only the volley's first enemy hit counts), Flicker Strike's and Power
+  Siphon's own on-hit chances count (Power Siphon's ActiveSkills text names a kill grant no 3.29 stat carries;
+  its stats give 20% on hitting a rare or unique enemy), and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
   its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
@@ -4142,11 +4146,11 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   skills and effects that consume or remove
   charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
   need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
-  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
-  soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
+  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun);
+  conditional maxima and minima (while affected by an aura, on
   low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target or
   context still has no consumer (weapon-family damage, mana cost, Elusive/cooldown/buff contexts, minion or golem rows,
-  Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  Flicker Strike's own per-charge attack speed and damage).
 
 **Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
 lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges

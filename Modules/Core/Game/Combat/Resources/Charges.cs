@@ -66,6 +66,7 @@ public static partial class Game
             TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
+        SelfBuffsOnKill(conn);
         CurseCharges(conn, m, true);
     }
 

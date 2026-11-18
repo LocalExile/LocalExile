@@ -376,7 +376,7 @@ public static partial class Game
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
-            SkillStats = new Dictionary<uint, int>(own),
+            SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,
                 AddedEffectiveness(conn, gem.Effect, gem.Level), local: local,
                 bow: !spell && WeaponProfileFor(conn, activeSet: true).Bow),

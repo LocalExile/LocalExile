@@ -425,6 +425,7 @@ public static partial class Game
             SiphoningSkillUsedLocked(conn, begun);
             cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
         }
+        PhaseRunOnSkillUse(conn, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
@@ -1106,6 +1107,11 @@ public static partial class Game
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
             return false;
         }
+        if (gem.Name is not null && SelfBuffRefused(conn, gem.Effect) is { } refused)
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
+            return false;
+        }
         if (IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(gem.Effect)))
         {
             beastCompanion = SupportedSkill(conn, skillId);
@@ -1289,6 +1295,7 @@ public static partial class Game
         if (!PlacedCastFamilyCurrent(conn, skillId, placedAdmission))
             return false;
         if (!locationInstant && gem.Name is not null && placedAdmission is null) RecordAcceptedGemUse(conn, gem.Effect);
+        if (gem.Name is not null) PhaseRunOnSkillUse(conn, skillId);
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
@@ -1345,6 +1352,7 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1427,7 +1435,7 @@ public static partial class Game
     }
 
     static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
-        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
+        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect) || InPlaceSelfBuff(conn, effect)
         || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,

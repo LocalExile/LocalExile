@@ -82,6 +82,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
+    /// claims them.</summary>
+    public UseOnce? FirstHit { get; init; }
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
@@ -117,4 +120,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         Min = value.Min * more, Max = value.Max * more,
         CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
     };
+}
+
+/// <summary>Claimed once by whichever of a use's projectiles hits first.</summary>
+public sealed class UseOnce
+{
+    int claimed;
+    public bool Claim() => Interlocked.Exchange(ref claimed, 1) == 0;
 }
