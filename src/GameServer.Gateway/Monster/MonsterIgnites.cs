@@ -113,6 +113,34 @@ public sealed class MonsterIgnites
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
 
+    /// <summary>The attacking object shown as the buff source (0 for generic self-created ailments).</summary>
+    public uint BuffSource;
+
+    /// <summary>Moves the active instances and integration state to a fresh owner without restarting either.</summary>
+    public void MoveTo(MonsterIgnites target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.active.AddRange(active);
+        target.last = last;
+        target.carry = carry;
+        target.expiryRate = expiryRate;
+        target.Stacks = Stacks;
+        target.LastApplied = LastApplied;
+        target.DiedBurning = DiedBurning;
+        target.BuffSource = BuffSource;
+        target.Buff = null;
+
+        active.Clear();
+        last = 0;
+        carry = 0;
+        expiryRate = 1;
+        Stacks = 1;
+        LastApplied = 0;
+        DiedBurning = false;
+        BuffSource = 0;
+        Buff = null;
+    }
+
     public bool Burning => active.Count > 0;
 
     /// <summary>Nothing burns and no buff is shown.</summary>
@@ -141,17 +169,24 @@ public sealed class MonsterIgnites
     /// <summary>A hit that dealt fire damage tries to ignite. Critical hits always do; otherwise the chance rolls, then the
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>
-    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random) =>
-        TryApply(settings, critical, now, avoid, immune, random, 0);
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random)
+        => TryApply(settings, critical, now, avoid, immune, random, 0, out _);
 
     public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
-        int damageTakenPct)
+        out double perSecond) => TryApply(settings, critical, now, avoid, immune, random, 0, out perSecond);
+
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
+        int damageTakenPct) => TryApply(settings, critical, now, avoid, immune, random, damageTakenPct, out _);
+
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
+        int damageTakenPct, out double perSecond)
     {
+        perSecond = 0;
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        return Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(), settings.Seconds, settings.Aggravated,
-            settings.Spread, damageTakenPct);
+        perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
+        return Add(now, perSecond, settings.Seconds, settings.Aggravated, settings.Spread, damageTakenPct);
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>
@@ -171,8 +206,14 @@ public sealed class MonsterIgnites
     /// <summary>The whole damage the strongest ignites deal (<see cref="Dealing"/>) from the last advance to
     /// <paramref name="until"/>, through every start and end in between, times the target's mitigation
     /// <paramref name="factor"/>; the fraction carries to the next advance. Ended ignites are dropped.</summary>
-    public int Advance(double until, double factor, double aggravatedExtra = 0)
+    public int Advance(double until, double factor, double aggravatedExtra = 0) =>
+        Advance(until, factor, aggravatedExtra, out _);
+
+    /// <summary>The same advance, also reporting the end of the last cut where the active set dealt positive damage:
+    /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
+    public int Advance(double until, double factor, double aggravatedExtra, out double? lastDamageAt)
     {
+        lastDamageAt = null;
         int pending = accrued;
         accrued = 0;
         if (active.Count == 0 || !(until > last)) return pending;
@@ -182,8 +223,11 @@ public sealed class MonsterIgnites
         for (int k = 1; k < cuts.Length; k++)
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
-            damage += Dealing(active.Where(i => i.From <= mid && mid < i.Until).ToList(), aggravatedExtra)
-                * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double seconds = cuts[k] - cuts[k - 1];
+            double mitigated = Dealing(active.Where(i => i.From <= mid && mid < i.Until).ToList(), aggravatedExtra)
+                * Math.Max(0, factor);
+            if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
+            damage += mitigated * seconds;
         }
         last = until;
         active.RemoveAll(i => i.Until <= until);

@@ -393,15 +393,17 @@ public static partial class Game
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
-                if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+                conn.RecentEvents.RecordCriticalOutcome(now, critical);
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                 SoulEaterHit(conn, m);
                 if (hit.Life == 0) DevourOnKill(conn, m, skillStats);
-                AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
-                    Random.Shared, reflected, poison, sourceSkill: skillId);
+                AilmentsOnHitLocked(conn, id, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
+                    Random.Shared, reflected: reflected, poison: poison, sourceSkill: skillId,
+                    blind: BlindHitInput.Capture(player, skillStats),
+                    attackGains: AttackAilmentGains.Capture(player, attack: true));
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
                 if (m.Life > 0 && ignite.CanIgnite(rolled) && IgniteOnHitLocked(conn, id, m, ignite, critical, now) is { } ignitePackets)
@@ -421,7 +423,6 @@ public static partial class Game
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
                     rageGranted = RageOnHitLocked(conn, attack: true, melee: true, critical, skillStats, player: player);
-                InflictMonsterBlind(conn, id, m, now, BlindInputs(player, skillStats));
                 CombatRushOnHit(conn, skillStats, now);
                 HallowOnMeleeHit(conn, m, skillStats, now);
                 ExcommunicateOnMeleeHit(conn, m, skillStats, now);

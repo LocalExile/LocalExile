@@ -192,9 +192,11 @@ public sealed class IncomingDamagingAilments
         int less = IncomingResourceDefences.LessTakenPct(pools, get);
         int bleedRaw = IncomingResourceDefences.TakenOverTime(bleedMitigated, get, ref bleedTakenFraction, less,
             typedIncreasedPct: get("physical_damage_taken_+%"),
-            reductionPct: ChargeEffects.Reduction(get).Physical);
+            reductionPct: ChargeEffects.Reduction(get).Physical,
+            finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         int poisonRaw = IncomingResourceDefences.TakenOverTime(poisonMitigated, get, ref poisonTakenFraction, less,
-            typedIncreasedPct: get("chaos_damage_taken_+%"));
+            typedIncreasedPct: get("chaos_damage_taken_+%"),
+            finalTakenPct: get(IncomingResourceDefences.UnhingedSaneDamageFinal));
 
         Prune(until);
         last = until;

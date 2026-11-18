@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class IncomingDamagingAilmentTests
+static class IncomingDamagingAilmentTestCases
 {
     sealed class UpperRoll : Random
     {
@@ -20,8 +20,7 @@ public sealed class IncomingDamagingAilmentTests
     static Dictionary<uint, int> Stats(params (string Name, int Value)[] pairs) =>
         pairs.ToDictionary(p => Program.Stats.Key(p.Name)!.Value, p => p.Value);
 
-    [Fact]
-    public void Monster_applications_use_final_avoidance_and_rolled_damage_ranges()
+    public static void Monster_applications_use_final_avoidance_and_rolled_damage_ranges()
     {
         var monster = new SpawnedMonster("ailment-source", new(0, 0, 0), 0, 0, 1000)
         {
@@ -58,12 +57,18 @@ public sealed class IncomingDamagingAilmentTests
         conn.Closed = true;
     }
 
-    [Fact]
-    public void Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection()
+    public static void Resource_writer_preserves_stack_intervals_routing_and_paid_cleanse_protection()
     {
         var conn = Fresh();
         conn.Clock.Stop();
         double now = conn.Clock.Elapsed.TotalSeconds;
+        conn.Auras[1] = new(1, 0, "Vitality", "Vitality", 1, 153, 500, 0, ReservesLife: true);
+        int cap = conn.PlayerLifeCap;
+        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 10000, 500),
+            Game.PlayerLifeUpdate(conn));
+        Assert.Equal(10000u, conn.PlayerLife);
+        Assert.Equal(cap, conn.PlayerLifeCap);
+        conn.Auras.Clear();
         conn.IncomingAilments.ApplyBleed(now, 10, 2);
         conn.IncomingAilments.ApplyBleed(now, 5, 4);
         conn.IncomingAilments.ApplyPoison(now + 1, 10, 2);
@@ -109,6 +114,9 @@ public sealed class IncomingDamagingAilmentTests
         Game.AdvancePlayerAilmentsLocked(conn, now, now + 1, Stats());
         Assert.Equal(0u, conn.PlayerLife);
         Assert.True(conn.IncomingAilments.Idle);
+        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 0, 0),
+            Game.PlayerLifeUpdate(conn));
+        Assert.Equal(0u, conn.PlayerLife);
         conn.Closed = true;
     }
 }
