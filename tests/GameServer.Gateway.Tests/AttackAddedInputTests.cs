@@ -382,6 +382,8 @@ public sealed class AttackAddedInputTests : IDisposable
 
     void Accuracy_boots_apply_their_less_rating_before_the_attack_grant()
     {
+        Assert.NotNull(typeof(CharacterStats).GetMethod(nameof(CharacterStats.For),
+            [typeof(SkillCatalog.ClassInfo), typeof(int), typeof(CharacterStats.Bonus)]));
         var previousPools = conn.Pools;
         var items = Game.ItemsOf(conn);
         var weapon = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"))!;

@@ -160,8 +160,10 @@ public static class CharacterStats
             + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0),
             0L, DamageModel.SpellSuppressionChanceCap);
 
-    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null,
-        Func<long, long, int>? resolveAccuracy = null)
+    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null) =>
+        For(c, level, bonus, null);
+
+    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus, Func<long, long, int>? resolveAccuracy)
     {
         var b = bonus ?? Bonus.None;
         level = Math.Clamp(level, 1, Progression.MaxLevel);
