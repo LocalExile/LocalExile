@@ -21,8 +21,6 @@ public static partial class Game
         public Task Pass = Task.CompletedTask;
     }
     static readonly ConditionalWeakTable<ClientState, AreaAi> AreaAis = new();
-    // The areas that run the AI, with the rules (module lifetime) that started it there.
-    static readonly ConditionalWeakTable<GameArea, object> AiAreas = new();
 
     // MonsterAiCadence.StepMilliseconds (50 ms) is two frames, as the AI loop's wait was.
     const int AiEveryFrames = 2;
@@ -30,17 +28,12 @@ public static partial class Game
     public static void StartMonsterAi(GameArea area, ClientState conn, object source)
     {
         var frames = conn.Frames;
-        AiAreas.AddOrUpdate(area, source);
         area.Systems.Add("monster ai", AreaPhase.Ai, a =>
         {
             foreach (var player in frames.Players()) AreaMonsterAi(a, player);
         }, every: AiEveryFrames, source: source);
     }
 
-    /// <summary>Whether the area runs this connection's monster AI (its own AI loop then only waits).</summary>
-    public static bool AreaRunsMonsterAi(ClientState conn) =>
-        conn.Instance is not null && conn.Frames.Running && conn.Frames.Area is { } area
-        && AiAreas.TryGetValue(area, out var source) && ReferenceEquals(source, CombatLifetime);
 
     static void AreaMonsterAi(GameArea area, ClientState player)
     {

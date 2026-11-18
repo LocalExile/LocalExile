@@ -6,13 +6,10 @@
 /// </summary>
 public static partial class Game
 {
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, object> AilmentAreas = new();
-
     public static void StartMonsterAilments(GameArea area, ClientState conn, object source)
     {
         var frames = conn.Frames;
         var monsters = conn.Monsters;
-        AilmentAreas.AddOrUpdate(area, source);
         area.Systems.Add("monster ailments", AreaPhase.Ai, a =>
         {
             if (!CurrentGameWork || frames.View is not { } view || view.Paused || view.Closed || !view.PlayerSent) return;
@@ -35,9 +32,4 @@ public static partial class Game
             }
         }, order: -1, every: AiEveryFrames, source: source);
     }
-
-    /// <summary>Whether the area presents this connection's monsters' ailments (the AI pass then leaves them).</summary>
-    public static bool AreaRunsAilments(ClientState conn) =>
-        conn.Instance is not null && conn.Frames.Running && conn.Frames.Area is { } area
-        && AilmentAreas.TryGetValue(area, out var source) && ReferenceEquals(source, CombatLifetime);
 }

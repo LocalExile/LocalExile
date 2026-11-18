@@ -732,7 +732,7 @@ public static partial class Game
             while (PlayerUpdatesCurrent(conn, updates) && !conn.LeavingArea && conn.PendingTransfer is null)
             {
                 // In an instance the area runs the AI once a frame for every player (MonsterAiSystem.cs).
-                if (!AreaRunsMonsterAi(conn)) await StepMonsterAi(remote, stream, ciphers, conn, cadence);
+                if (!AreaRunsGame(conn)) await StepMonsterAi(remote, stream, ciphers, conn, cadence);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 int delay;
                 lock (conn.Monsters)
@@ -757,7 +757,7 @@ public static partial class Game
             // each monster's AI runs on its target player's connection (MonsterTargetsLocked below).
             bool runner = IsMonsterRunner(conn);
             // In an instance the area presents them, to every player (MonsterAilmentSystem.cs).
-            if (!conn.Paused && runner && !AreaRunsAilments(conn)) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
+            if (!conn.Paused && runner && !AreaRunsGame(conn)) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
             if (!cadence.TryBeginStep(now, conn.AiEnabled && !conn.Paused && conn.PlayerLife > 0)) return plan;
             // Before any order replaces a walk: its steps since the last pass would go unchecked.
             if (runner) StepWalkers(conn, now);

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using GameServer.Modding;
 
 /// <summary>
@@ -21,7 +22,9 @@ public static class AreaSetup
     {
         // A reload reaches an area that already has this module's systems from an earlier start.
         if (area.Systems.All.Any(s => ReferenceEquals(s.Source, source))) return;
+        Running.AddOrUpdate(area, source);
         MonsterRegeneration.Start(area, conn, source);
+        Game.StartMonsterDamageOverTime(area, conn, source);
         Game.StartMonsterAilments(area, conn, source);
         Game.StartMonsterAi(area, conn, source);
         // The area's walkers, once a frame for everyone (AreaMovement); whoever needs them current between frames steps
@@ -36,6 +39,15 @@ public static class AreaSetup
         }, source: source);
         Console.WriteLine($"[area] {conn.Layout.Id}: {area.Systems.All.Count(s => ReferenceEquals(s.Source, source))} game system(s) in the area's world");
     }
+
+    // The areas that run the game's systems, with the rules (module lifetime) that started them there.
+    static readonly ConditionalWeakTable<GameArea, object> Running = new();
+
+    /// <summary>Whether this connection's area runs the game's systems of the rules loaded now: the loops they replace
+    /// (each connection's AI, its tick's monster damage over time, ...) then leave that work to the area.</summary>
+    public static bool Runs(ClientState conn) =>
+        conn.Instance is not null && conn.Frames.Running && conn.Frames.Area is { } area
+        && Running.TryGetValue(area, out var source) && ReferenceEquals(source, Game.CombatLifetime);
 
     sealed class Removal(IModuleLifetime source) : IDisposable
     {
