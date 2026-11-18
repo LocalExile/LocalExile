@@ -108,6 +108,19 @@ public static partial class Game
         }
     }
 
+    /// <summary>A guard's held rate-0 entry built from the skill's own base cooldown, published before its instant
+    /// action so the client skips the press prediction it would otherwise start from a use (issue #1127). It mutates no
+    /// server state: the use's acknowledgement and <see cref="StartTriggeredGuard"/>'s <see cref="SingleUseCooldownState.Hold"/>
+    /// behind the instant action own the state, so a refused action cannot leave a held cooldown stuck.</summary>
+    public static byte[]? GuardCooldownPreEntry(ClientState conn, ushort skill, int effect)
+    {
+        int ms = SkillsFor(conn).CooldownMs(effect, SupportedSkill(conn, skill).Level);
+        if (ms <= 0) return null;
+        float total = ms / 1000f;
+        return InstanceEntities.PlayerSingleUseCooldowns(PlayerId,
+            [new SingleUseCooldownUpdate(skill, total, total, 0f, 1)], canDetonateMines: CanDetonateMines(conn));
+    }
+
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
     internal static double GuardDuration(int baseMilliseconds, Func<string, int> player, Func<string, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds,

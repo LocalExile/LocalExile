@@ -32,6 +32,9 @@ public sealed class GuardSkillTests
         var held = Game.GuardCooldownEntry(f.Conn, gem.Id, gem.Effect);
         Assert.Equal(InstanceEntities.PlayerSingleUseCooldowns(Program.PlayerId,
             [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]), held);
+        // The pre-entry published before the instant action is the same frozen rate-0 entry, built from the skill's base
+        // cooldown without touching the state, so the client skips the press prediction it would start from a use (#1127).
+        Assert.Equal(held, Game.GuardCooldownPreEntry(f.Conn, gem.Id, gem.Effect));
         // The record's own cooldown base is the gem's 3 s (the bar dims the icon against it), like the official client.
         Assert.Equal(3000u, Game.PlayerSkills(f.Conn).Single(s => s.Id == gem.Id).CooldownMs);
         // Level 1 with three charges: 25% less Physical and Elemental Damage, then 15% less Physical per charge.
