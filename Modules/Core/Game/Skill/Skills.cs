@@ -1197,7 +1197,7 @@ public static partial class Game
         if (allowed.Count == 0) return null;
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
-                hand is { } held && WeaponIdentity.AllOneHandMelee(ItemModStats.Local(held.Item, ItemsFor(conn).Mods)));
+                hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(conn).Mods));
         return Fits(ActiveMainHand(conn), UnarmedClassRow) || Fits(ActiveOffHand(conn), null)
             ? null : "the equipped weapon cannot use this skill";
     }

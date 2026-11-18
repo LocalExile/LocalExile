@@ -21,8 +21,11 @@ public static class WeaponIdentity
     public static bool CountsAs(string? actualClass, IReadOnlyDictionary<string, int>? local, string itemClass) =>
         actualClass == itemClass || AllOneHandMelee(local) && OneHandMelee(itemClass);
 
+    public static bool AllOneHandMelee(Item item, ModCatalog mods) =>
+        ItemModStats.LocalValue(item, mods, LocalAllOneHandMelee) != 0;
+
     public static bool CountsAs((Item Item, ItemCatalog.BaseType? Type)? hand, ModCatalog mods, string itemClass) =>
-        hand is { } held && CountsAs(held.Type?.Class, ItemModStats.Local(held.Item, mods), itemClass);
+        hand is { } held && (held.Type?.Class == itemClass || OneHandMelee(itemClass) && AllOneHandMelee(held.Item, mods));
 
     // The native additional-projectile predicate reads both active hands, independently of the attacking hand.
     public static bool WieldingClawOrDagger(Func<string, int> get) =>

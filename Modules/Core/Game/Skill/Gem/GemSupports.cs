@@ -109,9 +109,6 @@ public sealed class GemSupports(string folder = "data")
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass, int activeLevel) => Resolve(active, candidates, skills, weaponClass, activeLevel, sourceIsGem: true);
-
-    public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
         int? weaponClass = null, int activeLevel = 1, bool sourceIsGem = true) =>
         Resolve(active, candidates, skills, weaponClass, activeLevel, sourceIsGem, allOneHandMelee: false);
 

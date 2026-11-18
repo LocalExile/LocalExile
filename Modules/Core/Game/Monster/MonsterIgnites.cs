@@ -179,12 +179,13 @@ public static partial class Game
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
     public static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get, new(PlayerAccuracy(conn, player))), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(conn, player))), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get), player, null, spell: false, "main_hand");
     }

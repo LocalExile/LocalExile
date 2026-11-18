@@ -179,7 +179,7 @@ public static partial class Game
         var main2 = activeSet ? null : At(14);
         var off2 = activeSet ? null : At(15);
         bool AllTypes(byte row) => expandedIdentities && rowItems(row).Where(i => !inactive(i.Id))
-            .Any(i => WeaponIdentity.AllOneHandMelee(ItemModStats.Local(i.Item, catalog.Mods)));
+            .Any(i => WeaponIdentity.AllOneHandMelee(i.Item, catalog.Mods));
         bool mainAll1 = AllTypes(2), offAll1 = AllTypes(3),
             mainAll2 = !activeSet && AllTypes(14), offAll2 = !activeSet && AllTypes(15);
         bool allTypes = mainAll1 || offAll1 || mainAll2 || offAll2;

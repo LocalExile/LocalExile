@@ -233,7 +233,7 @@ public static partial class Game
             {
                 if (row != PlayerInventories.Weapon1 || inactive?.Contains(item.Id) == true) continue;
                 weaponClass = catalog.ByHash(item.Item.TypeHash)?.ClassRow;
-                allOneHandMelee = WeaponIdentity.AllOneHandMelee(ItemModStats.Local(item.Item, catalog.Mods));
+                allOneHandMelee = WeaponIdentity.AllOneHandMelee(item.Item, catalog.Mods);
                 break;
             }
         }

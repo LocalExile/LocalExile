@@ -516,7 +516,7 @@ public static partial class Game
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = DamageStats.Conversion(player, conversionStats, Stats, attack: true);
                 var prehit = DefaultMeleePrehitProfileLocked(conn, targetId, m, player, weapon, conversion,
-                    ownPenetration, ProjectileWorldTime(conn));
+                    ownPenetration, ProjectileWorldTime(conn), accuracy.Rating);
                 if (prehit is null)
                 {
                     Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled: the target is no longer " +
@@ -638,7 +638,7 @@ public static partial class Game
     // holds Monsters and uses the result through the contact without reading the player or weapon again.
     public static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
         SpawnedMonster target, IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed weapon,
-        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at)
+        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at, int accuracy)
     {
         if (!target.Hostile || target.Dead || target.Life == 0
             || !conn.Monsters.TryGetValue(targetId, out var registered) || !ReferenceEquals(registered, target))
@@ -650,10 +650,11 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
-        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(PlayerAccuracy(conn, player)), additionalIncreased),
-            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion));
+        // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
+        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(accuracy), additionalIncreased),
+            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion, accuracy));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
