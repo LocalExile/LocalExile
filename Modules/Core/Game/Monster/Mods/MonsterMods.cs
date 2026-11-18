@@ -50,7 +50,8 @@ public static partial class Game
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
-        out bool critical, Func<int>? selfCriticalReduction = null, bool cannotCrit = false, int additionalCritical = 0)
+        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
+        int additionalCritical = 0)
     {
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
@@ -59,10 +60,12 @@ public static partial class Game
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
-        if (e.ExecutionerPct(playerLife, playerMaxLife) is int executioner and > 0)
+        int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
+        int spiderDamage = m.SpiderWebs.Damage(now);
+        if (executioner > 0 || spiderDamage != 0)
         {
             int increased = e["damage_+%"] + e["physical_damage_+%"];
-            factor *= (100.0 + increased + executioner) / (100 + increased);
+            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
     }
@@ -84,7 +87,8 @@ public static partial class Game
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
-                + ScorchedResistance(m, type, now),
+                + ScorchedResistance(m, type, now)
+                + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
@@ -139,8 +143,15 @@ public static partial class Game
             .Scale(m.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
-    public static int SelfCriticalReduction(ClientState conn) =>
-        Stats.Key("base_self_critical_strike_multiplier_-%") is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+    public static int SelfCriticalReduction(ClientState conn)
+    {
+        var stats = CharacterPlayerStats(conn);
+        return SelfCriticalReduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+    }
+
+    public static int SelfCriticalReduction(Func<string, int> get) =>
+        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? MonsterModEffects.CriticalMultiplier
+            : get("base_self_critical_strike_multiplier_-%");
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
     /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's
@@ -174,8 +185,10 @@ public static partial class Game
 
     /// <summary>The critical strike multiplier a critical hit of the player has on this monster: 100% when it takes no
     /// extra damage from critical strikes (of Toughness).</summary>
-    public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier) =>
-        m.Effects.NoExtraCriticalDamage ? 100 : multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"];
+    public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
+        CriticalHitMultiplier((long)multiplier + m.Curses["enemy_additional_critical_strike_multiplier_against_self"],
+            noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own));
 
     /// <summary>One burn tick on a monster (Righteous Fire, fire damage over time), less <see cref="MonsterDotTaken"/>.</summary>
     public static (int Damage, double Carry) MonsterBurn(SpawnedMonster m, DamageOverTime burn, double seconds,

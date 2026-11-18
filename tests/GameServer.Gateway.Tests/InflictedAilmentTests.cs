@@ -227,6 +227,13 @@ public class InflictedAilmentTests
                 Game.ReflectAilmentsLocked(reflected, incoming, now + .1, Raw(), new Random(1));
                 Assert.Empty(reflected.FlaskAutomation.Events);
 
+                reflected.ElementalAilments.Clear();
+                var pending = new List<MonsterElementalAilments.Effect>(incoming);
+                Game.ReflectPendingAilmentsLocked(reflected, pending, now, Raw(), new Random(1));
+                Assert.Empty(pending);
+                Game.ReflectPendingAilmentsLocked(reflected, pending, now + .1, Raw(), new Random(1));
+                Assert.False(reflected.ElementalAilments.Snapshot(now + 1.05).Freeze);
+                reflected.FlaskAutomation.Discard();
                 reflected.ElementalAilments.Clear(); reflected.RecentEvents.Clear();
                 Game.ReflectAilmentsLocked(reflected, incoming, now + .2,
                     Raw(("cannot_be_frozen", 1), ("cannot_be_shocked", 1)), new Random(1));

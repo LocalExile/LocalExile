@@ -67,6 +67,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
+- Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
+- Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
+- Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
@@ -160,7 +163,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Vaal minion totem, trap and mine casts are refused before spending souls or starting an action.
 - Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, Arc, projectile spells, supported summons and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.

@@ -35,6 +35,28 @@ public sealed class MonsterElementalAilments
     public int SentActionSpeed;
     public double WalkFactor = 1;
 
+    /// <summary>Moves the active elemental ailments without carrying their old presentation identities.</summary>
+    public void MoveTo(MonsterElementalAilments target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.effects.AddRange(effects);
+        target.spread.Clear();
+        foreach (var (kind, effect) in spread) target.spread[kind] = effect;
+        target.expiryRate = expiryRate;
+        target.Shattered = Shattered;
+        target.shown.Clear();
+        target.SentActionSpeed = 0;
+        target.WalkFactor = 1;
+
+        effects.Clear();
+        spread.Clear();
+        expiryRate = 1;
+        Shattered = false;
+        shown.Clear();
+        SentActionSpeed = 0;
+        WalkFactor = 1;
+    }
+
     public bool Idle => effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
 
     IEnumerable<Effect> Active(Kind kind, double now) => (spread.Count == 0 ? effects : effects.Concat(spread.Values))

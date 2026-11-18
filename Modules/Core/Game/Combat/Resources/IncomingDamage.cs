@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 public static partial class Game
 {
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
@@ -24,20 +26,29 @@ public static partial class Game
         physical = IncomingResourceDefences.Taken(physical, Get, less);
         other = IncomingResourceDefences.Taken(other, Get, less);
         chaos = IncomingResourceDefences.Taken(chaos, Get, less);
-        (physical, other, chaos) = TriggeredGuardHit(conn, physical, other, chaos, at);
+        // Doppelgänger Guise's sane conditional final is component-specific and follows ordinary increased Damage Taken.
+        // Apply it before every resource pool so it is not repeated between mitigation and allocation.
+        physical = ApplyUnhingedTaken(physical, DamageType.Physical, Get);
+        chaos = ApplyUnhingedTaken(chaos, DamageType.Chaos, Get);
+        (physical, other, chaos) = MitigateTriggeredGuardHit(conn, physical, other, chaos, at);
+        // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
+        // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
+        physical = PhysicalAegisDamage(conn, physical, at);
+        (physical, other, chaos) = AbsorbTriggeredGuardHit(conn, physical, other, chaos, at);
         RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
-        // Eldritch Battery: "Energy Shield protects Mana instead of Life". The hit goes past it to Life (it still stops
-        // the recharge), and the share defensive Mana takes (Mind Over Matter) is taken from Energy Shield first.
+        CrabPhysicalHitLocked(conn, physical, at, player);
         bool protectsMana = Get("virtual_energy_shield_protects_mana") != 0 || Get("keystone_eldritch_battery") != 0;
         int bypass = Get(IncomingResourceDefences.BypassStat);
-        int nonChaosLife = protectsMana
-            ? conn.EnergyShield.Damage((int)Math.Min(int.MaxValue, (long)physical + other), true, at)
-            : (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
-                + IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at));
+        int physicalLife = protectsMana ? conn.EnergyShield.Damage(physical, true, at)
+            : IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
+        int otherLife = protectsMana ? conn.EnergyShield.Damage(other, true, at)
+            : IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at);
+        int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
         int chaosLife = conn.EnergyShield.Damage(chaos, true, at);
+        var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
         int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)conn.PlayerMana + conn.EnergyShield.Current) : (int)conn.PlayerMana;
-        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, types, manaPool, Get);
+        int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
         int toMana = protectsMana ? conn.EnergyShield.Damage(fromMana, false, at) : fromMana;
         conn.PlayerMana -= (uint)Math.Min(toMana, conn.PlayerMana);
         if (ResourceEffectsCurrent(conn, state)) state.Mana.Hit(at,
@@ -45,6 +56,28 @@ public static partial class Game
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         return PetrifiedBlood.PreventHitLifeLoss(conn, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at);
     }
+
+    // Mana-before-Life uses the remaining typed weights after Aegis, Ward and ES. In particular, physical damage
+    // removed by an Aegis must not keep weighting a typed Mana share for another damage type.
+    static GameServer.Core.World.DamagePacket RemainingManaDamageTypes(
+        GameServer.Core.World.DamagePacket original, int physicalLife, int otherLife)
+    {
+        var result = GameServer.Core.World.DamagePacket.Empty;
+        if (physicalLife > 0)
+            result = result.Add(GameServer.Core.World.DamageType.Physical,
+                new GameServer.Core.World.DamageRange(physicalLife, physicalLife));
+        var components = original.Components.Where(c => c.Type is not (GameServer.Core.World.DamageType.Physical
+            or GameServer.Core.World.DamageType.Chaos) && c.Range.Min > 0).ToArray();
+        double total = components.Sum(c => c.Range.Min);
+        if (otherLife <= 0 || total <= 0) return result;
+        foreach (var (type, range) in components)
+        {
+            double amount = range.Min * otherLife / total;
+            result = result.Add(type, new GameServer.Core.World.DamageRange(amount, amount));
+        }
+        return result;
+    }
+
     public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
     {
