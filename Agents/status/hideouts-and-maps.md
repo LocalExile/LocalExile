@@ -174,7 +174,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   always activated). The Hideout, Menagerie, Mine Encampment, Forbidden Sanctum, Kingsmarch, Rogue Harbour and
   Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
-  The hub waypoints stay unlit (client area-type rule); The Sovereign (Deepwater) has no layout yet.
+  The hub waypoints stay unlit (client area-type rule).
+  In the Allflame leagues the Deepwater pin, `/boat` and the Deepwater Coast's rowboat lead to The Sovereign, with its
+  rulesets, deck stash and guild stash, Valerie and Vesper; it has no server layout yet (not in server_level_areas).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.

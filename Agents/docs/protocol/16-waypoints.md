@@ -134,16 +134,23 @@ the panel was opened from; the Gateway moves the player to the hub (arriving at 
 | 0x181 | `0181 00002F00 00` | Kingsmarch | KalguuranSettlersLeague |
 | 0x182 | `0182 00002F00 00` | Monastery of the Keepers | ChayulaLeague |
 | 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
+| 0x183 | `0183 <u32 BE object> <u8 Ctrl>` (not seen live) | Deepwater | DeepwaterHub (The Sovereign) |
 
-The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in); the
-Guild Hideout, Halls of the Dead and Necropolis pins are not mapped yet. The Deepwater pin (`__col5` 59) sends nothing
-while the league category is 60; enabled, it sends 0x183 (`0183 <u32 BE object> <u8 Ctrl>`, from the click switch of
-`0x140aa3880`, not yet seen live). `/goto DeepwaterHub` builds no layout: its level generates and matches the
-client's, but it is not in server_level_areas yet ([011](../re/011-level-generation.md) §3c3).
+The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in). The click
+handler `0x140aa3880` switches on the row: 0 Hideout 0x17a, 1 Guild Hideout 0x185, 2 Labyrinth 0x4d, 3 Menagerie 0x17b,
+4 Mine Encampment 0x17d, 5 Synthesis 0x17c, 6 Sanctum 0x17e, 7 Halls of the Dead 0x17f, 8 Necropolis 0x180,
+9 Kingsmarch 0x181, 10 Rogue Harbour 0x184, 11 Monastery 0x182, 12 Deepwater 0x183; the u8 is 1 with Ctrl held.
+Without Ctrl it sends nothing while `0x140aa76f0` says the player is already there: the current area's type equals the
+row's `__col15` (53 for Deepwater, so the pin is off on The Sovereign).
+The Deepwater pin (`__col5` 59) is enabled only when 0x1d sends league category 59, which the Deepwater module does in
+the Allflame leagues; it also answers `/boat` (C→S 0x16, Commands row 70) and the Deepwater Coast's rowboat.
+`/goto DeepwaterHub` builds no layout yet: its level generates and matches the client's, but it is not in
+server_level_areas yet ([011](../re/011-level-generation.md) §3c3).
 
 **Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
 (`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,
-ChayulaLeague) it creates one 12 cells from the spawn. The client draws them unlit: without a bit it lights a
+ChayulaLeague) it creates one 12 cells from the spawn (The Sovereign's deck tile has its own,
+`DeepwaterHubBoat_waypoint`). The client draws them unlit: without a bit it lights a
 waypoint only for its own list of area types (`0x141fe3950`, mask `0x3e602108080008`: 3, 19, 27, 32, 37, 41, 45, 46,
 49-53), and both the object's creation (`0x14216c880`) and every 0x4c (`0x1421523a8` → `0x14214b340`) take the
 state from it (0 idle, 1 `waypointeffect_prestartidle`, 2 activation). Delve_Hub is type 15: none of the StateMachine

@@ -106,6 +106,42 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
   feeds `azmeri_primalist_wisps_found_+%` into that system.
 
+### The Allflame (Deepwater) league
+
+- **Known:** the client calls the 3.29 league Deepwater: league category 59 (LeagueCategoryToDisplayName), Rulesets
+  171 DeepwaterRules and 172 DeepwaterHubRules, the hub DeepwaterHub "The Sovereign" (area type 53), the encounter
+  areas DeepwaterEncounter and DeepwaterEncounterVoyage with the biomes DeepwaterSandy, CoralForest, CoralReef and
+  ThermalVents (never shipped), and the `Deepwater*` tables.
+  The Deepwater module sends the category and `map_deepwater_league`, answers the Deepwater pin (0x183), `/boat` and the
+  Coast's rowboat, and gives the hub its rulesets, stash, Valerie and Vesper
+  ([status](../status/hideouts-and-maps.md), [16](../docs/protocol/16-waypoints.md)).
+  The ruleset messages: S→C 0x2c9 (data) and C→S 0x2ca (actions; the hub's opcodes 0-7, from `0x14041b5d0` and its
+  neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
+  Not decoded: S→C 0x1e (a ruleset event such as `open_deepwater_device`, `update_collection_chest`) and the chart
+  item's `DeepwaterChart` component.
+  No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
+  Voyage) and the client's data and code are the sources.
+- **Start**, one pull request per step, in this order:
+  1. Encounter levels and the biome grid: generate DeepwaterEncounter from a chart's biome and room shape
+     (DeepwaterRooms, DeepwaterConnectionStrings' direction bits, the "Deepwater (2)" item of
+     [server-side level generation](#server-side-level-generation)), and the server data the client needs to build it.
+  2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
+     already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
+     then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
+     outside their light, Sulphur from luminous coral, the collapse and the Bathysphere extraction, and Dredge items.
+  3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
+     Chart Locker (inventory 112, DeepwaterLockerLayout), the 3x3 Voyage board, border modifiers (0x2c9 mode 1,
+     rerolls from 3000 Sulphur doubling, at most 5), Allflame Capsules (60 cells) and the deck's collection chest
+     (inventory 114).
+  4. Economy and crafting: Dead Man's Sulphur, Vesper's Allflame crafting (inventories 105/106,
+     DeepwaterCraftingCurrencies' costs and league quest flag gates, 2 to 4 Ghostly Copies), Ducats, Cursed Ducats and
+     the upgrade pieces.
+  5. Progression: Maiden Voyage, The Spirit Flame and Turning the Tide (Quest 209-211) with Valerie's variant per
+     stage (her `ValeriePlacer*` markers), the Deepwater Fairgraves and the Allflame on The Ship Graveyard, Velka;
+     league quest flag 1834 DeepwaterBoatUnlocked only after the first boarding (the Gateway gives it to everyone
+     today), `/boat` refused before it, and the below-deck stash and crafting bench.
+- **Done when:** an Allflame character takes Valerie's chart, completes a Chart and a Voyage, and crafts with Vesper.
+
 ### Vaal Vessels
 
 - **Known:** strongboxes are done ([status](../status/world.md), "Strongboxes"). Vaal Vessels are strongboxes too
