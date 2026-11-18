@@ -47,10 +47,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
-- Conditional item gates feed live pools and stat publication; untracked, counted-recent and compound operators are
-  partial. Docs: [13](../docs/protocol/13-items.md).
+- Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
-- Utility-flask orbs: Enkindling and Instilling enchantments; incoming Bleed and Poison sources are absent.
+- Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".

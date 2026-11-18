@@ -16,6 +16,11 @@ public sealed class InstanceWorld
     /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
 
+    /// <summary>Monsters of the area placed far from every player: the instance's, counted and saved with it, but not
+    /// created yet, so they are on no client and nothing acts on them. One is created, as a kept monster is, when a
+    /// player comes near. Under the Monsters lock.</summary>
+    public readonly List<SavedMonster> HeldBackMonsters = [];
+
     /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (ClientState.EmergeGround).</summary>
     public readonly EmergeGround EmergeGround = new();
 
