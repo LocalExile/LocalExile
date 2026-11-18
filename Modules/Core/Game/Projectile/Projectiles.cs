@@ -110,9 +110,12 @@ public static partial class Game
         {
             try
             {
-                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1d / 30));
-                while (Active && await timer.WaitForNextTickAsync())
-                    Advance();
+                // The area's frame steps the flights (AreaFrames, after the other loops), not a timer of their own.
+                while (Active)
+                {
+                    await Conn.Frames.Wait(Conn, PlayerUpdateRole.Projectiles, 1000 / 30, CancellationToken.None);
+                    if (Active) Advance();
+                }
             }
             catch (Exception ex)
             {
