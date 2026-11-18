@@ -11,13 +11,89 @@ public static partial class Game
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
     /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
-        bool chaos = false) =>
-        m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
+        bool chaos = false) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0);
+
+    static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
+        bool chaos, double increasedPct) =>
+        m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
+            + PerAilmentTypeTakenPct(m, now)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
+
+    /// <summary>Yoke of Suffering: "Enemies take X% increased Damage for each type of Ailment you have inflicted on them".
+    /// Each wearer keeps their own value on the monster (SpawnedMonster.SetSourceValue, EnemyDebuffsTick); the enemy
+    /// takes, from every source of damage, the sum over the wearers of each one's value times the types of ailment that
+    /// wearer inflicted on it which are still on it.</summary>
+    public const string PerAilmentTypeTaken = "ailment_types_apply_damage_taken_+%";
+
+    static double PerAilmentTypeTakenPct(SpawnedMonster m, double now)
+    {
+        // Every hit's damage taken passes here: a monster no wearer keeps a value on returns before the enumeration.
+        if (!m.HasSourceValues) return 0;
+        // Every hit's damage taken passes here: a monster no wearer keeps a value on returns before the enumeration.
+        if (!m.HasSourceValues) return 0;
+        double total = 0;
+        foreach (var (source, value) in m.SourceValues(PerAilmentTypeTaken)) total += value * AilmentTypesInflicted(m, source, now);
+        return total;
+    }
+
+    /// <summary>The ailment types the server models, by the key a player's inflicting of one is marked with on a monster
+    /// (InflictedLocked). Scorch, brittle and sap are not modelled.</summary>
+    public enum AilmentType { Ignite, Chill, Freeze, Shock, Bleed, Poison }
+    static readonly string[] InflictedKeys = ["inflicted_ignite", "inflicted_chill", "inflicted_freeze", "inflicted_shock",
+        "inflicted_bleed", "inflicted_poison"];
+
+    static bool AilmentOn(SpawnedMonster m, AilmentType type, double now) => type switch
+    {
+        AilmentType.Ignite => m.Ignites.IgnitedAt(now),
+        AilmentType.Bleed => m.Bleeds.IgnitedAt(now),
+        AilmentType.Poison => m.Poisons.Stacks(now) > 0,
+        AilmentType.Chill => m.Ailments.Magnitude(Kind.Chill, now) > 0,
+        AilmentType.Freeze => m.Ailments.Magnitude(Kind.Freeze, now) > 0,
+        _ => m.Ailments.Magnitude(Kind.Shock, now) > 0,
+    };
+
+    static AilmentType TypeOf(Kind kind) => kind switch
+    {
+        Kind.Chill => AilmentType.Chill,
+        Kind.Freeze => AilmentType.Freeze,
+        _ => AilmentType.Shock,
+    };
+
+    /// <summary>The types of ailment on a monster at <paramref name="now"/> that the player with PeerId
+    /// <paramref name="source"/> inflicted: their own ailment of that type has not run out (InflictedLocked) and the
+    /// monster still has the type.</summary>
+    public static int AilmentTypesInflicted(SpawnedMonster m, uint source, double now)
+    {
+        int count = 0;
+        for (var type = AilmentType.Ignite; type <= AilmentType.Poison; type++)
+            if (m.SourceMarked(source, InflictedKeys[(int)type], now) && AilmentOn(m, type, now)) count++;
+        return count;
+    }
+
+    /// <summary>Records that this player (their hit, or their own totem's, trap's or mine's) inflicted an ailment of
+    /// <paramref name="type"/> on a monster lasting until <paramref name="until"/>. A minion's ailments are not its
+    /// owner's. Under the Monsters lock.</summary>
+    public static void InflictedLocked(ClientState conn, SpawnedMonster m, AilmentType type, double until) =>
+        m.MarkSource(conn.PeerId, InflictedKeys[(int)type], until);
+
+    /// <summary><see cref="InflictedLocked(ClientState, SpawnedMonster, AilmentType, double)"/> for a chill, freeze or
+    /// shock the player's hit or effect put on it (null: none).</summary>
+    public static void InflictedLocked(ClientState conn, SpawnedMonster m, MonsterElementalAilments.Effect? effect)
+    {
+        if (effect is not null) InflictedLocked(conn, m, TypeOf(effect.Kind), effect.Until);
+    }
+
+    /// <summary>A proliferated ailment is its inflicters' too: the source monster's marks of the type pass to the
+    /// monster it reached, for no longer than the spread copy lasts.</summary>
+    static void ProliferatedMarksLocked(SpawnedMonster from, SpawnedMonster to, AilmentType type, double until)
+    {
+        string key = InflictedKeys[(int)type];
+        foreach (var (source, mark) in from.SourceMarks(key).ToList()) to.MarkSource(source, key, Math.Min(mark, until));
+    }
 
     /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
     /// Berek's Respite (shock_X_nearby_enemies_for_2_s_on_killing_shocked_enemy): when it was shocked, each other living
@@ -34,10 +110,13 @@ public static partial class Game
             var at = m.Walk.Position(now);
             foreach (var other in conn.Monsters.Values)
                 if (!ReferenceEquals(other, m) && !other.Dead && other.Hostile && Dist(other.Walk.Position(now), at) <= 20)
+                {
                     other.Ailments.Equivalent(m.Ailments, shock, now, name => other.Effects[name]);
+                    InflictedLocked(conn, other, AilmentType.Shock, shock.Until);
+                }
         }
         if (Get("enemy_shock_on_kill") != 0)
-            m.Ailments.ShockOnKill(now, Get, name => m.Effects[name], AilmentArea(Get, _ => 0, spell: false));
+            InflictedLocked(conn, m, m.Ailments.ShockOnKill(now, Get, name => m.Effects[name], AilmentArea(Get, _ => 0, spell: false)));
     }
 
     /// <summary>The chills and shocks without damage (MonsterElementalAilments.WithoutDamage) a monster hit that lands on
@@ -46,17 +125,18 @@ public static partial class Game
     /// seconds on Block" on a blocked one, each on its own roll of Random.Shared so the incoming hit's draws stay in order.
     /// Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
-    public static void AilmentsWhenHitLocked(SpawnedMonster m, Func<string, int> player, bool blocked, double now)
+    public static void AilmentsWhenHitLocked(ClientState conn, SpawnedMonster m, Func<string, int> player, bool blocked, double now)
     {
         int Target(string name) => m.Effects[name];
         double area = AilmentArea(player, _ => 0, spell: false);
         if (player("chill_enemy_when_hit_duration_ms") is > 0 and int ms)
-            m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30);
+            InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30));
         if (!blocked) return;
+        AlternateAilmentsOnBlockLocked(m, player, now);
         if (RandomRolls.Chance(player("chill_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
-            m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area);
+            InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area));
         if (RandomRolls.Chance(player("shock_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
-            m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, area);
+            InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Shock, 4, now, player, Target, area));
     }
 
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
@@ -79,9 +159,13 @@ public static partial class Game
             bool reached = sources.Count > 0 && !m.Dead && m.Hostile;
             var at = reached ? m.Walk.Position(now) : default;
             for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
-                m.Ailments.Proliferated(kind, reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
-                    && Dist(s.At, at) <= s.Ailment.Spread).Select(s => s.Ailment).MaxBy(s => (s.Magnitude, s.Until)) : null,
-                    name => m.Effects[name]);
+            {
+                var reaching = reached ? sources.Where(s => s.Ailment.Kind == kind && !ReferenceEquals(s.M, m)
+                    && Dist(s.At, at) <= s.Ailment.Spread).ToList() : [];
+                var chosen = reaching.Count == 0 ? default : reaching.MaxBy(s => (s.Ailment.Magnitude, s.Ailment.Until));
+                m.Ailments.Proliferated(kind, chosen.M is null ? null : chosen.Ailment, name => m.Effects[name]);
+                if (chosen.M is not null) ProliferatedMarksLocked(chosen.M, m, TypeOf(kind), chosen.Ailment.Until);
+            }
         }
     }
 
@@ -107,6 +191,7 @@ public static partial class Game
             if (sources.Count == 0 && m.Ignites.Idle) continue;
             (double Dps, double Until)? best = null;
             uint from = 0;
+            SpawnedMonster? fromMonster = null;
             var e = m.Mods.Effects;
             if (sources.Count > 0 && !m.Dead && m.Life > 0 && m.Hostile && !m.Invulnerable
                 && e["immune_to_ignite"] == 0 && e["cannot_be_ignited"] == 0)
@@ -115,10 +200,12 @@ public static partial class Game
                 foreach (var s in sources)
                     if (!ReferenceEquals(s.M, m) && Dist(s.At, at) <= s.Radius
                         && (best is not { } b || (s.Dps, s.Until).CompareTo((b.Dps, b.Until)) > 0))
-                        (best, from) = ((s.Dps, s.Until), s.Id);
+                        (best, from, fromMonster) = ((s.Dps, s.Until), s.Id, s.M);
             }
             bool showing = m.Ignites.Buff is not null;
-            if (!m.Ignites.Proliferated(best, now) || showing) continue;
+            bool started = m.Ignites.Proliferated(best, now);
+            if (fromMonster is not null && best is { } spread) ProliferatedMarksLocked(fromMonster, m, AilmentType.Ignite, spread.Until);
+            if (!started || showing) continue;
             string log = $"monster 0x{id:x} ({m.Label}) ignited by proliferation from 0x{from:x}: {best!.Value.Dps:0.#}/s for {best.Value.Until - now:0.##} s";
             Console.WriteLine($"[gateway] {log}");
             // Not showing yet, so this is the add alone (no old instance to take off).
@@ -199,9 +286,14 @@ public static partial class Game
             * (type == DamageType.Physical
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
-        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
-            name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
+        int Attacker(string name) => Player(name) + PanelStats.Of(name, Skill);
+        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
+            AilmentArea(Player, Skill, spell));
+        // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
+        var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)
+        {
+            InflictedLocked(conn, m, effect);
             if (playerHit && effect.Kind == Kind.Freeze)
             {
                 conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
@@ -209,6 +301,7 @@ public static partial class Game
                     ChargeType.Endurance, EnduranceOnAttackFreeze);
             }
             else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+        }
         if (m.Dead || m.Life == 0)
         {
             // Shatter (wiki Shatter, Freeze): a non-unique monster a hit kills while frozen, the killing hit's own freeze
@@ -216,6 +309,7 @@ public static partial class Game
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
             {
                 m.Ailments.Shatter();
+                m.RuleAilments.Clear();
                 conn.RecentEvents.Record(StatConditions.ShatteredEnemy, now);
             }
             else ShockOnKillLocked(conn, m, player, now);
@@ -246,8 +340,11 @@ public static partial class Game
                 (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), Random.Shared);
             m.Fleeing = m.FleeTo is not null;
         }
-        if (added.Count == 0 || conn.PlayerLife == 0
+        if (added.Count + alternate.Count == 0 || conn.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
+        // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
+        ReflectAlternateAilmentsLocked(conn, alternate, now, Player, random);
+        if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(conn, added, now, player, random);
     }
@@ -301,6 +398,7 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
+            if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
             if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;

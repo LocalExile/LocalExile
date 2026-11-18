@@ -77,6 +77,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Barrage still needs sequential release, cancellation and per-projectile hit admission beyond its attack-time penalty.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
+  Check Spellblade's panel and per-hand rounding live; Varunastra's off-hand support selection is open.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 

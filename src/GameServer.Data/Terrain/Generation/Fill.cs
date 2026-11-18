@@ -186,8 +186,8 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
 
     /// <summary><c>0x141fef200</c> for a room placed before the fill (the tile graph's shrines and pre-unique rooms):
     /// see <see cref="FillRoom"/>.</summary>
-    internal void PlaceRoom(RoomDef room, int x, int y, int o, short height, string? ground, bool open) =>
-        FillRoom(room, x, y, o, height, ground, open);
+    internal void PlaceRoom(RoomDef room, int x, int y, int o, short height, string? ground, bool open, ExtraFeatureRow? feature = null) =>
+        FillRoom(room, x, y, o, height, ground, open, feature);
 
     /// <summary><c>0x141d7ad00</c>: two grounds that do not suit each other: different, unless either is null or flag 8
     /// against a null or flag-8 one, or both lack flags 1 and 4.</summary>
@@ -291,7 +291,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     /// no fitting tile) takes a tile from the TileSet for its key and tag (up to five draws until one fits). Then the
     /// room's own vertex grounds go in (<c>0x1420025c0</c>) and every vertex of the room without a ground takes the fill
     /// ground.</summary>
-    void FillRoom(RoomDef room, int x, int y, int o, short h0, string? fillGround, bool open)
+    void FillRoom(RoomDef room, int x, int y, int o, short h0, string? fillGround, bool open, ExtraFeatureRow? feature = null)
     {
         bool check = grid.CheckGrounds;
         grid.CheckGrounds = false;
@@ -342,7 +342,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
                 TilePlaced?.Invoke(p.Tile, p.Orientation, bx, by);
             }
         var (rw, rh) = Orientation.Size(o, room.Width, room.Height);
-        rooms.Add(new PlacedRoom(room, x + offsetX, y + offsetY, rw, rh, [], o));
+        rooms.Add(DungeonTiler.Featured(new PlacedRoom(room, x + offsetX, y + offsetY, rw, rh, [], o), feature));
         // 0x1420025c0: the room's own inner vertex grounds (the .arm's), turned with it, before the fill ground.
         if (room.VertexGrounds.Length > 0)
             for (int v = 1; v < room.Height; v++)

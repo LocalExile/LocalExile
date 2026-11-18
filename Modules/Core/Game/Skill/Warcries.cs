@@ -105,7 +105,7 @@ public static partial class Game
                 foreach (var (targetId, m) in conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterDamage(m, hit, Random.Shared, default);
+                    int damage = MonsterTakes(m, hit, Random.Shared, spell: false, now: now);
                     if (ApplyMonsterHitLocked(conn, m, damage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {

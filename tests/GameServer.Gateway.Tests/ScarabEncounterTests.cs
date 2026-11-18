@@ -352,7 +352,7 @@ public sealed class ScarabEncounterTests
         Assert.Empty(terrors.UnhandledContent);
     }
 
-    sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
+    internal sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
     {
         public ClientState Conn => conn;
         public static async Task<Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
