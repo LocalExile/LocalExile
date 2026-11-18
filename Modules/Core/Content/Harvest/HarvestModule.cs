@@ -4,7 +4,8 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Harvest;
 
-/// <summary>Horticrafting: the station in the hideout, its recipe browser and its crafts.</summary>
+/// <summary>Horticrafting (the station in the hideout, its recipe browser and its crafts) and the Sacred Grove of a map
+/// (<see cref="SacredGrove"/>).</summary>
 public sealed class HarvestModule : IModule
 {
     const string StationType = "Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout";
@@ -25,9 +26,15 @@ public sealed class HarvestModule : IModule
             if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
                 _states.GetOrCreateValue(player).Station = id;
         });
+        GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, SacredGrove.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => SacredGrove.Tick(conn));
+        // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station) return false;
+            if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station)
+                return await SacredGrove.Use(conn, use, at);
             var world = WorldOf(conn);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");

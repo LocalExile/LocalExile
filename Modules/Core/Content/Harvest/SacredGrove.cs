@@ -1,0 +1,513 @@
+using System.Text.Json;
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
+
+namespace GameServer.Modules.Harvest;
+
+/// <summary>
+/// The Sacred Grove of a map: the sub-area the generator adds beside a map that rolled the Harvest encounter
+/// (ExtraTerrainFeatures HarvestEncounter, its world area HarvestLeague as a record of the map's own level). Its room
+/// (NightGarden garden.arm) holds seven plot sites: per site two crops (an Extractor and its Irrigator) and a Pole and a
+/// Storage Tank between them. The grove's state belongs to the instance and is shared by the party: which sites hold
+/// crops, each crop's colour and seeds, which crop runs, which withered, and the monsters each crop hatched.
+/// </summary>
+public static class SacredGrove
+{
+    public const string Content = "SacredGrove";
+    public const string ObjectRoot = "Metadata/MiscellaneousObjects/Harvest/";
+    const string ExtractorType = ObjectRoot + "Extractor", IrrigatorType = ObjectRoot + "Irrigator", PoleType = ObjectRoot + "Pole",
+        TankType = ObjectRoot + "StorageTank", SeedType = ObjectRoot + "MonsterSeed";
+    const string SaveKey = "Harvest/grove";
+    /// <summary>A module-defined monster stat for HarvestLifeScalingPerLevel's more life (handed over in HarvestModule).</summary>
+    public const string LevelMoreLife = "harvest_level_scaling_life_+%_final";
+    /// <summary>The monster stat the Doubling scarab's map_harvest_monster_life_+%_final_from_sextant gives.</summary>
+    public const string SextantMoreLife = "harvest_monster_life_+%_final_from_sextant";
+    static readonly string[] FeatureRows = ["HarvestEncounter", "HarvestEncounterMemoryLine"];
+
+    public enum Phase { Idle, Running, Done, Withered }
+
+    /// <summary>One grove object as it is created: type, place, model, the states set on top of the type's defaults and
+    /// its HarvestWorldObject seed list (row, count).</summary>
+    public sealed class GroveObject
+    {
+        public uint Id { get; set; }
+        public string Type { get; set; } = "";
+        public int X { get; set; }
+        public int Y { get; set; }
+        public float Rotation { get; set; }
+        public string? Model { get; set; }
+        public Dictionary<string, int> States { get; set; } = [];
+        public List<GroveCrops.SeedCount> Seeds { get; set; } = [];
+    }
+
+    public sealed class CropState
+    {
+        public int Site { get; set; }
+        public int Slot { get; set; }
+        public int Colour { get; set; }
+        public List<GroveCrops.SeedCount> Seeds { get; set; } = [];
+        public uint Extractor { get; set; }
+        public uint Irrigator { get; set; }
+        /// <summary>The seed objects, one per seed, in the order of <see cref="Seeds"/> expanded.</summary>
+        public List<uint> SeedObjects { get; set; } = [];
+        public Phase Phase { get; set; }
+        public List<uint> Monsters { get; set; } = [];
+    }
+
+    /// <summary>What P4's drop and experience rules need of a hatched monster.</summary>
+    public sealed record MonsterTag(int Colour, int Tier, int Crop);
+
+    public sealed class Grove
+    {
+        public List<CropState> Crops { get; set; } = [];
+        public Dictionary<uint, GroveObject> Objects { get; set; } = [];
+        public Dictionary<uint, MonsterTag> Monsters { get; set; } = [];
+        public int Activations { get; set; }
+        public int Level { get; set; }
+    }
+
+    sealed class Area
+    {
+        public readonly SemaphoreSlim Gate = new(1, 1);
+        public Grove? Grove;
+        public HarvestStats Stats = HarvestStats.None;
+        public Random Random = new();
+        /// <summary>Whether a crop runs: the tick reads only this while nothing does.</summary>
+        public volatile bool Running;
+    }
+
+    static readonly RuleTable<InstanceState, Area> Areas = new();
+    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly Lazy<string> Refusal = new(() => ClientTables.TableOrEmpty("ClientStrings")
+        .FirstOrDefault(r => r.Text("Id") == "HarvestDisabledDuringCombat") is { Table: not null } row && row.Text("Text") is { } text
+        ? text : "You cannot perform that action while a Harvest encounter is in progress.");
+
+    /// <summary>The grove's stats for an instance (P4's drop and experience rules), or null without a grove.</summary>
+    public static HarvestStats? StatsOf(ClientState conn) => conn.Instance is { } instance && Areas.TryGetValue(instance, out var area)
+        && area.Grove is not null ? area.Stats : null;
+
+    /// <summary>The crop a monster hatched from, or null.</summary>
+    public static MonsterTag? MonsterOf(ClientState conn, uint id) => conn.Instance is { } instance && Areas.TryGetValue(instance, out var area)
+        && area.Grove is { } grove && grove.Monsters.TryGetValue(id, out var tag) ? tag : null;
+
+    public static void Opening(MapOpening request)
+    {
+        if (!request.Campaign && request.Opening is not null) request.HandledContent.Add(Content);
+    }
+
+    /// <summary>The level's grove records (the HarvestEncounter rows' sub-areas), none on any other layout.</summary>
+    public static IEnumerable<DoodadRecord> GroveRecords(ServerLevels.Level level) =>
+        level.Records.Where(r => r.FeatureRow is { } row && FeatureRows.Contains(row));
+
+    /// <summary>A plot site: its two crops (Extractor, Irrigator) and the Pole and Storage Tank between them.</summary>
+    public sealed record Site(IReadOnlyList<(PlacedTileObject Extractor, PlacedTileObject Irrigator)> Crops, PlacedTileObject? Pole,
+        PlacedTileObject? Tank);
+
+    static double Distance(PlacedTileObject a, PlacedTileObject b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
+    static double Distance((double X, double Y) a, PlacedTileObject b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
+    // Greedy nearest matching: the closest pair first, each left item taking at most one right item, each right item at
+    // most `capacity` left items.
+    static List<(int Left, int Right)> Match(int left, int right, Func<int, int, double> distance, int capacity = 1)
+    {
+        var pairs = new List<(int, int, double)>();
+        for (int l = 0; l < left; l++)
+            for (int r = 0; r < right; r++) pairs.Add((l, r, distance(l, r)));
+        var taken = new bool[left];
+        var load = new int[right];
+        var result = new List<(int, int)>();
+        foreach (var (l, r, _) in pairs.OrderBy(p => p.Item3).ThenBy(p => p.Item1).ThenBy(p => p.Item2))
+        {
+            if (taken[l] || load[r] >= capacity) continue;
+            taken[l] = true;
+            load[r]++;
+            result.Add((l, r));
+        }
+        return result;
+    }
+
+    /// <summary>The grove room's plot sites from its object lines: each Extractor with its nearest Irrigator (about 11
+    /// cells apart), each Pole with the two nearest crops and the nearest Storage Tank, in Pole order. Sites without two
+    /// crops are left out.</summary>
+    public static List<Site> Sites(IEnumerable<PlacedTileObject> objects)
+    {
+        var all = objects.ToList();
+        var extractors = all.Where(o => o.Type == ExtractorType).ToList();
+        var irrigators = all.Where(o => o.Type == IrrigatorType).ToList();
+        var poles = all.Where(o => o.Type == PoleType).ToList();
+        var tanks = all.Where(o => o.Type == TankType).ToList();
+        var crops = Match(extractors.Count, irrigators.Count, (e, i) => Distance(extractors[e], irrigators[i]))
+            .OrderBy(p => p.Left).Select(p => (Extractor: extractors[p.Left], Irrigator: irrigators[p.Right])).ToList();
+        var middles = crops.Select(c => ((c.Extractor.X + c.Irrigator.X) / 2.0, (c.Extractor.Y + c.Irrigator.Y) / 2.0)).ToList();
+        var byPole = Match(crops.Count, poles.Count, (c, p) => Distance(middles[c], poles[p]), capacity: 2);
+        var tankOf = Match(poles.Count, tanks.Count, (p, t) => Distance(poles[p], tanks[t])).ToDictionary(p => p.Left, p => p.Right);
+        var sites = new List<Site>();
+        for (int p = 0; p < poles.Count; p++)
+        {
+            var own = byPole.Where(m => m.Right == p).Select(m => crops[m.Left]).ToList();
+            if (own.Count == 2) sites.Add(new(own, poles[p], tankOf.TryGetValue(p, out int t) ? tanks[t] : null));
+        }
+        return sites;
+    }
+
+    /// <summary>Where a crop's seeds lie: a grid of 4-cell steps on the Irrigator's side away from its Extractor, nearest
+    /// first, on walkable cells not taken by another seed. Fewer cells than seeds put the rest on the Irrigator.</summary>
+    public static List<(int X, int Y)> SeedCells(PlacedTileObject extractor, PlacedTileObject irrigator, int count,
+        Func<int, int, bool> walkable, HashSet<(int X, int Y)> taken)
+    {
+        double dx = irrigator.X - extractor.X, dy = irrigator.Y - extractor.Y, length = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
+        (double X, double Y) centre = (irrigator.X + dx / length * 10, irrigator.Y + dy / length * 10);
+        var candidates = new List<(int X, int Y, double D)>();
+        for (int gy = -5; gy <= 5; gy++)
+            for (int gx = -5; gx <= 5; gx++)
+            {
+                int x = (int)Math.Round(centre.X) + gx * 4, y = (int)Math.Round(centre.Y) + gy * 4;
+                double toIrrigator = Math.Sqrt((double)(x - irrigator.X) * (x - irrigator.X) + (double)(y - irrigator.Y) * (y - irrigator.Y));
+                double toExtractor = Math.Sqrt((double)(x - extractor.X) * (x - extractor.X) + (double)(y - extractor.Y) * (y - extractor.Y));
+                if (toIrrigator < 5 || toExtractor < 7 || taken.Contains((x, y)) || !walkable(x, y)) continue;
+                candidates.Add((x, y, Math.Sqrt((x - centre.X) * (x - centre.X) + (y - centre.Y) * (y - centre.Y))));
+            }
+        var cells = candidates.OrderBy(c => c.D).ThenBy(c => c.Y).ThenBy(c => c.X).Take(count).Select(c => (c.X, c.Y)).ToList();
+        foreach (var c in cells) taken.Add(c);
+        while (cells.Count < count) cells.Add((irrigator.X, irrigator.Y));
+        return cells;
+    }
+
+    static IEnumerable<int> Expand(IEnumerable<GroveCrops.SeedCount> seeds) => seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count));
+
+    static Grove Build(ClientState conn, HarvestTables tables, HarvestStats stats, int areaLevel, Random random)
+    {
+        var grove = new Grove { Level = areaLevel };
+        var level = conn.Layout.Level!;
+        var rects = GroveRecords(level).Select(r => (X0: r.X * 23, Y0: r.Y * 23, X1: (r.X + r.W) * 23, Y1: (r.Y + r.H) * 23)).ToList();
+        var lines = level.RoomObjects.Where(o => o.Type.StartsWith(ObjectRoot, StringComparison.Ordinal)
+            && rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1)).ToList();
+        var sites = Sites(lines);
+        if (tables.Level(areaLevel) is not { } values || sites.Count == 0)
+        {
+            Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: {sites.Count} plot sites from {lines.Count} lines; no crops");
+            return grove;
+        }
+        var crops = GroveCrops.Roll(random, tables, values, stats, sites.Count);
+        var taken = new HashSet<(int X, int Y)>();
+        GroveObject Add(string type, PlacedTileObject at, params (string, int)[] states)
+        {
+            var o = new GroveObject { Id = conn.Instance.World.NewMonsterId(), Type = type, X = at.X, Y = at.Y, Rotation = at.Rotation };
+            foreach (var (name, value) in states) o.States[name] = value;
+            grove.Objects[o.Id] = o;
+            return o;
+        }
+        foreach (var group in crops.GroupBy(c => c.Site))
+        {
+            var site = sites[group.Key];
+            int first = group.First().Colour;
+            if (site.Pole is { } pole) Add(PoleType, pole, ("colour", first));
+            if (site.Tank is { } tank) Add(TankType, tank, ("colour", first));
+            foreach (var crop in group)
+            {
+                var (e, i) = site.Crops[crop.Slot];
+                var seeds = crop.Seeds.ToList();
+                var extractor = Add(ExtractorType, e, ("colour", crop.Colour), ("active", 1));
+                var irrigator = Add(IrrigatorType, i, ("colour", crop.Colour), ("plot_colour", crop.Colour));
+                extractor.Seeds = irrigator.Seeds = seeds;
+                var state = new CropState
+                {
+                    Site = crop.Site, Slot = crop.Slot, Colour = crop.Colour, Seeds = seeds,
+                    Extractor = extractor.Id, Irrigator = irrigator.Id,
+                };
+                var rows = Expand(seeds).ToList();
+                var cells = SeedCells(e, i, rows.Count, (x, y) => conn.Layout.WalkableFor(x, y, 1), taken);
+                for (int s = 0; s < rows.Count; s++)
+                {
+                    var seed = Add(SeedType, e with { X = cells[s].X, Y = cells[s].Y, Rotation = (float)(random.NextDouble() * Math.Tau) },
+                        ("colour", crop.Colour));
+                    seed.Model = tables.Seeds[rows[s]].Model;
+                    seed.Seeds = [new(rows[s], 1)];
+                    state.SeedObjects.Add(seed.Id);
+                }
+                grove.Crops.Add(state);
+            }
+        }
+        Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: {sites.Count} sites, {crops.Count / 2} pairs: "
+            + string.Join("; ", grove.Crops.Select(c => $"site {c.Site}.{c.Slot} colour {c.Colour} "
+                + string.Join(",", c.Seeds.Select(s => $"{s.Count}x{tables.Seeds[s.Row].Id}")))));
+        return grove;
+    }
+
+    static void Keep(ClientState conn, Grove grove) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(grove);
+
+    /// <summary>The instance's grove, built on first entry or restored from its saved state (after a module reload);
+    /// null on a layout without one. Call under no gate.</summary>
+    static async Task<Area?> Load(ClientState conn)
+    {
+        if (conn.Instance is null || conn.Layout.Level is not { } level || !GroveRecords(level).Any() || MapRunOf(conn) is not { } run) return null;
+        var area = Areas.GetOrCreateValue(conn.Instance);
+        if (area.Grove is not null) return area;
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Grove is not null) return area;
+            area.Stats = HarvestStats.From(MapModsOf(conn));
+            var grove = conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved) ? JsonSerializer.Deserialize<Grove>(saved) : null;
+            area.Random = new Random(unchecked((int)(conn.Seed ^ 0x48525654u) ^ (grove?.Activations ?? 0) * 7919));
+            if (grove is null)
+            {
+                grove = Build(conn, HarvestTables.Current, area.Stats, run.Area.Level, area.Random);
+                Keep(conn, grove);
+            }
+            area.Running = grove.Crops.Any(c => c.Phase == Phase.Running);
+            area.Grove = grove;
+            return area;
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
+        .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
+        .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
+
+    static (QuestObject Object, HarvestTables.ObjectType Type)? Describe(GroveObject o)
+    {
+        if (!HarvestTables.Current.Objects.TryGetValue(o.Type, out var type) || type.States is not { } states) return null;
+        foreach (var (name, value) in o.States) states = states.Set(name, value);
+        var quest = new QuestObject(o.X, o.Y, type.Components, o.Rotation, Model: o.Model)
+        {
+            StateMachine = states,
+            HarvestSeeds = [.. o.Seeds.Select(s => ((byte)s.Row, (byte)s.Count))],
+        };
+        return QuestObject.CanSerialize(type.Components, true) ? (quest, type) : null;
+    }
+
+    static bool Blocks(GroveObject o) => o.Type != SeedType || o.States.GetValueOrDefault("hatched") == 0 && o.States.GetValueOrDefault("withered") == 0;
+
+    static async Task Present(ClientState conn, GroveObject o, bool replace = false)
+    {
+        var shown = Presented.GetOrCreateValue(conn);
+        if (!replace && shown.Contains(o.Id) || Describe(o) is not var (quest, type)) return;
+        if (shown.Contains(o.Id))
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SendWorldRemoval(remote, stream, ciphers, conn, o.Id, null);
+        }
+        byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
+        await SendWorldCreate(conn, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+            wake: true, awaitBirth: false);
+        if (Blocks(o)) conn.SetBlocker(o.Id, o.X, o.Y, type.Size);
+        else conn.RemoveBlocker(o.Id);
+        shown.Add(o.Id);
+    }
+
+    /// <summary>Shows the grove's objects to a connection entering the area (GameEvents.AreaGenerated).</summary>
+    public static async Task Enter(ClientState conn)
+    {
+        if (await Load(conn) is not { Grove: { } grove } area) return;
+        GroveObject[] objects;
+        await area.Gate.WaitAsync();
+        try { objects = [.. grove.Objects.Values]; }
+        finally { area.Gate.Release(); }
+        foreach (var o in objects) await Present(conn, o);
+    }
+
+    // Sets states on grove objects and sends each changed object's StateMachine (0x2bc) to every member that has it.
+    static async Task SetStates(ClientState conn, Grove grove, IEnumerable<(uint Id, string Name, int Value)> changes)
+    {
+        var changed = new List<GroveObject>();
+        foreach (var (id, name, value) in changes)
+            if (grove.Objects.TryGetValue(id, out var o))
+            {
+                o.States[name] = value;
+                if (!changed.Contains(o)) changed.Add(o);
+            }
+        foreach (var member in Members(conn))
+        {
+            var shown = Presented.GetOrCreateValue(member);
+            var (remote, stream, ciphers) = member.Wire;
+            foreach (var o in changed)
+            {
+                if (Describe(o) is not var (quest, type)) continue;
+                if (!Blocks(o)) member.RemoveBlocker(o.Id);
+                if (!shown.Contains(o.Id)) continue;
+                int index = type.Components.ToList().IndexOf("StateMachine");
+                await SendWorldRecord(remote, stream, ciphers, member, o.Id,
+                    InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+            }
+        }
+    }
+
+    /// <summary>A click on a crop (its Extractor or its Irrigator): walk up, then start it, unless another crop runs.</summary>
+    public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    {
+        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area) || area.Grove is not { } grove) return false;
+        int index = grove.Crops.FindIndex(c => c.Extractor == use.TargetId || c.Irrigator == use.TargetId);
+        if (index < 0) return false;
+        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        var crop = grove.Crops[index];
+        var target = grove.Objects[use.TargetId];
+        var (remote, stream, ciphers) = conn.Wire;
+        Task End(int action) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+            still: () => PlayerActionCurrent(conn, action));
+        if (crop.Phase != Phase.Idle) { await End(conn.ActionCount); return true; }
+        if (area.Running)
+        {
+            await PlayerOf(conn).Tell(Refusal.Value);
+            await End(conn.ActionCount);
+            return true;
+        }
+        if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, 2, out var walk)) return true;
+        var (action, now, here, _, arrive) = walk;
+        if (!use.Started)
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
+                still: () => PlayerActionCurrent(conn, action));
+        if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
+                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (target.X, target.Y), 2)) return true;
+            await Start(conn, area, grove, index);
+        }
+        finally
+        {
+            area.Gate.Release();
+            await End(action);
+        }
+        return true;
+    }
+
+    /// <summary>The monsters one seed hatches: a Tier 4 seed its one boss; any other seed one, a second at the pack size
+    /// chance (always above 100%, then a third at the excess), one more at the additional monster chance, and all of
+    /// them twice at the duplicated monster chance.</summary>
+    public static int MonsterCount(Random random, HarvestStats stats, int tier)
+    {
+        if (tier >= 4) return 1;
+        int count = 1;
+        if (stats.PackSize >= 100) { count++; if (random.Next(100) < stats.PackSize - 100) count++; }
+        else if (random.Next(100) < stats.PackSize) count++;
+        if (random.Next(100) < stats.AdditionalMonsterChance) count++;
+        if (random.Next(100) < stats.DuplicatedMonsterChance) count *= 2;
+        return count;
+    }
+
+    // Under the area's gate.
+    static async Task Start(ClientState conn, Area area, Grove grove, int index)
+    {
+        var tables = HarvestTables.Current;
+        var crop = grove.Crops[index];
+        var random = area.Random;
+        crop.Phase = Phase.Running;
+        area.Running = true;
+        grove.Activations++;
+        var changes = new List<(uint, string, int)> { (crop.Extractor, "start_encounter", 1) };
+        foreach (var other in grove.Crops.Where(c => c != crop))
+            changes.AddRange([(other.Extractor, "in_combat", 1), (other.Irrigator, "in_combat", 1)]);
+        string withered = "";
+        if (grove.Crops.FirstOrDefault(c => c.Site == crop.Site && c != crop) is { Phase: Phase.Idle } pair)
+        {
+            if (random.Next(100) >= area.Stats.NotWitherChance)
+            {
+                pair.Phase = Phase.Withered;
+                changes.Add((pair.Extractor, "current_state", 4));
+                changes.AddRange(pair.SeedObjects.Select(id => (id, "withered", 1)));
+                withered = $", site {pair.Site}.{pair.Slot} withered";
+            }
+            else withered = $", site {pair.Site}.{pair.Slot} kept (not-wither chance {area.Stats.NotWitherChance}%)";
+        }
+        changes.AddRange(crop.SeedObjects.Select(id => (id, "hatched", 1)));
+        Keep(conn, grove);
+        Console.WriteLine($"[harvest] {CharacterName(conn)} started site {crop.Site}.{crop.Slot} colour {crop.Colour}{withered}");
+        await SetStates(conn, grove, changes);
+
+        byte level = (byte)Math.Clamp(grove.Level, 1, 100);
+        var life = new MonsterModSet([], [], new MonsterModEffects(new Dictionary<string, int>
+        {
+            [LevelMoreLife] = tables.MoreLife(grove.Level),
+            [SextantMoreLife] = area.Stats.MonsterMoreLife,
+        }.Where(kv => kv.Value != 0).ToDictionary()));
+        var (remote, stream, ciphers) = conn.Wire;
+        int spawned = 0, unsupported = 0;
+        foreach (uint seedId in crop.SeedObjects)
+        {
+            if (conn.Closed || conn.LeavingArea) break;
+            var seedObject = grove.Objects[seedId];
+            if (seedObject.Seeds is not [{ } seedRow, ..] || tables.SeedRow(seedRow.Row) is not { } seed) continue;
+            if (Monsters.Find(seed.Monster.ToString()) is not { Supported: true } variety) { unsupported++; continue; }
+            int count = MonsterCount(random, area.Stats, seed.Tier);
+            for (int k = 0; k < count; k++)
+            {
+                uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level,
+                    seed.Tier >= 4 ? MonsterRarity.Unique : MonsterRarity.Normal, seedObject.X + k % 2 * 3, seedObject.Y + k / 2 * 3,
+                    unrisen: false, alone: false, extraMods: life);
+                if (id == 0) continue;
+                crop.Monsters.Add(id);
+                grove.Monsters[id] = new(crop.Colour, seed.Tier, index);
+                spawned++;
+            }
+        }
+        Keep(conn, grove);
+        Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot}: {spawned} monsters hatched"
+            + (unsupported > 0 ? $", {unsupported} seeds of unsupported varieties" : ""));
+    }
+
+    /// <summary>Completes a running crop whose monsters are all dead (GameEvents.Tick): its Extractor is done, the other
+    /// crops can be targeted again, and with Crop Rotation the other colours' unstarted seeds may rise a tier.</summary>
+    public static async Task Tick(ClientState conn)
+    {
+        if (conn.Instance is null) return;
+        if (!Areas.TryGetValue(conn.Instance, out var area))
+        {
+            if (!conn.Instance.ContentState.ContainsKey(SaveKey) || await Load(conn) is not { } loaded) return;
+            area = loaded;
+        }
+        if (!area.Running || area.Grove is not { } grove || conn.Closed || conn.LeavingArea || !area.Gate.Wait(0)) return;
+        try
+        {
+            for (int index = 0; index < grove.Crops.Count; index++)
+            {
+                var crop = grove.Crops[index];
+                if (crop.Phase != Phase.Running) continue;
+                lock (conn.Monsters)
+                    if (crop.Monsters.Any(id => conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
+                await Complete(conn, area, grove, crop);
+            }
+            area.Running = grove.Crops.Any(c => c.Phase == Phase.Running);
+        }
+        finally { area.Gate.Release(); }
+    }
+
+    static async Task Complete(ClientState conn, Area area, Grove grove, CropState crop)
+    {
+        var tables = HarvestTables.Current;
+        crop.Phase = Phase.Done;
+        var changes = new List<(uint, string, int)> { (crop.Extractor, "current_state", 4) };
+        foreach (var other in grove.Crops.Where(c => c != crop))
+            changes.AddRange([(other.Extractor, "in_combat", 0), (other.Irrigator, "in_combat", 0)]);
+        var upgraded = new List<GroveObject>();
+        if (area.Stats.UpgradeOnCompletion && tables.Level(grove.Level) is { } values)
+            foreach (var other in grove.Crops.Where(c => c.Phase == Phase.Idle && c.Colour != crop.Colour))
+            {
+                if (GroveCrops.Upgrade(area.Random, tables, values, other.Colour, other.Seeds) is not { } seeds) continue;
+                other.Seeds = seeds;
+                grove.Objects[other.Extractor].Seeds = grove.Objects[other.Irrigator].Seeds = seeds;
+                upgraded.AddRange([grove.Objects[other.Extractor], grove.Objects[other.Irrigator]]);
+                var rows = Expand(seeds.OrderByDescending(s => tables.Seeds[s.Row].Tier)).ToList();
+                for (int s = 0; s < other.SeedObjects.Count && s < rows.Count; s++)
+                {
+                    var seed = grove.Objects[other.SeedObjects[s]];
+                    if (seed.Seeds is [{ } old] && old.Row == rows[s]) continue;
+                    seed.Seeds = [new(rows[s], 1)];
+                    seed.Model = tables.Seeds[rows[s]].Model;
+                    upgraded.Add(seed);
+                }
+            }
+        Keep(conn, grove);
+        Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot} complete" + (upgraded.Count > 0 ? $"; {upgraded.Count} objects upgraded" : ""));
+        await SetStates(conn, grove, changes);
+        foreach (var member in Members(conn))
+            foreach (var o in upgraded)
+                if (Presented.GetOrCreateValue(member).Contains(o.Id)) await Present(member, o, replace: true);
+    }
+}
