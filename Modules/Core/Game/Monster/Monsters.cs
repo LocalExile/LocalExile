@@ -2028,6 +2028,7 @@ public static partial class Game
         int baseAccuracy = m.Effects.Accuracy(Monsters.BaseAccuracy(m.Level) ?? 0);
         int monsterAccuracy = MonsterBlindRating(conn, id, m, baseAccuracy, now, stats);
         int evasion = TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn, stats).Less);
+        evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
         if (!a.Spell && EvadesLocked(conn, hitChance, now))
         {

@@ -77,5 +77,20 @@ public sealed class PassiveConditionTests
                 DamagePacket.Of(DamageType.Physical, new DamageRange(100, 100)), new DamageConversion(), AilmentGet)
             .ToDictionary(r => r.Stat, r => r.Value);
         Assert.Equal(7350, bleed["maximum_bleeding_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+
+        // Unwavering Stance and Arrow Dancing change the rating an enemy attack rolls against, and Unwavering Stance
+        // also stops the player's stun.
+        int NoKeystones(string name) => 0;
+        Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: true, melee: false, NoKeystones));
+        var unwavering = new Dictionary<uint, int> { [Program.Stats.Key("keystone_unwavering_stance")!.Value] = 1 };
+        int Unwavering(string name) => Program.Stats.Key(name) is uint key ? unwavering.GetValueOrDefault(key) : 0;
+        Assert.Equal(0, EvasionKeystones.Rating(1000, projectile: true, melee: false, Unwavering));
+        Assert.Equal(0, PlayerHitRecovery.Chance(100, 1000, Unwavering));
+        Assert.True(PlayerHitRecovery.Chance(100, 1000, NoKeystones) > 0);
+        var arrowDancing = new Dictionary<uint, int> { [Program.Stats.Key("keystone_projectile_evasion")!.Value] = 1 };
+        int Dancing(string name) => Program.Stats.Key(name) is uint key ? arrowDancing.GetValueOrDefault(key) : 0;
+        Assert.Equal(2000, EvasionKeystones.Rating(1000, projectile: true, melee: false, Dancing));
+        Assert.Equal(750, EvasionKeystones.Rating(1000, projectile: false, melee: true, Dancing));
+        Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: false, melee: false, Dancing));
     }
 }
