@@ -12,6 +12,9 @@ public static partial class Game
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
         definitions["HolyFlameTotem"] = SkillProjectileDefinition("HolyFlameTotem", holyFlameProjectile,
             SkillProjectileParameters("HolyFlameTotem", holyFlameProjectile));
+        const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
+        definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
+            SkillProjectileParameters("VolcanicFissure", fissureProjectile));
     }
 
     static partial void ConfigureCatalogProjectileDefinition(int effect, ref ProjectileSkillDefinition? definition)

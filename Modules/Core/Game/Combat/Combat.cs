@@ -1291,6 +1291,7 @@ public static partial class Game
                     $"0x01b1 player cost {conn.PlayerMana} mana, {conn.PlayerLife} life (-{cost} mana, -{lifeCost} life for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             }
         }
+        if (gem.Name is not null) ChargesOnSkillUse(conn, gem.Effect, vaalCast);
         if (vaalCast)
         {
             recoveryGeneration = vaalUse!.RecoveryGeneration;
@@ -1720,7 +1721,7 @@ public static partial class Game
         var supported = SupportedSkill(conn, skillId);
         int seals = UnleashSeals(conn, skillId, supported, ProjectileWorldTime(conn), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, "support_spell_rapid_fire_repeat_use_damage_+%_final") / 100d);
-        if (UsesProjectileRuntime(gem.Effect))
+        if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted, seals, reoccurrenceMore);
@@ -2138,7 +2139,9 @@ public static partial class Game
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
         // the Vaal blast keeps its radial hit.
         bool wave = !immediate && !spell && SkillsFor(conn).ActionHash(gem.Effect) == GroundSlamWave.Action;
+        bool fissure = !immediate && IsVolcanicFissure(gem.Effect);
         double waveLength = wave ? GroundSlamWave.Length(radius) : 0;
+        int waveCloseDamage = wave ? Stat("groundslam_damage_to_close_targets_+%_final") : 0;
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
@@ -2214,24 +2217,30 @@ public static partial class Game
                 && PlayerActionBlocked(conn, conn.Clock.Elapsed.TotalSeconds, conn.Clock.Elapsed.TotalSeconds)) return;
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = conn.Walk.Position(now);
+            (int X, int Y) end = fissure ? VolcanicFissureSweep.End(conn.Layout, from, to, radius) : default;
+            double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
             var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
-                .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, centre)))
+                .Select(e => (e.Key, e.Value, e.At, Distance: fissure
+                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && e.Distance <= (wave ? waveLength : radius)
+                    && e.Distance <= reachLimit
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
-            if (ring || wave)
+            if (ring || wave || fissure)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-                reach = wave
+                reach = wave || fissure
                     ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
                     : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
                 sweepStart = conn.Clock.Elapsed.TotalSeconds;
             }
+            if (fissure)
+                ScheduleFissureEruption(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, gem, from, end,
+                    now, epoch, criticalRoll, sequence, repeat, damageMore, cryExerted == true);
             targets = [.. found.Select(f => (f.Key, f.Value))];
             sweep = targets.Count;
             // shortcut: spirit and echo targets come after the ring's own and get no ring delay; time them by their
@@ -2298,7 +2307,7 @@ public static partial class Game
                 var (id, m) = targets[victim];
                 // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
                 // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
-                if ((ring || wave) && victim < reach.Length && reach[victim] > 0
+                if ((ring || wave || fissure) && victim < reach.Length && reach[victim] > 0
                     && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch))
 
                 {
@@ -2321,7 +2330,7 @@ public static partial class Game
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
                     // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
                     if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                        || !(ring || wave || hammer is not null) && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
+                        || !(ring || wave || fissure || hammer is not null) && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
                         || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                     bool freshPlayer = player is null;
@@ -2406,7 +2415,10 @@ public static partial class Game
                     }
                     var contactHit = profile.Hit;
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
-                    if (SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam")
+                    if (waveCloseDamage != 0 && victim < reach.Length)
+                        contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
+                            reach[victim] * GroundSlamWave.CellsPerSecond, waveLength, waveCloseDamage));
+                    else if (SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam")
                     {
                         double distance = Dist(conn.Walk.Position(ProjectileWorldTime(conn)), m.Walk.Position(ProjectileWorldTime(conn)));
                         contactHit = contactHit.Scale(1 + Stat("groundslam_damage_to_close_targets_+%_final")
@@ -2525,7 +2537,7 @@ public static partial class Game
                 {
                     using (ProjectileMutation(conn, advance: false))
                     {
-                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0);
+                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
@@ -2544,7 +2556,7 @@ public static partial class Game
                     impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null);
                 await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
                 await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
-                ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
+                ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id, skillStats: skillStats);
             }
         }
         finally
@@ -2971,7 +2983,8 @@ public static partial class Game
         // A quest threshold (Kitava): the hit that reaches it leaves the monster alive; it never dies.
         if (m.Threshold is { } threshold)
         {
-            long left = Math.Max(1, (long)m.Life - damage);
+            long floor = Math.Min(m.Life, Math.Max(1, (long)m.MaxLife * threshold.LifePct / 100));
+            long left = Math.Max(floor, (long)m.Life - damage);
             if (left * 100 <= (long)m.MaxLife * threshold.LifePct) m.ThresholdReached = true;
             return ((uint)left, false);
         }
