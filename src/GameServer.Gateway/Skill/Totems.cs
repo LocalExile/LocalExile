@@ -21,32 +21,16 @@ public sealed class TotemState
     /// the totem's skill, before aura effect.</summary>
     public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats);
 
-    /// <summary>What a totem that places its own skill does with it: the granted id its object carries for the action
-    /// the client plays (a placed trap's proxy id), the hit that use deals, the cells around the aimed point it covers,
-    /// the cells it looks for a target in, the seconds one use takes and where in it the hit lands. The tick keeps the
-    /// use in flight; a totem whose skill carries no hit (Rejuvenation Totem, Decoy Totem) has none, and an adopted
-    /// projectile spell totem has none either because it casts through SpellTotems.cs (flies) rather than contacting.</summary>
-    public sealed class Strike(ushort grantedId, DamagePacket hit, int radius, int range, bool spell, double interval,
-        double contact)
+    /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
+    /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
+    public sealed class Strike(ushort grantedId, int radius)
     {
         public ushort GrantedId { get; } = grantedId;
-        public DamagePacket Hit { get; } = hit;
         public int Radius { get; } = radius;
-        public int Range { get; } = range;
-        /// <summary>Whether the skill is a spell (its mitigation and ailments) rather than an attack.</summary>
-        public bool Spell { get; } = spell;
-        public double Interval { get; } = interval;
-        public double Contact { get; } = contact;
-        /// <summary>The skill's stats as the totem was summoned with, for the hit's ailments.</summary>
-        public IReadOnlyDictionary<uint, int> Sources { get; init; } = new Dictionary<uint, int>();
-        /// <summary>The earliest time of the next use.</summary>
-        public double NextUse;
-        /// <summary>When the use in flight lands its hit; null between uses.</summary>
+        /// <summary>When the cast in flight lands its hit; null between casts.</summary>
         public double? ContactAt;
-        /// <summary>The point the use in flight was aimed at.</summary>
-        public (int X, int Y) Aim;
-        /// <summary>What the use in flight was aimed at, or 0.</summary>
-        public uint Target;
+        /// <summary>The cast in flight's action sequence, which its 0x1af names.</summary>
+        public ushort Sequence;
     }
 
     /// <summary>Devouring Totem's meal: what one consumed corpse gives the player, and when the next one is due. The
@@ -60,7 +44,7 @@ public sealed class TotemState
     }
 
     public sealed class Totem(uint id, ushort skillId, (int X, int Y) at, uint maxLife, double until, Aura? aura,
-        Strike? strike = null, ushort grantedId = 0, Devour? devour = null, bool taunt = false, uint ground = 0,
+        Strike? strike = null, ushort grantedId = 0, Devour? devour = null,
         int row = 0, string varietyId = "", int level = 0, int effectRow = -1)
     {
         public uint Id => id;
@@ -78,18 +62,13 @@ public sealed class TotemState
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
-        /// <summary>The ground effect object drawn for its aura (0 when it has none); removed with the totem.</summary>
-        public uint Ground => ground;
-        /// <summary>What it does with its skill; null for a totem that only carries an aura or another effect, and for
-        /// an adopted projectile spell totem, which casts through SpellTotems.cs instead of contacting.</summary>
+        /// <summary>Its nova; null for every other totem (an aura, Devouring Totem, an adopted projectile spell).</summary>
         public Strike? Strike => strike;
-        /// <summary>The granted-skill id its object carries, so the client can play any action it takes (Rejuvenation,
-        /// Decoy and Devouring Totems deal no damage but still act). 0 when the skill could not be built.</summary>
+        /// <summary>The granted-skill id its object carries, so the client can play any action it takes (Devouring Totem
+        /// deals no damage but still acts). 0 when the skill could not be built.</summary>
         public ushort GrantedId => grantedId;
         /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
         public Devour? Devour => devour;
-        /// <summary>Whether the monsters near it are drawn to it (Decoy Totem).</summary>
-        public bool Taunt => taunt;
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;

@@ -34,7 +34,7 @@ static partial class Game
     static string TotemEffect(TotemState.Totem totem) => totem.Effect >= 0
         ? totem.Ballista ? "native ballista (flies)" : "adopted projectile spell (flies)"
         : totem.Strike is { } strike
-            ? $"{(strike.Spell ? "spell" : "attack")} r{strike.Radius} every {strike.Interval:0.##}s"
+            ? $"nova r{strike.Radius}"
             : totem.Devour is { } devour ? $"devours {devour.Life} life/{devour.Mana} mana a corpse"
             : totem.Aura is { } aura ? $"aura {aura.Row} r{aura.Radius}"
             : "no effect of its own";

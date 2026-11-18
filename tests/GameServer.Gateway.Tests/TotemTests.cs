@@ -44,7 +44,7 @@ public sealed class TotemTests
     }
 
     [Fact]
-    public async Task ATotemAimsOnlyAtHostilesInRangeAndItsCapturedStrikeLands()
+    public async Task AShockwaveTotemCastsForHostilesInRangeAndHitsAroundItself()
     {
         var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"localexile-totems-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull; var previousLifetime = Game.CombatLifetime;
@@ -77,28 +77,28 @@ public sealed class TotemTests
             // the effect row it was summoned from through EffectRow, which is the deliberately different fact.
             Assert.True(totem.Effect < 0, "a dedicated totem skill must not be an adopted projectile spell totem");
             Assert.Equal(source.Effect, totem.EffectRow);
-            // The captured hit is the half that made every other totem "produce no effect".
+            // Shockwave Totem is a nova (ActiveSkillType Nova, radius 24): it casts around itself, not at a target.
             Assert.NotNull(totem.Strike);
-            Assert.False(totem.Strike!.Hit.IsZero);
 
-            // A hostile outside TotemRange (60 cells) is never aimed at.
-            conn.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 130, 0), 100, 8, 1000);
+            // A hostile outside its totem range (base_totem_range 80) starts no cast.
+            conn.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 140, 0), 100, 8, 1000);
             Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
-            Assert.Equal(0u, totem.Strike!.Target);
+            Assert.Null(totem.Strike!.ContactAt);
 
-            // A hostile inside it is aimed at, and the use reports the granted action the client plays.
+            // One inside the range starts it; at the contact only what stands within the radius of the totem is hit.
             var target = new SpawnedMonster("near", new(55, 50, 0), 100, 8, 100000);
-            conn.Monsters[0x08000001] = target;
+            var outside = new SpawnedMonster("outside", new(50, 90, 0), 100, 8, 100000);
+            conn.Monsters[0x08000001] = target; conn.Monsters[0x08000003] = outside;
             Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
-            Assert.Equal(0x08000001u, totem.Strike!.Target);
-            Assert.Equal((55, 50), totem.Strike.Aim);
+            Assert.NotNull(totem.Strike.ContactAt);
 
             // Reach the contact without waiting on real time: the tick reads the connection clock, so the test moves
-            // the use in flight to the past by hand.
-            uint before = target.Life;
+            // the cast in flight to the past by hand.
+            uint before = target.Life, outsideBefore = outside.Life;
             totem.Strike.ContactAt = 0;
             Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
-            Assert.True(target.Life < before, $"the strike dealt no damage: {target.Life} of {target.MaxLife}");
+            Assert.True(target.Life < before, $"the nova dealt no damage: {target.Life} of {target.MaxLife}");
+            Assert.Equal(outsideBefore, outside.Life);
 
             // /totems reads the same collection through the same call the command makes, so the listing carries the
             // fields the task needs — a totem the lab can see at all. (The Monsters array of /state cannot list one:

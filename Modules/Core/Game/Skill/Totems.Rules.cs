@@ -33,15 +33,6 @@ public static partial class Game
     /// mine uses for its proxy skill.</summary>
     internal const ushort TotemActionSkill = 0x4000;
 
-    /// <summary>The cells a totem looks for a target in (our number: the server's skill data carries no totem range).
-    /// A target is hit with the skill's own radius around the point the use was aimed at.</summary>
-    internal const int TotemRange = 60;
-
-    /// <summary>The client's Emerge basic action (`Actor.basic_action` of `Metadata/Monsters/Totems/Totem`): the rise a
-    /// totem plays when it appears. Every totem `.act` maps `Emerge`, and no totem variety has a Transitionable
-    /// component, so the monster rise's 0x2bc does not apply — 0x1ab then 0x1ac with this id plays it at once.</summary>
-    internal const ushort TotemEmergeSkill = 0x0101;
-
     // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
     // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
     static readonly Lazy<(Dictionary<int, int> Effects, Dictionary<int, int> Skins)> TotemVarieties =
@@ -118,19 +109,23 @@ public static partial class Game
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(conn).HasType(effect, TotemSkillType) && !NativeProjectileTotem(conn, effect)
                     && GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
-                    && TotemDoesSomething(conn, skill, effect)
+                    && TotemDoesSomething(conn, effect)
                 || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
                 || BallistaPathAvailable(conn, skill));
 
-    /// <summary>Whether a dedicated totem skill has anything this module can run behind it: an aura
-    /// (<see cref="TotemAuras"/>), one of the two behaviours that are not a hit (Devouring Totem's corpse meal,
-    /// Decoy Totem's taunt), or a hit of its own to land as the totem's use. A dedicated totem skill with none of
-    /// them rises and does nothing, so it is refused rather than paid for — which is what every dedicated totem
-    /// skill got before this branch.</summary>
-    static bool TotemDoesSomething(ClientState conn, ushort skill, int effect) =>
+    /// <summary>Whether a dedicated totem skill has something this module runs behind it: an aura
+    /// (<see cref="TotemAuras"/>), Devouring Totem's corpse meal, or a nova spell that hits around the totem
+    /// (Shockwave Totem: ActiveSkillType Nova). Read from the skill data, not the player's hit, so Ancestral Bond's
+    /// "deal no damage yourself" does not refuse it. Not run yet, so still refused before cost: Decoy Totem's taunt (the
+    /// monster AI has no totem target), the ancestral melee totems (their reach, owner buffs and parent range) and
+    /// Searing Bond's burning beam.</summary>
+    static bool TotemDoesSomething(ClientState conn, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
-        || SkillsFor(conn).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
-        || SupportedHitFor(conn, skill, suppress: false) is { IsZero: false };
+        || SkillsFor(conn).EffectId(effect) == "DevouringTotem"
+        || TotemNova(conn, effect);
+
+    static bool TotemNova(ClientState conn, int effect) => SkillsFor(conn).HasType(effect, "Nova")
+        && !SkillsFor(conn).IsAttack(effect) && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
 
     // After placement pays its cost, the totem rises at the aimed point. Placement speed and owner action speed
     // scale this delay; the proxy's spell/weapon speed only controls its subsequent attacks (GrantedEffects CastTime,
@@ -223,11 +218,9 @@ public static partial class Game
         if (spellTotem && proxy is null) return null;
         // A totem that places its own skill (everything except an adopted projectile spell) carries the granted proxy
         // its object names for the action, with the skill's stats and area radius and no pathing, so the client can play
-        // what it does; the hit that use deals is captured here, from the player's stats at this moment, and lands as an
-        // instant contact at half the use's interval (TotemStrikeLocked). A spell totem flies instead and has no Strike:
-        // its proxy is the one SpellTotems.cs schedules, and it keeps Effect >= 0 so only it is ticked there.
-        bool spell = !SkillsFor(conn).HasType(effect, "Attack");
-        int radius = SkillRadius(conn, own, spell, effect);
+        // what it does. A nova (Shockwave Totem) hits around the totem at the end of each cast (TotemStrikeLocked); a
+        // spell totem flies instead and has no Strike: SpellTotems.cs ticks it (Effect >= 0).
+        int radius = SkillRadius(conn, own, spell: true, effect);
         GrantedSkill? action = proxy;
         TotemState.Strike? strike = null;
         if (!spellTotem)
@@ -237,21 +230,13 @@ public static partial class Game
             payload.Add((StatKeys.SkillIsNonPathing, 1));
             action = SkillsFor(conn).FindByRow(TotemActionSkill, effect, gemLevel, payload) is { } granted
                 ? granted with { Parent = (PlayerId, skillId) } : null;
-            if (action is not null && SupportedHitFor(conn, skillId, suppress: false) is { IsZero: false } hit)
-            {
-                double interval = Math.Max(.3, SkillsFor(conn).CastTimeMs(effect) / 1000.0);
-                strike = new(TotemActionSkill, hit, radius, TotemRange, spell, interval, Math.Max(.05, interval / 2))
-                { Sources = new Dictionary<uint, int>(own) };
-            }
+            if (action is not null && TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
-        // The two totems whose effect is not a hit of their own: Devouring Totem eats the corpses near it
-        // (TotemDevourLocked) and Decoy Totem draws the monsters to itself (TotemTauntLocked, read by the AI).
-        string? effectId = SkillsFor(conn).EffectId(effect);
+        // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
         int Perk(string name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
-        TotemState.Devour? devour = effectId == "DevouringTotem"
+        TotemState.Devour? devour = SkillsFor(conn).EffectId(effect) == "DevouringTotem"
             ? new(Perk("corpse_consumption_life_to_gain"), Perk("corpse_consumption_mana_to_gain")) : null;
-        bool taunt = effectId == "DecoyTotem";
         bool Valid() => CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && current?.Invoke() != false;
         (int X, int Y) ClearPosition(uint objectId)
         {
@@ -263,7 +248,7 @@ public static partial class Game
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour, taunt,
+            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                 SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
@@ -281,9 +266,8 @@ public static partial class Game
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
                 + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}")
                 + (spellTotem ? ", flies its spell" : grantedId == 0 ? ", no action skill" : $", action 0x{grantedId:x}")
-                + (strike is null ? "" : $" radius {strike.Radius} every {strike.Interval:0.##} s")
-                + (devour is null ? "" : $", devours {devour.Life} life / {devour.Mana} mana a corpse")
-                + (taunt ? ", taunts" : ""));
+                + (strike is null ? "" : $", nova radius {strike.Radius}")
+                + (devour is null ? "" : $", devours {devour.Life} life / {devour.Mana} mana a corpse"));
         }
 
         uint? created = null;
@@ -307,10 +291,11 @@ public static partial class Game
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
-                // It rises where it appeared: the totem base's own basic action, at once (0x1ab then 0x1ac). A totem has
-                // no Transitionable component, so the monster rise's 0x2bc is not sent and the actor needs no grant.
-                bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
-                    TotemEmergeSkill, conn.NextActionSequence(), 0x0800, objectId));
+                // It rises where it appeared: the Emerge basic action, at once (0x1ab then 0x1ac). A totem has no
+                // Transitionable component, so the monster rise's 0x2bc is not sent and the actor needs no grant.
+                if (Emerges.SkillId is ushort emerge)
+                    bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
+                        emerge, conn.NextActionSequence(), 0x0800, objectId));
                 if (finishPlacement is null) Activate(objectId, bytes);
                 created = objectId;
                 return bytes.Build();
@@ -440,127 +425,110 @@ public static partial class Game
         }
     }
 
-    // A totem with a skill of its own uses it: it aims at the nearest living hostile monster in its range (0x1ab from
-    // the totem, naming the granted skill its object carries, as a monster's swing names its own) and the hit lands at
-    // the contact. A totem that only carries an aura (Rejuvenation Totem) has no strike and does nothing here, and so
-    // has an adopted projectile spell totem: SpellTotems.cs schedules that cast instead.
+    // A totem with a skill of its own uses it. Shockwave Totem (a nova) casts while a targetable hostile is within its
+    // totem range (base_totem_range, as the other totems read it: TotemTargetRange) and hits around itself at the end of
+    // each cast; Devouring Totem eats a corpse. An aura totem (Rejuvenation) has neither, and an adopted projectile spell
+    // totem is ticked by SpellTotems.cs instead.
     static void TotemUseLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
-        if (totem.Devour is { } devour) { TotemDevourLocked(remote, stream, ciphers, conn, totem, devour, now, bytes); return; }
+        if (totem.Devour is { } devour) { TotemDevourLocked(conn, totem, devour, now, bytes); return; }
         if (totem.Strike is not { } strike) return;
-        if (strike.ContactAt is double contact && now >= contact)
+        if (strike.ContactAt is double contact)
         {
-            TotemStrikeLocked(remote, stream, ciphers, conn, totem, strike, now);
+            if (now < contact) return;
             strike.ContactAt = null;
+            TotemStrikeLocked(remote, stream, ciphers, conn, totem, strike, now, bytes);
         }
-        if (now < strike.NextUse || strike.ContactAt is not null) return;
-        uint target = 0; (int X, int Y) aim = totem.At; double nearest = double.MaxValue;
-        foreach (var (id, m) in conn.Monsters)
-        {
-            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) continue;
-            var at = m.Walk.Position(now);
-            double distance = Dist(at, totem.At);
-            if (distance > strike.Range || distance >= nearest) continue;
-            nearest = distance; target = id; aim = at;
-        }
-        if (target == 0) return;
-        bytes.Presentation(totem.Id,
-            InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y, strike.GrantedId,
-            0xffff, 0x0408, targetObjectId: target));
-        strike.Target = target; strike.Aim = aim;
-        strike.ContactAt = now + strike.Contact;
-        strike.NextUse = now + strike.Interval;
+        double range = TotemTargetRange(conn, totem.SkillId);
+        if (!conn.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
+        if (TotemCastSeconds(conn, totem.SkillId) is not double seconds) return;
+        strike.Sequence = ++totem.Sequence;
+        bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
+            strike.GrantedId, strike.Sequence, 0x0408));
+        strike.ContactAt = now + seconds;
     }
 
-    // Devouring Totem: it eats the nearest corpse within its range (the engine's: a monster killed here whose Life type
-    // allows corpse use and that nothing has consumed), giving the player the gem's own life and mana for it — the
-    // Deathrattle warcry's corpse consumption (Warcries.cs) with Devour Support's clamp. The corpse the client holds goes
-    // with 0x2bd, and the totem plays its action at it.
-    static void TotemDevourLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        TotemState.Totem totem, TotemState.Devour devour, double now, WorldRecordBuilder bytes)
+    static bool TotemTargetable(SpawnedMonster m) =>
+        m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, OwnerId: null, Asleep: false };
+
+    // Devouring Totem: while the player is missing Life or Mana it eats the nearest corpse within its totem range once
+    // per cast (1.0 s base, over its cast speed), giving the gem's own life and mana. The corpse is the totem's, not the
+    // player's: as for a totem's summon (SpellTotems.cs, playerConsumesCorpse: false) it meets no "consumed a corpse"
+    // condition of his. The corpse the client holds goes with 0x2bd, and the totem plays its action at it.
+    static void TotemDevourLocked(ClientState conn, TotemState.Totem totem, TotemState.Devour devour, double now,
+        WorldRecordBuilder bytes)
     {
         if (now < devour.NextUse) return;
-        // A player who is already full has nothing to gain, and the corpse stays: eating every second at full life both
-        // emptied the floor and spent the totem's only effect for nothing.
-        if (conn.PlayerLife >= conn.PlayerMaxLife && (devour.Mana == 0 || conn.PlayerMana >= UnreservedMana(conn))) return;
+        bool life = devour.Life > 0 && conn.PlayerLife < conn.PlayerMaxLife;
+        bool mana = devour.Mana > 0 && conn.PlayerMana < UnreservedMana(conn);
+        if (!life && !mana) return;
+        var player = CharacterPlayerStats(conn);
+        life &= GolemStat(player, "cannot_recover_life") == 0;
+        mana &= GolemStat(player, "cannot_recover_mana") == 0;
+        if (!life && !mana) return;
+        double range = TotemTargetRange(conn, totem.SkillId);
         uint corpseId = 0; SpawnedMonster? corpse = null; (int X, int Y) at = totem.At; double nearest = double.MaxValue;
         foreach (var (id, m) in conn.Monsters)
         {
             if (!IsCorpse(m)) continue;
             var cell = m.Walk.Position(now);
             double distance = Dist(cell, totem.At);
-            if (distance > TotemRange || distance >= nearest) continue;
+            if (distance > range || distance >= nearest) continue;
             nearest = distance; corpseId = id; corpse = m; at = cell;
         }
         if (corpse is null) return;
-        corpse.CorpseConsumed = true;
-        conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
+        ConsumeSummonCorpseLocked(conn, corpse, playerConsumesCorpse: false);
         conn.Monsters.Remove(corpseId);
-        if (devour.Life > 0) conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + devour.Life);
-        if (devour.Mana > 0) conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + devour.Mana);
+        if (life) conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + devour.Life);
+        if (mana) conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + devour.Mana);
         if (totem.GrantedId != 0)
-            bytes.Presentation(totem.Id,
-                InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
-                totem.GrantedId, 0xffff, 0x0408));
+            bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, at.X, at.Y,
+                totem.GrantedId, ++totem.Sequence, 0x0408));
         bytes.Remove(corpseId);
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
         bytes.Presentation(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
-        devour.NextUse = now + 1;
+        devour.NextUse = now + (TotemCastSeconds(conn, totem.SkillId) ?? 1);
         Console.WriteLine($"[gateway] totem 0x{totem.Id:x} devours corpse 0x{corpseId:x} at ({at.X}, {at.Y}): "
-            + $"+{devour.Life} life, +{devour.Mana} mana (player {conn.PlayerLife}/{conn.PlayerMaxLife})");
+            + $"+{(life ? devour.Life : 0)} life, +{(mana ? devour.Mana : 0)} mana (player {conn.PlayerLife}/{conn.PlayerMaxLife})");
     }
 
-    /// <summary>The taunting totem a monster at a point is drawn to: the nearest living one within
-    /// <see cref="TotemRange"/> cells, or null. The monster AI reads this so its chase and its hit go to the totem
-    /// instead of the player (Decoy Totem). Under the Monsters lock.</summary>
-    internal static uint? TotemTauntLocked(ClientState conn, (int X, int Y) at, double now)
-        => conn.Totems.Living(now).Where(t => t.Taunt && Dist(t.At, at) <= TotemRange)
-            .OrderBy(t => (long)(t.At.X - at.X) * (t.At.X - at.X) + (long)(t.At.Y - at.Y) * (t.At.Y - at.Y))
-            .Select(t => (uint?)t.Id).FirstOrDefault();
-
-    /// <summary>The cell of a living totem, or null when that id is not (or no longer) one of them. The monster AI reads
-    /// it to walk a taunted monster to the totem it goes for. Under the Monsters lock.</summary>
-    internal static (int X, int Y)? TotemAtLocked(ClientState conn, uint id, double now)
-        => conn.Totems.All.FirstOrDefault(t => t.Id == id && t.Alive(now))?.At;
-
-    /// <summary>A monster's whole hit on a totem (a taunt's contact): its damage goes to the totem's Life, which is the
-    /// redirect stat's 100% case (the wiki's Decoy Totem takes the hits it draws). At 0 the totem dies like any other;
-    /// damage past its Life is lost, as a totem takes no overflow. Under the Monsters lock.</summary>
-    internal static void TotemTakesMonsterHitLocked(ClientState conn, uint totemId, int damage, double now,
-        IReadOnlyDictionary<uint, int> stats)
-    {
-        if (conn.Totems.All.FirstOrDefault(t => t.Id == totemId) is not { } totem || !totem.Alive(now)) return;
-        var (_, left) = TotemState.Redirect(damage, 100, totem.Life);
-        totem.Life = left;
-        if (left == 0) { totem.DiedAt = now; TotemsDiedLocked(conn, now, stats); }
-    }
-
-    // A totem's use lands at its contact: every living hostile monster within the skill's radius of the point the use
-    // was aimed at takes that skill's hit (the player's damage for it, as a placed trap's), mitigated as any hit and
-    // with its ailments. The totem's kills give the player their experience but are not his for his on-kill effects.
-    // The lab's ledger does not record this hit yet: NoteTotemOutgoing and the ledger it feeds are their own change
-    // (see the integration note), so "did the totem's attack land?" is answered by /totems and the totem's Life for now.
+    // A nova's contact: every targetable hostile within its radius of the totem takes the spell's hit, worked out now
+    // from the owner's stats as a totem's (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not
+    // the totem's), in the Arc totem's steps (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments.
+    // The totem's kills give the player their experience but are not his for his on-kill effects.
     static void TotemStrikeLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        TotemState.Totem totem, TotemState.Strike strike, double now)
+        TotemState.Totem totem, TotemState.Strike strike, double now, WorldRecordBuilder bytes)
     {
-        var player = CharacterPlayerStats(conn);
+        var skill = SupportedSkill(conn, totem.SkillId);
+        if (SupportedHitInputsFor(conn, totem.SkillId, area: true, totem: true) is not { } inputs) return;
+        var caster = TotemCasterStats(CharacterPlayerStats(conn));
+        var blind = BlindHitInput.Capture(caster, skill.Stats);
+        var hit = new SkillDamageContext(SkillHitKind.Spell, caster).Hit(SupportedHitFrom(inputs, suppress: false));
+        if (hit.IsZero) return;
+        var criticalRoll = CaptureSkillCriticalRoll(conn, totem.SkillId);
+        var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
+        var resistance = HitResistMods(caster, skill.Stats);
         foreach (var (id, m) in conn.Monsters.ToArray())
         {
-            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
-                || Dist(m.Walk.Position(now), strike.Aim) > strike.Radius) continue;
-            var rolled = strike.Hit.Roll(Random.Shared);
-            var mitigated = DamageModel.Mitigate(rolled,
-                type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesMitigated(m, mitigated, strike.Spell, now);
-            if (damage <= 0) continue;
-            if (ApplyMonsterHitLocked(conn, m, damage, allyAt: totem.At) is not { } hit) continue;
-            if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
-            CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "totem", playerKill: false);
-            if (!m.Dead)
-                m.Ailments.Inflict(mitigated, strike.Spell, m.MaxLife, now,
-                    n => GolemStat(strike.Sources, n) + GolemStat(player, n), n => m.Effects[n], Random.Shared);
+            if (!TotemTargetable(m) || conn.AsleepMonsters.Contains(id)
+                || Dist(m.Walk.Position(now), totem.At) > strike.Radius || MonsterBlocks(m, Random.Shared, spell: true)) continue;
+            var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
+                GameEvents.WithOutgoingDamage(conn, caster, m, hit.Roll(Random.Shared)), now);
+            int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
+                SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
+            bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
+            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
+                GamblerFor(caster).InvertsResistance(Random.Shared));
+            if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
+            if (ApplyMonsterHitLocked(conn, m, damage, allyAt: totem.At) is not { } accepted) continue;
+            if (accepted.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); accepted = accepted with { StageStarts = false }; }
+            bytes.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, strike.Sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
+                kind: 3, code: HitCode(hit)));
+            if (!m.Dead && damage > 0)
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared, blind: blind);
+            CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "totem", playerKill: false);
         }
     }
 
@@ -569,7 +537,7 @@ public static partial class Game
     // buff on the player (0x1c1 from the totem, 0x1c2) with his stats. An adopted projectile spell totem uses nothing
     // here: it has no Strike and SendTotems ticks its cast first (SpellTotems.cs).
 
-    /// <summary>A dedicated totem skill strikes, devours, taunts and can be hit; a totemified spell flies through
+    /// <summary>A dedicated totem skill novas or devours; a totemified spell flies through
     /// <see cref="TickSpellTotemsLocked"/> instead, which keys on <c>Effect >= 0</c>, so neither double-casts the other's
     /// totems.</summary>
     static void TickTotemUsesLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
