@@ -1020,21 +1020,18 @@ public static partial class Game
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
     public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
-        await Send(remote, stream, ciphers, [], $"gold 0x{id:x} {how} (+{ground.Item.StackSize})", atGate: () =>
+        GroundPickup? pickup;
+        lock (conn.Monsters)
         {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
-                    || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return null;
-                if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
-                    > SystemSettings.Default.GoldAutoLootRadius) return null;
-                var (by, shared) = conn.Instance.Ground.Origin(id);
-                if (!shared && !ReferenceEquals(by, conn)) return null;
-                if (TakeGroundStack(conn, id, ground) is not { } pickup) return null;
-                conn.SeenGround.Remove(id);
-                return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
-            }
-        });
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
+                || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return;
+            if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
+                > SystemSettings.Default.GoldAutoLootRadius) return;
+            pickup = TakeGroundStack(conn, id, ground);
+            if (pickup is not null) conn.SeenGround.Remove(id);
+        }
+        // Lockstep consumes removals in world records. Use the same delivery as a pet or stack pickup.
+        if (pickup is not null) await SendPickup(remote, stream, ciphers, conn, id, pickup);
     }
 
     public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
