@@ -349,31 +349,80 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public byte Level { get; init; } = 1;
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
-    public MonsterModSet Mods { get => mods; set { mods = value; MarkStatsDirty(); } }
+    public MonsterModSet Mods { get => mods; set { mods = value; MarkStats(ModsLayer); } }
     MonsterModSet mods = MonsterModSet.None;
     // A curse put on or taken off changes its stats.
-    public MonsterCurses Curses => curses ??= new(MarkStatsDirty);
+    public MonsterCurses Curses => curses ??= new(() => MarkStats(CursesLayer));
     MonsterCurses? curses;
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
-    public IReadOnlyDictionary<string, int>? EncounterStats { get => encounterStats; set { encounterStats = value; MarkStatsDirty(); } }
+    public IReadOnlyDictionary<string, int>? EncounterStats { get => encounterStats; set { encounterStats = value; MarkStats(EncounterLayer); } }
     IReadOnlyDictionary<string, int>? encounterStats;
     /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
-    public IReadOnlyDictionary<string, int>? BuffStats { get => buffStats; set { buffStats = value; MarkStatsDirty(); } }
+    public IReadOnlyDictionary<string, int>? BuffStats { get => buffStats; set { buffStats = value; MarkStats(BuffLayer); } }
     IReadOnlyDictionary<string, int>? buffStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats => temporaryStats;
     readonly Dictionary<string, IReadOnlyDictionary<string, int>> temporaryStats = new(StringComparer.Ordinal);
-    public void SetTemporaryStats(string key, IReadOnlyDictionary<string, int> stats) { temporaryStats[key] = stats; MarkStatsDirty(); }
-    public bool RemoveTemporaryStats(string key) { bool removed = temporaryStats.Remove(key); if (removed) MarkStatsDirty(); return removed; }
+    public void SetTemporaryStats(string key, IReadOnlyDictionary<string, int> stats)
+    {
+        temporaryStats[key] = stats;
+        MarkStats(TemporaryLayer(key));
+    }
+    public bool RemoveTemporaryStats(string key)
+    {
+        bool removed = temporaryStats.Remove(key);
+        if (removed) MarkStats(TemporaryLayer(key));
+        return removed;
+    }
 
-    // Its stats (Effects) are built from the sources above when one of them changes: the change only marks them dirty,
-    // and the area's Stats phase builds them once, for the next frame (StatsByFrame, set by that phase); until then reads
-    // see the last build. Outside an area's frames (tests, tools) a read after a change builds at once.
+    // Its stats (Effects) are a stat graph (StatGraph.cs): a layer per source (the mods, the encounter's stats, its buffs,
+    // the curses, each temporary source, made on its first use), and a change marks only its own. The area's Stats phase
+    // steps the graph once a frame (StatsByFrame, set by that phase), adding up again only the stats the marked layers
+    // changed; until then reads see the last step. Outside an area's frames (tests, tools) a read after a change steps at once.
+    const int ModsLayer = 0, EncounterLayer = 1, BuffLayer = 2, CursesLayer = 3;
+    readonly Dictionary<string, int> temporaryLayers = new(StringComparer.Ordinal);
+    StatGraph? statGraph;
+    StatGraph Graph
+    {
+        get
+        {
+            if (statGraph is { } made) return made;
+            var g = new StatGraph();
+            g.AddLayer(into => AddStats(into, mods.Effects.Ids));
+            g.AddLayer(into => { if (encounterStats is { } e) AddStats(into, e); });
+            g.AddLayer(into => { if (buffStats is { } b) AddStats(into, b); });
+            g.AddLayer(into => { if (curses is { } c) AddStats(into, c.Stats); });
+            return statGraph = g;
+        }
+    }
+    static void AddStats(StatWriter into, IReadOnlyDictionary<string, int> stats)
+    {
+        foreach (var (name, value) in stats) if (value != 0) into.Add(Program.Stats.Id(name), value);
+    }
+    static void AddStats(StatWriter into, IReadOnlyDictionary<uint, int> stats)
+    {
+        foreach (var (id, value) in stats) into.Add(id, value);
+    }
+    int TemporaryLayer(string key)
+    {
+        var graph = Graph;
+        lock (graph)
+        {
+            if (temporaryLayers.TryGetValue(key, out int layer)) return layer;
+            layer = graph.AddLayer(into => { if (temporaryStats.TryGetValue(key, out var t)) AddStats(into, t); });
+            temporaryLayers[key] = layer;
+            return layer;
+        }
+    }
+    void MarkStats(int layer) { Graph.Mark(layer); StatsDirty = true; StatsMarked?.TryAdd(this, 0); }
+    /// <summary>Where its world lists the monsters a change marked (MonsterTable).</summary>
+    internal System.Collections.Concurrent.ConcurrentDictionary<SpawnedMonster, byte>? StatsMarked;
+    /// <summary>The graph's step and layer counts, for Game_TRACE=budget.</summary>
+    public (long Steps, long Layers) StatWork => statGraph is { } g ? (g.Steps, g.LayerBuilds) : (0, 0);
     MonsterModEffects? effects;
     public bool StatsDirty { get; private set; } = true;
     public bool StatsByFrame { get; set; }
-    public void MarkStatsDirty() => StatsDirty = true;
     readonly List<Action<MonsterModEffects, MonsterModEffects>> afterRebuild = [];
     /// <summary>Runs once after the next build, with the stats before and after (a maximum life that follows them).</summary>
     public void AfterStatsRebuild(Action<MonsterModEffects, MonsterModEffects> then)
@@ -389,15 +438,13 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
             return effects!;
         }
     }
-    /// <summary>Builds its stats from its sources (the Stats phase, or the first read).</summary>
+    /// <summary>Applies the marked sources' changes (the Stats phase, or the first read).</summary>
     public void RebuildStats()
     {
         var before = effects ?? MonsterModEffects.None;
-        var built = encounterStats is { } encounter ? mods.Effects.Combine(encounter) : mods.Effects;
-        foreach (var stats in temporaryStats.Values) built = built.Combine(stats);
-        if (buffStats is { Count: > 0 } buffs) built = built.Combine(buffs);
-        effects = Curses.Effects(built);
         StatsDirty = false;
+        var graph = Graph;
+        if (graph.Step() || effects is null) effects = new MonsterModEffects(graph.Values);
         if (afterRebuild.Count == 0) return;
         var then = afterRebuild.ToArray();
         afterRebuild.Clear();
@@ -1401,8 +1448,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public byte MapPortalStyle;
     // Spawned monsters by object id, in spawn order (for /mobs and /despawn).
     // The instance's (InstanceWorld.Monsters, also the instance's lock): every connection in it sees and hits the same ones.
-    public SortedDictionary<uint, SpawnedMonster> Monsters => Instance?.World.Monsters ?? ownMonsters;
-    readonly SortedDictionary<uint, SpawnedMonster> ownMonsters = [];
+    public MonsterTable Monsters => Instance?.World.Monsters ?? ownMonsters;
+    readonly MonsterTable ownMonsters = [];
     /// <summary>Created, untargetable monsters shared by the instance. Their native bodies exist before emergence.
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;

@@ -47,7 +47,23 @@ public sealed class StatCatalog
         return null;
     }
 
-    public string Name(uint key) => key >= 1 && key <= _names.Count ? _names[(int)key - 1] : $"0x{key:x}";
+    public string Name(uint key) => key >= 1 && key <= _names.Count ? _names[(int)key - 1]
+        : key >= FirstServerId && key - FirstServerId < (uint)_serverNames.Count ? _serverNames[(int)(key - FirstServerId)] : $"0x{key:x}";
+
+    /// <summary>Ids from here up name a stat the server keeps that the client's table does not have; never sent.</summary>
+    public const uint FirstServerId = 0x4000_0000;
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, uint> _serverIds = new(StringComparer.Ordinal);
+    readonly List<string> _serverNames = [];
+
+    /// <summary>The id of any stat name: the client's key, or one of the server's own (<see cref="FirstServerId"/>) for a
+    /// name the client does not have. Resolve it once, not per use.</summary>
+    public uint Id(string name) => Key(name) ?? _serverIds.GetOrAdd(name, n =>
+    {
+        lock (_serverNames) { _serverNames.Add(n); return FirstServerId + (uint)_serverNames.Count - 1; }
+    });
+
+    /// <summary>Whether an id is the client's (sent in packets) rather than the server's own.</summary>
+    public static bool IsClientId(uint id) => id < FirstServerId;
 
     /// <summary>Whether this build has a stat by this name. Uses the same name cache as <see cref="Key(string)"/>, so a
     /// repeated question costs a dictionary lookup; a name that is absent stays cached as a miss.</summary>

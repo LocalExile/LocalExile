@@ -25,9 +25,27 @@ public sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<ui
 /// on the player, its walk, the player's hit chance and the damage the player deals read. Only the stats in
 /// <see cref="MonsterModCatalog.Modelled"/> act; the others are kept for the record.
 /// </summary>
-public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
+public sealed class MonsterModEffects
 {
-    public static readonly MonsterModEffects None = new(new Dictionary<string, int>());
+    public static readonly MonsterModEffects None = new(new Dictionary<uint, int>());
+
+    readonly IReadOnlyDictionary<uint, int> ids;
+    IReadOnlyDictionary<string, int>? named;
+
+    /// <summary>By stat id (StatCatalog.Id): a monster's stat graph's values, held as they are.</summary>
+    public MonsterModEffects(IReadOnlyDictionary<uint, int> ids) => this.ids = ids;
+
+    /// <summary>By name, resolved to ids once here.</summary>
+    public MonsterModEffects(IReadOnlyDictionary<string, int> stats)
+    {
+        var byId = new Dictionary<uint, int>(stats.Count);
+        foreach (var (name, value) in stats)
+        {
+            uint id = Program.Stats.Id(name);
+            byId[id] = byId.GetValueOrDefault(id) + value;
+        }
+        ids = byId;
+    }
 
     /// <summary>Monster.ot's <c>base_critical_strike_multiplier</c> (130), the critical multiplier of every monster. Their
     /// attacks have no base critical strike chance in the data (the monster Melee stat sets' AttackCritChance is 0), so
@@ -40,16 +58,24 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>The highest block chance a monster can have: Monster.ot's <c>maximum_block_%</c>.</summary>
     public const int MaxBlock = 75;
 
-    public IReadOnlyDictionary<string, int> Stats => stats;
+    /// <summary>The stats by id.</summary>
+    public IReadOnlyDictionary<uint, int> Ids => ids;
 
-    public int this[string stat] => stats.GetValueOrDefault(stat);
+    /// <summary>The stats by name (made on first use; for what still asks by name).</summary>
+    public IReadOnlyDictionary<string, int> Stats =>
+        named ??= ids.ToDictionary(p => Program.Stats.Name(p.Key), p => p.Value, StringComparer.Ordinal);
+
+    public int this[uint stat] => ids.GetValueOrDefault(stat);
+
+    // By name until the typed ids replace the names: each read resolves the name (a cached lookup).
+    public int this[string stat] => ids.GetValueOrDefault(Program.Stats.Id(stat));
 
     /// <summary>These effects with another set's stats added on top; absent stats stay absent.</summary>
     public MonsterModEffects Plus(MonsterModEffects other)
     {
-        if (other.Stats.Count == 0) return this;
-        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal);
-        foreach (var (name, value) in other.Stats) sum[name] = sum.GetValueOrDefault(name) + value;
+        if (other.ids.Count == 0) return this;
+        var sum = new Dictionary<uint, int>(ids);
+        foreach (var (id, value) in other.ids) sum[id] = sum.GetValueOrDefault(id) + value;
         return new MonsterModEffects(sum);
     }
 
@@ -57,7 +83,8 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     public MonsterModEffects Plus(string stat, int value)
     {
         if (value == 0) return this;
-        var sum = new Dictionary<string, int>(Stats, StringComparer.Ordinal) { [stat] = this[stat] + value };
+        uint id = Program.Stats.Id(stat);
+        var sum = new Dictionary<uint, int>(ids) { [id] = this[id] + value };
         return new MonsterModEffects(sum);
     }
 
@@ -65,9 +92,13 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     public MonsterModEffects Combine(IReadOnlyDictionary<string, int> extra)
     {
         if (extra.Count == 0) return this;
-        var merged = new Dictionary<string, int>(stats);
-        foreach (var (id, value) in extra)
-            if (value != 0) merged[id] = merged.GetValueOrDefault(id) + value;
+        var merged = new Dictionary<uint, int>(ids);
+        foreach (var (name, value) in extra)
+            if (value != 0)
+            {
+                uint id = Program.Stats.Id(name);
+                merged[id] = merged.GetValueOrDefault(id) + value;
+            }
         return new MonsterModEffects(merged);
     }
 

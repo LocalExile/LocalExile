@@ -1,8 +1,9 @@
 /// <summary>
-/// The area's Stats phase: once a frame, every entity whose stats a change marked dirty (SpawnedMonster.MarkStatsDirty:
-/// its mods, encounter, buff and temporary stats, curses) has them built again, once, for the frame that follows; reads
-/// in between see the last build. A monster the phase has seen is built only here (StatsByFrame). A player's stats the
-/// same way (PlayerStatsCache.cs: StepPlayerStats), with the character panel published once a frame.
+/// The area's Stats phase: once a frame, every entity a change marked has its stat graph stepped (StatGraph.cs), once,
+/// for the frame that follows; reads in between see the last step. A monster's marks name the layer that changed (its
+/// mods, encounter, buff, curse or a temporary source) and its world lists it (MonsterTable.TakeMarked), so only marked
+/// monsters are touched; one the phase has stepped is stepped only here (StatsByFrame). A player's stats the same way
+/// (PlayerStatsCache.cs: StepPlayerStats), with the character panel published once a frame.
 /// </summary>
 public static partial class Game
 {
@@ -27,7 +28,7 @@ public static partial class Game
             // Players first, in the order they joined; then the monsters.
             foreach (var player in frames.Players()) StepPlayerStats(player);
             lock (monsters)
-                foreach (var m in monsters.Values)
+                foreach (var m in monsters.TakeMarked())
                 {
                     m.StatsByFrame = true;
                     if (m.StatsDirty) m.RebuildStats();
