@@ -1269,10 +1269,14 @@ public static partial class Game
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
     /// Random.Shared normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
-    static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
+    internal static Item? CurrencyResult(ClientState conn, Item target, uint currencyTypeHash, Random random)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
-        var type = ItemsFor(conn).ByHash(currencyTypeHash);
+        var catalog = ItemsFor(conn);
+        var type = catalog.ByHash(currencyTypeHash);
+        if (target.Components.Contains("SkillGem") && type is not null
+            && (type.Id == CurrencyEffects.VaalOrb || catalog.CurrencyAction(type) is "corrupt_item" or "special_corrupt_item"))
+            return CorruptGem(catalog, target, random);
         bool isEssence = type is not null && EssencesFor(conn).Contains(type.Hash);
         return type?.Id switch
         {
@@ -1334,6 +1338,40 @@ public static partial class Game
             _ => type is not null && CurrencyEffects.TryAction(ItemsFor(conn), RollsFor(conn), target, type, random,
                     out var byAction, UniquesFor(conn).RollsOf(target)) ? byAction : null,
         };
+    }
+
+    static Item? CorruptGem(ItemCatalog catalog, Item item, Random random)
+    {
+        if (item.Corrupted || item.Mirrored || catalog.ByHash(item.TypeHash) is not { Supported: true } type
+            || catalog.Gem(type) is not { MaxLevel: > 0, Variants.Count: > 0 } gem) return null;
+
+        var corrupted = item with { Corrupted = true };
+        int level = gem.Level(item.GemExperience);
+        switch (random.Next(4))
+        {
+            case 1:
+                int next = Math.Max(1, level + (random.Next(2) == 0 ? -1 : 1));
+                return next == level ? corrupted
+                    : corrupted with { GemExperience = next > gem.MaxLevel ? -1 : gem.ExperienceFor(next) };
+            case 2:
+                int quality = random.Next(1, 21) * (random.Next(2) == 0 ? -1 : 1);
+                return corrupted with { Quality = (byte)Math.Clamp(item.Quality + quality, 0, 23) };
+            case 3:
+                if (gem.VaalBaseRow is int row && catalog.Row(row) is { Supported: true } vaalType
+                    && catalog.Gem(vaalType) is { MaxLevel: > 0 } vaalGem
+                    && vaalGem.Variants.FirstOrDefault(v => v.Creatable && v.Effect2 == gem.Variant(item.GemVariant).Effect) is { } variant)
+                {
+                    return corrupted with
+                    {
+                        TypeHash = vaalType.Hash, Components = vaalType.Components, VisualIdentity = vaalType.VisualIdentity,
+                        GemVariant = variant.Index,
+                        GemExperience = vaalGem.Level(item.GemExperience) == level ? item.GemExperience
+                            : vaalGem.ExperienceFor(level),
+                    };
+                }
+                break;
+        }
+        return corrupted;
     }
 
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare

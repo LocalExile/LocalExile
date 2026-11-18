@@ -18,8 +18,8 @@ public class QualityCurrencyTests
     [Fact]
     public void Vaal_orbs_corrupt_skill_and_support_gems_and_keep_the_matching_variant()
     {
-        var items = Program.Items;
-        var rolls = new ItemRolls(items);
+        using var fixture = new MinionUtilityTests.Fixture();
+        var items = Game.ItemsFor(fixture.Conn);
         var (type, variant) = items.FindGem("Ground Slam of Earthshaking")!.Value;
         var gem = items.Gem(type)!;
         var original = ItemCatalog.Create(type) with
@@ -27,12 +27,8 @@ public class QualityCurrencyTests
             GemExperience = gem.ExperienceFor(20), GemVariant = variant.Index, Quality = 20, GemFlags = 4,
         };
         var currency = items.Find(CurrencyEffects.VaalOrb)!;
-        Item Apply(Item target, int outcome, bool increase = true)
-        {
-            Assert.True(CurrencyEffects.TryAction(items, rolls, target, currency,
-                new GemCorruptionRandom(outcome, increase), out var corrupted));
-            return Assert.IsType<Item>(corrupted);
-        }
+        Item Apply(Item target, int outcome, bool increase = true) =>
+            Assert.IsType<Item>(Game.CurrencyResult(fixture.Conn, target, currency.Hash, new GemCorruptionRandom(outcome, increase)));
         Assert.Equal(original with { Corrupted = true }, Apply(original, 0));
         Assert.Equal(21, items.GemLevel(Apply(original, 1)));
         Assert.Equal(19, items.GemLevel(Apply(original, 1, increase: false)));
@@ -46,8 +42,8 @@ public class QualityCurrencyTests
         Assert.Equal(original.GemFlags, vaal.GemFlags);
         Assert.True(vaal.Corrupted);
         Assert.NotEmpty(vaal.Payload());
-        Assert.Null(rolls.Vaal(vaal, items.ByHash(vaal.TypeHash)!, default, new GemCorruptionRandom(0)));
-        Assert.Null(rolls.Vaal(original with { Mirrored = true }, type, default, new GemCorruptionRandom(0)));
+        Assert.Null(Game.CurrencyResult(fixture.Conn, vaal, currency.Hash, new GemCorruptionRandom(0)));
+        Assert.Null(Game.CurrencyResult(fixture.Conn, original with { Mirrored = true }, currency.Hash, new GemCorruptionRandom(0)));
 
         var support = ItemCatalog.Create(items.FindGem("Added Cold Damage Support")!.Value.Type);
         Assert.Equal(support with { Corrupted = true }, Apply(support, 3));

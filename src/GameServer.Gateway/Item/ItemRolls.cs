@@ -321,13 +321,10 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
     /// rare with 4-6 affixes; a rare one replaces 1-5 affixes or rerolls all of them. One white socket is coloured.
-    /// Gems roll one change to level, quality or variant, or are corrupted without another change.
     /// Maps and MapKeys are corrupted the same way (white/magic become rare; a rare map can gain extra affixes up to
     /// 4/4). Refused targets return null before rolling or spending, including missing/empty pools on equipment.</summary>
     public Item? Vaal(Item item, ItemCatalog.BaseType type, (int Str, int Dex, int Int) requirements, Random random)
     {
-        if (type.Components.Contains("SkillGem"))
-            return VaalGem(item, type, random);
         if (CurrencyEffects.IsMap(item, type))
         {
             if (item.Corrupted || item.Mirrored) return null;
@@ -360,40 +357,6 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
             result = result with { Sockets = sockets };
         }
         return result with { Corrupted = true, Identified = true };
-    }
-
-    Item? VaalGem(Item item, ItemCatalog.BaseType type, Random random)
-    {
-        if (!type.Supported || item.Corrupted || item.Mirrored || !item.Components.Contains("SkillGem")
-            || catalog.Gem(type) is not { MaxLevel: > 0, Variants.Count: > 0 } gem) return null;
-
-        var corrupted = item with { Corrupted = true };
-        int level = gem.Level(item.GemExperience);
-        switch (random.Next(4))
-        {
-            case 1:
-                int next = Math.Max(1, level + (random.Next(2) == 0 ? -1 : 1));
-                return next == level ? corrupted
-                    : corrupted with { GemExperience = next > gem.MaxLevel ? -1 : gem.ExperienceFor(next) };
-            case 2:
-                int quality = random.Next(1, 21) * (random.Next(2) == 0 ? -1 : 1);
-                return corrupted with { Quality = (byte)Math.Clamp(item.Quality + quality, 0, 23) };
-            case 3:
-                if (gem.VaalBaseRow is int row && catalog.Row(row) is { Supported: true } vaalType
-                    && catalog.Gem(vaalType) is { MaxLevel: > 0 } vaalGem
-                    && vaalGem.Variants.FirstOrDefault(v => v.Creatable && v.Effect2 == gem.Variant(item.GemVariant).Effect) is { } variant)
-                {
-                    return corrupted with
-                    {
-                        TypeHash = vaalType.Hash, Components = vaalType.Components, VisualIdentity = vaalType.VisualIdentity,
-                        GemVariant = variant.Index,
-                        GemExperience = vaalGem.Level(item.GemExperience) == level ? item.GemExperience
-                            : vaalGem.ExperienceFor(level),
-                    };
-                }
-                break;
-        }
-        return corrupted;
     }
 
     /// <summary>The item with this rarity and freshly rolled affixes (its implicits and other lists kept, earlier
