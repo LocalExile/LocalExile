@@ -1,109 +1,102 @@
+using System.Diagnostics.CodeAnalysis;
+
 /// <summary>
 /// One entity's stats, kept current by what changes instead of built again whole.
 /// <list type="bullet">
 /// <item>A <b>layer</b> is what one source gives (an item set, the passives, a buff list). It is built alone when its owner
-/// marks it (<see cref="Mark"/>), and only the ids whose total changed are added up again.</item>
-/// <item>An <b>input</b> is state a rule needs that is not a stat (a condition, a count): its owner sets it
-/// (<see cref="SetInput"/>), under an id of its own (<see cref="InputId"/>).</item>
-/// <item>A <b>rule</b> is a derived stat. It reads through <see cref="StatReader"/>, which records each id it read, and runs
-/// again only when one of those changed. It adds to ids (<see cref="StatWriter.Add"/>) or owns them
-/// (<see cref="StatWriter.Set"/>: the id's value is the rule's, which may read the id's total without it by
-/// <see cref="StatReader.Total"/>). A change that leaves a value as it was goes no further.</item>
+/// marks it (<see cref="MarkLayer"/>), and the layers' sums change only for the ids it changed.</item>
+/// <item>A <b>rule</b> is a step after the layers, in the order rules were added: it sees the layers' sums with the earlier
+/// rules' changes on top, and changes stats in place through a <see cref="StatView"/>, as code on a stat dictionary does.
+/// The view records each id the rule read, and the rule runs again only when one of those changes for it (a layer's sum,
+/// or an earlier rule's write), or when its owner marks it (<see cref="MarkRule"/>) for state it reads that is not a stat.
+/// A run that writes what it wrote before changes nothing further.</item>
 /// </list>
-/// <see cref="Step"/> applies what was marked or set since the last one; the area's Stats phase calls it once a frame, and
-/// the values read in between are the last step's. Rules run in the order they were added, which is the order they read
-/// each other's results in; one that reads a later one's result runs again after it.
+/// <see cref="Step"/> applies what was marked since the last one; the area's Stats phase calls it once a frame, and the
+/// values read in between are the last step's (<see cref="Values"/>).
 /// </summary>
 public sealed class StatGraph
 {
     public delegate void LayerBuild(StatWriter into);
-    public delegate void RuleRun(StatReader read, StatWriter write);
+    public delegate void RuleRun(StatView stats);
 
-    /// <summary>Ids from here up are inputs, never a client stat.</summary>
-    public const uint FirstInput = 0x8000_0000;
-    public static uint InputId(int input) => FirstInput + (uint)input;
-
-    internal sealed class Source
+    sealed class Layer
     {
-        public required int Index;
-        public LayerBuild? Build;
-        public RuleRun? Run;
+        public required LayerBuild Build;
         public Dictionary<uint, int> Adds = [];
-        public Dictionary<uint, int> Sets = [];
-        public HashSet<uint> TotalReads = [], ValueReads = [];
-        public bool Dirty = true, Queued;
+        public bool Dirty = true;
     }
 
-    readonly List<Source> layers = [];
-    readonly List<Source> rules = [];
-    readonly Dictionary<uint, int> totals = [];       // every layer's and rule's Add, plus the inputs
-    readonly Dictionary<uint, int> writers = [];      // how many layers, rules and inputs write an id: 0 = absent
-    readonly Dictionary<uint, Source> owners = [];    // the rule that Sets an id
-    readonly Dictionary<uint, int> inputs = [];
-    readonly Dictionary<uint, List<Source>> totalReaders = [], valueReaders = [];
-    readonly HashSet<uint> changedTotals = [];
-    readonly HashSet<uint> changedValues = [];
-    readonly PriorityQueue<Source, int> queue = new();
-    Dictionary<uint, int> values = [];
-    bool dirtyLayers;
+    internal sealed class Rule
+    {
+        public required int Index;
+        public required RuleRun Run;
+        public Dictionary<uint, int?> Writes = [];   // null: the rule removed the id
+        public readonly HashSet<uint> Reads = [];
+        public bool ReadsAll, Queued;
+    }
 
-    /// <summary>The values as of the last step. Never changed after a step published it: hold it as long as needed.</summary>
-    public IReadOnlyDictionary<uint, int> Values { get { lock (this) return values; } }
+    readonly List<Layer> layers = [];
+    readonly List<Rule> rules = [];
+    readonly Dictionary<uint, int> totals = [];          // the layers' sums
+    readonly Dictionary<uint, int> layerWriters = [];    // how many layers write an id (0 = absent from the sums)
+    readonly Dictionary<uint, SortedList<int, int?>> writes = [];   // each id's rule writes, by rule index
+    readonly Dictionary<uint, HashSet<Rule>> readers = [];
+    readonly HashSet<Rule> allReaders = [];
+    readonly HashSet<uint> changed = [];
+    readonly PriorityQueue<Rule, int> queue = new();
+    volatile Dictionary<uint, int> values = [];
+    bool dirtyLayers;
+    // Marks from any thread, taken by the next step: a mark never waits for a step (which holds the graph while its rules
+    // take other locks), so a thread holding one of those can mark and read.
+    readonly System.Collections.Concurrent.ConcurrentQueue<int> markedLayers = new(), markedRules = new();
+
+    /// <summary>The values as of the last step. Never changed after a step published it: hold it as long as needed. Reading
+    /// them takes no lock.</summary>
+    public IReadOnlyDictionary<uint, int> Values => values;
 
     /// <summary>The ids whose value the last step changed (added, removed or a new value).</summary>
     public IReadOnlyCollection<uint> Changed { get; private set; } = [];
 
-    /// <summary>Steps taken and rule runs, for Game_TRACE=budget.</summary>
+    /// <summary>Steps that changed something, layer builds and rule runs, for Game_TRACE=budget.</summary>
     public long Steps, LayerBuilds, RuleRuns;
 
-    /// <summary>A layer, built on its first step and then each time it is marked. The returned index marks it.</summary>
+    /// <summary>A layer, built on the first step and then each time it is marked. Returns what marks it.</summary>
     public int AddLayer(LayerBuild build)
     {
         lock (this)
         {
-            layers.Add(new() { Index = layers.Count, Build = build });
+            layers.Add(new() { Build = build });
             dirtyLayers = true;
             return layers.Count - 1;
         }
     }
 
-    /// <summary>A rule, run on the first step and then when an id it read changes. Add them in the order they read each other.</summary>
-    public void AddRule(RuleRun run)
+    /// <summary>A rule after those added before it, run on the first step. Returns what marks it.</summary>
+    public int AddRule(RuleRun run)
     {
         lock (this)
         {
-            var rule = new Source { Index = rules.Count, Run = run };
+            var rule = new Rule { Index = rules.Count, Run = run };
             rules.Add(rule);
             Queue(rule);
+            return rule.Index;
         }
     }
 
     /// <summary>The layer's source changed: it is built again in the next step.</summary>
-    public void Mark(int layer)
-    {
-        lock (this) { layers[layer].Dirty = true; dirtyLayers = true; }
-    }
+    public void MarkLayer(int layer) => markedLayers.Enqueue(layer);
 
-    /// <summary>An input's new value; a rule that read it runs in the next step if it differs.</summary>
-    public void SetInput(uint id, int value)
-    {
-        lock (this)
-        {
-            bool had = inputs.TryGetValue(id, out int old);
-            if (had && old == value) return;
-            inputs[id] = value;
-            if (!had) writers[id] = writers.GetValueOrDefault(id) + 1;
-            AddTotal(id, value - old);
-        }
-    }
+    /// <summary>State the rule reads that is not a stat changed: it runs in the next step.</summary>
+    public void MarkRule(int rule) => markedRules.Enqueue(rule);
 
-    /// <summary>Applies the marks and inputs since the last step. False when no value changed.</summary>
+    /// <summary>Applies what was marked since the last step. False when no value changed.</summary>
     public bool Step()
     {
         lock (this)
         {
-            if (!dirtyLayers && changedTotals.Count == 0 && queue.Count == 0) { Changed = []; return false; }
-            Steps++;
+            while (markedLayers.TryDequeue(out int marked)) { layers[marked].Dirty = true; dirtyLayers = true; }
+            while (markedRules.TryDequeue(out int marked)) Queue(rules[marked]);
+            if (!dirtyLayers && queue.Count == 0) { Changed = []; return false; }
             if (dirtyLayers)
             {
                 dirtyLayers = false;
@@ -112,166 +105,199 @@ public sealed class StatGraph
                     {
                         layer.Dirty = false;
                         LayerBuilds++;
-                        var w = new StatWriter();
-                        layer.Build!(w);
-                        Apply(layer, w);
+                        var into = new StatWriter();
+                        layer.Build(into);
+                        ApplyLayer(layer, into.Adds);
                     }
             }
-            int runs = 0, limit = 16 * (rules.Count + 1);
-            while (true)
+            while (queue.TryDequeue(out var rule, out _))
             {
-                Settle();
-                if (!queue.TryDequeue(out var rule, out _)) break;
                 rule.Queued = false;
-                if (++runs > limit) throw new InvalidOperationException("stat rules keep changing each other: a cycle");
                 RuleRuns++;
-                foreach (uint id in rule.TotalReads) totalReaders[id].Remove(rule);
-                foreach (uint id in rule.ValueReads) valueReaders[id].Remove(rule);
-                rule.TotalReads.Clear();
-                rule.ValueReads.Clear();
-                var read = new StatReader(this, rule);
-                var w = new StatWriter();
-                rule.Run!(read, w);
-                read.Done = true;
-                Apply(rule, w);
+                foreach (uint id in rule.Reads) readers[id].Remove(rule);
+                rule.Reads.Clear();
+                if (rule.ReadsAll) { allReaders.Remove(rule); rule.ReadsAll = false; }
+                var view = new StatView(this, rule);
+                try { rule.Run(view); }
+                finally { view.Done = true; }
+                ApplyRule(rule, view.Written);
             }
-            if (changedValues.Count == 0) { Changed = []; return false; }
-            var next = new Dictionary<uint, int>(values);
-            foreach (uint id in changedValues)
-                if (writers.GetValueOrDefault(id) > 0) next[id] = Value(id);
-                else next.Remove(id);
-            values = next;
-            Changed = changedValues.ToArray();
-            changedValues.Clear();
-            return true;
+            return Publish();
         }
     }
 
-    // A source's new writes against its last ones.
-    void Apply(Source source, StatWriter w)
+    void ApplyLayer(Layer layer, Dictionary<uint, int> adds)
     {
-        foreach (var (id, old) in source.Adds)
-            if (!w.Adds.ContainsKey(id)) { Unwrite(id); AddTotal(id, -old); }
-        foreach (var (id, value) in w.Adds)
-        {
-            if (!source.Adds.TryGetValue(id, out int old)) { writers[id] = writers.GetValueOrDefault(id) + 1; changedValues.Add(id); }
-            AddTotal(id, value - old);
-        }
-        source.Adds = w.Adds;
-        foreach (var (id, _) in source.Sets)
-            if (!w.Sets.ContainsKey(id)) { owners.Remove(id); Unwrite(id); TotalOrValueChanged(id); }
-        foreach (var (id, value) in w.Sets)
-        {
-            if (!source.Sets.TryGetValue(id, out int old))
+        foreach (var (id, old) in layer.Adds)
+            if (!adds.ContainsKey(id))
             {
-                if (owners.TryGetValue(id, out var other) && other != source)
-                    throw new InvalidOperationException($"stat {id} is set by two rules");
-                owners[id] = source;
-                writers[id] = writers.GetValueOrDefault(id) + 1;
-                TotalOrValueChanged(id);
+                int n = layerWriters[id] - 1;
+                if (n > 0) layerWriters[id] = n; else layerWriters.Remove(id);
+                AddTotal(id, -old, presence: true);
             }
-            else if (old != value) ValueChanged(id);
-        }
-        source.Sets = w.Sets;
-    }
-
-    void Unwrite(uint id)
-    {
-        int n = writers.GetValueOrDefault(id) - 1;
-        if (n > 0) writers[id] = n; else writers.Remove(id);
-        changedValues.Add(id);
-    }
-
-    void AddTotal(uint id, int delta)
-    {
-        if (delta == 0) return;
-        totals[id] = (int)Math.Clamp((long)totals.GetValueOrDefault(id) + delta, int.MinValue, int.MaxValue);
-        changedTotals.Add(id);
-    }
-
-    void TotalOrValueChanged(uint id) { changedTotals.Add(id); ValueChanged(id); }
-
-    void ValueChanged(uint id)
-    {
-        changedValues.Add(id);
-        if (valueReaders.TryGetValue(id, out var readers)) foreach (var r in readers) Queue(r);
-    }
-
-    // The totals that changed: the rules that read them, and the values they are (an id no rule owns).
-    void Settle()
-    {
-        if (changedTotals.Count == 0) return;
-        foreach (uint id in changedTotals)
+        foreach (var (id, value) in adds)
         {
-            if (totalReaders.TryGetValue(id, out var readers)) foreach (var r in readers) Queue(r);
-            if (!owners.ContainsKey(id)) ValueChanged(id);
+            bool had = layer.Adds.TryGetValue(id, out int old);
+            if (!had) layerWriters[id] = layerWriters.GetValueOrDefault(id) + 1;
+            AddTotal(id, value - old, presence: !had);
         }
-        changedTotals.Clear();
+        layer.Adds = adds;
     }
 
-    void Queue(Source rule)
+    void AddTotal(uint id, int delta, bool presence)
+    {
+        if (delta != 0) totals[id] = (int)Math.Clamp((long)totals.GetValueOrDefault(id) + delta, int.MinValue, int.MaxValue);
+        if (delta == 0 && !presence) return;
+        if (!layerWriters.ContainsKey(id)) totals.Remove(id);
+        Touched(id, after: -1);
+    }
+
+    void ApplyRule(Rule rule, Dictionary<uint, int?> written)
+    {
+        foreach (var (id, _) in rule.Writes)
+            if (!written.ContainsKey(id))
+            {
+                var list = writes[id];
+                list.Remove(rule.Index);
+                if (list.Count == 0) writes.Remove(id);
+                Touched(id, rule.Index);
+            }
+        foreach (var (id, value) in written)
+        {
+            if (rule.Writes.TryGetValue(id, out int? old) && old == value) continue;
+            if (!writes.TryGetValue(id, out var list)) writes[id] = list = [];
+            list[rule.Index] = value;
+            Touched(id, rule.Index);
+        }
+        rule.Writes = written;
+    }
+
+    // An id changed for the rules after index `after` (-1: the layers' sums, every rule).
+    void Touched(uint id, int after)
+    {
+        changed.Add(id);
+        if (readers.TryGetValue(id, out var set))
+            foreach (var r in set) if (r.Index > after) Queue(r);
+        foreach (var r in allReaders) if (r.Index > after) Queue(r);
+    }
+
+    void Queue(Rule rule)
     {
         if (rule.Queued) return;
         rule.Queued = true;
         queue.Enqueue(rule, rule.Index);
     }
 
-    int Value(uint id) => owners.TryGetValue(id, out var owner) ? owner.Sets[id] : totals.GetValueOrDefault(id);
-
-    int ReadValue(Source rule, uint id)
+    bool Publish()
     {
-        if (rule.ValueReads.Add(id)) Readers(valueReaders, id).Add(rule);
-        return Value(id);
+        if (changed.Count == 0) { Changed = []; return false; }
+        Dictionary<uint, int>? next = null;
+        var differs = new List<uint>();
+        foreach (uint id in changed)
+        {
+            bool present = Visible(int.MaxValue, id, out int value);
+            bool had = values.TryGetValue(id, out int old);
+            if (present == had && (!present || old == value)) continue;
+            next ??= new Dictionary<uint, int>(values);
+            if (present) next[id] = value; else next.Remove(id);
+            differs.Add(id);
+        }
+        changed.Clear();
+        Changed = differs;
+        if (next is null) return false;
+        values = next;
+        Steps++;
+        return true;
     }
 
-    int ReadTotal(Source rule, uint id)
+    // The id as a rule at `index` sees it: the last earlier rule's write, else the layers' sum.
+    bool Visible(int index, uint id, out int value)
     {
-        if (rule.TotalReads.Add(id)) Readers(totalReaders, id).Add(rule);
-        return totals.GetValueOrDefault(id);
+        if (writes.TryGetValue(id, out var list))
+        {
+            var keys = list.Keys;
+            int lo = 0, hi = keys.Count - 1, found = -1;
+            while (lo <= hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (keys[mid] < index) { found = mid; lo = mid + 1; } else hi = mid - 1;
+            }
+            if (found >= 0)
+            {
+                int? written = list.Values[found];
+                value = written ?? 0;
+                return written.HasValue;
+            }
+        }
+        if (layerWriters.ContainsKey(id)) { value = totals.GetValueOrDefault(id); return true; }
+        value = 0;
+        return false;
     }
 
-    bool ReadHas(Source rule, uint id)
+    // Every id present for a rule at `index`.
+    IEnumerable<uint> VisibleIds(int index)
     {
-        if (rule.ValueReads.Add(id)) Readers(valueReaders, id).Add(rule);
-        return writers.GetValueOrDefault(id) > 0;
+        foreach (uint id in layerWriters.Keys) if (Visible(index, id, out _)) yield return id;
+        foreach (uint id in writes.Keys) if (!layerWriters.ContainsKey(id) && Visible(index, id, out _)) yield return id;
     }
 
-    static List<Source> Readers(Dictionary<uint, List<Source>> map, uint id)
-    {
-        if (!map.TryGetValue(id, out var list)) map[id] = list = [];
-        return list;
-    }
-
-    /// <summary>What a rule reads: each id is remembered, and the rule runs again when it changes. Only during the run.</summary>
-    public sealed class StatReader
+    /// <summary>
+    /// A rule's stats while it runs: the stats as the rule sees them, changed in place. Every read is recorded (a read of all
+    /// of them, as an enumeration or Count is, makes the rule run again on any change before it); every write is the rule's.
+    /// </summary>
+    public sealed class StatView : StatMap
     {
         readonly StatGraph graph;
-        readonly Source rule;
+        readonly Rule rule;
+        internal readonly Dictionary<uint, int?> Written = [];
         internal bool Done;
-        internal StatReader(StatGraph graph, Source rule) { this.graph = graph; this.rule = rule; }
-        Source Rule => Done ? throw new InvalidOperationException("a stat rule's reader read after the rule returned") : rule;
 
-        /// <summary>The id's value (0 when nothing writes it).</summary>
-        public int this[uint id] => graph.ReadValue(Rule, id);
-        /// <summary>Whether a layer, rule or input writes the id (a stat present at 0 counts).</summary>
-        public bool Has(uint id) => graph.ReadHas(Rule, id);
-        /// <summary>The layers', inputs' and adding rules' sum for the id, without the rule that owns it.</summary>
-        public int Total(uint id) => graph.ReadTotal(Rule, id);
-        /// <summary>An input's value.</summary>
-        public int Input(int input) => graph.ReadValue(Rule, InputId(input));
+        internal StatView(StatGraph graph, Rule rule) { this.graph = graph; this.rule = rule; }
+
+        Rule Live => Done ? throw new InvalidOperationException("a stat rule's view was used after the rule returned") : rule;
+
+        public override bool TryGetValue(uint id, [MaybeNullWhen(false)] out int value)
+        {
+            var r = Live;
+            if (Written.TryGetValue(id, out int? own)) { value = own ?? 0; return own.HasValue; }
+            if (r.Reads.Add(id))
+            {
+                if (!graph.readers.TryGetValue(id, out var set)) graph.readers[id] = set = [];
+                set.Add(r);
+            }
+            return graph.Visible(r.Index, id, out value);
+        }
+
+        protected override void Set(uint id, int value) { _ = Live; Written[id] = value; }
+
+        public override bool Remove(uint id)
+        {
+            bool had = ContainsKey(id);
+            Written[id] = null;
+            return had;
+        }
+
+        protected override List<KeyValuePair<uint, int>> Pairs()
+        {
+            var r = Live;
+            if (!r.ReadsAll) { r.ReadsAll = true; graph.allReaders.Add(r); }
+            var ids = new HashSet<uint>(graph.VisibleIds(r.Index));
+            foreach (var (id, own) in Written) if (own.HasValue) ids.Add(id); else ids.Remove(id);
+            var pairs = new List<KeyValuePair<uint, int>>(ids.Count);
+            foreach (uint id in ids)
+                pairs.Add(new(id, Written.TryGetValue(id, out int? own) ? own!.Value
+                    : graph.Visible(r.Index, id, out int v) ? v : 0));
+            return pairs;
+        }
     }
 }
 
-/// <summary>What a layer or rule gives. A stat written as 0 is present at 0.</summary>
+/// <summary>What a layer gives: its sums, by id. A stat written as 0 is present at 0.</summary>
 public sealed class StatWriter
 {
     internal readonly Dictionary<uint, int> Adds = [];
-    internal readonly Dictionary<uint, int> Sets = [];
 
-    /// <summary>Adds to the id's total (twice adds twice).</summary>
+    /// <summary>Adds to the id's sum (twice adds twice).</summary>
     public void Add(uint id, int value) =>
         Adds[id] = (int)Math.Clamp((long)Adds.GetValueOrDefault(id) + value, int.MinValue, int.MaxValue);
-
-    /// <summary>A rule's own value for the id, whatever the others add (one rule per id).</summary>
-    public void Set(uint id, int value) => Sets[id] = value;
 }

@@ -25,7 +25,7 @@ public static class ActorScale
         return limit == 0 ? result : Math.Min(result, limit);
     }
 
-    public static void Project(Dictionary<uint, int> snapshot, IReadOnlyDictionary<uint, int> dev,
+    public static void Project(StatMap snapshot, IReadOnlyDictionary<uint, int> dev,
         IEnumerable<(uint Key, int Value)> cosmetics)
     {
         // Character.ot's baseline is an ordinary contribution, not a fallback for an absent source key.

@@ -160,7 +160,7 @@ public static partial class Game
         return value;
     }
 
-    static void WithRampage(ClientState conn, Dictionary<uint, int> stats)
+    static void WithRampage(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {

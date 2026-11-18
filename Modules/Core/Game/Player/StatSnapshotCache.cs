@@ -3,20 +3,15 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    // The player stat snapshot (CharacterPlayerStatsSnapshot) in two parts. Its head gathers the stat sources and runs the
-    // side effects that go with them (pool rebuilds, the charge, fortification and Antiquarian observations, the leech and
-    // fortification configuration, the time-dependent counts); it runs on every call, as before. Its tail (the character
-    // panel's derived rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows) is a pure
-    // function of StatSnapshotTailInputs: every value it reads is read once, before it, into the inputs, and the tail reads
-    // nothing else of the connection. So a tail whose inputs equal the last one's has the last one's result, which a
-    // connection keeps (one entry per stage). Rampage and ailment reconciliation run between the pure stages on every call. Idle, the energy-shield publication alone builds a snapshot on every 16 ms recovery step:
-    // most of those reuse the tail. Agents/docs/dev/character-stat-lifecycle.md ("Snapshot cache").
+    // The tail of the player's stats (PlayerStatSteps.cs: TailPanels, TailOffence, TailCritical): the character panel's
+    // derived rows, the default attack's hit and ailment rows, accuracy, critical and off-hand rows. Each stage reads only
+    // StatSnapshotTailInputs: the stats before it and the state read into the inputs.
 
-    /// <summary>Everything the tail reads. Equal inputs (Matches) give an equal result, in the same order.</summary>
+    /// <summary>Everything the tail reads.</summary>
     public sealed record StatSnapshotTailInputs
     {
-        /// <summary>The head's stats, in their order (a dictionary's order is what the packets built from it list).</summary>
-        public required Dictionary<uint, int> Stats;
+        /// <summary>The stats before the tail, which it changes in place.</summary>
+        public required StatMap Stats;
         public required Dictionary<uint, int> RawOverrides;
         /// <summary>RawOverrides' keys (the stats /set_stat replaces): derived from RawOverrides, which Matches compares, so it
         /// is not compared itself.</summary>
@@ -59,28 +54,6 @@ public static partial class Game
             for (int i = 0; i < OffRow.Count; i++) if (OffRow[i].Id == id) return OffInactive[i];
             throw new InvalidOperationException($"the stat snapshot's tail asked about item {id}, outside rows 2 and 3");
         }
-
-        public bool Matches(StatSnapshotTailInputs o) =>
-            ReferenceEquals(Skills, o.Skills) && ReferenceEquals(Items, o.Items) && ClassRow == o.ClassRow
-            && BlindLess == o.BlindLess && PlayerLife == o.PlayerLife && PlayerMaxLife == o.PlayerMaxLife
-            && EnergyShieldRecharging == o.EnergyShieldRecharging
-            && PetrifiedBloodRecoveryCapped == o.PetrifiedBloodRecoveryCapped
-            && LifeRegenerationToEnergyShield.Equals(o.LifeRegenerationToEnergyShield) && Moving == o.Moving
-            && BloodChargesHeld == o.BloodChargesHeld && BloodChargesShown == o.BloodChargesShown
-            && SuppressionChance == o.SuppressionChance && AttackEffectId == o.AttackEffectId
-            && ActionFactor.Equals(o.ActionFactor) && Ailments.AsSpan().SequenceEqual(o.Ailments)
-            && Pools.Equals(o.Pools)
-            && SameItems(MainRow, o.MainRow) && SameItems(OffRow, o.OffRow)
-            && MainInactive.AsSpan().SequenceEqual(o.MainInactive) && OffInactive.AsSpan().SequenceEqual(o.OffInactive)
-            && SameInOrder(RawOverrides, o.RawOverrides) && SameInOrder(MainLocal, o.MainLocal) && SameInOrder(OffLocal, o.OffLocal)
-            && SameInOrder(Stats, o.Stats);
-
-        static bool SameItems(IReadOnlyList<InventoryItem> a, IReadOnlyList<InventoryItem> b)
-        {
-            if (a.Count != b.Count) return false;
-            for (int i = 0; i < a.Count; i++) if (!ReferenceEquals(a[i], b[i])) return false;
-            return true;
-        }
     }
 
     /// <summary>Same keys and values in the same enumeration order.</summary>
@@ -97,23 +70,12 @@ public static partial class Game
         return !y.MoveNext();
     }
 
-    // One per connection: the last tail's inputs (a copy of the head's stats) and its result. Both are never changed
-    // after they are published, so any thread may read them; a caller gets a copy of the result.
-    public sealed record StatSnapshotTail(StatSnapshotTailInputs Inputs, Dictionary<uint, int> Result);
-    public sealed class StatSnapshotTailSlot { public volatile StatSnapshotTail? Last; }
     public enum StatSnapshotStage { Panels, Offence, Critical }
-    public sealed class StatSnapshotTailSlots
-    {
-        public readonly StatSnapshotTailSlot[] Stages = [new(), new(), new()];
-    }
-    public static readonly RuleTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
 
-    /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): every reused tail is also computed again and compared, in order.</summary>
+    /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): a reused result is also computed again and compared.</summary>
     public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
-    public static long StatSnapshotTailHits, StatSnapshotTailMisses, StatSnapshotTailMismatches;
-
     // Reads the tail's inputs. Called where the tail starts, after the head; stats is the head's (not copied).
-    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(ClientState conn, Dictionary<uint, int> stats,
+    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(ClientState conn, StatMap stats,
         Dictionary<uint, int> rawOverrides, HashSet<uint> devSet, Dictionary<string, int> mainLocal, Dictionary<string, int> offLocal,
         double lifeRegenerationToEnergyShield, bool moving)
     {
@@ -143,42 +105,8 @@ public static partial class Game
         };
     }
 
-    // The tail on stats (the head's, changed in place): the last result when the inputs are the same, else computed.
-    public static Dictionary<uint, int> StatSnapshotTailFor(ClientState conn, StatSnapshotTailInputs inputs, StatSnapshotStage stage)
-    {
-        var slot = StatSnapshotTails.GetValue(conn, _ => new()).Stages[(int)stage];
-        if (slot.Last is { } last && last.Inputs.Matches(inputs))
-        {
-            Interlocked.Increment(ref StatSnapshotTailHits);
-            if (VerifyStatSnapshotTail)
-            {
-                var fresh = ComputeStatSnapshotTail(inputs, stage);
-                if (!SameInOrder(fresh, last.Result))
-                {
-                    Interlocked.Increment(ref StatSnapshotTailMismatches);
-                    var differs = fresh.Keys.Union(last.Result.Keys)
-                        .Where(k => fresh.GetValueOrDefault(k) != last.Result.GetValueOrDefault(k)).Take(8)
-                        .Select(k => $"{Stats.Name(k)} {last.Result.GetValueOrDefault(k)} (reused) vs {fresh.GetValueOrDefault(k)}");
-                    string why = $"[gateway] stat snapshot: a reused tail differs from a fresh one: {string.Join(", ", differs)}"
-                        + (SameInOrder<uint>(new(fresh.OrderBy(kv => kv.Key)), new(last.Result.OrderBy(kv => kv.Key))) ? " (order only)" : "");
-                    Console.WriteLine(why);
-                    throw new InvalidOperationException(why);
-                }
-            }
-            return new(last.Result);
-        }
-        Interlocked.Increment(ref StatSnapshotTailMisses);
-        var key = new Dictionary<uint, int>(inputs.Stats);
-        var result = ComputeStatSnapshotTail(inputs, stage);
-        inputs.Stats = key;
-        // A reuse returns a copy of the result, so the first use does too: both are the same fresh, compacted dictionary
-        // (one order and layout, whatever the tail did to build the result).
-        slot.Last = new(inputs, result);
-        return new(result);
-    }
-
     // The tail: reads only inputs (and the game data). Changes inputs.Stats in place and returns it.
-    static Dictionary<uint, int> ComputeStatSnapshotTail(StatSnapshotTailInputs inputs, StatSnapshotStage stage)
+    static StatMap ComputeStatSnapshotTail(StatSnapshotTailInputs inputs, StatSnapshotStage stage)
     {
         var stats = inputs.Stats;
         var rawOverrides = inputs.RawOverrides;

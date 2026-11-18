@@ -28,7 +28,7 @@ public static partial class Game
         return (sources, ordinary.Seconds);
     }
 
-    public static void AddItemUtilityFlaskRawStats(Dictionary<uint, int> stats,
+    public static void AddItemUtilityFlaskRawStats(StatMap stats,
         IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)
     {
         var snapshot = running as IReadOnlyCollection<(string Stat, int Value)> ?? running.ToArray();

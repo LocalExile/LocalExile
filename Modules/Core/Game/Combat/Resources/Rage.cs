@@ -13,7 +13,7 @@ public static partial class Game
 
     // Called after raw character/utility inputs and before attack damage/panel calculations. Derived values are
     // authoritative: setting current_rage cannot create resources or bypass gain prevention.
-    public static void WithRage(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithRage(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {

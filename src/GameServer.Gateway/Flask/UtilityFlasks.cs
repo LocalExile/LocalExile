@@ -564,7 +564,7 @@ public static class UtilityFlasks
     }
 
     /// <summary>Adds the running flasks' <see cref="RawStats"/> to the character's stats (Program.CharacterPlayerStats).</summary>
-    public static void AddRawStats(Dictionary<uint, int> stats, IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)
+    public static void AddRawStats(StatMap stats, IEnumerable<(string Stat, int Value)> running, StatCatalog catalog)
     {
         foreach (var (k, v) in RawStats(running, catalog)) stats[k] = ActorScale.Add(k, stats.GetValueOrDefault(k), v);
     }

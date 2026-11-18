@@ -415,7 +415,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
             return layer;
         }
     }
-    void MarkStats(int layer) { Graph.Mark(layer); StatsDirty = true; StatsMarked?.TryAdd(this, 0); }
+    void MarkStats(int layer) { Graph.MarkLayer(layer); StatsDirty = true; StatsMarked?.TryAdd(this, 0); }
     /// <summary>Where its world lists the monsters a change marked (MonsterTable).</summary>
     internal System.Collections.Concurrent.ConcurrentDictionary<SpawnedMonster, byte>? StatsMarked;
     /// <summary>The graph's step and layer counts, for Game_TRACE=budget.</summary>

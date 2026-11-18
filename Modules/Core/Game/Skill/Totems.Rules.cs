@@ -382,7 +382,7 @@ public static partial class Game
     }
 
     // The aura of the totem covering the living player joins his stats (CharacterPlayerStatsCore), with his aura effect.
-    static void AddTotemAuraStats(ClientState conn, Dictionary<uint, int> stats)
+    static void AddTotemAuraStats(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {

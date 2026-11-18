@@ -221,7 +221,7 @@ public static partial class Game
         !golem.Monster.Dead && GolemSummonedInPastEightSeconds(golem, now)
             ? Math.Clamp(8 - Math.Max(0, now - golem.SummonedAt), 0, 8) : 0;
 
-    static void AddGolemStats(ClientState conn, Dictionary<uint, int> stats)
+    static void AddGolemStats(ClientState conn, StatMap stats)
     {
         AddSummonCounts(conn, stats);
         lock (conn.Monsters)

@@ -23,7 +23,7 @@ public static partial class Game
         }
     }
 
-    public static void WithLeechConditions(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithLeechConditions(ClientState conn, StatMap stats)
     {
         var state = LeechContext(conn);
         foreach (var (name, active) in new[] { ("is_life_leeching", state.Life), ("is_mana_leeching", state.Mana),
@@ -44,7 +44,7 @@ public static partial class Game
     // Endless Hunger's two "while Leeching" defences, on the final flags the server sends and reads (client 0x1427e17d0:
     // cannot_be_stunned_while_leeching and is_leeching; 0x142896810 the same for virtual_unaffected_by_bleeding).
     // A /set_stat value of either flag keeps its value.
-    public static void WithLeechingDefences(Dictionary<uint, int> stats, IReadOnlySet<uint> devSet)
+    public static void WithLeechingDefences(StatMap stats, IReadOnlySet<uint> devSet)
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool leeching = Get("is_leeching") != 0;

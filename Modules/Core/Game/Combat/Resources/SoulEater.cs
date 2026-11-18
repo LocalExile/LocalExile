@@ -32,7 +32,7 @@ public static partial class Game
 
     /// <summary>The client's own "during any Flask Effect" conditions and its native flask logic read <c>using_flask</c>
     /// (a stat, not the server's evaluated stats): 1 while any effect is on. Soul Eater's soul visuals are one of them.</summary>
-    public static void WithUsingFlask(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithUsingFlask(ClientState conn, StatMap stats)
     {
         if (Stats.Key("using_flask") is uint key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
     }
@@ -55,7 +55,7 @@ public static partial class Game
     }
 
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
-    public static void WithSoulEater(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithSoulEater(ClientState conn, StatMap stats)
     {
         bool flask = SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
         int hitCooldown = SoulEaterHitCooldownMs(stats);

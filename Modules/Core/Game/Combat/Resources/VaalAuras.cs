@@ -22,7 +22,7 @@ public static partial class Game
         SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n))
         * Math.Max(0, 1 + ((long)GolemStat(player, "buff_duration_+%") + GolemStat(own, "buff_duration_+%")) / 100d);
 
-    static void WithVaalAura(ClientState conn, Dictionary<uint, int> stats)
+    static void WithVaalAura(ClientState conn, StatMap stats)
     {
         if (!VaalAuraStates.TryGetValue(conn, out var aura)) return;
         lock (conn.Monsters)

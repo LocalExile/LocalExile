@@ -12,7 +12,7 @@ public static partial class Game
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
 
-    public static void AddRecentEnemyHitStatsLocked(ClientState conn, Dictionary<uint, int> stats)
+    public static void AddRecentEnemyHitStatsLocked(ClientState conn, StatMap stats)
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
         if (conn.RecentEnemyHits.NextChangeIn(conn.Clock.Elapsed.TotalSeconds) is double left) StatsChangeIn(left);

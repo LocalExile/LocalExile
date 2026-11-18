@@ -410,7 +410,7 @@ public static partial class Game
         if (changed) SaveSummons(conn);
     }
 
-    static void AddSummonCounts(ClientState conn, Dictionary<uint, int> stats)
+    static void AddSummonCounts(ClientState conn, StatMap stats)
     {
         foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
             if (Stats.Key("number_of_dominated_" + rarity.ToString().ToLowerInvariant() + "_monsters") is uint count)

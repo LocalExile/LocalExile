@@ -48,7 +48,7 @@ public static partial class Game
         TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
     public static int PlayerEvasion(ClientState conn, double now) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn).Less);
-    static void WithBlind(ClientState conn, Dictionary<uint, int> stats)
+    static void WithBlind(ClientState conn, StatMap stats)
     {
         var blind = PlayerBlindValue(conn, stats);
         if (blind.Less > 0 || conn.ResourceEffectsState is ResourceEffectsState state && state.PlayerBlind.Sent.Less > 0)

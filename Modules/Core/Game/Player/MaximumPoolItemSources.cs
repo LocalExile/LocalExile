@@ -12,7 +12,7 @@ public static class MaximumPoolItemSources
 
     public static long Amount(int coefficient, uint maximum) => (long)coefficient * (maximum / 100);
 
-    public static void Apply(Dictionary<uint, int> sources, StatCatalog stats, uint maximumLife, uint maximumMana,
+    public static void Apply(StatMap sources, StatCatalog stats, uint maximumLife, uint maximumMana,
         IReadOnlySet<uint>? replacements = null)
     {
         foreach (var (input, output, lowest) in Rules)

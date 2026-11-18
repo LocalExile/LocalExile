@@ -63,7 +63,7 @@ public sealed class SlayerNodesTests
         {
             var stats = Keyed(("cannot_be_stunned_while_leeching", 1), ("unaffected_by_bleeding_while_leeching", 1),
                 ("is_leeching", leeching ? 1 : 0));
-            Game.WithLeechingDefences(stats, new HashSet<uint>());
+            Game.WithLeechingDefences(new PlainStatMap(stats), new HashSet<uint>());
             Assert.Equal(leeching ? 1 : 0, stats.GetValueOrDefault(Program.Stats.Key("cannot_be_stunned")!.Value));
             Assert.Equal(leeching ? 1 : 0, stats[Program.Stats.Key("virtual_unaffected_by_bleeding")!.Value]);
             // Endless Hunger's flag no longer turns the stun check off: the player is stunned only when not leeching.

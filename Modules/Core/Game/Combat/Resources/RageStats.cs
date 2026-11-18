@@ -26,7 +26,7 @@ public static class RageStats
     /// existing consumers read. The axe-qualified source is already removed by StatConditions when no active axe is
     /// equipped; it is not multiplied by the number of axes.
     /// </summary>
-    public static void ExpandItems(Dictionary<uint, int> stats, int effectiveRage)
+    public static void ExpandItems(StatMap stats, int effectiveRage)
     {
         if (effectiveRage <= 0) return;
         Add(PhysicalAddedAsFirePerRage, "physical_damage_%_to_add_as_fire");

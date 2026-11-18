@@ -128,7 +128,7 @@ public static partial class Game
     }
 
     // The running Leadership's stats join the player's (CharacterPlayerStatsCore), while he lives.
-    static void AddSpiritLeadershipStats(ClientState conn, Dictionary<uint, int> stats)
+    static void AddSpiritLeadershipStats(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife > 0 && conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) is { } buff)

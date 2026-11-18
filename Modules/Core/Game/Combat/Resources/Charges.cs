@@ -156,7 +156,7 @@ public static partial class Game
             var fresh = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
             if (!SameInOrder(fresh, reused))
             {
-                Interlocked.Increment(ref StatSnapshotTailMismatches);
+                Interlocked.Increment(ref ChargeReuseMismatches);
                 throw new InvalidOperationException("[gateway] stat snapshot: a reused charge expansion differs from a fresh one");
             }
             return reused;
@@ -172,6 +172,7 @@ public static partial class Game
         Dictionary<string, int> Added);
     sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
     static readonly RuleTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
+    static long ChargeReuseMismatches;
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
     public static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>

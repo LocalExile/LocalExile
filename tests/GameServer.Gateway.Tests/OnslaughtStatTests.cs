@@ -11,7 +11,7 @@ public sealed class OnslaughtStatTests
             .Select(s => (s.Stat, s.Value)).ToList();
 
         var stats = new Dictionary<uint, int>();
-        UtilityFlasks.AddRawStats(stats, sources, Program.Stats);
+        UtilityFlasks.AddRawStats(new PlainStatMap(stats), sources, Program.Stats);
         Assert.Equal(20, stats[Program.Stats.Key("attack_speed_+%")!.Value]);
         Assert.Equal(20, stats[Program.Stats.Key("cast_speed_+%")!.Value]);
 

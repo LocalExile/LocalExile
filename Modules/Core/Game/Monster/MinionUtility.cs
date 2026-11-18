@@ -167,7 +167,7 @@ static partial class Game
         }
     }
 
-    static void AddSelfOfferingStats(ClientState conn, Dictionary<uint, int> stats)
+    static void AddSelfOfferingStats(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
             if (conn.PlayerLife > 0)

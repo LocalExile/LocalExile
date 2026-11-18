@@ -111,13 +111,11 @@ public static partial class Game
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
         // In an area's frames: the build of the last Stats phase (StatsSystem.cs), until the next.
-        if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame)
-            lock (frame)
-                if (frame.Stats is { } built)
-                {
-                    baselineLifePerSecond = frame.Baseline;
-                    return new(built);
-                }
+        if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is { } graph)
+        {
+            baselineLifePerSecond = frame.Outputs.BaselineLifePerSecond;
+            return new(graph.Values);
+        }
         if (CurrentPlayerStatsScope.Value is not { } scope || !ReferenceEquals(scope.Conn, conn))
             return ThrottledPlayerStats(conn, out baselineLifePerSecond);
         var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
@@ -164,14 +162,14 @@ public static partial class Game
 
     // ---- stats by frame ----
 
-    // A player's stats in an area's frames: built once in the Stats phase when a change marked them (MarkPlayerStatsDirty,
-    // SendCharacterStats) or an input of the key above changed, and read from there until the next build. The character
-    // panel is published there too, once a frame however many changes asked for it.
+    // A player's stats in an area's frames: a stat graph with a rule per step (PlayerStatSteps.cs), stepped once in the
+    // Stats phase; a step runs again when a stat it read changed before it or a change marks it, and reads in between see
+    // the last step. The character panel is published there too, once a frame however many changes asked for it.
     sealed class FrameStats
     {
         public bool Dirty = true, ByFrame;
-        public Dictionary<uint, int>? Stats;
-        public double Baseline;
+        public StatGraph? Graph;
+        public readonly PlayerStepOutputs Outputs = new();
         public PlayerStatsEntry? Key;
         public string? Publish;
         public Task Publishing = Task.CompletedTask;
@@ -218,19 +216,22 @@ public static partial class Game
         double clock = conn.Clock.Elapsed.TotalSeconds;
         var key = PlayerStatsKey(conn, clock);
         bool dirty;
-        lock (frame) dirty = frame.Dirty || frame.Stats is null || frame.Key is null || !SameSources(frame.Key, key)
+        lock (frame) dirty = frame.Dirty || frame.Graph is null || frame.Key is null || !SameSources(frame.Key, key)
             || clock >= frame.NextChange;
+        var graph = frame.Graph ??= PlayerStatGraph(conn, frame.Outputs);
         if (dirty)
         {
-            lock (frame) frame.Dirty = false;
-            (collectingChanges, buildNextChange) = (true, double.PositiveInfinity);
-            Dictionary<uint, int> stats;
-            double baseline;
-            try { stats = CharacterPlayerStatsSnapshot(conn, out baseline, out _); }
-            finally { collectingChanges = false; frame.NextChange = clock + buildNextChange; }
-            lock (frame) { frame.Stats = stats; frame.Baseline = baseline; frame.Key = key; }
+            lock (frame) { frame.Dirty = false; frame.Key = key; }
+            for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);
         }
-        else if (VerifyFrameStats) VerifyFrame(conn, frame);
+        (collectingChanges, buildNextChange) = (true, double.PositiveInfinity);
+        try { graph.Step(); }
+        finally
+        {
+            collectingChanges = false;
+            if (dirty) frame.NextChange = clock + buildNextChange;
+        }
+        if (VerifyFrameStats) VerifyFrame(conn, frame);
         frame.ByFrame = true;
         if (dirty) frame.Builds++;
         if (++frame.Steps == 300)
@@ -251,13 +252,25 @@ public static partial class Game
         frame.Publishing = AsPlayer(conn, updates, () => PublishCharacterStats(remote, stream, ciphers, conn, why));
     }
 
-    // Game_STATS_FRAME_VERIFY=1: a player whose stats were not built again is built anyway and compared; what differs
-    // is an input that changed without marking them.
+    static StatGraph PlayerStatGraph(ClientState conn, PlayerStepOutputs outputs)
+    {
+        var graph = new StatGraph();
+        foreach (var step in Enum.GetValues<PlayerStatStep>()) graph.AddRule(view => RunPlayerStep(step, conn, view, outputs));
+        return graph;
+    }
+
+    /// <summary>A change that one step reads: that step runs again in the next Stats phase (and what it changes, after it).</summary>
+    public static void MarkPlayerStats(ClientState conn, PlayerStatStep step)
+    {
+        if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.Graph is { } graph) graph.MarkRule((int)step);
+    }
+
+    // Game_STATS_FRAME_VERIFY=1: the graph's values against every step run in order now; what differs is a change no
+    // mark reached.
     static void VerifyFrame(ClientState conn, FrameStats frame)
     {
-        Dictionary<uint, int>? kept;
-        lock (frame) kept = frame.Stats;
-        if (kept is null) return;
+        if (frame.Graph is not { } graph) return;
+        var kept = graph.Values;
         var fresh = CharacterPlayerStatsSnapshot(conn, out _, out _);
         var wrong = fresh.Keys.Union(kept.Keys).Where(k => fresh.GetValueOrDefault(k) != kept.GetValueOrDefault(k))
             .Select(k => Stats.Name(k)).Order().ToArray();

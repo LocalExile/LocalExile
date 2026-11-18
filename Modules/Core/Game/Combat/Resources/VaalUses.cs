@@ -19,7 +19,7 @@ public static partial class Game
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
-    static void WithVaalPrevention(ClientState conn, Dictionary<uint, int> stats)
+    static void WithVaalPrevention(ClientState conn, StatMap stats)
     {
         lock (conn.Monsters)
         {

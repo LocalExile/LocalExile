@@ -43,12 +43,12 @@ public static partial class Game
                     sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + added, int.MinValue, int.MaxValue);
             }
             Add(FortificationSession.AttackSpeed, value.IncreasedAttackSpeedPercent(session.SpeedPerStack));
-            AddFortificationCounts(sources, value);
+            AddFortificationCounts(new PlainStatMap(sources), value);
             return sources;
         }
     }
 
-    public static void AddFortificationCounts(Dictionary<uint, int> stats, FortificationState.Value value)
+    public static void AddFortificationCounts(StatMap stats, FortificationState.Value value)
     {
         foreach (var (name, amount) in new[] { (FortificationSession.Current, value.Current),
             (FortificationSession.Uncapped, (int)Math.Min(int.MaxValue, value.Uncapped)),
@@ -99,7 +99,7 @@ public static partial class Game
         var recovery = new Dictionary<uint, int>(sources);
         lock (conn.Monsters)
             foreach (var (key, value) in conn.PlayerStats) recovery[key] = value;
-        AddItemUtilityFlaskRawStats(recovery,
+        AddItemUtilityFlaskRawStats(new PlainStatMap(recovery),
             conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         ConfigureFortificationRecovery(conn, maximumLife,
             name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);

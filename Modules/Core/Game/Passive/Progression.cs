@@ -1009,8 +1009,8 @@ public static partial class Game
         foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats, includeReceived: true).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         conn.Reservations.CrabPoolsDirty = false;
-        AddGolemStats(conn, sources);
-        AddSelfOfferingStats(conn, sources);
+        AddGolemStats(conn, new PlainStatMap(sources));
+        AddSelfOfferingStats(conn, new PlainStatMap(sources));
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
         SuspendRestrictedOwnAuras(conn, new(sources));
         var weapons = WeaponProfileFor(conn);
