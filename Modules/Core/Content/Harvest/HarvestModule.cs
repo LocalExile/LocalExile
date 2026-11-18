@@ -44,18 +44,19 @@ public sealed class HarvestModule : IModule
         });
         GameEvents.Packet(InstanceHarvest.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes));
+            await Craft(module, PlayerOf(conn), InstanceHarvest.ReadCraft(bytes), LeagueFor(conn).HardMode);
             return true;
         });
     }
 
     /// <summary>C→S 0x274: execute the HarvestCraftOptions recipe whose HASH16 the native panel sent, on the item in the slot.
     /// The item and all lifeforce costs commit together; a refusal spends nothing.</summary>
-    async Task Craft(IModuleContext module, IPlayer player, ushort recipe)
+    async Task Craft(IModuleContext module, IPlayer player, ushort recipe, bool hardMode)
     {
         var world = WorldOf(player);
         if (world.OpenWindowOwner != Window || !_states.TryGetValue(player, out var state) || state.Station == 0) return;
-        var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items));
+        // world.Crafting is one instance per game mode, so the cached recipes keep the mode they were made for.
+        var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items, hardMode: hardMode));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";
         var crafted = await world.CraftInSlot(Slot, item => harvest.Apply(recipe, item, Random.Shared), $"Harvest recipe {name}");
         if (crafted is null)

@@ -64,6 +64,8 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
     /// base is known, serializable, has Mods and is not unmodifiable.</summary>
+    public bool Modifiable(Item item) => TryModifiable(item, out _);
+
     bool TryModifiable(Item item, out ItemCatalog.BaseType type)
     {
         type = null!;

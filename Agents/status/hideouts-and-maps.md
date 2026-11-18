@@ -18,6 +18,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   item atomically.
   Refusals spend nothing; unsupported influence, exchange, divination-card, gem, corrupted-map and quality-enchant
   recipes are reported in chat and wait for their prerequisite systems.
+  Reforges need an identified rare, augments a non-influenced item.
+  Uniques, unmodifiable items and a recipe of the other game mode (GameMode 1 not in Ruthless, 2 Ruthless only) are
+  refused, and RancourCost charges Crystallised Rancour (these rules not yet tried in the client).
   Automated tests cover raw rows/costs, every supported operation family, payment, insufficient funds and save
   rollback; station, window and the request were confirmed live.
   See [21](../docs/protocol/21-hideouts.md), Horticrafting Station.
@@ -100,6 +103,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
   box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+
+- Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
+  and `.tgr` maps; its `link` rooms are a gate each way inside the map instance, and map packs stay out of the grove.
+  The Harvest module fills 3-4 pairs of crops (Extractor, Irrigator, Pole, Storage Tank, 23 seeds by colour and tier);
+  one click hatches the seed monsters and withers the other crop of the pair; they drop Wild/Vivid/Primal lifeforce.
+  The 39 `atlas_harvest_*` passives, the three Harvest scarabs and the Idols' same stats apply, all read from
+  `Game.MapModsOf`.
+  Not yet verified in the client: the gates, the grove objects and their states, seeds, monsters and drops.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

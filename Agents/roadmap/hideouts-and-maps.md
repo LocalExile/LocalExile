@@ -6,10 +6,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest station placement, native recipe browsing and the item-recipe execution path (targeted/affinity reforges,
-augments, modifier conversions, atomic lifeforce payment) are implemented; see Status and protocol/21-hideouts.md.
-Remaining Harvest recipes (influences, stack exchanges, divination cards, gem lenses, corrupted maps and quality
-enchants) wait for their prerequisite systems.
+Harvest, what is left: Oshabi, Sacred Blossom and her area `HarvestLeagueBoss`; a check that the memory-line room's
+sites group as the normal grove's do; Faridun seeds, Refiner's Bargain's crops and the Harvest-scarab drop weighting;
+the client questions (the gate label, which crop object carries the seed list, the Extractor/Irrigator state sequence
+and where seeds sit); the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and enchants.
 
 ### Switching hideout templates
 
