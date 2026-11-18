@@ -54,7 +54,9 @@ public static partial class Game
             frozen = m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, now) > 0;
             bleeding = m.Bleeds.Burning;
             // "your Marked Enemy": a Mark this player cast, not another player's on the same monster.
-            marked = m.Curses.All.Keys.Any(k => k.Caster == conn.PeerId && CurseCatalog.All.TryGetValue(k.Effect, out var c) && c.Mark);
+            marked = false;
+            foreach (var curse in m.Curses.All.Values)
+                if (curse.Mark && curse.Caster == conn.PeerId) { marked = true; break; }
             selfBleeding = conn.IncomingAilments.Bleeding(now);
             selfPoisoned = conn.IncomingAilments.PoisonStacks(now) > 0;
         }
@@ -172,9 +174,14 @@ public static partial class Game
         }
         // "Count as having maximum number of … Charges": the effects count the maximum; the rows and buffs keep the
         // charges really held.
-        var counted = new Dictionary<ChargeType, int>(held);
+        // Every stat snapshot comes here: copy the counts only when one of them changes (performance.md, "Hot paths").
+        var counted = held;
         foreach (var type in Charges.Types)
-            if (ChargeScaling.CountsAsMaximum(type, Get)) counted[type] = Math.Max(counted[type], limits[type].Maximum);
+            if (limits[type].Maximum > held[type] && ChargeScaling.CountsAsMaximum(type, Get))
+            {
+                if (ReferenceEquals(counted, held)) counted = new(held);
+                counted[type] = limits[type].Maximum;
+            }
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
         int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
