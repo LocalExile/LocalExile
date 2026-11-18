@@ -31,8 +31,15 @@ public static partial class Game
     static extern IntPtr GetCurrentThread();
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
     static extern bool GetThreadTimes(IntPtr thread, out long creation, out long exit, out long kernel, out long user);
+    // Linux: clock_gettime(CLOCK_THREAD_CPUTIME_ID = 3). Elsewhere the probe reports 0 rather than throwing.
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "clock_gettime")]
+    static extern int ClockGetTime(int clock, out Timespec time);
+    struct Timespec { public long Seconds, Nanoseconds; }
     static long ThreadCpuMilliseconds() =>
-        GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
+        OperatingSystem.IsWindows()
+            ? GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0
+            : OperatingSystem.IsLinux() && ClockGetTime(3, out var time) == 0 ? time.Seconds * 1000 + time.Nanoseconds / 1_000_000
+            : 0;
 
     public static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
