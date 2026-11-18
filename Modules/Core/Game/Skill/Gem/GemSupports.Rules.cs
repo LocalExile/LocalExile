@@ -89,17 +89,6 @@ public static partial class Game
             && CrueltyActivePct(conn, skillId) is int crueltyPct and > 0
             && Stats.Key(CrueltyDotStat) is uint crueltyKey)
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
-        if (SkillsFor(conn).IsMelee(selected.Effect)
-            && conn.Auras.Values.FirstOrDefault(a => a.EffectId == "BloodAndSand" && a.AffectsSelf) is { } stance)
-        {
-            string input = stance.Stance == "Sand" ? "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance"
-                : "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_blood_stance";
-            if (Stats.Key(input) is uint stanceInput && Stats.Key("active_skill_area_of_effect_+%_final") is uint target)
-            {
-                int value = SkillsFor(conn).EffectStats(stance.Effect, stance.Level, stance.Quality).FirstOrDefault(s => s.Item1 == stanceInput).Item2;
-                own[target] = (int)Math.Round(100 * ((1 + own.GetValueOrDefault(target) / 100.0) * (1 + value / 100.0) - 1));
-            }
-        }
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         ApplyBloodAndSandMeleeStats(conn, selected.Effect, own);
