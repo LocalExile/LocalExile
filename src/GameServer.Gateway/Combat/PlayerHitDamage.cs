@@ -107,6 +107,8 @@ public static class PlayerHitDamage
         * Math.Max(0, 1 + get("righteous_fire_spell_damage_+%_final") / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get("spell_damage_+%_final_from_arcane_surge") / 100.0)
+        // Pain Attunement: "30% more Spell Damage when on Low Life".
+        * (get("keystone_pain_attunement") != 0 && get("on_low_life") != 0 ? 1.3 : 1)
         * ((history & DamageTypeHistory.Lightning) != 0
             ? Math.Max(0, 1 + get("wrath_aura_spell_lightning_damage_+%_final") / 100.0) : 1);
 

@@ -327,9 +327,13 @@ public static partial class Game
         var recovery = PanelStats.WhileMoving(Get, moving);
         if (Stats.Key("evasion_rating") is uint evasionKey && !devSet.Contains(evasionKey)) stats[evasionKey] = PlayerEvasion(conn, statsAt);
         ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
-        ConfigureLeech(conn, Get, rawOverrides, CriticalOnLowLife(conn, stats));
+        bool lowLife = CriticalOnLowLife(conn, stats);
+        ConfigureLeech(conn, Get, rawOverrides, lowLife);
         ConfigureKillOnslaught(conn, Get);
         WithLeechConditions(conn, stats);
+        // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
+        // here with the other live state flags so it cannot go stale with the cached stat head.
+        if (Stats.Key("on_low_life") is uint lowLifeKey && !devSet.Contains(lowLifeKey)) stats[lowLifeKey] = lowLife ? 1 : 0;
         // Capture the unmodified recovery baseline from this same snapshot, before the temporary contribution.
         // The resource writer integrates Fortification separately across exact expiry boundaries.
         baselineLifePerSecond = PanelStats.LifePerMinute(recovery, conn.Pools.Life) / 60;

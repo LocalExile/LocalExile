@@ -16,7 +16,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   evaded, never crit) and Precise Technique (40% more Attack Damage above Maximum Life Accuracy, never crit) also work,
   as does the "critical strikes do not deal extra Damage" part of Elemental Overload and Perfect Agony. Unwavering
   Stance (cannot evade, cannot be stunned) and Arrow Dancing (evasion doubled against projectile attacks, 25% less
-  against melee attacks) change the rating an enemy attack rolls against.
+  against melee attacks) change the rating an enemy attack rolls against. Magebane removes Dexterity's inherent evasion
+  bonus and grants 1% spell suppression per 15 Dexterity; Pain Attunement grants 30% more Spell Damage on low life.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets, percentage attribute mods, The Adorned and Split Personality's allocated paths,
   including nested clusters (tree art check pending).

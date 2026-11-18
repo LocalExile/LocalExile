@@ -92,5 +92,28 @@ public sealed class PassiveConditionTests
         Assert.Equal(2000, EvasionKeystones.Rating(1000, projectile: true, melee: false, Dancing));
         Assert.Equal(750, EvasionKeystones.Rating(1000, projectile: false, melee: true, Dancing));
         Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: false, melee: false, Dancing));
+
+        // Magebane: Dexterity's inherent evasion bonus is gone (its accuracy bonus is not), and every 15 Dexterity is
+        // 1% spell suppression. 300 Dexterity: 15 base evasion stays 15 instead of 24, and 20% suppression.
+        var classInfo = Game.SkillsFor(f.Conn).ClassFor(f.Conn.ClassRow);
+        var plain = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300));
+        var magebane = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300, Magebane: true));
+        Assert.Equal(24, plain.Evasion);
+        Assert.Equal(15, magebane.Evasion);
+        Assert.Equal(0, plain.SpellSuppressionChance);
+        Assert.Equal(20, magebane.SpellSuppressionChance);
+        Assert.Equal(plain.Accuracy, magebane.Accuracy);
+
+        // Pain Attunement: 30% more Spell Damage on low life, and nothing off it.
+        var fire = DamagePacket.Of(DamageType.Fire, new DamageRange(100, 100));
+        int SpellGet(string name) => name switch
+        {
+            "keystone_pain_attunement" => 1,
+            "on_low_life" => 1,
+            _ => 0,
+        };
+        Assert.Equal(130, PlayerHitDamage.Resolve(fire, SpellGet, new DamageConversion(), spell: true)[DamageType.Fire].Max);
+        int NotLow(string name) => name == "keystone_pain_attunement" ? 1 : 0;
+        Assert.Equal(100, PlayerHitDamage.Resolve(fire, NotLow, new DamageConversion(), spell: true)[DamageType.Fire].Max);
     }
 }
