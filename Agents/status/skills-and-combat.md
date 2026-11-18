@@ -71,6 +71,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).
+- Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
+  Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
+  Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 

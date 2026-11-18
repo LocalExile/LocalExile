@@ -291,6 +291,7 @@ public static partial class Game
                 built[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
             WithVaalPrevention(conn, built);
             WithVaalAura(conn, built);
+            WithTemporaryAuraStats(conn, built);
             AddSpiritLeadershipStats(conn, built);
             AddTotemAuraStats(conn, built);
             WithRage(conn, built);
@@ -644,7 +645,7 @@ public static partial class Game
         {
             var supported = SupportedSkill(conn, id);
             int level = supported.Level;
-            var own = supported.Stats;
+            var own = WithBlessingCost(conn, supported);
             UnleashSeals(conn, id, supported, ProjectileWorldTime(conn));
             var stats = MergeSkillStats(playerStats, own, SkillsFor(conn).IsChannelled(effect), SkillCostMore(conn, own));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
@@ -725,7 +726,9 @@ public static partial class Game
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = Stats.Key("base_cast_speed_+%") is uint cs ? own.GetValueOrDefault(cs) : 0;
             int castSpeedTotal = FinalCastSpeedPct(conn, stats, CastSpeedPct(stats) + supportCastSpeed);
-            if (SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal) is { } spellTiming)
+            var supportedTiming = GolemStat(own, "base_spell_cast_time_ms_override") is int castBasis and > 0
+                ? SpellCastTiming.Calculate(castBasis, castSpeedTotal) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, castSpeedTotal);
+            if (supportedTiming is { } spellTiming)
             {
                 spellTiming.ApplyTo(stats, Stats);
                 // The native action divides by this skill's cast_speed_+% (0x1419e9f10): the total the server wait uses.
