@@ -62,6 +62,9 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return tags;
     }
 
+    /// <summary>Whether the item accepts affix changes (<see cref="TryModifiable"/>).</summary>
+    public bool Modifiable(Item item) => TryModifiable(item, out _);
+
     /// <summary>The item and its base accept affix changes: the item is not corrupted or mirrored, has Mods, and its
     /// base is known, serializable, has Mods and is not unmodifiable.</summary>
     bool TryModifiable(Item item, out ItemCatalog.BaseType type)
@@ -173,16 +176,20 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
-        var (prefix, suffix) = type.Class is "Jewel" or "AbyssJewel"
+        var (prefix, suffix) = SmallAffixClass(type.Class)
             ? (_settings.RareJewelMaxPrefixes, _settings.RareJewelMaxSuffixes)
             : (_settings.RareMaxPrefixes, _settings.RareMaxSuffixes);
         var local = ItemModStats.Local(item, catalog.Mods);
         return (Math.Max(0, prefix + local.GetValueOrDefault("local_maximum_prefixes_allowed_+")),
             Math.Max(0, suffix + local.GetValueOrDefault("local_maximum_suffixes_allowed_+")));
     }
+
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
+    /// which share the jewels' caps.</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>
@@ -200,7 +207,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     (int Count, int MaxPrefix, int MaxSuffix) RarePlan(ItemCatalog.BaseType type, Item item, Random rng)
     {
-        bool jewel = type.Class is "Jewel" or "AbyssJewel";
+        bool jewel = SmallAffixClass(type.Class);
         int weighted = jewel ? (rng.Next(20) < 13 ? 3 : 4) : rng.Next(12) switch { < 8 => 4, < 11 => 5, _ => 6 };
         var (maxPrefix, maxSuffix) = MaxAffixesPerSide(type, item);
         return (RareAffixCount(weighted, maxPrefix, maxSuffix, jewel ? 4 : 6), maxPrefix, maxSuffix);
@@ -371,8 +378,14 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     public Item? RollAffinity(Item item, ItemRarity rarity, Random rng, int percent) =>
         rarity == ItemRarity.Rare ? RollCore(item, rarity, rng, null, null, null, false, null, percent) : null;
 
+    /// <summary>The same as <see cref="Roll(Item, ItemRarity, Random, ValueTuple{int, int}?, ModCatalog.Mod?, int?, bool)"/>,
+    /// with only the affixes <paramref name="allow"/> admits (a narrower pool, such as the better tiers of each).</summary>
+    public Item Roll(Item item, ItemRarity rarity, Random rng, Func<ModCatalog.Mod, bool> allow) =>
+        RollCore(item, rarity, rng, null, null, null, false, null, null, allow)!;
+
     Item? RollCore(Item item, ItemRarity rarity, Random rng, (int Count, int MaxEach)? shape,
-        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent)
+        ModCatalog.Mod? guaranteed, int? maxModLevel, bool respectMetamods, string? requiredTag, int? affinityPercent,
+        Func<ModCatalog.Mod, bool>? allow = null)
     {
         var fractured = item.FracturedIndexes();
         var rules = new MetacraftRules(item, catalog.Mods);
@@ -395,7 +408,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag)
-            .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
+            .Where(p => (!respectMetamods || generation.Allows(p.Mod)) && (allow is null || allow(p.Mod))).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;
         if (guaranteed is not null) chosen.Add(guaranteed);

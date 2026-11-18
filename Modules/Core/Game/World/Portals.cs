@@ -142,6 +142,18 @@ public static partial class Game
         return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
     }
 
+    static InstanceMapDevice.Portal SinglePortalEntry(ClientState conn, uint id, ushort area) =>
+        new(id, area, CharacterName(conn), Variation: PortalVariation(conn, id));
+
+    /// <summary>
+    /// For a portal that already stands when the player arrives: its 0x8f entry, sent before its create. The client plays a
+    /// portal's opening whenever 0x8f lists it for the first time (or changed), and it keeps an entry whose object does not
+    /// exist yet, so the lists after the create (ListPortal, the same entry) show it idle (21-hideouts.md §5).
+    /// </summary>
+    public static Task ListStandingPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, ushort area, string what) =>
+        Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [SinglePortalEntry(conn, id, area)]),
+            $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
+
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
     // With an id, only while that portal stands. False when nothing was sent.
     static async Task<bool> SendSinglePortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint only = 0)
@@ -150,9 +162,7 @@ public static partial class Game
         bool Stands(uint id) => conn.ReturnPortal?.Id == id || conn.BackPortal?.Id == id;
         foreach (uint gone in portals.Keys.Where(id => !Stands(id)).ToList()) portals.TryRemove(gone, out _);
         if (portals.IsEmpty || (only != 0 && !portals.ContainsKey(only))) return false;
-        string owner = CharacterName(conn);
-        var list = portals.OrderBy(p => p.Key)
-            .Select(p => new InstanceMapDevice.Portal(p.Key, p.Value, owner, Variation: PortalVariation(conn, p.Key))).ToList();
+        var list = portals.OrderBy(p => p.Key).Select(p => SinglePortalEntry(conn, p.Key, p.Value)).ToList();
         await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, list),
             $"0x008f {string.Join(", ", list.Select(p => $"portal 0x{p.ObjectId:x} leads to 0x{p.Area:x4}"))} (variation {string.Join(", ", list.Select(p => p.Variation))}; {why})");
         return true;

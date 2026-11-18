@@ -84,6 +84,12 @@ public sealed class SecondarySkillExecutionTests
         Assert.Equal(120,Game.MonsterTakesMitigated(victim,packet,false,2));
         Assert.Equal(145,Game.MonsterTakesTrapOrMineHit(victim,packet,false,2));
         Assert.Equal(120,Game.MonsterTakesTrapOrMineHit(victim,packet,false,5.5));
+        victim.Ignites.Add(1, 1, 6);
+        Game.InflictedLocked(f.Conn, victim, Game.AilmentType.Ignite, 7);
+        Game.KeepPerAilmentTypeTakenLocked(f.Conn, victim, 10);
+        Assert.Equal(130, Game.MonsterTakesMitigated(victim, packet, false, 2));
+        Assert.Equal(155, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 2));
+        Assert.Equal(130, Game.MonsterTakesTrapOrMineHit(victim, packet, false, 5.5));
         var buffs=Game.MonsterAilmentChangesLocked(f.Conn,1.1);
         Assert.Contains(buffs,p=>p.Log=="Bear Trap debuff");
         Assert.DoesNotContain(Game.MonsterAilmentChangesLocked(f.Conn,1.2),p=>p.Log=="Bear Trap debuff");

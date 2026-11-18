@@ -5,20 +5,21 @@ using GameServer.Core.World;
 public static class AttackSkillHit
 {
     public static DamagePacket Resolve(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,
-        IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, int effectiveness, bool melee = false,
+        IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, AttackAccuracyProfile accuracy, int effectiveness, bool melee = false,
         bool projectile = false)
     {
         // Damage modifiers and added attack damage keep the existing character-only inputs. Skill-owned damage
         // modifiers are not implemented in combat and must not become panel-only effects here.
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
             name => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0);
-        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get), effectiveness);
+        var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get, accuracy), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, Get,
+        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get),
             DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
             melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
-            additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get)), Get), Get);
+            additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),
+            additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);
     }
 }

@@ -8,7 +8,11 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, StunHit? stun = null) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        double now, string by, StunHit? stun = null)
+    {
+        OwnedKillLocked(monster, hit.Life);
+        CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+    }
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
@@ -99,15 +103,17 @@ public static partial class Game
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
+        if (modded is { Stacks.Count: > 0 }) drops.AddRange(ModStacks(conn, modded));
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        drops.AddRange(MadeDrops(conn, modded));
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
         foreach (var drop in ItemDrops.Stacked(drops))
         {

@@ -418,7 +418,8 @@ public static partial class Game
         var effects = g.Monster.Mods.Effects;
         int roll = effects["never_crit"] == 0 && effects["always_crit"] == 0 ? Random.Shared.Next(10_000) : 0;
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
-            prey ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_chance_+%_vs_focused_target") : 0);
+            prey ? GolemStat(g.Own, "support_minion_focus_fire_critical_strike_chance_+%_vs_focused_target") : 0,
+            BrittleCriticalChance(target, now));   // every hit against a Brittle enemy
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] + g.Monster.Mods.Effects["critical_strike_multiplier_+"]
                 + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]
@@ -477,8 +478,11 @@ public static partial class Game
     public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
         GamblerModifiers.From(name => effects[name]).ForSkill(_ => 0, spell).RollOutgoingHit(damage, random);
 
-    public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0) =>
-        mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0 || roll < GolemCriticalChance(ability, mods, additionalIncrease));
+    /// <summary><paramref name="additionalChance"/>: flat chance in hundredths added after the increases (the target's Brittle).</summary>
+    public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0,
+        int additionalChance = 0) =>
+        mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0
+            || roll < GolemCriticalChance(ability, mods, additionalIncrease) + additionalChance);
 
     static void GolemLaunch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
         GolemState.Ability a, (int X, int Y) aim, double now, bool nova = false)
@@ -560,7 +564,7 @@ public static partial class Game
                     hazard.Carry[id] = now + .3;
                 }
                 double raw = hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds;
-                double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default))[hazard.Type].Min;
+                double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
                 double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;

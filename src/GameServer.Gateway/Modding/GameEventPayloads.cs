@@ -3,7 +3,11 @@ using GameServer.Modding;
 // What some GameEvents hand their subscribers (GameEvents.cs). `Player` is the same connection as GameServer.Modding sees it.
 
 /// <summary>A monster: its <c>MonsterVarieties.dat</c> id, name, level, rarity and where it is (cells).</summary>
-public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y);
+public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y)
+{
+    /// <summary>Retained world identity; zero for callers without a registered object.</summary>
+    public uint ObjectId { get; init; }
+}
 
 /// <summary>A monster the player killed, after its kill was committed (<see cref="GameEvents.MonsterKilled"/>).</summary>
 public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
@@ -28,6 +32,27 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
     public IPlayer Player => Program.PlayerOf(Conn);
 }
 
+/// <summary>A gamble window as it opens (<see cref="GameEvents.Gambles"/>).</summary>
+public sealed class GambleWindow(ClientState conn, string npc, int characterLevel)
+{
+    public ClientState Conn { get; } = conn;
+
+    public IPlayer Player => Program.PlayerOf(Conn);
+
+    /// <summary>The NPC's <c>NPCs</c> id.</summary>
+    public string Npc { get; } = npc;
+
+    /// <summary>The level the prices and the items go by.</summary>
+    public int CharacterLevel { get; } = characterLevel;
+
+    /// <summary>What the window offers, in order.</summary>
+    public List<GambleOffer> Offers { get; } = [];
+}
+
+/// <summary>One offer of a gamble window: the item it shows (a <c>HiddenItem</c> row such as "Random Ring"), its price in gold,
+/// what a purchase gives (null: nothing is bought) and the tab it is in.</summary>
+public sealed record GambleOffer(ItemCatalog.BaseType Shown, uint Gold, Func<Random, GameServer.Core.Protocol.Instance.Item?> Roll, string Tab = "Gamble");
+
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
 public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
 {
@@ -47,6 +72,12 @@ public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> s
     public MapDevice.Opening? Opening { get; set; } = opening;
     public string Reason { get; set; } = reason;
     public bool ReturnToSource { get; set; }
+    /// <summary>Module-defined content keys handled by this opening's enabled providers.</summary>
+    public HashSet<string> HandledContent { get; } = new(StringComparer.Ordinal);
+    /// <summary>Content diagnostics, reported after every provider has checked the opening.</summary>
+    public List<(string Content, string Message)> ContentWarnings { get; } = [];
+    public IEnumerable<string> UnhandledContent => ContentWarnings
+        .Where(w => !HandledContent.Contains(w.Content)).Select(w => w.Message);
 }
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>
@@ -72,8 +103,15 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 
+    /// <summary>Stackable items to drop as well, each a <c>BaseItemTypes</c> id or name and its count, split at the item's
+    /// stack size (the <see cref="Items"/> still drop besides).</summary>
+    public List<(string Item, int Count)> Stacks { get; } = [];
+
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
+
+    /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
+    public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>
