@@ -3243,6 +3243,7 @@ public static partial class Game
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, m.Level, m.Rarity, Random.Shared));
         }
+        drops.AddRange(ModStacks(conn, modded));
         foreach (string query in modded?.Items ?? [])
         {
             if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);

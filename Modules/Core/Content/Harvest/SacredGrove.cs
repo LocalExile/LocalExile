@@ -57,8 +57,9 @@ public static class SacredGrove
         public List<uint> Monsters { get; set; } = [];
     }
 
-    /// <summary>What P4's drop and experience rules need of a hatched monster.</summary>
-    public sealed record MonsterTag(int Colour, int Tier, int Crop);
+    /// <summary>What the lifeforce and experience rules (<see cref="HarvestLifeforce"/>) need of a hatched monster: its
+    /// seed's colour and tier, its crop, and whether it grew from a Faridun seed.</summary>
+    public sealed record MonsterTag(int Colour, int Tier, int Crop, bool Faridun = false);
 
     public sealed class Grove
     {
@@ -85,13 +86,19 @@ public static class SacredGrove
         .FirstOrDefault(r => r.Text("Id") == "HarvestDisabledDuringCombat") is { Table: not null } row && row.Text("Text") is { } text
         ? text : "You cannot perform that action while a Harvest encounter is in progress.");
 
-    /// <summary>The grove's stats for an instance (P4's drop and experience rules), or null without a grove.</summary>
-    public static HarvestStats? StatsOf(ClientState conn) => conn.Instance is { } instance && Areas.TryGetValue(instance, out var area)
-        && area.Grove is not null ? area.Stats : null;
-
-    /// <summary>The crop a monster hatched from, or null.</summary>
-    public static MonsterTag? MonsterOf(ClientState conn, uint id) => conn.Instance is { } instance && Areas.TryGetValue(instance, out var area)
-        && area.Grove is { } grove && grove.Monsters.TryGetValue(id, out var tag) ? tag : null;
+    /// <summary>Whether a monster hatched from one of the instance's crops, with its tag and the grove's stats. Runs per kill:
+    /// outside a grove instance it costs one table lookup.</summary>
+    public static bool TryMonster(ClientState conn, uint id, out MonsterTag tag, out HarvestStats stats)
+    {
+        tag = null!;
+        stats = HarvestStats.None;
+        if (conn.Instance is not { } instance || !Areas.TryGetValue(instance, out var area) || area.Grove is not { } grove
+            || grove.Monsters.Count == 0) return false;
+        lock (grove.Monsters)
+            if (!grove.Monsters.TryGetValue(id, out tag!)) return false;
+        stats = area.Stats;
+        return true;
+    }
 
     public static void Opening(MapOpening request)
     {
@@ -443,7 +450,7 @@ public static class SacredGrove
                     unrisen: false, alone: false, extraMods: life);
                 if (id == 0) continue;
                 crop.Monsters.Add(id);
-                grove.Monsters[id] = new(crop.Colour, seed.Tier, index);
+                lock (grove.Monsters) grove.Monsters[id] = new(crop.Colour, seed.Tier, index, seed.Faridun);
                 spawned++;
             }
         }

@@ -29,6 +29,8 @@ public sealed class HarvestModule : IModule
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, SacredGrove.Enter);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => SacredGrove.Tick(conn));
+        GameEvents.Drops.Add(module.Manifest.Id, HarvestLifeforce.Drops);
+        GameEvents.Experience.Add(module.Manifest.Id, HarvestLifeforce.Experience);
         // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
