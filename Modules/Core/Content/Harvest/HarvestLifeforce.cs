@@ -57,7 +57,8 @@ public static class HarvestLifeforce
         if (!SacredGrove.TryMonster(drop.Conn, drop.Monster.ObjectId, out var tag, out var stats)) return;
         // Refiner's Bargain grants a random crop instead; the server has no crop grant yet, so nothing drops.
         if (stats.RandomCropsInstead) return;
-        // [G] A Faridun Corpse-Grown seed's monster drops one Crystallised Rancour in place of lifeforce.
+        // A Corpse-Grown monster (a Faridun seed, which replaces a Tier 3 seed) drops Crystallised Rancour (the wiki's
+        // Harvest page); [G] one, in place of lifeforce.
         if (tag.Faridun)
         {
             drop.Stacks.Add((FaridunItem, 1));

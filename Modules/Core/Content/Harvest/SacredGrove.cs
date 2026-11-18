@@ -13,6 +13,8 @@ namespace GameServer.Modules.Harvest;
 /// (NightGarden garden.arm) holds seven plot sites: per site two crops (an Extractor and its Irrigator) and a Pole and a
 /// Storage Tank between them. The grove's state belongs to the instance and is shared by the party: which sites hold
 /// crops, each crop's colour and seeds, which crop runs, which withered, and the monsters each crop hatched.
+/// The memory-line grove (garden_memory_line.arm: ExtraTerrainFeatures HarvestEncounterMemoryLine in a map, or the whole
+/// HarvestLeagueMemoryLine area) has five sites of one crop each and no withering.
 /// </summary>
 public static class SacredGrove
 {
@@ -25,7 +27,10 @@ public static class SacredGrove
     public const string LevelMoreLife = "harvest_level_scaling_life_+%_final";
     /// <summary>The monster stat the Doubling scarab's map_harvest_monster_life_+%_final_from_sextant gives.</summary>
     public const string SextantMoreLife = "harvest_monster_life_+%_final_from_sextant";
-    internal static readonly string[] FeatureRows = ["HarvestEncounter", "HarvestEncounterMemoryLine"];
+    internal static readonly string[] FeatureRows = ["HarvestEncounter", MemoryLineFeature];
+    const string MemoryLineFeature = "HarvestEncounterMemoryLine";
+    /// <summary>The Overgrown Grove's world area (MapDeviceRecipes RandomContentHarvestGrove): the grove is the whole level.</summary>
+    const string MemoryLineArea = "HarvestLeagueMemoryLine";
 
     public enum Phase { Idle, Running, Done, Withered }
 
@@ -109,7 +114,8 @@ public static class SacredGrove
     public static IEnumerable<DoodadRecord> GroveRecords(ServerLevels.Level level) =>
         level.Records.Where(r => r.FeatureRow is { } row && FeatureRows.Contains(row));
 
-    /// <summary>A plot site: its two crops (Extractor, Irrigator) and the Pole and Storage Tank between them.</summary>
+    /// <summary>A plot site: its crops (Extractor, Irrigator), two or in a memory-line grove one, and the Pole and Storage
+    /// Tank beside them.</summary>
     public sealed record Site(IReadOnlyList<(PlacedTileObject Extractor, PlacedTileObject Irrigator)> Crops, PlacedTileObject? Pole,
         PlacedTileObject? Tank);
 
@@ -138,8 +144,8 @@ public static class SacredGrove
 
     /// <summary>The grove room's plot sites from its object lines: each Extractor with its nearest Irrigator (about 11
     /// cells apart), each Pole with the two nearest crops and the nearest Storage Tank, in Pole order. Sites without two
-    /// crops are left out.</summary>
-    public static List<Site> Sites(IEnumerable<PlacedTileObject> objects)
+    /// crops are left out. With <paramref name="single"/> (the memory-line grove) each Pole takes its one nearest crop.</summary>
+    public static List<Site> Sites(IEnumerable<PlacedTileObject> objects, bool single = false)
     {
         var all = objects.ToList();
         var extractors = all.Where(o => o.Type == ExtractorType).ToList();
@@ -149,13 +155,13 @@ public static class SacredGrove
         var crops = Match(extractors.Count, irrigators.Count, (e, i) => Distance(extractors[e], irrigators[i]))
             .OrderBy(p => p.Left).Select(p => (Extractor: extractors[p.Left], Irrigator: irrigators[p.Right])).ToList();
         var middles = crops.Select(c => ((c.Extractor.X + c.Irrigator.X) / 2.0, (c.Extractor.Y + c.Irrigator.Y) / 2.0)).ToList();
-        var byPole = Match(crops.Count, poles.Count, (c, p) => Distance(middles[c], poles[p]), capacity: 2);
+        var byPole = Match(crops.Count, poles.Count, (c, p) => Distance(middles[c], poles[p]), capacity: single ? 1 : 2);
         var tankOf = Match(poles.Count, tanks.Count, (p, t) => Distance(poles[p], tanks[t])).ToDictionary(p => p.Left, p => p.Right);
         var sites = new List<Site>();
         for (int p = 0; p < poles.Count; p++)
         {
             var own = byPole.Where(m => m.Right == p).Select(m => crops[m.Left]).ToList();
-            if (own.Count == 2) sites.Add(new(own, poles[p], tankOf.TryGetValue(p, out int t) ? tanks[t] : null));
+            if (own.Count == (single ? 1 : 2)) sites.Add(new(own, poles[p], tankOf.TryGetValue(p, out int t) ? tanks[t] : null));
         }
         return sites;
     }
@@ -185,20 +191,26 @@ public static class SacredGrove
 
     static IEnumerable<int> Expand(IEnumerable<GroveCrops.SeedCount> seeds) => seeds.SelectMany(s => Enumerable.Repeat(s.Row, s.Count));
 
+    /// <summary>Whether the layout is the whole-area Overgrown Grove (no grove sub-area of a map).</summary>
+    static bool WholeArea(ClientState conn, ServerLevels.Level level) => conn.Layout.Id == MemoryLineArea && !GroveRecords(level).Any();
+
     static Grove Build(ClientState conn, HarvestTables tables, HarvestStats stats, int areaLevel, Random random)
     {
         var grove = new Grove { Level = areaLevel };
         var level = conn.Layout.Level!;
+        bool whole = WholeArea(conn, level);
+        bool memoryLine = whole || stats.BigHarvest || GroveRecords(level).Any(r => r.FeatureRow == MemoryLineFeature);
         var rects = GroveRecords(level).Select(r => (X0: r.X * 23, Y0: r.Y * 23, X1: (r.X + r.W) * 23, Y1: (r.Y + r.H) * 23)).ToList();
         var lines = level.RoomObjects.Where(o => o.Type.StartsWith(ObjectRoot, StringComparison.Ordinal)
-            && rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1)).ToList();
-        var sites = Sites(lines);
+            && (whole || rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1))).ToList();
+        var sites = Sites(lines, memoryLine);
         if (tables.Level(areaLevel) is not { } values || sites.Count == 0)
         {
             Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: {sites.Count} plot sites from {lines.Count} lines; no crops");
             return grove;
         }
-        var crops = GroveCrops.Roll(random, tables, values, stats, sites.Count);
+        var crops = memoryLine ? GroveCrops.RollMemoryLine(random, tables, values, stats, sites.Count)
+            : GroveCrops.Roll(random, tables, values, stats, sites.Count);
         var taken = new HashSet<(int X, int Y)>();
         GroveObject Add(string type, PlacedTileObject at, params (string, int)[] states)
         {
@@ -230,7 +242,7 @@ public static class SacredGrove
                 for (int s = 0; s < rows.Count; s++)
                 {
                     var seed = Add(SeedType, e with { X = cells[s].X, Y = cells[s].Y, Rotation = (float)(random.NextDouble() * Math.Tau) },
-                        ("colour", crop.Colour));
+                        ("colour", SeedColour(tables, rows[s], crop.Colour)));
                     seed.Model = tables.Seeds[rows[s]].Model;
                     seed.Seeds = [new(rows[s], 1)];
                     state.SeedObjects.Add(seed.Id);
@@ -238,11 +250,16 @@ public static class SacredGrove
                 grove.Crops.Add(state);
             }
         }
-        Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: {sites.Count} sites, {crops.Count / 2} pairs: "
+        Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: {sites.Count} sites, "
+            + (memoryLine ? $"{crops.Count} single crops: " : $"{crops.Count / 2} pairs: ")
             + string.Join("; ", grove.Crops.Select(c => $"site {c.Site}.{c.Slot} colour {c.Colour} "
                 + string.Join(",", c.Seeds.Select(s => $"{s.Count}x{tables.Seeds[s.Row].Id}")))));
         return grove;
     }
+
+    /// <summary>A seed's own colour (a mixed-colour crop holds seeds of every colour), else its crop's.</summary>
+    static int SeedColour(HarvestTables tables, int row, int cropColour) =>
+        tables.SeedRow(row) is { Colour: >= HarvestTables.Red and <= HarvestTables.Blue } seed ? seed.Colour : cropColour;
 
     static void Keep(ClientState conn, Grove grove) => conn.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(grove);
 
@@ -250,7 +267,8 @@ public static class SacredGrove
     /// null on a layout without one. Call under no gate.</summary>
     static async Task<Area?> Load(ClientState conn)
     {
-        if (conn.Instance is null || conn.Layout.Level is not { } level || !GroveRecords(level).Any() || MapRunOf(conn) is not { } run) return null;
+        if (conn.Instance is null || conn.Layout.Level is not { } level || !GroveRecords(level).Any() && !WholeArea(conn, level)
+            || MapRunOf(conn) is not { } run) return null;
         var area = Areas.GetOrCreateValue(conn.Instance);
         if (area.Grove is not null) return area;
         await area.Gate.WaitAsync();
@@ -445,7 +463,7 @@ public static class SacredGrove
                     unrisen: false, alone: false, extraMods: life);
                 if (id == 0) continue;
                 crop.Monsters.Add(id);
-                lock (grove.Monsters) grove.Monsters[id] = new(crop.Colour, seed.Tier, index, seed.Faridun);
+                lock (grove.Monsters) grove.Monsters[id] = new(SeedColour(tables, seed.Row, crop.Colour), seed.Tier, index, seed.Faridun);
                 spawned++;
             }
         }

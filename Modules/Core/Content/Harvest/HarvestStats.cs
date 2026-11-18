@@ -28,6 +28,15 @@ public sealed record HarvestStats
     public bool AtLeastTier2 { get; init; }
     public int Tier2UpgradeChance { get; init; }
     public int Tier3UpgradeChance { get; init; }
+    /// <summary>map_harvest_%_chance_for_faridun_seed: each Tier 3 seed's chance to be its colour's Corpse-Grown seed.</summary>
+    public int FaridunChance { get; init; }
+
+    // The memory-line grove (MapGiantHarvest, the Overgrown Grove's mod).
+    /// <summary>memory_line_num_harvest_plots: how many of the memory-line grove's sites hold a crop.</summary>
+    public int MemoryLinePlots { get; init; }
+    public bool BigHarvest { get; init; }
+    /// <summary>map_harvest_mixed_seed_colours: a crop's seeds take any of the three colours.</summary>
+    public bool MixedColours { get; init; }
 
     // Activation and monsters.
     public int NotWitherChance { get; init; }
@@ -59,6 +68,10 @@ public sealed record HarvestStats
         AtLeastTier2 = mods.Get("map_harvest_seeds_are_at_least_t2") != 0,
         Tier2UpgradeChance = mods.Get("map_harvest_seed_t2_upgrade_%_chance"),
         Tier3UpgradeChance = mods.Get("map_harvest_seed_t3_upgrade_%_chance"),
+        FaridunChance = mods.Get("map_harvest_%_chance_for_faridun_seed"),
+        MemoryLinePlots = mods.Get("memory_line_num_harvest_plots"),
+        BigHarvest = mods.Get("memory_line_big_harvest") != 0,
+        MixedColours = mods.Get("map_harvest_mixed_seed_colours") != 0,
         NotWitherChance = mods.Get("map_harvest_chance_for_other_plot_to_not_wither_%"),
         AdditionalMonsterChance = mods.Get("map_harvest_seeds_%_chance_to_spawn_additional_monster"),
         DuplicatedMonsterChance = mods.Get("map_harvest_seeds_%_chance_to_spawn_duplicated_monsters"),
