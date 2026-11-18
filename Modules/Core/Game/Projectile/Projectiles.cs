@@ -547,6 +547,8 @@ public static partial class Game
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
             Conn.RecentEvents.RecordCriticalOutcome(at, critical);
+            if (ElementalOverloadCritLocked(Conn, shot.SourceSkill, null, player, critical) is { } eoBuff)
+                Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");
             // Cruelty: a player projectile's hit grants its skill's buff (a totem's or a monster's never does).
             if (shot.ActualCaster is null && target.Hostile)
                 CrueltyOnHitLocked(Conn, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);

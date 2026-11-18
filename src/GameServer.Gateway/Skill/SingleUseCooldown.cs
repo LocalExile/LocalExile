@@ -48,6 +48,10 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
 {
     public double RemainingBaseMilliseconds { get; private set; } = remainingBaseMilliseconds;
     public int TotalBaseMilliseconds { get; private set; } = totalBaseMilliseconds;
+    /// <summary>The entry does not recover: a guard's buff holds it at full and the bar publishes it with a zero rate
+    /// (the official client's frozen entry, measured 2026-11-18). Held also stops the state's own clock, so the cooldown
+    /// starts only when the buff ends (Resume).</summary>
+    public bool Held { get; private set; }
     public double Rate { get; private set; } = rate;
     public int UseVersion { get; private set; }
     public ushort NativeSkillId { get; private set; }
@@ -78,6 +82,15 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
 
     public void Refresh(double now, double rate)
     {
+        double next = Math.Max(0, rate);
+        if (Held)
+        {
+            // The buff is running: the entry keeps its full remaining time and the bar shows it with a zero rate.
+            if (UseVersion > 0 && next != Rate) nativeDirty = true;
+            Rate = next;
+            lastAt = Math.Max(lastAt, now);
+            return;
+        }
         double recovered = Math.Max(0, now - lastAt) * 1000 * Rate;
         while (SpentUses > 0 && recovered + 1e-6 >= RemainingBaseMilliseconds)
         {
@@ -88,9 +101,30 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         if (SpentUses > 0) RemainingBaseMilliseconds = Math.Max(0, RemainingBaseMilliseconds - recovered);
         if (FullyRecovered && !nativeDirty && nativeRate == Rate) nativeRate = null; // Known aligned completion.
         lastAt = Math.Max(lastAt, now);
-        double next = Math.Max(0, rate);
         if (!FullyRecovered && UseVersion > 0 && next != Rate) nativeDirty = true;
         Rate = next;
+    }
+
+    /// <summary>Holds the entry at full while its skill is active: the official client shows that as the skill's own
+    /// cooldown at a zero recovery rate (measured 3.00 / 3.00 / rate 0), and this client takes a zero rate on an entry
+    /// it did not just predict (the press prediction is replaced by this entry).</summary>
+    public void Hold(int baseMilliseconds)
+    {
+        Held = true;
+        TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
+        RemainingBaseMilliseconds = TotalBaseMilliseconds;
+        nativeDirty = true;
+    }
+
+    /// <summary>Starts the skill's own cooldown after the effect ends: the held entry becomes the plan's base and
+    /// counts down at the character's recovery rate.</summary>
+    public void Resume(double now, int baseMilliseconds)
+    {
+        Held = false;
+        lastAt = Math.Max(lastAt, now);
+        TotalBaseMilliseconds = Math.Max(1, baseMilliseconds);
+        RemainingBaseMilliseconds = TotalBaseMilliseconds;
+        nativeDirty = true;
     }
 
     public bool Ready => SpentUses < Uses;
@@ -102,6 +136,7 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
         if (!Ready) return false;
         if (FullyRecovered) RemainingBaseMilliseconds = plan.BaseMilliseconds;
         SpentUses++;
+        Held = false;
         TotalBaseMilliseconds = plan.BaseMilliseconds;
         spentRate = Rate;
         nativeRate = null; // No native entry may be fabricated before the original acknowledgement reaches its gate.

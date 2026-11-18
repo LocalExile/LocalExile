@@ -134,7 +134,7 @@ public static partial class Game
     public static double AttackContactDelay(ClientState conn, double attackSeconds, bool approach)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.AttackContact(ao, WeaponProfileFor(conn, activeSet: true));
+        double contact = Animations.AttackContact(ao, AnimationWeaponProfileFor(conn));
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
@@ -146,7 +146,7 @@ public static partial class Game
         out string? clip, out double fraction)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(conn, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(conn);
         // A transfigured gem (Id + AltX / AltY) swings its base gem's clip: Holy Sweep of Hammerfalls (SweepAltX) shares
         // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
         // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
@@ -177,7 +177,7 @@ public static partial class Game
         if (contactClip is not null)
         {
             string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-            var weapon = WeaponProfileFor(conn, activeSet: true);
+            var weapon = AnimationWeaponProfileFor(conn);
             if (Animations.SkillAttackContactAt(ao, weapon, contactClip, 0) is { } first
                 && Animations.SkillAttackContactAt(ao, weapon, contactClip, 1) is { } second && second.Contact > first.Contact)
                 return (second.Contact - first.Contact, true);
@@ -205,7 +205,7 @@ public static partial class Game
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt, ushort sequence)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, attackSeconds) / attackSeconds;
+        double contact = Animations.DefaultAttackContactSeconds(ao, AnimationWeaponProfileFor(conn), sequence, attackSeconds) / attackSeconds;
         bool approach = !conn.LockstepClient && arrivedAt > departedAt && stop != from;
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }
@@ -516,7 +516,7 @@ public static partial class Game
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = DamageStats.Conversion(player, conversionStats, Stats, attack: true);
                 var prehit = DefaultMeleePrehitProfileLocked(conn, targetId, m, player, weapon, conversion,
-                    ownPenetration, ProjectileWorldTime(conn));
+                    ownPenetration, ProjectileWorldTime(conn), accuracy.Rating);
                 if (prehit is null)
                 {
                     Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled: the target is no longer " +
@@ -555,7 +555,7 @@ public static partial class Game
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
-                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
+                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
                 (damage, stored, impaled) = WithImpaleHitLocked(conn, m, damage, ownRolled, critical, sourceCriticalMultiplier,
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
@@ -578,6 +578,8 @@ public static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
+                if (ElementalOverloadCritLocked(conn, SkillCatalog.FirstSkillId, null, player, critical) is { } eoBuff)
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
@@ -638,7 +640,7 @@ public static partial class Game
     // holds Monsters and uses the result through the contact without reading the player or weapon again.
     public static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
         SpawnedMonster target, IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed weapon,
-        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at)
+        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at, int accuracy)
     {
         if (!target.Hostile || target.Dead || target.Life == 0
             || !conn.Monsters.TryGetValue(targetId, out var registered) || !ReferenceEquals(registered, target))
@@ -650,10 +652,12 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
-        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
-            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion));
+        player = WithElementalOverload(conn, SkillCatalog.FirstSkillId, player);
+        // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
+        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(accuracy), additionalIncreased),
+            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion, accuracy));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -1041,7 +1045,7 @@ public static partial class Game
     public static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
-        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null)
+        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null)
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
@@ -1357,8 +1361,20 @@ public static partial class Game
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
+        if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
+        {
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            lock (conn.Monsters) StartVaalImmortalCall(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            return true;
+        }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        // A guard skill cast from the skill bar starts its buff in CastSelfBuff. An instant cast passes guardStart, and
+        // the caller starts it after the instant action, so the buff, its stats and its session records cannot take
+        // the send gate first. Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs).
+        if (gem.Name is not null && guardStart is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect)))
+            return true;
+        // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
@@ -1407,13 +1423,14 @@ public static partial class Game
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        bool guard = gem.Name is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
             return;
         }
-        if (gem.Name is null || !ObjectInstantSupported(conn, skillId, gem.Effect)) return;
+        if (gem.Name is null || !ObjectInstantSupported(conn, gem.Effect)) return;
         int epoch;
         lock (conn.Monsters)
         {
@@ -1423,7 +1440,17 @@ public static partial class Game
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
             CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
-        if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
+        // The guard starts after the instant action, so the action's record carries no guard work before it and the
+        // guard's one lock entry goes out right behind it (StartGuard publishes it).
+        Action? guardStart = guard
+            ? () =>
+            {
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                lock (conn.Monsters) StartTriggeredGuard(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            }
+            : null;
+        if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
+                guardStart: guardStart))
         {
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
@@ -1437,13 +1464,19 @@ public static partial class Game
                         return PlayerInstantAction(conn, skillId, at, targetId);
                     }
                 });
+            guardStart?.Invoke();
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
     }
 
-    static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
+    static bool ObjectInstantSupported(ClientState conn, int effect) =>
         InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect) || InPlaceSelfBuff(conn, effect)
-        || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
+        // The client's 0x2064 (skill_is_instant) is what EffectStats publishes from IsInstant; reading the type here
+        // skips a full supported-skill stat build (51 ms on a live press, measured 2026-11-18).
+        || !SkillsFor(conn).IsMovement(effect) && (SkillsFor(conn).IsInstant(effect)
+            // Vaal Immortal Call has a 0 cast time but no Instant active-skill type (only InstantShiftAttackForLeftMouse),
+            // so accept the instant request (0x191) for it as well as the ordinary cast.
+            || VaalImmortalCallSpell(conn, effect));
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
@@ -1453,7 +1486,7 @@ public static partial class Game
         if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
-            if (ObjectInstantSupported(conn, skillId, gem.Effect))
+            if (ObjectInstantSupported(conn, gem.Effect))
                 await UseInstantSkill(remote, stream, ciphers, conn, skillId, PlayerId, conn.Walk.Position(AreaTime(conn)));
             return;
         }
@@ -2390,7 +2423,7 @@ public static partial class Game
                         mods = HitResistMods(player, skillStats);
                         sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                         if (!spell) accuracy = SupportedAccuracy(conn, skillId, hand);
-                        leech = HitLeechSources(player, !spell, skillStats, local);
+                        leech = HitLeechSources(player, !spell, skillStats, local, !spell && SkillsFor(conn).IsMelee(gem.Effect));
                         impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
                         criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
                     }
@@ -2484,6 +2517,9 @@ public static partial class Game
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(conn,
                             ProjectilesFor(remote, stream, ciphers, conn), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
+                        if (ElementalOverloadCritLocked(conn, skillId, SkillsFor(conn).EffectId(gem.Effect), player, critical)
+                            is { } eoBuff)
+                            ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.
@@ -3307,6 +3343,7 @@ public static partial class Game
             if (ModDrop(conn, query, m.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
         }
+        drops.AddRange(MadeDrops(conn, modded));
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             // A ring around the corpse, 3 to 6 cells out.

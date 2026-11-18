@@ -88,6 +88,9 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
 
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
+
+    /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
+    public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>

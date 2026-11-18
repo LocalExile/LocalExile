@@ -74,7 +74,7 @@ public static partial class Game
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
                 handAccuracy, criticalChance, conn.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
-        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get);
+        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = DamageStats.Conversion(character, Stats, attack: true);
         var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
