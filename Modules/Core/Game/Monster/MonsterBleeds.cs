@@ -68,7 +68,8 @@ public static partial class Game
             dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get("aggravate_bleeding_on_attack_crit_chance_%"), 0, 100),
             !dance && get("aggravate_inflicted_bleeding") != 0, rupture,
-            NeverFromCrit: get("keystone_elemental_overload") != 0);
+            NeverFromCrit: get("keystone_elemental_overload") != 0,
+            OnlyFromCrit: get("keystone_ailment_crit") != 0);
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield

@@ -22,7 +22,10 @@ public sealed class MonsterIgnites
         bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false,
         // Elemental Overload: "Ailments never count as being from Critical Strikes" — a critical strike rolls the hit's
         // chance and deals the non-critical damage, as a non-critical hit does.
-        bool NeverFromCrit = false)
+        bool NeverFromCrit = false,
+        // Perfect Agony: "Non-Critical Strikes cannot inflict Ailments". With Elemental Overload (NeverFromCrit) every
+        // hit counts as non-critical for ailments, so the two together stop hits applying ailments at all.
+        bool OnlyFromCrit = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -52,7 +55,8 @@ public sealed class MonsterIgnites
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
                 FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0,
-                NeverFromCrit: get("keystone_elemental_overload") != 0);
+                NeverFromCrit: get("keystone_elemental_overload") != 0,
+                OnlyFromCrit: get("keystone_ailment_crit") != 0);
         }
     }
 
@@ -187,6 +191,7 @@ public sealed class MonsterIgnites
     {
         perSecond = 0;
         if (settings.NeverFromCrit) critical = false;
+        if (settings.OnlyFromCrit && !critical) return false;
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);

@@ -137,9 +137,18 @@ public static class AilmentPanelStats
         // allocated, so the critical rows lose the critical ailment multipliers (the application side rolls the hit's
         // chance instead of a critical strike's guaranteed one, MonsterIgnites.Settings.NeverFromCrit).
         bool neverFromCrit = get("keystone_elemental_overload") != 0;
-        double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
-            + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
-            + (critical && !neverFromCrit ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100)
+        // Perfect Agony: "Damage over Time Multiplier for Ailments is equal to Critical Strike Multiplier" — the hit's
+        // critical strike multiplier replaces the whole damage-over-time multiplier bucket (generic, typed, ailment and
+        // critical bonuses are ignored); the more/less damage factors below still apply. The base critical strike
+        // multiplier is 150% plus base_critical_strike_multiplier_+ (the generic bonuses; a weapon's local critical
+        // multiplier is not in this merged view).
+        bool perfectAgony = get("keystone_ailment_crit") != 0;
+        double dotMultiplier = perfectAgony
+            ? Math.Max(0, (150 + get("base_critical_strike_multiplier_+")) / 100.0)
+            : Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
+                + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
+                + (critical && !neverFromCrit ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100);
+        double multiplier = dotMultiplier
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1)
             // Crimson Dance: "50% less Damage with Bleeding" (ReminderTextKeystoneCrimsonDance).

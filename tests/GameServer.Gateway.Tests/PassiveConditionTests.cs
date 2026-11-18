@@ -172,5 +172,28 @@ public sealed class PassiveConditionTests
         var bonusKey = Program.Stats.Key("keystone_elemental_overload_damage_+%_final")!.Value;
         Assert.Equal(40, Game.WithElementalOverload(f.Conn, "ImmortalCall", withKeystone).GetValueOrDefault(bonusKey));
         Assert.Equal(0, Game.WithElementalOverload(f.Conn, "Fireball", withKeystone).GetValueOrDefault(bonusKey));
+
+        // Perfect Agony: the ailment DoT multiplier becomes the critical strike multiplier (150 + 150 = 300%), other DoT
+        // multiplier sources ignored; only critical strikes inflict ailments, and with Elemental Overload none do.
+        int Agony(string name) => name switch
+        {
+            "keystone_ailment_crit" => 1,
+            "base_critical_strike_multiplier_+" => 150,
+            "dot_multiplier_+" => 100,   // ignored under Perfect Agony
+            _ => 0,
+        };
+        var agonyRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
+                new DamageConversion(), Agony).ToDictionary(r => r.Stat, r => r.Value);
+        Assert.Equal(16200, agonyRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+        var agonySettings = MonsterIgnites.Settings.From(agonyRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Agony);
+        Assert.True(agonySettings.OnlyFromCrit);
+        Assert.False(new MonsterIgnites().TryApply(agonySettings, critical: false, 0, 0, false, new Random(1)));
+        Assert.True(new MonsterIgnites().TryApply(agonySettings, critical: true, 0, 0, false, new Random(1)));
+        int Both(string name) => name is "keystone_ailment_crit" or "keystone_elemental_overload" ? 1
+            : name == "base_critical_strike_multiplier_+" ? 150 : 0;
+        var bothRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
+                new DamageConversion(), Both).ToDictionary(r => r.Stat, r => r.Value);
+        var bothSettings = MonsterIgnites.Settings.From(bothRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Both);
+        Assert.False(new MonsterIgnites().TryApply(bothSettings, critical: true, 0, 0, false, new Random(1)));
     }
 }
