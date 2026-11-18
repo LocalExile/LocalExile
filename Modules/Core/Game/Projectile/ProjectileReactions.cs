@@ -115,7 +115,8 @@ public static partial class Game
             if (playerKill) QueueMadnessExplosionLocked(conn, id, monster);
         }
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
-        session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
+        // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
+        if (VaalSoulsUnpresented(conn)) session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.

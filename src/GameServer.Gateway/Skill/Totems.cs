@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 /// <summary>
 /// The player's summoned totems (Agents/docs/protocol/11-skills.md section 10g): team-0 monster objects of the skill's
@@ -20,14 +21,52 @@ public sealed class TotemState
     /// the totem's skill, before aura effect.</summary>
     public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats);
 
-    public sealed class Totem(uint id, ushort skillId, (int X, int Y) at, uint maxLife, double until, Aura? aura)
+    /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
+    /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
+    public sealed class Strike(ushort grantedId, int radius)
+    {
+        public ushort GrantedId { get; } = grantedId;
+        public int Radius { get; } = radius;
+        /// <summary>When the cast in flight lands its hit (scheduled on the projectile runtime) and the next may start.</summary>
+        public double NextCast;
+    }
+
+    /// <summary>Devouring Totem's meal: what one consumed corpse gives the player, and when the next one is due. The
+    /// amounts are the gem's own per-level `corpse_consumption_life_to_gain` / `_mana_to_gain`.</summary>
+    public sealed class Devour(int life, int mana)
+    {
+        public int Life { get; } = life;
+        public int Mana { get; } = mana;
+        /// <summary>The earliest time of the next meal.</summary>
+        public double NextUse;
+    }
+
+    public sealed class Totem(uint id, ushort skillId, (int X, int Y) at, uint maxLife, double until, Aura? aura,
+        Strike? strike = null, ushort grantedId = 0, Devour? devour = null,
+        int row = 0, string varietyId = "", int level = 0, int effectRow = -1)
     {
         public uint Id => id;
         public ushort SkillId => skillId;
+        /// <summary>The GrantedEffects row the totem was summoned from, the variety it was summoned as, and the level
+        /// its Life was computed at (the gem's <c>PlayerLevelReq</c>). Derivation facts for the lab (the /totems and
+        /// /state listings and the ledger label), which have no gem at hand: the connection's gem list is the player's
+        /// and a totem outlives the socket it came from. This is deliberately NOT <see cref="Effect"/>, which is the
+        /// narrower upstream fact "this totem executes that effect itself" and is -1 for every other totem.</summary>
+        public int EffectRow => effectRow;
+        public int Row => row;
+        public string VarietyId => varietyId;
+        public int Level => level;
         public (int X, int Y) At => at;
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
+        /// <summary>Its nova; null for every other totem (an aura, Devouring Totem, an adopted projectile spell).</summary>
+        public Strike? Strike => strike;
+        /// <summary>The granted-skill id its object carries, so the client can play any action it takes (Devouring Totem
+        /// deals no damage but still acts). 0 when the skill could not be built.</summary>
+        public ushort GrantedId => grantedId;
+        /// <summary>Its corpse meal; null unless it is a Devouring Totem.</summary>
+        public Devour? Devour => devour;
         public int Effect = -1;
         public uint SourceGem;
         public uint SourceHost;
