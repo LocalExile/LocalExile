@@ -217,7 +217,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Rules.ForgetVitalsAdmission(conn);
         Rules.ForgetSourceValues(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
-        if (conn.MonstersPlaced) Rules.KeepInstanceMonsters(conn);
+        Rules.KeepInstanceMonsters(conn);
     }
 
     public IDisposable ProjectileMutation(ClientState conn) => Rules.ProjectileMutation(conn, advance: false);

@@ -111,7 +111,7 @@ public static partial class Game
             if(Stats.Key(name) is uint key) upgrade[key]=GolemStat(gem.Stats,name);
         return await SummonFighterCore(remote,stream,ciphers,conn,old.Source,definitionVaal,old.Monster.Walk.Position(now),
             current:()=>current()&&GolemCurrent(conn,old)&&!old.Monster.Dead&&SameTriggerSource(gem,SupportedSkill(conn,source)),
-            life:old.Monster.Life/(double)old.Monster.MaxLife,remaining:duration,replacing:old.Id,triggered:true,
+            remaining:duration,replacingOld:old,triggered:true,
             inheritedMods:old.InheritedMods,rarity:old.Monster.Rarity,retainedStats:upgrade)!=0;
     }
 }
