@@ -45,6 +45,9 @@ public static class PlayerHitDamage
             + (fullShield ? get("damage_+%_on_full_energy_shield") : 0);
         bool bowAttack = wieldingBow && !spell && !secondary;
         if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_hit_and_ailment_damage_+%");
+        // Precise Technique: "40% more Attack Damage if Accuracy Rating is higher than Maximum Life".
+        bool preciseTechnique = !spell && !secondary && get("keystone_precise_technique") != 0
+            && get("accuracy_rating") > get("maximum_life");
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get($"{type.ToString().ToLowerInvariant()}_damage_+%"))).ToArray();
         int elemental = get("elemental_damage_+%")
@@ -80,6 +83,7 @@ public static class PlayerHitDamage
                 range = range.Scale(Math.Max(0, 1 + get(get("in_sand_stance") != 0
                     ? "blood_sand_stance_melee_skills_area_damage_+%_final_in_sand_stance"
                     : "blood_sand_stance_melee_skills_area_damage_+%_final_in_blood_stance") / 100.0));
+            if (preciseTechnique) range = range.Scale(1.4);
             result = result.Add(path.Type, range);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
