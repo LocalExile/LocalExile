@@ -3247,7 +3247,7 @@ public static partial class Game
             // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
