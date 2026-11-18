@@ -457,12 +457,12 @@ public static class OshabiEncounter
         }.Where(kv => kv.Value != 0).ToDictionary()));
         int spawned = 0;
         var skipped = new HashSet<string>();
-        async Task Spawn(int row, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal)
+        async Task Spawn(int row, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal, bool established = false)
         {
             if (conn.Closed || conn.LeavingArea) return;
             if (Monsters.Find(row.ToString()) is not { Supported: true } variety) { skipped.Add(row.ToString()); return; }
             uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)state.Level, rarity, at.X, at.Y,
-                alone: false, extraMods: life);
+                alone: false, extraMods: life, placement: established ? MonsterPlacement.Established : MonsterPlacement.Proposed);
             if (id == 0) return;
             lock (state.Adds) state.Adds.Add(id);
             spawned++;
@@ -472,8 +472,9 @@ public static class OshabiEncounter
         switch (colour)
         {
             case Orange:
-                // [W] Root Walls cage the player; one must be broken to get out.
-                for (int i = 0; i < 8; i++) await Spawn(RootWall, Around(near, 10, i * Math.Tau / 8));
+                // [W] Root Walls cage the player; one must be broken to get out. Their bodies (object size 6) are the
+                // cage, 7.7 cells apart on the ring: the spawn's clear-cell search would push them apart and open it.
+                for (int i = 0; i < 8; i++) await Spawn(RootWall, Around(near, 10, i * Math.Tau / 8), established: true);
                 break;
             case Blue:
                 for (int i = 0, n = 3 + random.Next(3); i < n; i++)

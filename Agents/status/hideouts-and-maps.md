@@ -115,8 +115,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The memory-line grove (`HarvestLeagueMemoryLine`, or its room in a map) has five single crops of 45-47 mixed-colour
   seeds; Corpse-Grown (Faridun) seeds replace Tier 3 seeds wherever `map_harvest_%_chance_for_faridun_seed` is granted.
   Tier 4 bosses drop the Sacred Blossom, which opens `HarvestLeagueBoss`: the soul tree starts Oshabi's four colour
-  phases and their adds; her death sets `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops
-  her world.db rewards. The opt-in Legacy module `HarvestHeartOfTheGrove` (3.13) rarely puts her in a map's grove.
+  phases (Sacred first) and their adds, the Root Wall cage held by the walls' bodies (sent unblocked); her death sets
+  `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The opt-in Legacy module `HarvestHeartOfTheGrove` (3.13) rarely puts her in a map's grove.
   Not yet verified in the client: the gates, the grove objects and their states, seeds, monsters and drops, and
   Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).

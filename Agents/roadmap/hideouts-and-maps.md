@@ -6,13 +6,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting;
-the client questions (the gate label, which crop object carries the seed list, the Extractor/Irrigator state sequence
-and where seeds sit), and Oshabi's soul tree and boss state sequence captured live; AtlasNode 158 `OshabiBoss`'s
-completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening the
-Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the Overgrown
-Grove; a 3.29 source for `map_harvest_%_chance_for_faridun_seed` (Mirage areas); Oshabi's Sacred Suffering ground and
-vine teleports; the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and enchants.
+Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting; the
+client questions (the gate label, which crop object carries the seed list, the Extractor/Irrigator state sequence and
+where seeds sit), and Oshabi's soul tree and boss state sequence captured live (the order of the three colours after
+Sacred, random here, and whether a Root Wall's TriggerableBlockage is sent blocked); AtlasNode 158 `OshabiBoss`'s
+completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening
+the Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the
+Overgrown Grove; a 3.29 source for `map_harvest_%_chance_for_faridun_seed` (Mirage areas); Oshabi's Sacred Suffering
+ground and vine teleports; the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and
+enchants.
 
 ### Stored Horticrafting crafts (3.13-3.18, Legacy)
 
