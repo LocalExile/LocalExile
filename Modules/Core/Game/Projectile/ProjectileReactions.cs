@@ -59,6 +59,7 @@ public static partial class Game
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
+        if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
         if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.

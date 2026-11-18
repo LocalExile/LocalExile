@@ -374,7 +374,7 @@ public static partial class Game
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
-            ActualCaster = totem is null ? null : TotemCasterStats(player),
+            ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,
@@ -389,7 +389,7 @@ public static partial class Game
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
-            Leech = HitLeechSources(player, !spell, own, local),
+            Leech = HitLeechSources(player, !spell, own, local), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand))),

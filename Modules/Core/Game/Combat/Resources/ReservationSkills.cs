@@ -83,9 +83,9 @@ public static partial class Game
     static void ReservationWhenHitLocked(ClientState conn, uint attacker, SpawnedMonster monster, bool blocked, double now)
     {
         if (ReservationAura(conn, "ArcticArmour") is { } arctic)
-            monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
+            InflictedLocked(conn, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
                 ReservationStat(conn, arctic, "arctic_armour_chill_when_hit_duration") / 1000.0, now,
-                n => GolemStat(CharacterPlayerStats(conn), n), n => monster.Mods.Effects[n], stated: 30);
+                n => GolemStat(CharacterPlayerStats(conn), n), n => monster.Mods.Effects[n], stated: 30));
         if (blocked && ReservationAura(conn, "TempestShield") is { } tempest)
             conn.Reservations.Procs.Enqueue(new(tempest.SkillId, monster.Walk.Position(now), attacker));
     }
@@ -344,7 +344,7 @@ public static partial class Game
         }
         foreach (var m in conn.Monsters.Values)
             if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
-                m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10);
+                InflictedLocked(conn, m, m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10));
     }
 
     static void AddChilledGroundLocked(ClientState conn, (int X, int Y) at, double until, int radius, string artPath)

@@ -537,7 +537,8 @@ public static partial class Game
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m,
-                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted).RollOutgoingHit(hit, Random.Shared));
+                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted)
+                        .ForWeapon(weapon.LocalSources).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
                         AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
@@ -2259,6 +2260,7 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
@@ -2308,6 +2310,7 @@ public static partial class Game
                         var shield = spell ? null : ShieldWeapon(conn, skillId);
                         var sourceWeapon = shield ?? WeaponFor(conn);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
+                        weaponLocal = local;
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem)
                             is not { } capturedInputs) break;
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
@@ -2386,7 +2389,7 @@ public static partial class Game
                     var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(conn, player, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                             .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect)), cryExerted == true)
-                            .RollOutgoingHit(contactHit, Random.Shared)),
+                            .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, Random.Shared)),
                         ProjectileWorldTime(conn));
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                     // extra fire, and removes the flame.

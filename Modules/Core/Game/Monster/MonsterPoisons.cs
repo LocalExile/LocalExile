@@ -90,6 +90,7 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
             if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
         if (accepted == 0) return false;
+        InflictedLocked(conn, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(conn, now);
         return true;
     }
