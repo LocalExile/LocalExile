@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 namespace GameServer.Gateway.Tests;
 
 /// <summary>Issue #1102: the tree's conditional stats and the keystones that ride on the crit policy.</summary>
@@ -60,5 +62,20 @@ public sealed class PassiveConditionTests
         // A different family reads its own row, not the mace's.
         Assert.Equal(99, SupportedAttackDamage.WeaponIncrease(
             new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "One Hand Sword" }, Get));
+
+        // The same rows reach a damaging ailment: the family's ailment row and the two-handed melee ailment row join
+        // the common bucket, its physical row the physical one. 100 physical * 70% bleed * 60 s * 1.75.
+        var ailmentStats = new Dictionary<uint, int>
+        {
+            [Program.Stats.Key("main_hand_weapon_type")!.Value] = 4,   // two hand mace
+            [Program.Stats.Key("mace_ailment_damage_+%")!.Value] = 25,
+            [Program.Stats.Key("two_handed_melee_weapon_ailment_damage_+%")!.Value] = 40,
+            [Program.Stats.Key("physical_mace_damage_+%")!.Value] = 10,
+        };
+        int AilmentGet(string name) => Program.Stats.Key(name) is uint key ? ailmentStats.GetValueOrDefault(key) : 0;
+        var bleed = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true),
+                DamagePacket.Of(DamageType.Physical, new DamageRange(100, 100)), new DamageConversion(), AilmentGet)
+            .ToDictionary(r => r.Stat, r => r.Value);
+        Assert.Equal(7350, bleed["maximum_bleeding_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
     }
 }

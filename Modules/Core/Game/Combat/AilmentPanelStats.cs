@@ -122,6 +122,12 @@ public static class AilmentPanelStats
         bool bowAttack = context.Attack && !context.Spell
             && get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type") == WeaponTypeStats.Bow;
         if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_ailment_damage_+%") + get("bow_hit_and_ailment_damage_+%");
+        // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
+        // hit-and-ailment rows, the family's own ailment row, and the two families' shared ailment rows.
+        (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
+            ? WeaponTypeDamage.Ailment(get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type"), get)
+            : (0, default);
+        common += weaponAny;
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         more.Add(new("delirium_aura_damage_over_time_+%_final"));
@@ -146,6 +152,12 @@ public static class AilmentPanelStats
             if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get("physical_bow_damage_+%");
             if (bowAttack && ((path.History | DamageTypes.HistoryOf(ailmentType)) & DamageTypeHistory.Elemental) != 0)
                 increased += get("bow_elemental_damage_+%");
+            if ((path.History & DamageTypeHistory.Physical) != 0) increased += weaponExtra.Physical;
+            if (((path.History | DamageTypes.HistoryOf(ailmentType)) & DamageTypeHistory.Elemental) != 0)
+                increased += weaponExtra.Elemental;
+            if (weaponExtra.Typed is { } weaponTyped)
+                foreach (var source in weaponTyped)
+                    if ((path.History & source.History) != 0) increased += source.Increased;
             // The types the portion visited count once each; the ailment's own type is already in the common bucket.
             foreach (var source in typed)
                 if ((path.History & source.History) != 0 && source.History != DamageTypes.HistoryOf(ailmentType)) increased += source.Increased;
