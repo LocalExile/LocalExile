@@ -125,6 +125,7 @@ public static partial class Game
     // equipment changed.
     public static void RecomputePoolsAndSpeed(ClientState conn)
     {
+        RefreshRighteousFireProfileLocked(conn);
         using (new PlayerStatScope(conn, fresh: true))
         {
             conn.Pools = PoolsFor(conn, conn.Pools.Level);

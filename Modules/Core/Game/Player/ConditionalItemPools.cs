@@ -61,7 +61,7 @@ public static partial class Game
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
             [BurningItemCondition] = alive && (ailments.Ignite
-                || conn.RighteousFire is not null),
+                || conn.RighteousFire is { } rf && RighteousFireOwnerCurrentLocked(conn, rf)),
             ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && conn.ResourceEffectsState is ResourceEffectsState blindOwner
@@ -102,6 +102,7 @@ public static partial class Game
         flags["_while_you_have_depleted_physical_aegis"] = physicalAegis.Depleted;
         flags["_while_unhinged"] = alive && Unhinged(conn);
         flags["_while_not_unhinged"] = alive && !Unhinged(conn);
+        flags["_if_you_have_beast_minion"] = HasSourceValidBeastMinion(conn);
         flags["_if_golem_summoned_in_past_8_seconds"] =
             GolemSummonedInPastEightSeconds(conn, AreaTime(conn));
         flags["_in_blood_stance"] = flags["_while_in_blood_stance"] = blood;
@@ -179,7 +180,7 @@ public static partial class Game
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
@@ -193,6 +194,8 @@ public static partial class Game
         StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
         StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
         StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
+        // Hit outcomes (RecordHit/RecordCriticalOutcome), mine detonation; the curse casts come from the constructor.
+        StatConditions.NonCrit, StatConditions.Crit8Seconds, StatConditions.DetonatedMine,
     };
     sealed class ConditionalItemPoolState
     {
@@ -214,6 +217,7 @@ public static partial class Game
             var state = ConditionalItemPools.GetOrCreateValue(conn);
             if (state.Building || conn.Closed || conn.LeavingArea) return false;
             EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot());
+            ReconcileBeastCompanionsLocked(conn);
             var current = conn.StatSourcesCache;
             var before = state.Applied;
             var elusive = ElusivePanelState(conn);

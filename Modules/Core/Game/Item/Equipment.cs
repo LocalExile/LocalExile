@@ -309,6 +309,7 @@ public static partial class Game
         using (ProjectileMutation(conn, advance: false, phase: "equipment output"))
         {
             RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         await SendModel(remote, stream, ciphers, conn, Looks(conn, items), "equipment");

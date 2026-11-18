@@ -62,6 +62,13 @@ static class IncomingDamagingAilmentTestCases
         var conn = Fresh();
         conn.Clock.Stop();
         double now = conn.Clock.Elapsed.TotalSeconds;
+        conn.Auras[1] = new(1, 0, "Vitality", "Vitality", 1, 153, 500, 0, ReservesLife: true);
+        int cap = conn.PlayerLifeCap;
+        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 10000, 500),
+            Game.PlayerLifeUpdate(conn));
+        Assert.Equal(10000u, conn.PlayerLife);
+        Assert.Equal(cap, conn.PlayerLifeCap);
+        conn.Auras.Clear();
         conn.IncomingAilments.ApplyBleed(now, 10, 2);
         conn.IncomingAilments.ApplyBleed(now, 5, 4);
         conn.IncomingAilments.ApplyPoison(now + 1, 10, 2);
@@ -107,6 +114,9 @@ static class IncomingDamagingAilmentTestCases
         Game.AdvancePlayerAilmentsLocked(conn, now, now + 1, Stats());
         Assert.Equal(0u, conn.PlayerLife);
         Assert.True(conn.IncomingAilments.Idle);
+        Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(Program.PlayerId, 0, 0),
+            Game.PlayerLifeUpdate(conn));
+        Assert.Equal(0u, conn.PlayerLife);
         conn.Closed = true;
     }
 }
