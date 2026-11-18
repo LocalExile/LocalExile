@@ -30,7 +30,7 @@ public static partial class Game
     internal static readonly string[] AtlasMoreLife = ["monster_life_+%_final_from_vital_atlas", "monster_life_+%_final_from_deadly_atlas"],
         AtlasMoreDamage = ["monster_damage_+%_final_from_vital_atlas", "monster_damage_+%_final_from_deadly_atlas"];
 
-    static Dictionary<string, int> MapMonsterEffects(MapMods mods)
+    public static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
         foreach (string atlas in AtlasMoreLife.Concat(AtlasMoreDamage))
@@ -45,8 +45,27 @@ public static partial class Game
         Gain("map_monsters_%_physical_damage_to_add_as_fire", "physical_damage_%_to_add_as_fire");
         Gain("map_monsters_%_physical_damage_to_add_as_cold", "physical_damage_%_to_add_as_cold");
         Gain("map_monsters_%_physical_damage_to_add_as_lightning", "physical_damage_%_to_add_as_lightning");
+        Gain("map_monsters_base_bleed_duration_+%", "base_bleed_duration_+%");
+        // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
+        // MapPoisoning: map_monsters_poison_on_hit=1;
+        // MapUberModPoison: the same plus all_damage_can_poison and +100% poison duration.
+        if (mods.Get("map_monsters_poison_on_hit") != 0)
+            extra["base_chance_to_poison_on_hit_%"] =
+                extra.GetValueOrDefault("base_chance_to_poison_on_hit_%") + 100;
+        Gain("map_monsters_base_poison_duration_+%", "base_poison_duration_+%");
+        Gain("map_monsters_all_damage_can_poison", "all_damage_can_poison");
         return extra;
     }
+
+    public static IReadOnlyDictionary<string, int> MapBossEffects(MapMods mods) => new Dictionary<string, int>
+    {
+        ["maximum_life_+%"] = mods.Get("map_boss_maximum_life_+%"),
+        ["damage_+%"] = mods.Get("map_boss_damage_+%"),
+        ["attack_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_cast_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_item_found_quantity_+%"] = mods.Get("map_boss_dropped_item_quantity_+%"),
+        ["base_item_found_rarity_+%"] = mods.Get("map_boss_item_rarity_+%"),
+    };
 
     static IEnumerable<AreaPopulation.Spawn> WithTwinBosses(IEnumerable<AreaPopulation.Spawn> spawns, MapMods? mods)
     {

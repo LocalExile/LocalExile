@@ -2,12 +2,16 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
+    sealed class ChargePoolRefresh { public bool Pending; }
+    static readonly RuleTable<ClientState, ChargePoolRefresh> ChargePoolRefreshes = new();
+
     // Resolve the batch once, before any output await. Only current-state presentation remains queued, so a delayed
     // hook/send cannot replay historical events through the live ticker or resurrect their expired deadlines.
     static void CommitAcceptedChargeBatchLocked(ClientState conn, IReadOnlyList<PlayerMinions.AcceptedCharges> accepted,
         IReadOnlyDictionary<uint, int> player)
     {
         if (conn.PlayerLife == 0) return;
+        foreach (var e in accepted) TryGainElusiveLocked(conn, e.Critical && !e.KillEvent, e.KillEvent, e.At);
         var session = ChargesOf(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         session.Observe(Get);
@@ -19,17 +23,13 @@ public static partial class Game
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
         // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the
         // send gate, and 0x0025 handlers at 50-200 ms).
-        if (step.CountsChanged)
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
-        }
+        if (step.CountsChanged) ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true;
         conn.Minions.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.Charges, Charges: accepted));
     }
 
     static byte[]? AcceptedChargePresentationLocked(ClientState conn, string remote)
     {
         if (conn.PlayerLife == 0) return null;
-        _ = CharacterPlayerStats(conn);
         // The charge ticker publishes the stats at its own cadence; a per-hit revision here rebuilt PlayerSkills for
         // every charge change, inside the send gate.
         var (packet, _) = CurrentChargePresentationLocked(conn, remote);
@@ -51,10 +51,7 @@ public static partial class Game
     {
         var session = ChargesOf(conn); double now = ProjectileWorldTime(conn);
         var step = session.Refresh(now);
-        if (step.CountsChanged)
-        {
-            conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
-        }
+        if (step.CountsChanged) ChargePoolRefreshes.GetOrCreateValue(conn).Pending = true;
         var packets = session.Presentation(now, () => conn.NextBuff++).SelectMany(b => ChargeBuffs.Packets(b, PlayerId, type => ChargeArtVisual(conn, type))).ToArray();
         foreach (var (packet, label) in packets)
             Console.WriteLine($"[gateway] {remote} => {label}: {Convert.ToHexString(packet.AsSpan(0, Math.Min(packet.Length, 96)))}");
@@ -64,14 +61,23 @@ public static partial class Game
     static void CommitAcceptedCritFlasksLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, double at)
     {
         if (!conn.FlaskChargeCarry.CritReady(at)) return;
-        var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } type || ItemsFor(conn).FlaskChargesOf(type) is not { } basis
-                || f.Item.Charges >= FlaskCharges.Of(basis, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
+        var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
         var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, Random.Shared.Next);
         if (gains.Count > 0) conn.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
+    }
+
+    static List<(uint Id, int Chance, bool Full)> CritFlaskBar(ClientState conn)
+    {
+        var catalog = ItemsFor(conn);
+        return ItemsOf(conn).Items(PlayerInventories.Flask).Select(flask =>
+        {
+            var local = ItemModStats.Local(flask.Item, catalog.Mods);
+            int maximum = catalog.ByHash(flask.Item.TypeHash) is { } type && catalog.FlaskChargesOf(type) is { } basis
+                ? FlaskCharges.Of(basis, local).MaxCharges : 0;
+            return (flask.Id, local.GetValueOrDefault("local_recharge_on_crit_%"), flask.Item.Charges >= maximum);
+        }).ToList();
     }
 }

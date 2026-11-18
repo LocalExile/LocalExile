@@ -4,6 +4,31 @@ Several server stacks (Auth, Patch, Gateway) often run side by side on one machi
 stack's startup time, its resident memory and its CPU per busy instance all count. This note gives the repeatable
 measurements and the results of the 2026-10-30 pass (branch `contrib/server-perf`).
 
+## Hot paths
+
+Some code runs hundreds of times a second for each player in a fight, most of it under `lock (conn.Monsters)`. A small
+cost there is a large one: at 450 calls a second, 10 µs more is half a percent of a core per player, and everything
+else that needs the lock waits behind it.
+
+- **The item-stat lookup** (`CharacterStatSources`: about 450 a second in a fight, eight for one player stat snapshot)
+  finds nothing changed 99.8 % of the time. Its inputs are gathered before its cache is compared, so what a feature adds
+  to that gathering (`ItemConditionFlags`, the `Requalify…` steps, the `With…` chain) is paid on every call, hit or not.
+  A check there remembers its answer for the inputs it was worked out from (`Game.PlainItemSum`, `WornItemSum`,
+  `WornGrantsFor`, `SelfCurseConditionInputs`). A check that also updates state still runs every time: do not throttle it.
+- **A new condition or stat source on that path**: (1) to learn what the worn items carry, read `Game.PlainItemSum`
+  (one item) or `WornItemSum` (a set), never `ItemModStats.Sum`; (2) remember any other answer that is a pure function
+  of its inputs, compared by what it was worked out from (items by reference: they are immutable records), in a
+  `RuleTable` so it empties with the module; (3) take the equipment and the active items the caller already has
+  instead of reading them again; (4) do not call `CharacterStatSources` to find out whether the character has the
+  feature's item when the lookup that is running can hand that over.
+- **The guard** is the Gateway test `A_stat_sources_lookup_with_nothing_changed_sums_no_item_mods`: an unchanged lookup
+  calls `ItemModStats.Sum` zero times and allocates within a budget. Raise the budget only with the measurement below.
+- **Measure a change to player stat building before and after**: `live.ps1 -Release` with `Game_TRACE=lag,latency`, a
+  minute of fighting on each build, and the Gateway log's `stat-builds=N/s=P%cpu` (2026-11-17: 2-7 % of a core) and
+  `[latency-lookup]` (a hit's cost; the lag probe's lines are in [debugging](debugging.md)). For
+  where the time goes, sample the Gateway during the fight:
+  `dotnet-trace collect -p <pid> --profile dotnet-sampled-thread-time --format Speedscope`.
+
 ## Measuring
 
 **Startup and idle memory**: `scripts/perf/startup.ps1` (after `dotnet build`). It starts the built Auth, then the built

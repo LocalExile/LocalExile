@@ -6,8 +6,10 @@ using System.Numerics;
 public static class CriticalChanceFinal
 {
     public const string ControlledDestruction = "support_controlled_destruction_critical_strike_chance_+%_final";
+    public const string Unhinged = "critical_strike_chance_+%_final_while_unhinged";
     static readonly string[] Sources = [ControlledDestruction, "support_multiple_projectiles_critical_strike_chance_+%_final",
-        "unique_critical_strike_chance_+%_final", "active_skill_critical_strike_chance_+%_final"];
+        "unique_critical_strike_chance_+%_final", "active_skill_critical_strike_chance_+%_final",
+        Unhinged];
 
     public static bool IsInput(string name) => Sources.Contains(name);
 
