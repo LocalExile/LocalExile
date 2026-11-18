@@ -412,19 +412,21 @@ the model's box.
 ## The fight the guides describe (third-party, not client data)
 
 The client states the numbers above; it does not state the *rules* of the fight. For those the repository accepts what
-the guides publish — from Maxroll's guide,
-<https://maxroll.gg/poe/bosses/sirus-awakener-of-worlds-boss-guide>:
+the community publishes. The [PoE Wiki's Sirus page](https://www.poewiki.net/wiki/Sirus) says:
 
-- four phases, an intermission at **75 %, 50 % and 25 %** life, and phase 4 **restores him to 75 %** life;
-- a **safe zone** (a big red circle around him) that storms are locked out of — one already inside slowly wanders out,
-  and incoming storms are pushed back as they travel — and **leaving it triggers an intermission storm** without a phase
-  change; the natural intermission is the life threshold;
-- the intermission teleports him to the **centre of the arena circle** and spawns a **storm underneath him**, which
-  chases the player; the next phase starts when the player stands under him once the storm is lured away;
-- **phase 1** is the default attack, the Die Beam (three beams) and the apparition's meteor strike, beam sweep and
-  meteor geysers; the **corridor blast and the meteor maze arrive in phase 2**, and the maze gains one ring per phase;
-- **phase 4** adds the empowered Die Beam (**four beams that track**), the **12-illusion circle**, the spinning beams
-  (**4**, six in Uber) and the health restore.
+- once he reaches a health threshold he **becomes invulnerable and places a Deatomization Storm** at his position, and he
+  **spawns a storm every time he reaches 75 %, 50 % or 25 %** life;
+- a **safe zone** — a large animated ring around him — pushes the storms out, and standing outside it for too long
+  spawns a storm as well;
+- the storm phase **ends when the player comes close to him after** the storm is created; he retreats to his throne, and
+  the phase takes a number of seconds during which a knockback pushes the player away from the new storm;
+- the arena holds several storms; touching one deals **2102-3154** damage (50 % physical, 25 % fire, 25 % chaos) plus
+  **548** base physical and **1368** base fire and chaos damage per second;
+- the **maze** gains one wall ring per phase, up to three, and every ring has an exit marked by animated flares.
+
+The guides add two things the wiki does not state: **phase 4 restores him to 75 %** life, and **the corridor blast and
+the meteor maze arrive in phase 2** (the empowered Die Beam's four tracking beams and the twelve-illusion circle belong
+to phase 4).
 
 Where `Sirus*.cs` stands: the thresholds, the 75 % restore, the ring count (`min(3, Round + 1)`), the twelve clones,
 the four spinning arms and "stand under him to end the intermission" all match the guide. Two deviations were fixed
