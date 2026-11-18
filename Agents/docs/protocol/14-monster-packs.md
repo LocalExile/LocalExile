@@ -410,3 +410,14 @@ as for any area (Beach: Glace). 21-hideouts.md §5.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
 the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.
+
+## Essence monolith
+
+`Metadata/MiscellaneousObjects/Monolith` reads Positioned, Animated, MinimapIcon, InteractionAction,
+Transitionable, Monolith, StateMachine and BaseEvents, in that order.
+The Monolith reader `0x1415df360` takes little-endian `u8`, MonsterVarieties `HASH16`, `u8` count,
+then count × Essences `HASH32`, then `u32` (component +0x104; meaning unverified, currently sent as zero).
+The first byte is stored at component +0xf0; the essence references occupy +0xc8/+0xd0.
+The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
+Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
+Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.

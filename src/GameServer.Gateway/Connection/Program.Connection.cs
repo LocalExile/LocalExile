@@ -353,6 +353,9 @@ public partial class Program
                 finally { inbox.Handled(); }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
+                foreach (var (id, _) in batch.Messages)
+                    if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
+                        conn.Performance.AreaLoaded(remote, conn.Layout.Id, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
                 var took = Stopwatch.GetElapsedTime(start);
                 if (took > ClientInbox.SlowAfter)
@@ -444,7 +447,15 @@ public partial class Program
             var hold = Stopwatch.GetElapsedTime(heldAt, held);
             gate.Release();
             performance.Elapsed(LatencyPhase.SendHold, heldAt);
-            if (sentId is ushort id) performance.Send(id, held - heldAt);
+            if (sentId is ushort id)
+            {
+                performance.Send(id, held - heldAt, bytes.Length);
+                // Why a full player stat packet went out (its log label names the cause), per interval.
+                if (ConnectionPerformance.LagProbe && id == 0x01b3)
+                    performance.Count(log is not null && log.IndexOf('(') is >= 0 and var open
+                        ? "stats sent " + log[open..(log.IndexOfAny([':', ')'], open) is >= 0 and var close ? close : log.Length)].TrimEnd() + ")"
+                        : "stats sent (no cause in its label)");
+            }
             else if (ConnectionPerformance.LagProbe) performance.EmptySend(SendCaller(), held - heldAt);
             // Temporary: which send holds the gate while input waits behind it.
             if (ConnectionPerformance.LagProbe && hold > TimeSpan.FromMilliseconds(50))
