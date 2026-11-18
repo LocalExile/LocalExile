@@ -51,24 +51,45 @@ public static class WeaponTypeDamage
     /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
     /// rows, which are the Two Hand Mastery's 60% and its attack speed cost).</summary>
     public static int Any(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        Any(FamilyOf(weapon.ItemClass), TwoHanded(weapon.ItemClass), get, ailment: false);
+        Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
     public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        Extra(FamilyOf(weapon.ItemClass), TwoHanded(weapon.ItemClass), get, ailment: false);
+        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
 
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>
-    public static (int Any, HitIncreases Extra) Ailment(int weaponType, Func<string, int> get) =>
-        (Any(FamilyOf(weaponType), TwoHanded(weaponType), get, ailment: true),
-            Extra(FamilyOf(weaponType), TwoHanded(weaponType), get, ailment: true));
-
-    static int Any(string? family, bool twoHanded, Func<string, int> get, bool ailment)
+    public static (int Any, HitIncreases Extra) Ailment(int weaponType, Func<string, int> get)
     {
-        if (family is null) return 0;
-        int value = get($"{family}_damage_+%") + get($"{family}_hit_and_ailment_damage_+%");
-        if (ailment) value += get($"{family}_ailment_damage_+%") + get($"attack_ailment_damage_+%_while_wielding_{family}");
+        var families = FamiliesOf(weaponType);
+        bool twoHanded = TwoHanded(weaponType);
+        return (Any(families, twoHanded, get, ailment: true), Extra(families, twoHanded, get, ailment: true));
+    }
+
+    static readonly string[] AllOneHandMeleeFamilies = ["sword", "mace", "axe", "claw", "dagger"];
+
+    /// <summary>The families this hand counts as: its own class's family, or every one-hand melee family for a weapon
+    /// that counts as all of them (Varunastra, <see cref="WeaponIdentity"/>). The native weapon-type enum a damaging
+    /// ailment carries does not hold that identity, so the ailment path reads the one family it spells.</summary>
+    static IReadOnlyList<string> FamiliesOf(SkillCatalog.Unarmed weapon) =>
+        WeaponIdentity.AllOneHandMelee(weapon.LocalSources) ? AllOneHandMeleeFamilies : FamiliesOf(weapon.ItemClass);
+
+    static IReadOnlyList<string> FamiliesOf(string? itemClass) =>
+        FamilyOf(itemClass) is { } family ? new[] { family } : Array.Empty<string>();
+
+    static IReadOnlyList<string> FamiliesOf(int weaponType) =>
+        FamilyOf(weaponType) is { } family ? new[] { family } : Array.Empty<string>();
+
+    static int Any(IReadOnlyList<string> families, bool twoHanded, Func<string, int> get, bool ailment)
+    {
+        if (families.Count == 0) return 0;
+        int value = 0;
+        foreach (string family in families)
+        {
+            value += get($"{family}_damage_+%") + get($"{family}_hit_and_ailment_damage_+%");
+            if (ailment) value += get($"{family}_ailment_damage_+%") + get($"attack_ailment_damage_+%_while_wielding_{family}");
+        }
         // The handedness rows are separate ids from the family's own, and the two-handed melee ones sit beside them.
         if (twoHanded)
         {
@@ -84,41 +105,44 @@ public static class WeaponTypeDamage
             if (ailment) value += get("one_handed_weapon_ailment_damage_+%")
                 + get("attack_ailment_damage_+%_while_wielding_one_handed_weapon");
         }
-        return family switch
-        {
-            "mace" or "staff" => value + get("mace_or_staff_hit_and_ailment_damage_+%")
-                + get("damage_+%_with_maces_sceptres_staves")
-                + (ailment ? get("mace_or_staff_ailment_damage_+%") : 0),
-            "axe" or "sword" => value + get("axe_or_sword_hit_and_ailment_damage_+%")
+        // A row two families read together counts once, however many of them this hand counts as.
+        if (families.Contains("mace") || families.Contains("staff"))
+            value += get("mace_or_staff_hit_and_ailment_damage_+%") + get("damage_+%_with_maces_sceptres_staves")
+                + (ailment ? get("mace_or_staff_ailment_damage_+%") : 0);
+        if (families.Contains("axe") || families.Contains("sword"))
+            value += get("axe_or_sword_hit_and_ailment_damage_+%")
                 + (ailment ? get("axe_or_sword_ailment_damage_+%")
-                    + get("attack_skill_ailment_damage_+%_while_wielding_axes_swords") : 0),
-            "claw" or "dagger" => value + get("claw_or_dagger_hit_and_ailment_damage_+%")
-                + (ailment ? get("claw_or_dagger_ailment_damage_+%") : 0),
-            "wand" => value + get("damage_+%_while_wielding_wand"),
-            _ => value,
-        };
+                    + get("attack_skill_ailment_damage_+%_while_wielding_axes_swords") : 0);
+        if (families.Contains("claw") || families.Contains("dagger"))
+            value += get("claw_or_dagger_hit_and_ailment_damage_+%")
+                + (ailment ? get("claw_or_dagger_ailment_damage_+%") : 0);
+        if (families.Contains("wand")) value += get("damage_+%_while_wielding_wand");
+        return value;
     }
 
-    static HitIncreases Extra(string? family, bool twoHanded, Func<string, int> get, bool ailment)
+    static HitIncreases Extra(IReadOnlyList<string> families, bool twoHanded, Func<string, int> get, bool ailment)
     {
-        if (family is null) return default;
-        int physical = get($"physical_{family}_damage_+%");
-        if (family is "axe" or "sword") physical += get("physical_damage_+%_with_axes_swords");
+        if (families.Count == 0) return default;
+        int physical = 0, elemental = 0;
+        List<(DamageTypeHistory, int)>? typed = null;
+        foreach (string family in families)
+        {
+            physical += get($"physical_{family}_damage_+%");
+            elemental += get($"{family}_elemental_damage_+%");
+            foreach (var type in DamageTypeFamilies)
+                if (get($"{type.ToString().ToLowerInvariant()}_{family}_damage_+%") is var value && value != 0)
+                    (typed ??= []).Add((DamageTypes.HistoryOf(type), value));
+        }
+        if (families.Contains("axe") || families.Contains("sword")) physical += get("physical_damage_+%_with_axes_swords");
         if (twoHanded)
         {
             physical += get("two_handed_melee_physical_damage_+%");
             if (ailment) physical += get("two_handed_melee_weapon_ailment_damage_+%");
-        }
-        int elemental = get($"{family}_elemental_damage_+%");
-        List<(DamageTypeHistory, int)>? typed = null;
-        foreach (var type in DamageTypeFamilies)
-            if (get($"{type.ToString().ToLowerInvariant()}_{family}_damage_+%") is var value && value != 0)
-                (typed ??= []).Add((DamageTypes.HistoryOf(type), value));
-        if (twoHanded)
             foreach (var (type, stat) in new[] { (DamageType.Fire, "two_handed_melee_fire_damage_+%"),
                 (DamageType.Cold, "two_handed_melee_cold_damage_+%") })
                 if (get(stat) is var value && value != 0)
                     (typed ??= []).Add((DamageTypes.HistoryOf(type), value));
+        }
         return new(physical, elemental, typed);
     }
 

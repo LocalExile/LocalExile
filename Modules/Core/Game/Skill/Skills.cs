@@ -166,8 +166,8 @@ public static partial class Game
     public static List<(uint, int)> WeaponStats(ClientState conn, SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats)
     {
         var conversion = DamageStats.Conversion(stats, Stats, attack: true);
-        var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(conn), conversion);
         var accuracy = OrdinaryAccuracy(conn, stats, weapon.LocalSources);
+        var mainHit = AttackHitConverted(weapon, stats, MeleeAttack(conn), conversion, accuracy);
         double damageFactor = CriticalStrikePolicy.DamageFactor(CriticalProhibitedBy(stats, attack: true, own: null)
             ? 0 : conn.Pools.AttackCriticalStrikeChance, AttackCriticalMultiplier(conn, stats), CriticalExtraRollsFor(conn, stats),
             accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false));
@@ -175,7 +175,7 @@ public static partial class Game
         AddHand(mainHit, "main_hand");
         if (OffhandWeaponFor(conn) is { } off)
         {
-            var offHit = AttackHitConverted(off, stats, MeleeAttack(conn), conversion);
+            var offHit = AttackHitConverted(off, stats, MeleeAttack(conn), conversion, new(WeaponAccuracyFor(conn, off, stats)));
             list.AddRange(off.OffStats(stats, offHit));
             AddHand(offHit, "off_hand");
             // The hands alternate: the panel's per-use, per-second and attacks-per-second rows average both, each hand
@@ -421,8 +421,8 @@ public static partial class Game
 
     // Conversion for one hit: the player's stats plus the skill's own stats (base/skill conversion). Player stats win on
     // a key collision; the normal case is that the skill adds stats the player does not have.
-    public static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
-        AttackHitConverted(weapon, stats, melee, null);
+    public static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee,
+        AttackAccuracyProfile accuracy) => AttackHitConverted(weapon, stats, melee, null, accuracy);
 
     /// <summary>Elemental Overload's skill-icon diamond: the client draws it from the <c>elemental_overload</c> buff
     /// bound to the skill (AddBuff bit3, <c>activeSkill</c>). The buff is Invisible — no buff-bar icon — but its presence
@@ -461,10 +461,10 @@ public static partial class Game
 
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.
     public static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
-        bool melee, GameServer.Core.World.DamageConversion? conversion, long additionalIncreased = 0)
+        bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
+        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy), SupportedAttackDamage.HitModifiers(weapon, Get),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
@@ -1235,8 +1235,10 @@ public static partial class Game
     {
         var allowed = SkillsFor(conn).WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
-        int main = HandType(conn, PlayerInventories.Weapon1)?.ClassRow ?? UnarmedClassRow;
-        return allowed.Contains(main) || HandType(conn, PlayerInventories.Offhand1)?.ClassRow is int off && allowed.Contains(off)
+        bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
+            WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
+                hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(conn).Mods));
+        return Fits(ActiveMainHand(conn), UnarmedClassRow) || Fits(ActiveOffHand(conn), null)
             ? null : "the equipped weapon cannot use this skill";
     }
 

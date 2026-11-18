@@ -522,7 +522,8 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         // lookup, which grew with every method the module added). The budget is that tight on purpose. A change
         // that needs more says why in its pull request and raises it there; one that needs less lowers it; a new
         // .NET runtime that moves the figure with no code change is measured again.
-        const long Budget = 66_400;
+        // 66 752 for the same commit on .NET 10.0.15 / Windows, measured again on 2026-11-18.
+        const long Budget = 66_800;
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++) Lookup();
         long perLookup = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 50;

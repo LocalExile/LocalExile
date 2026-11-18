@@ -112,6 +112,7 @@ public static partial class Game
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        drops.AddRange(MadeDrops(conn, modded));
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
         foreach (var drop in ItemDrops.Stacked(drops))
         {

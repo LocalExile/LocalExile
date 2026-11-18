@@ -77,6 +77,8 @@ Nothing yet.
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
+  Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
+  melee skill and support restrictions.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).

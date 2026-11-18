@@ -92,7 +92,7 @@ public static partial class Game
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
-                ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, WeaponProfileFor(conn, activeSet: true),
+                ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, AnimationWeaponProfileFor(conn),
                 SupportedAttackSeconds(conn, skillId, sequence))
             : null;
         double delay = thrown is { } swing ? swing
@@ -335,7 +335,7 @@ public static partial class Game
         // inside the body at the ground instead of at the bow.
         var release = spell ? null : Animations.AttackContactPoint(
             Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
-            WeaponProfileFor(conn, activeSet: true));
+            AnimationWeaponProfileFor(conn));
         // LightningSlash is released three cells ahead at ground level, not at the sword's contact point
         // (3.29.3c Positioned trace: player (391,352), every bolt starts (388,352) aimed left).
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;

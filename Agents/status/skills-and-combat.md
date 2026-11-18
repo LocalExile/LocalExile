@@ -55,7 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Determination and Grace. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Discipline. Docs: [11](../docs/protocol/11-skills.md) §13,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Buffs and Righteous Fire. Docs: [11](../docs/protocol/11-skills.md) §12.
+- Buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Warcry admission restriction (#297). Docs: [11](../docs/protocol/11-skills.md) §10b.
 - Own-aura restriction (#304). Docs: [11](../docs/protocol/11-skills.md) §10c.
 - Spell skills deal no damage (#293). Docs: [20](../docs/protocol/20-damage.md) §2g.
@@ -64,6 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
@@ -114,7 +115,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Percentage attributes, attribute-scaled pools and defences, and inherent-bonus prohibitions.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
-- Weapon-local damage and timing. Docs: [20](../docs/protocol/20-damage.md) §2a.
+- Weapon-local damage and timing; wand/claw/dagger added ranges, Varunastra, Fan of Blades, Eclipse Solaris and the
+  Ritual boots' accuracy lightning. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
   Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
