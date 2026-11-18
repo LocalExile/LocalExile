@@ -191,6 +191,7 @@ public static partial class Game
             }
     }
 
+
     public static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
@@ -202,6 +203,7 @@ public static partial class Game
             catChanged = CatAspectReconcileLocked(conn, now);
             catChanged |= AvianReconcileLocked(conn, now);
             catChanged |= CrabReconcileLocked(conn, now);
+            catChanged |= MadnessReconcileLocked(conn, now);
             if (catChanged)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -230,14 +232,19 @@ public static partial class Game
             else if (ReservationAura(conn, "TemporalRift") is null) state.Echoes.Clear();
             ReservationArcticTrailLocked(conn, now);
             SpiderAspectTickLocked(conn, now);
+            MadnessExplosionsLocked(conn, now);
         }
         if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        await DrainTwisterGains(remote, stream, ciphers, conn);
+        await DrainCatCryLosses(remote, stream, ciphers, conn);
+        await PresentSiphoningCharges(remote, stream, ciphers, conn);
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
         await ReservationFightersTick(remote, stream, ciphers, conn, now);
         await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,
             (m, t) => MonsterDotTaken(m, DamageType.Fire, t), "burnt to death by Herald of Ash");
         await PublishMinionOutcomes(remote, stream, ciphers, conn);
     }
+
 
     static void ReservationArcticTrailLocked(ClientState conn, double now)
     {
@@ -293,4 +300,9 @@ public static partial class Game
             .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool),
             .. InstanceProtocol.LifeUpdate(PlayerId, conn.EnergyShield.Current, pool: 2)];
     }
+
+    /// <summary>The immutable hit and damaging-ailment outputs selected for one reservation contact.</summary>
+    public sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+
 }

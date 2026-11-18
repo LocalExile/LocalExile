@@ -71,13 +71,4 @@ public static partial class Game
             return bytes.Count > 0 ? [.. bytes] : null;
         }
     }
-
-    public static bool HasIndependentOnslaught(ClientState conn)
-    {
-        lock (conn.Monsters)
-            return conn.UtilityFlaskEffects.ShowsOnslaught
-                || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
-                || KillOnslaughtOf(conn).Applied;
-    }
-
 }

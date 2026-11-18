@@ -162,6 +162,13 @@ public static partial class Game
                 foreach (string name in new[] { "phase_through_objects", "virtual_phase_through_objects" })
                     if (Stats.Key(name) is uint key) sources[key] = Math.Max(1, sources.GetValueOrDefault(key));
         }
+        foreach (var (key, value) in MadnessRawStatsLocked(conn, sources))
+            sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+        lock (conn.Monsters) ConfigureChargeDegeneration(conn, worn, inactive);
+        lock (conn.Monsters) ConfigureRecentHitLifeLoss(conn, worn, inactive);
+        sources = WithAvatarOfFire(conn, sources);
+        sources = WithHerEmbrace(conn, sources);
+        sources = WithElusive(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithSpreadPoisonRegeneration(conn, sources);
@@ -172,6 +179,7 @@ public static partial class Game
             FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
             conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
             conn.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
+            MadnessExpiryRateLocked(conn, AreaTime(conn), RecipientEffectTime.Rate(2, Get));
         }
         return (sources, attributes);
     }
@@ -761,6 +769,8 @@ public static partial class Game
                 && !(Stats.Key("cannot_be_blinded") is uint blindImmunity && curseInputs.GetValueOrDefault(blindImmunity) != 0),
         };
         var phaseInputs = curseInputs;
+        conditionFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
+            RequalifyHerEmbrace(conn, conditionFlags, active, phaseInputs), phaseInputs, active), phaseInputs, dev, active);
         conditionFlags = RequalifySourcePhasing(conn, conditionFlags, phaseInputs, dev, recentEvents, auraEffects, conditionNow);
         conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
@@ -925,7 +935,6 @@ public static partial class Game
         }
     }
 
-
     public static CharacterStats.Pools BuildPoolsFor(ClientState conn, int level)
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
@@ -935,6 +944,8 @@ public static partial class Game
         if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
             snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
+        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+            sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats, includeReceived: true).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
@@ -1205,7 +1216,6 @@ public static partial class Game
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),
         };
     }
-
 
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),
     // flat and increased life, mana and accuracy, flat and increased armour and evasion, energy shield and melee physical

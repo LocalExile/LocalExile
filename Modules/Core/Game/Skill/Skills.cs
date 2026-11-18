@@ -248,49 +248,79 @@ public static partial class Game
     public static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
         CachedPlayerStats(conn, out baselineLifePerSecond);
 
+
     public static Dictionary<uint, int> CharacterPlayerStatsSnapshot(ClientState conn, out double baselineLifePerSecond,
         out PanelSourceSnapshot? panelSources, bool capturePanelSources = false)
     {
         EnsureConditionalItemPools(conn);
         EnsureAntiquarianPools(conn);
         EnsureOwnAuraPools(conn);
-        Dictionary<uint, int> rawOverrides;
-        lock (conn.Monsters) rawOverrides = new(conn.PlayerStats);
-        var stats = new Dictionary<uint, int>(rawOverrides);
-        // Values and membership describe the same snapshot. A new command must not add a replacement key
-        // after values were copied and fault a background recovery/condition-refresh task.
-        var devSet = rawOverrides.Keys.ToHashSet();
-        foreach (var (k, v) in BaseStats(conn)) stats.TryAdd(k, v);
-        EnsureFortificationPools(conn);
-        // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
-        // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
-        // already fold the same value into the pools. Additive with whatever won above, as a derived stat source.
-        if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0
-            && Stats.Key("critical_strike_chance_+%") is uint critInc)
-            stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
-        // The passives' conditional attack speed is already one final value in Pools; /set_stat's raw attack-speed stats
-        // stay additive. main_hand_attack_speed_+% is the total the client swings with, so Unarmed reads only it.
-        int devAttackSpeed = 0;
-        foreach (uint key in StatKeys.AttackSpeedInputs)
-            devAttackSpeed += rawOverrides.GetValueOrDefault(key);
-        stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed
-            + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats);
-        // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
-        // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
-        int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        UtilityFlasks.AddRawStats(stats, UtilityStats(conn, FlaskGet)
-            .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
-        WithVaalPrevention(conn, stats);
-        WithVaalAura(conn, stats);
-        AddSpiritLeadershipStats(conn, stats);
-        AddTotemAuraStats(conn, stats);
-        WithRage(conn, stats);
-        WithBlind(conn, stats);
-        WithUsingFlask(conn, stats);
-        WithSoulEater(conn, stats);
-        // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
-        ActorScale.Project(stats, rawOverrides, CosmeticScaleSources(conn));
+        static Dictionary<uint, int> RawOverrides(ClientState connection)
+        {
+            lock (connection.Monsters) return new(connection.PlayerStats);
+        }
+        (Dictionary<uint, int> Stats, Dictionary<uint, int> Raw, HashSet<uint> DevSet) StatHead()
+        {
+            var rawOverrides = RawOverrides(conn);
+            var built = new Dictionary<uint, int>(rawOverrides);
+            // Values and membership describe the same snapshot. A new command must not add a replacement key
+            // after values were copied and fault a background recovery/condition-refresh task.
+            var devSet = rawOverrides.Keys.ToHashSet();
+            foreach (var (k, v) in BaseStats(conn)) built.TryAdd(k, v);
+            EnsureFortificationPools(conn);
+            // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell
+            // consumers read the raw increased stats here (SpellCriticalStrike), while the attack and panel chances
+            // already fold the same value into the pools. Additive with whatever won above, as a derived stat source.
+            if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0
+                && Stats.Key("critical_strike_chance_+%") is uint critInc)
+                built[critInc] = (int)Math.Clamp((long)built.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
+            // The passives' conditional attack speed is already one final value in Pools; /set_stat's raw attack-speed stats
+            // stay additive. main_hand_attack_speed_+% is the total the client swings with, so Unarmed reads only it.
+            int devAttackSpeed = 0;
+            foreach (uint key in StatKeys.AttackSpeedInputs)
+                devAttackSpeed += rawOverrides.GetValueOrDefault(key);
+            built[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed
+                + SoulEaterAttackSpeed(conn, built) + LeechingAttackSpeed(conn, built);
+            // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
+            // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
+            int FlaskGet(string name) => Stats.Key(name) is uint k ? built.GetValueOrDefault(k) : 0;
+            AddItemUtilityFlaskRawStats(built, UtilityStats(conn, FlaskGet)
+                .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
+            AddSelfVulnerabilityStats(conn, built);
+            if (Stats.Key("currently_has_onslaught") is uint onslaughtFlag)
+                built[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
+            WithVaalPrevention(conn, built);
+            WithVaalAura(conn, built);
+            AddSpiritLeadershipStats(conn, built);
+            AddTotemAuraStats(conn, built);
+            WithRage(conn, built);
+            WithBlind(conn, built);
+            WithUsingFlask(conn, built);
+            WithSoulEater(conn, built);
+            MaximumPoolItemSources.Apply(built, Stats, conn.Pools.Life, conn.Pools.Mana, devSet);
+            // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
+            ActorScale.Project(built, rawOverrides, CosmeticScaleSources(conn));
+            return (built, rawOverrides, devSet);
+        }
+
+        var statHead = StatHead();
+        var stats = statHead.Stats;
+        var rawOverrides = statHead.Raw;
+        var devSet = statHead.DevSet;
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        bool reconciled;
+        lock (conn.Monsters) reconciled = conn.IncomingAilments.Reconcile(Get);
+        if (reconciled)
+        {
+            // A conditional source can invalidate a live stack (poison immunity, for example). Rebuild the pools and
+            // the whole head in this same ordinary snapshot so stack-derived resistance, movement and regeneration
+            // never survive alongside the reconciled ailment state.
+            EnsureConditionalItemPools(conn);
+            statHead = StatHead();
+            stats = statHead.Stats;
+            rawOverrides = statHead.Raw;
+            devSet = statHead.DevSet;
+        }
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below.
         double statsAt = conn.Clock.Elapsed.TotalSeconds;
         bool moving = conn.Walk.Moving(statsAt);
@@ -356,6 +386,7 @@ public static partial class Game
         return stats;
     }
 
+
     // spell_effective_total_chance_permyriad_for_hit_to_be_critical / _double_critical: the spell chance after the
     // luck policy (CriticalExtraRollsFor) and the Assassin's bifurcation (spell_critical_strikes_bifurcate); zero when
     // critical strikes are prohibited, as the chance row itself is.
@@ -411,6 +442,10 @@ public static partial class Game
     // The character's own stats: the class's attributes and the pools (ClassAttributes), then every other stat of the
     // allocated passives, summed (increased life and the attributes are already in the pools; the rest, such as increased
     // spell damage, the client only shows).
+
+    // The character's own stats: the class's attributes and the pools (ClassAttributes), then every other stat of the
+    // allocated passives, summed (increased life and the attributes are already in the pools; the rest, such as increased
+    // spell damage, the client only shows).
     public static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
@@ -423,6 +458,10 @@ public static partial class Game
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        IReadOnlyList<(uint Key, int Value)> siphoning;
+        lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, extra);
+        foreach (var (key, value) in siphoning)
+            extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
         if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
             extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AddGolemStats(conn, extra);
@@ -462,6 +501,7 @@ public static partial class Game
                 if (Stats.Key(stat) is uint key) extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
         foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }
+
 
     // The class's attributes (Characters.dat BaseStrength / BaseDexterity / BaseIntelligence) as final stats: strength,
     // dexterity and intelligence for the character panel, and virtual_*_for_requirements, which item requirements are
