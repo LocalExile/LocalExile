@@ -1,11 +1,44 @@
-# Reading poewiki.net through Anubis
+# Reading poewiki.net
 
-poewiki is often the only technical source for a mechanic. Its `/wiki/` pages are behind
-[Anubis](https://anubis.techaro.lol/), a proof-of-work gate meant to stop mass scraping and AI training. This tool
-fetches a page on demand, lets the wiki's own Anubis script solve the challenge, and prints the article. It is for the
-page an agent or contributor is reading now; it is not a crawler.
+poewiki is often the only technical source for a mechanic. Use the MediaWiki API first for an occasional lookup: with a
+non-browser User-Agent it currently returns wikitext and rendered HTML directly, without an Anubis challenge. The
+headless browser tool in `scripts/dev` is the fallback for when the API is challenged or when you need the page as a
+browser renders it. Neither path is for crawling.
 
-## Usage
+## API first (preferred)
+
+On 2026-11-18 the gate's decision tracked the User-Agent. Browser-like agents got the Anubis challenge; non-browser
+agents got the content directly. Tested non-browser agents were `curl/8.18.0`, `python-requests/2.31.0`, and
+`LocalExile-Dev/0.1 (single-page lookup)`; all three received the un-gated content.
+
+| Request | Browser UA | Non-browser UA |
+|---|---|---|
+| `/wiki/Damage` | Anubis challenge | article HTML, 728 KB |
+| `api.php?action=parse&page=Damage&prop=wikitext` | Anubis challenge | JSON, 13 KB wikitext |
+| `api.php?action=parse&page=Damage&prop=text` | Anubis challenge | JSON, 750 KB rendered HTML |
+| `api.php?action=query&prop=revisions&titles=Damage` | Anubis challenge | JSON wikitext |
+| `api.php?action=opensearch&search=damage` | Anubis challenge | JSON search results |
+
+For wikitext:
+
+```bash
+curl -sS -A 'LocalExile-Dev/0.1 (single-page lookup)' \
+  'https://www.poewiki.net/api.php?action=parse&page=Damage&prop=wikitext&format=json'
+```
+
+- `prop=wikitext` returns the source; `prop=text` returns the rendered HTML.
+- `action=query&prop=revisions&rvslots=main&rvprop=content` is the query-API equivalent of the source.
+- `action=opensearch&search=<term>` resolves page names.
+
+The source wikitext is usually better for mechanics than rendered text, and it is far lighter than rendering the page.
+If the API answers with the Anubis challenge page (HTML, "Making sure you're not a bot!") or is rate-limited, use the
+browser fallback.
+
+## Browser fallback
+
+`scripts/dev/poewiki.mjs` starts a headless Chrome, Chromium, or Edge with its own persistent profile and lets the
+wiki's own Anubis script solve the challenge. Use it when the API is challenged, when you need the rendered page, or
+when you want to read the article as a normal browser does.
 
 ```bash
 node scripts/dev/poewiki.mjs Damage
@@ -35,16 +68,16 @@ expires. Do not delete the cooldown to retry in a loop; fetch only what you need
 
 ## Rules
 
-- Fetch only pages you are reading. Name them on the command line; do not loop over links, categories, or searches.
-  The default three-page cap and two-second gap are deliberate.
-- `robots.txt` is fetched once a day and disallowed paths are refused. That includes `Special:`, `File:`, `index.php`,
-  `oldid`, and the print/redirect variants; the wiki's own search page is disallowed too, so name the article instead.
-- Only `https://www.poewiki.net/wiki/<page>` is accepted. The tool does not follow links and does not save a copy of
-  the wiki.
-- This tool does not use the MediaWiki API; see [Direct API access](#direct-api-access-observed-not-used-by-this-tool)
-  for the observed gate policy.
+- Start with the API for wikitext. Use the browser fallback for rendered HTML or when the API is challenged.
+- Fetch only pages you are reading. The browser fallback's three-page cap and two-second gap are deliberate; direct API
+  callers must keep their own volume low.
+- `robots.txt` is fetched once a day by the browser fallback, which refuses disallowed paths. Direct API callers must
+  honor it themselves; the API is not in the current disallowed list, but the same low-volume rules apply.
+- The browser fallback accepts only `https://www.poewiki.net/wiki/<page>`. It does not follow links and does not save a
+  copy of the wiki.
+- The two paths are separate commands: the browser fallback does not call the API.
 
-## How it works
+## How the browser fallback works
 
 Anubis' bot policy answers Chrome's `HeadlessChrome` user agent with "Oh noes!" before the challenge is served. The
 browser's own user agent is therefore sent with `HeadlessChrome` replaced by `Chrome`; the page's unmodified Anubis
@@ -54,35 +87,10 @@ wording, `--verbose` shows the page title and Anubis status.
 The fetcher talks to Chromium over its debugging pipe, so it needs no npm package and opens no port. One tab fetches the
 requested pages in order.
 
-## Direct API access (observed, not used by this tool)
-
-On 2026-11-18 the gate's decision tracked the User-Agent. Browser-like agents were challenged; non-browser agents got
-the content directly, with no Anubis page and no Anubis cookie:
-
-| Request | Browser UA | `curl` / `python-requests` / product UA |
-|---|---|---|
-| `/wiki/Damage` | Anubis challenge | article HTML, 728 KB |
-| `api.php?action=parse&page=Damage&prop=wikitext` | Anubis challenge | JSON, 13 KB wikitext |
-| `api.php?action=parse&page=Damage&prop=text` | Anubis challenge | JSON, 750 KB rendered HTML |
-| `api.php?action=query&prop=revisions&titles=Damage` | Anubis challenge | JSON wikitext |
-| `api.php?action=opensearch&search=damage` | Anubis challenge | JSON search results |
-
-Tested non-browser agents: `curl/8.18.0`, `python-requests/2.31.0`, and `LocalExile-Dev/0.1 (single-page lookup)`.
-So the MediaWiki API is directly usable for occasional lookups:
-
-```bash
-curl -sS -A 'LocalExile-Dev/0.1' \
-  'https://www.poewiki.net/api.php?action=parse&page=Damage&prop=wikitext&format=json'
-```
-
-`prop=wikitext` (or `action=query&prop=revisions&rvslots=main&rvprop=content`) returns the source, which is usually
-better for mechanics than rendered text, and it is far lighter than rendering the page. This tool still sends a
-browser User-Agent and passes the gate; it does not use the API. If you use the API directly, keep the same rules: a
-descriptive User-Agent, one page at a time, no crawling or bulk download. This is the site's observed policy, not a
-guarantee; it can change, and mass scraping is what the gate exists to stop.
-
 ## Troubleshooting
 
+- The API returns the Anubis challenge page: use the browser fallback.
+- The API returns HTTP 429 or a Cloudflare page: wait, then retry; the browser fallback records a five-minute cooldown.
 - `no Chrome, Chromium, or Edge found`: install one or pass `--browser`.
 - `Anubis refused the browser ("Oh noes!")`: update the browser; a very old build may also be rejected.
 - `another poewiki fetch is using ...`: two runs share the profile. Wait, or pass `--profile <other-dir>`.
