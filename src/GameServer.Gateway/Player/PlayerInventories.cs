@@ -72,8 +72,15 @@ public sealed class PlayerInventories
 
     /// <summary>Writes the character's save (every inventory, with item ids and cells, and the start weapon), in a
     /// transaction of its own or the one it runs in (<see cref="Saves"/>).</summary>
+    long _changes;
+
+    /// <summary>How many saved changes the items had (each Persist): a reader that saw the count sees whether they changed.
+    /// Unsaved gem experience is not counted.</summary>
+    public long Changes => Interlocked.Read(ref _changes);
+
     void Persist()
     {
+        Interlocked.Increment(ref _changes);
         if (_owner is not { } owner) return;
         Saves.Atomically(() =>
         {

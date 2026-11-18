@@ -26,7 +26,8 @@ public enum PlayerStatStep : byte
 /// </summary>
 public enum PlayerStatChange : byte
 {
-    /// <summary>Equipment, passives, jewels, level, tattoos, Pantheon, quest rewards: what nearly every step reads.</summary>
+    /// <summary>Equipment, passives, jewels, level, tattoos, Pantheon, quest rewards: the steps that read the items,
+    /// passives or pools (tracked inputs), and the sources.</summary>
     Build,
     /// <summary>A source CharacterStatSources folds in: charges, support gem buffs, links, guards, Hierophant, Slayer,
     /// conditional item stats.</summary>

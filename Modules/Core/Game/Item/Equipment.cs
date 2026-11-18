@@ -9,7 +9,13 @@ public static partial class Game
     public static bool PlayerHasEnergyShieldForRecovery(ClientState conn, Func<string, int> get) =>
         conn.Pools.EnergyShield > 0 || PlayerHitRecovery.EnergyShieldPresent(get);
 
-    public static PlayerInventories ItemsOf(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
+    public static PlayerInventories ItemsOf(ClientState conn)
+    {
+        StatGraph.ReadInput((int)StatInput.Items);
+        return ItemsOfUnread(conn);
+    }
+
+    static PlayerInventories ItemsOfUnread(ClientState conn) => PlayerInventories.For(string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character, ItemsFor(conn));
 
     // Active local item defences retain their base roll, local conversions and final native rounding.
     public static IEnumerable<(byte Row, (decimal Armour, decimal Evasion, int EnergyShield, decimal Ward) Defence)> EquippedArmourDefences(

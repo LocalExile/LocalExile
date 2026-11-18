@@ -44,6 +44,9 @@ public static partial class Game
         public double Clock;
         // The area the steps last ran in: a new one has none of the last one's stat buffs.
         public GameArea? Area;
+        // The items the steps last saw, and their change count (StatInput.Items).
+        public PlayerInventories? Items;
+        public long ItemChanges;
     }
 
     /// <summary>The area's stat buffs on a player's entity changed (AreaStatBuffs): its pools and sources are built again.</summary>
@@ -78,7 +81,8 @@ public static partial class Game
     static PlayerStatStep[][] BuildPlayerStatChangeReaders()
     {
         var readers = new PlayerStatStep[Enum.GetValues<PlayerStatChange>().Length][];
-        readers[(int)PlayerStatChange.Build] = Enum.GetValues<PlayerStatStep>();
+        // The items, passives and pools are tracked inputs (MarkBuild); these read the rest of a build.
+        readers[(int)PlayerStatChange.Build] = [PlayerStatStep.Sources, PlayerStatStep.Subscribers];
         readers[(int)PlayerStatChange.Sources] = [PlayerStatStep.Sources];
         readers[(int)PlayerStatChange.Auras] =
         [
@@ -99,24 +103,23 @@ public static partial class Game
         return readers;
     }
 
+    // What a build change changes that the steps read as tracked inputs: whatever step read them runs again.
+    static readonly StatInput[] BuildInputs = [StatInput.Items, StatInput.Passives, StatInput.Pools];
+
     // In an area's frames: marks the steps that read the change and asks the Stats phase to publish the panel
     // (SendCharacterStats); false off the frames, which publish at once.
     static bool PublishByFrame(ClientState conn, PlayerStatChange change)
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || !frame.ByFrame || frame.Graph is not { } graph) return false;
         foreach (var step in PlayerStatChangeReaders[(int)change]) graph.MarkRule((int)step);
+        if (change == PlayerStatChange.Build)
+            foreach (var input in BuildInputs) graph.MarkInput((int)input);
         lock (frame) frame.Publish ??= change;
         return true;
     }
 
     // What reads the pools, and what reads the conditions of life, mana, Energy Shield and moving (the sources' "while"
     // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows).
-    static readonly PlayerStatStep[] PoolsReaders =
-    [
-        PlayerStatStep.Sources, PlayerStatStep.God, PlayerStatStep.Auras, PlayerStatStep.CatAspect, PlayerStatStep.ClassAttributes,
-        PlayerStatStep.OvercapCrit, PlayerStatStep.AttackSpeed, PlayerStatStep.MaximumPoolItems, PlayerStatStep.Recovery,
-        PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
-    ];
     static readonly PlayerStatStep[] ConditionReaders =
     [
         PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.Recovery,
@@ -129,8 +132,8 @@ public static partial class Game
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
         switch (input)
         {
-            case StatInput.Pools:
-                foreach (var step in PoolsReaders) graph.MarkRule((int)step);
+            case StatInput.Pools or StatInput.Items or StatInput.Passives:
+                graph.MarkInput((int)input);
                 break;
             case StatInput.EnergyShield:
                 foreach (var step in ConditionReaders) graph.MarkRule((int)step);
@@ -196,6 +199,12 @@ public static partial class Game
             foreach (var (step, at) in frame.Timed.ToList())
                 if (clock >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
         if (clock >= frame.MovingCheckAt) PlayerStatInputChanged(conn, StatInput.Walk);
+        var items = ItemsOfUnread(conn);
+        if (!ReferenceEquals(items, frame.Items) || items.Changes != frame.ItemChanges)
+        {
+            if (frame.Items is not null) graph.MarkInput((int)StatInput.Items);
+            (frame.Items, frame.ItemChanges) = (items, items.Changes);
+        }
         runningFrame = frame;
         bool built;
         try { built = graph.Step(); }

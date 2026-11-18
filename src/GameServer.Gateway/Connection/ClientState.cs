@@ -710,8 +710,10 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
 // The last instance list shown (0xae); 0xaf picks a row of it.
 public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false, int? ArrivalEntrance = null);
 
-/// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).</summary>
-public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents }
+/// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).
+/// Pools, Items and Passives are read through the stat graph (StatGraph.ReadInput), so their change runs again only the
+/// steps that read them.</summary>
+public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives }
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
@@ -1107,7 +1109,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);
     public CharacterStats.Pools Pools
     {
-        get => pools;
+        get { StatGraph.ReadInput((int)StatInput.Pools); return pools; }
         set
         {
             bool changed = !Equals(pools, value);
@@ -1132,7 +1134,13 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // The character's experience (the Player component's; the level follows from it) and its allocated passives
     // (PassiveSkillGraphId), both kept in its save (CharacterSaves). Changed under the Monsters lock.
     public uint Experience;
-    public List<ushort> Passives = [];
+    /// <summary>A change in place (Add, Remove) is the changer's to hand over (StatsChanged with StatInput.Passives).</summary>
+    public List<ushort> Passives
+    {
+        get { StatGraph.ReadInput((int)StatInput.Passives); return passives; }
+        set { passives = value; MarkStatsDirty(StatInput.Passives); }
+    }
+    List<ushort> passives = [];
     /// <summary>The three Atlas passive presets (PassiveSkillGraphId) and the points the character has; kept in its save.</summary>
     public List<ushort>[] AtlasPassives = [[], [], []];
     public ushort AtlasPassivePoints;

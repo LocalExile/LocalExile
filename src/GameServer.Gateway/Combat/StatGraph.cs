@@ -11,6 +11,9 @@ using System.Diagnostics.CodeAnalysis;
 /// or an earlier rule's write), or when its owner marks it (<see cref="MarkRule"/>) for state it reads that is not a stat.
 /// A run that writes what it wrote before changes nothing further.</item>
 /// </list>
+/// <item>An <b>input</b> is state a rule reads that is not a stat (a player's pools, items, passives). Its accessor calls
+/// <see cref="ReadInput"/>, which records the read for the rule running on this thread; <see cref="MarkInput"/> then runs
+/// again exactly the rules that read it.</item>
 /// <see cref="Step"/> applies what was marked since the last one; the area's Stats phase calls it once a frame, and the
 /// values read in between are the last step's (<see cref="Values"/>).
 /// </summary>
@@ -32,6 +35,7 @@ public sealed class StatGraph
         public required RuleRun Run;
         public Dictionary<uint, int?> Writes = [];   // null: the rule removed the id
         public readonly HashSet<uint> Reads = [];
+        public readonly HashSet<int> Inputs = [];
         public bool ReadsAll, Queued;
     }
 
@@ -42,13 +46,16 @@ public sealed class StatGraph
     readonly Dictionary<uint, SortedList<int, int?>> writes = [];   // each id's rule writes, by rule index
     readonly Dictionary<uint, HashSet<Rule>> readers = [];
     readonly HashSet<Rule> allReaders = [];
+    readonly Dictionary<int, HashSet<Rule>> inputReaders = [];
     readonly HashSet<uint> changed = [];
     readonly PriorityQueue<Rule, int> queue = new();
     volatile Dictionary<uint, int> values = [];
     bool dirtyLayers;
     // Marks from any thread, taken by the next step: a mark never waits for a step (which holds the graph while its rules
     // take other locks), so a thread holding one of those can mark and read.
-    readonly System.Collections.Concurrent.ConcurrentQueue<int> markedLayers = new(), markedRules = new();
+    readonly System.Collections.Concurrent.ConcurrentQueue<int> markedLayers = new(), markedRules = new(), markedInputs = new();
+    // The view of the rule running on this thread, for ReadInput.
+    [ThreadStatic] static StatView? reading;
 
     /// <summary>The values as of the last step. Never changed after a step published it: hold it as long as needed. Reading
     /// them takes no lock.</summary>
@@ -89,6 +96,15 @@ public sealed class StatGraph
     /// <summary>State the rule reads that is not a stat changed: it runs in the next step.</summary>
     public void MarkRule(int rule) => markedRules.Enqueue(rule);
 
+    /// <summary>An input changed: the rules that read it run in the next step.</summary>
+    public void MarkInput(int input) => markedInputs.Enqueue(input);
+
+    /// <summary>An input's accessor: the rule running on this thread (if any) reads it.</summary>
+    public static void ReadInput(int input)
+    {
+        if (reading is { } view) view.ReadInput(input);
+    }
+
     /// <summary>Applies what was marked since the last step. False when no value changed.</summary>
     public bool Step()
     {
@@ -96,6 +112,8 @@ public sealed class StatGraph
         {
             while (markedLayers.TryDequeue(out int marked)) { layers[marked].Dirty = true; dirtyLayers = true; }
             while (markedRules.TryDequeue(out int marked)) Queue(rules[marked]);
+            while (markedInputs.TryDequeue(out int input))
+                if (inputReaders.TryGetValue(input, out var set)) foreach (var r in set) Queue(r);
             if (!dirtyLayers && queue.Count == 0) { Changed = []; return false; }
             if (dirtyLayers)
             {
@@ -116,10 +134,14 @@ public sealed class StatGraph
                 RuleRuns++;
                 foreach (uint id in rule.Reads) readers[id].Remove(rule);
                 rule.Reads.Clear();
+                foreach (int input in rule.Inputs) inputReaders[input].Remove(rule);
+                rule.Inputs.Clear();
                 if (rule.ReadsAll) { allReaders.Remove(rule); rule.ReadsAll = false; }
                 var view = new StatView(this, rule);
+                var outer = reading;
+                reading = view;
                 try { rule.Run(view); }
-                finally { view.Done = true; }
+                finally { view.Done = true; reading = outer; }
                 ApplyRule(rule, view.Written);
             }
             return Publish();
@@ -266,6 +288,14 @@ public sealed class StatGraph
                 set.Add(r);
             }
             return graph.Visible(r.Index, id, out value);
+        }
+
+        internal void ReadInput(int input)
+        {
+            var r = Live;
+            if (!r.Inputs.Add(input)) return;
+            if (!graph.inputReaders.TryGetValue(input, out var set)) graph.inputReaders[input] = set = [];
+            set.Add(r);
         }
 
         protected override void Set(uint id, int value) { _ = Live; Written[id] = value; }
