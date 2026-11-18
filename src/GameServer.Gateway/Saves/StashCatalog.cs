@@ -32,6 +32,9 @@ public static class StashCatalog
         [HeistHub] = new(6, 8, 0),
         // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
         [ChayulaHub] = new(6, 8, 0),
+        // The Sovereign (DeepwaterHub): hub.arm's own object line (306, 218, -0.261801), placed at (0, 276) with code 0 by
+        // hub.dgr on every seed, so area cell = room cell + (0, 276). The guild stash is its line (293, 219, 0.0799581).
+        [DeepwaterHub] = new(306, 494, -0.261801f),
     };
 
     /// <summary>A town's guild stash where it has a place of its own (else next to the stash), placed live with
@@ -49,6 +52,7 @@ public static class StashCatalog
         OriathDocks => new(542, 276, -MathF.PI),
         SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
         LioneyesWatchAct6 => new(318, 408, 0),
+        DeepwaterHub => new(293, 495, 0.0799581f),
         _ => null,
     };
 
@@ -78,6 +82,9 @@ public static class StashCatalog
 
     /// <summary>HASH16 of the Monastery of the Keepers (WorldAreas ChayulaLeague).</summary>
     public const ushort ChayulaHub = 0xcb44;
+
+    /// <summary>HASH16 of The Sovereign (WorldAreas DeepwaterHub).</summary>
+    public const ushort DeepwaterHub = 0x5844;
 
     /// <summary>HASH16 of the Rogue Harbour (WorldAreas HeistHub).</summary>
     public const ushort HeistHub = 0xb5be;
