@@ -24,6 +24,9 @@ public sealed record PlacedExit(PlacedTileObject Object, ExitKind Kind, int Numb
 {
     /// <summary>The ExtraTerrainFeatures row whose "link" this gate is (<see cref="AreaExits.Links"/>), or null.</summary>
     public string? Feature { get; init; }
+    /// <summary>The WorldAreas row of the sub-area a map-side "link" gate leads into (the Sacred Grove's HarvestLeague), so
+    /// the gate is labelled with that area's name; -1 for every other gate.</summary>
+    public int FeatureWorldArea { get; init; } = -1;
 }
 
 /// <summary>A layout's named entrance point: where "entranceN" (enabled or not) sits, i.e. where a player arriving from
@@ -93,7 +96,8 @@ public static class AreaExits
     /// sub-area is filled, and so whether the gate stands, is the server's to decide.</summary>
     internal static LinkRooms Links(IReadOnlyList<DoodadRecord> records)
     {
-        var extra = new Dictionary<PlacedRoom, (string[], string)>(ReferenceEqualityComparer.Instance);
+        var extra = new Dictionary<PlacedRoom, (string[], string, int)>(ReferenceEqualityComparer.Instance);
+        var areas = new Dictionary<string, int>(StringComparer.Ordinal);
         var unpaired = new HashSet<PlacedRoom>(ReferenceEqualityComparer.Instance);
         var order = new List<string>();
         var pool = new Dictionary<string, List<PlacedRoom>>(StringComparer.Ordinal);
@@ -112,8 +116,11 @@ public static class AreaExits
                 if (room.Feature is { } row && Link(room.FeatureDescriptions)) Add(pool, row, room);
         foreach (var record in records)
             if (record.FeatureRow is { } row)
+            {
+                if (record.FeatureWorldArea >= 0) areas.TryAdd(row, record.FeatureWorldArea);
                 foreach (var room in record.Rooms)
                     if (room.Feature is null && Link(room.Descriptions)) Add(sub, row, room);
+            }
         int k = 0;
         foreach (var row in order)
         {
@@ -123,16 +130,17 @@ public static class AreaExits
             for (int i = 0; i < n; i++, k++)
             {
                 int to = LinkNumbers + 2 * k, back = to + 1;
-                extra[a[i]] = ([$"teleport{to}", $"telepad{back}"], row);
-                extra[b[i]] = ([$"teleport{back}", $"telepad{to}"], row);
+                extra[a[i]] = ([$"teleport{to}", $"telepad{back}"], row, areas.GetValueOrDefault(row, -1));
+                extra[b[i]] = ([$"teleport{back}", $"telepad{to}"], row, -1);
             }
             foreach (var room in a.Skip(n).Concat(b.Skip(n))) unpaired.Add(room);
         }
         return new(extra, unpaired);
     }
 
-    /// <summary>The paired "link" rooms' added descriptions and row, and the "link" rooms without a partner.</summary>
-    internal sealed record LinkRooms(Dictionary<PlacedRoom, (string[] Descriptions, string Row)> Extra, HashSet<PlacedRoom> Unpaired);
+    /// <summary>The paired "link" rooms' added descriptions, row and the sub-area's WorldAreas row the map-side room leads
+    /// into (-1 for the sub-area's own room), and the "link" rooms without a partner.</summary>
+    internal sealed record LinkRooms(Dictionary<PlacedRoom, (string[] Descriptions, string Row, int Into)> Extra, HashSet<PlacedRoom> Unpaired);
 
     /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first transition object, else the
     /// room's centre).</summary>
@@ -198,6 +206,8 @@ public static class AreaExits
         public bool UnpairedLink { get; init; }
         /// <summary>The ExtraTerrainFeatures row of a paired "link" room (<see cref="Links"/>).</summary>
         public string? LinkFeature { get; init; }
+        /// <summary>For a paired map-side "link" room, the WorldAreas row of the sub-area its gate leads into; else -1.</summary>
+        public int LinkInto { get; init; } = -1;
         readonly Dictionary<Description, RoomPoint> _slots = new(ReferenceEqualityComparer.Instance);
 
         public string Name => Path.GetFileName(Room.Room.Path);
@@ -280,13 +290,14 @@ public static class AreaExits
     {
         var list = rooms.Select(r =>
         {
-            (string[] Descriptions, string Row)? more = links?.Extra.TryGetValue(r, out var found) == true ? found : null;
+            (string[] Descriptions, string Row, int Into)? more = links?.Extra.TryGetValue(r, out var found) == true ? found : null;
             return new LayoutRoom
             {
                 Room = r, Points = Points(files, r),
                 Descriptions = Descriptions(more is { } m ? r.Descriptions.Concat(m.Descriptions) : r.Descriptions),
                 UnpairedLink = links?.Unpaired.Contains(r) == true,
                 LinkFeature = more?.Row,
+                LinkInto = more?.Into ?? -1,
             };
         }).ToList();
         foreach (var room in list) room.PlaceArrivals();
@@ -380,6 +391,7 @@ public static class AreaExits
             yield return new PlacedExit(o, d.Kind, d.Number, d.Enabled, d.Label, target, room.Name, why)
             {
                 Feature = d.Kind == ExitKind.Teleport && d.Number >= LinkNumbers ? room.LinkFeature : null,
+                FeatureWorldArea = d.Kind == ExitKind.Teleport && d.Number >= LinkNumbers ? room.LinkInto : -1,
             };
         }
     }

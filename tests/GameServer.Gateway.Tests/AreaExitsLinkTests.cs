@@ -39,6 +39,9 @@ public class AreaExitsLinkTests
         Assert.Equal(ExitKind.Teleport, exits[0].Kind);
         Assert.Equal(ExitKind.Teleport, exits[1].Kind);
         Assert.Equal("X", exits[0].Feature);
+        // The map-side gate names the sub-area's world area (its label); the grove-side gate keeps the map's own.
+        Assert.Equal(1333, exits[0].FeatureWorldArea);
+        Assert.Equal(-1, exits[1].FeatureWorldArea);
         Assert.True(exits[0].Target is { X: >= 230 and < 322, Y: >= 0 and < 92 }, $"map gate lands at {exits[0].Target}");
         Assert.True(exits[1].Target is { X: >= 0 and < 92, Y: >= 0 and < 92 }, $"grove gate lands at {exits[1].Target}");
         Assert.Equal(ExitKind.Unused, exits[2].Kind);
