@@ -18,14 +18,38 @@ static partial class QuestobjectsRules
         public readonly RailEscort Walk = walk;
         public bool Moving { get; private set; }
 
+        public (int X, int Y) CommandTarget { get; private set; }
+        public double CommandSeconds { get; private set; }
+
         public void Update(double elapsed, IReadOnlyList<(int X, int Y)> escorts)
         {
-            // MoveTo has already been sent for the current leg. The client can reach its end during a late tick,
-            // but cannot turn the corner until ShowBeacon sends the next destination.
-            if (Moving) Walk.AdvanceCurrentLeg(elapsed);
+            // Only simulate the part of this leg which was actually sent to the client.
+            if (Moving) Walk.AdvanceCurrentLeg(Math.Min(elapsed, CommandSeconds));
+            // An order that ran to the leg's end can leave the cart a hair short of the corner (its seconds times the
+            // speed, rounded). That is the corner: the cart turns it, or the hair would count as not moving and the cart
+            // would never take the next leg (seen live at the Beacon, 2026-11-14).
+            var (cx, cy) = Walk.Position;
+            if (!Walk.Complete && Math.Abs(Walk.Destination.X - cx) + Math.Abs(Walk.Destination.Y - cy) < 0.01)
+                Walk.AdvanceCurrentLeg(0.02 / Walk.Speed);
             var (x, y) = Walk.Position;
-            double radius = BeaconEscortRadius;
-            Moving = !Walk.Complete && escorts.Any(p => (p.X - x) * (p.X - x) + (p.Y - y) * (p.Y - y) <= radius * radius);
+            var (tx, ty) = Walk.Destination;
+            double dx = tx - x, dy = ty - y, length = Math.Sqrt(dx * dx + dy * dy);
+            double reach = 0, radius = BeaconEscortRadius;
+            if (length > 0)
+                foreach (var p in escorts)
+                {
+                    double px = p.X - x, py = p.Y - y, squared = px * px + py * py;
+                    if (squared > radius * radius) continue;
+                    // Exit of this straight rail from the escort's visible circle.
+                    double projection = (px * dx + py * dy) / length;
+                    double exit = projection + Math.Sqrt(Math.Max(0, projection * projection + radius * radius - squared));
+                    reach = Math.Max(reach, Math.Min(length, exit));
+                }
+            Moving = reach > 0.001;
+            CommandSeconds = reach / Walk.Speed;
+            CommandTarget = Moving
+                ? ((int)Math.Round(x + dx * reach / length), (int)Math.Round(y + dy * reach / length))
+                : ((int)Math.Round(x), (int)Math.Round(y));
         }
     }
     sealed class BeaconRun
@@ -40,7 +64,7 @@ static partial class QuestobjectsRules
     sealed class BeaconView
     {
         public readonly List<uint> Carts = [];
-        public readonly Dictionary<uint, (int Target, bool Moving)> ShownMoves = [];
+        public readonly Dictionary<uint, ((int X, int Y) Target, bool Moving)> ShownMoves = [];
         public readonly Dictionary<uint, byte> ShownStates = [];
         public bool Loaded;
     }
@@ -189,12 +213,12 @@ static partial class QuestobjectsRules
             var cell = ((int)Math.Round(at.X), (int)Math.Round(at.Y));
             lock (conn.QuestObjects)
                 if (conn.QuestObjects.TryGetValue(id, out var o)) conn.QuestObjects[id] = (o.Rule, o.At with { X = cell.Item1, Y = cell.Item2 }, o.Info);
-            var movement = (cart.Walk.Target, cart.Moving);
+            var movement = (cart.CommandTarget, cart.Moving);
             if (!view.ShownMoves.TryGetValue(id, out var shown) || shown != movement)
             {
                 view.ShownMoves[id] = movement;
-                var target = cart.Moving ? cart.Walk.Destination : (cell.Item1, cell.Item2);
-                float seconds = cart.Moving ? (float)Math.Max(0.05, cart.Walk.RemainingSeconds) : 0.05f;
+                var target = cart.CommandTarget;
+                float seconds = cart.Moving ? (float)Math.Max(0.05, cart.CommandSeconds) : 0.05f;
                 var move = InstanceProtocol.MoveTo(id, target.Item1, target.Item2, seconds, InstanceProtocol.FollowTerrain);
                 await Send(remote, stream, ciphers, cart.Moving
                     ? [.. InstanceProtocol.Orientation(id, (float)Math.Atan2(target.Item1 - at.X, at.Y - target.Item2)), .. move] : move,

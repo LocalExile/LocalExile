@@ -38,6 +38,38 @@ public sealed class KitavaActTenTests
         Assert.False(KitavaActTen.GateShown(c, exit));
         var fight = new KitavaActTen.Fight(id, body, c); await fight.Bind(c); await fight.Step(c, 1); await fight.Step(c, 7);
         Assert.Equal(2, fight.Stage);
+        var allies = c.Monsters.Where(p => p.Value.Variety?.Id is KitavaActTen.Sin or KitavaActTen.Innocence).ToArray();
+        Assert.Equal(2, allies.Length);
+        foreach (var ally in allies)
+        {
+            Assert.True(c.MonsterViews.ContainsKey(ally.Key));
+            Assert.False(c.MinionOrigins.ContainsKey(ally.Key));
+            Assert.True(ally.Key >= 0x08000000);
+            var origin = c.Instance.World.MonsterOrigins[ally.Key];
+            Assert.Equal(2, origin.Object.TransitionState);
+            c.Instance.World.MonsterOrigins[ally.Key] = origin with { Object = origin.Object with { TransitionState = 3 } };
+        }
+        var observer = new ClientState(layout, 2, 1) { Instance = c.Instance, Wire = c.Wire, PlayerSent = true };
+        var shown = new List<byte[]>();
+        observer.MonsterViews[id] = new((2000, 2000), (2000, 2000), body.Life);
+        await fight.Bind(observer);
+        foreach (var ally in allies) Assert.Equal(2, observer.Instance.World.MonsterOrigins[ally.Key].Object.TransitionState);
+        var previousOutgoing = Program.Outgoing;
+        try
+        {
+            Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, observer.Wire.Ciphers)) shown.Add(bytes.ToArray()); };
+            await Game.SyncInstanceMonsters(observer.Wire.Remote, observer.Wire.Stream, observer.Wire.Ciphers, observer);
+        }
+        finally { Program.Outgoing = previousOutgoing; }
+        foreach (var ally in allies)
+        {
+            var origin = observer.Instance.World.MonsterOrigins[ally.Key];
+            var at = ally.Value.Walk.Position(observer.Clock.Elapsed.TotalSeconds);
+            var expected = InstanceEntities.CreateObject(ally.Key, origin.Type,
+                (origin.Object with { GridX = at.X, GridY = at.Y, Life = ally.Value.Life }).Blob());
+            Assert.Contains(shown, bytes => bytes.AsSpan().IndexOf(expected) >= 0);
+        }
+        observer.Closed = true;
         for (int interval = 0; interval < 3; interval++)
         {
             double now = 100 + interval * 100;

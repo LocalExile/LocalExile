@@ -61,6 +61,13 @@ public sealed class ChatCommands
         {
             await Reply($"Usage: {cmd.Usage} ({ex.Message})");
         }
+        // A mod built for another LocalExile version calls a member this one does not have. The runtime throws where the
+        // command first reaches that call; uncaught, it ended the connection (live 2026-11-17: /god with a released mod).
+        catch (Exception ex) when (ex is MissingMemberException or TypeLoadException)
+        {
+            Console.WriteLine($"[gateway] /{parts[0]} failed, its mod was built for another LocalExile version: {ex.Message}");
+            await Reply($"/{parts[0]} was built for another LocalExile version. Update the mod.");
+        }
         return true;
     }
 

@@ -6,8 +6,8 @@
 /// modifier, as Path of Building's calcRadius does: floor(base × floor(100 × √(increased × more)) / 100). Increased:
 /// base_skill_area_of_effect_+% (passives, gem quality), skill_area_of_effect_+% and, for spells, spell_area_of_effect_+%.
 /// More: each of the "_final" area stats; active_skill_area_of_effect_radius_+%_final scales the radius itself. The
-/// skill's stats include the player's. Discharge's more area per removable charge counts; other conditional area stats (per
-/// attribute, "recently") are not modelled.
+/// skill's stats include the player's. Discharge's more area per removable charge counts; qualified item attribute
+/// coefficients and supported conditional increases are resolved before this view is built.
 /// </summary>
 public static class SkillArea
 {
@@ -18,14 +18,16 @@ public static class SkillArea
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<string, int> get) =>
         get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius
-            : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+            : effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20 : 12;
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
+            : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
     static readonly string[] MoreArea =
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
+        "blood_sand_stance_melee_skills_area_of_effect_+%_final",
     ];
 
     const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";
@@ -50,8 +52,8 @@ public static class SkillArea
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
     public static int RadiusPercent(Func<string, int> get, bool spell) =>
-        (int)Math.Floor(Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
-            * Math.Max(0, 1 + get("active_skill_area_of_effect_radius_+%_final") / 100.0)) - 100;
+        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
+            * Math.Max(0L, 100L + get("active_skill_area_of_effect_radius_+%_final")) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>The area modifier: (1 + increased) × each more multiplier, at least 0.</summary>
     public static double Modifier(Func<string, int> get, bool spell)

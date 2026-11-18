@@ -35,6 +35,11 @@ static class Act5Items
 /// <summary>.ot types and Chests.dat Ids of Act 5's quest objects and chests the engine creates or a rule watches.</summary>
 static class Act5Objects
 {
+    public static readonly string ShortcutOpen = InstanceFlag("InnocenceShortcutOpen");
+    public const string ShortcutDoor = "Metadata/QuestObjects/Act5/InnocenceShortcutDoor";
+    public static readonly string OssuaryOpen = InstanceFlag("OssuaryPassageOpen");
+    public const string OssuaryLever = "Metadata/Terrain/Act5/Area6/Objects/Ossuary_BossSwitch",
+        OssuaryDoor = "Metadata/Terrain/Act5/Area6/Objects/Ossuary_HiddenDoor";
     public const string SupplyChest = "Metadata/Chests/QuestChests/Vilenta/SupplyChest";                 // Chests 201
     public const string TemplarCourtsDoor = "Metadata/QuestObjects/Act5/TemplarCourtsDoor";
     public const string ArenaSocket = "Metadata/Terrain/Act5/Area8/Objects/ArenaSocket";                  // bossentry.arm
@@ -114,6 +119,9 @@ sealed class Act5 : Act
                 On.UsedWith(OriathSquare, Act5Objects.TemplarCourtsDoor, ["a5q2-HaveKey"], "a5q2-UsedKey", "a5q4-QuestReceived"),
                 On.Exists(Act5Objects.OriathSquareToCourts, from: "a5q2-UsedKey"),
                 On.Exit(OriathSquare, TemplarCourts, "a5q2-UsedKey"),
+                new DisabledTeleportRule(ChamberOfInnocence, Act5Objects.ShortcutOpen),
+                On.Object(ChamberOfInnocence, Act5Objects.ShortcutDoor, Act5Objects.ShortcutOpen),
+                On.Blocker(ChamberOfInnocence, Act5Objects.ShortcutDoor, 3, Act5Objects.ShortcutOpen),
                 On.Seen(ChamberOfInnocence, Act5Monsters.Avarius, "a5q4-SeenBoss"),
                 On.SecondForm(ChamberOfInnocence, Act5Monsters.Avarius, Act5Monsters.Innocence),
                 On.Seen(ChamberOfInnocence, Act5Monsters.Innocence, "a5q4-SeenInnocence"),
@@ -146,6 +154,10 @@ sealed class Act5 : Act
             new Quest("a5q6")
             {
                 On.Chest(Ossuary, Act5Objects.PurityBox, Act5Items.SignOfPurity),
+                On.Object(Ossuary, Act5Objects.OssuaryLever, Act5Objects.OssuaryOpen),
+                On.UsedWith(Ossuary, Act5Objects.OssuaryLever, ["a5q6-SeenItem"], Act5Objects.OssuaryOpen),
+                On.Object(Ossuary, Act5Objects.OssuaryDoor, Act5Objects.OssuaryOpen),
+                On.Blocker(Ossuary, Act5Objects.OssuaryDoor, 3, Act5Objects.OssuaryOpen),
                 On.Blocker(RuinedSquare, Act5Objects.CathedralRoofBlocker, 3, "a5q6-SeenItem"),
                 On.Exists(Act5Objects.CathedralRoofFlame, until: "a5q6-SeenItem"),
                 On.Npc(Ossuary, Act5Npcs.SinOssuary, null, shownBy: "a5q6-SeenItem"),

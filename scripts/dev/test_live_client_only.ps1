@@ -5,7 +5,7 @@ $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $PSScriptRoot 'live.ps1'), [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
-foreach ($name in @('Need', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway',
+foreach ($name in @('Need', 'Read-Conf', 'Get-Stack', 'Get-SessionName', 'Test-Here', 'Get-OwnClients', 'Get-OwnServers', 'Select-LocalGateway',
         'Get-OwnLaunchers', 'Get-RenamedClientIds', 'Get-GlobalSlotHolders', 'Assert-GlobalSlot', 'Start-SessionLauncher',
         'Read-PortBase', 'Find-FreePortBase', 'Get-AgentStack')) {
     $definition = $ast.Find({ param($node)

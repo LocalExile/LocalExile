@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Threading.Channels;
 using GameServer.Core.Diagnostics;
@@ -8,10 +9,28 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static readonly Lazy<Dictionary<string, StateMachineData>> ProjectileStateMachines = new(() =>
+    {
+        var states = ObjectTypes.SharedStates();
+        var machines = new Dictionary<string, StateMachineData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, row) in ObjectTypes.All())
+        {
+            if (!path.StartsWith("Metadata/Projectiles/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (ObjectTypes.Components(row) is [.., "Projectile", "StateMachine"]
+                && ObjectTypes.StateMachine(row, states) is { } machine)
+                machines[path] = machine;
+        }
+        return machines;
+    });
+
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
-    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
-        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
+    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj)
+    {
+        if (obj.StateMachine is null && ProjectileStateMachines.Value.TryGetValue(obj.TypePath, out var machine))
+            obj = obj with { StateMachine = machine };
+        return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
+    }
 
     public static byte[] CreateEffectObject(uint id, EffectObject effect) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
@@ -26,16 +45,37 @@ public static partial class Game
         readonly int epoch;
         readonly Channel<Func<Task>> output = Channel.CreateBounded<Func<Task>>(
             new BoundedChannelOptions(8192) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
+        // One experience update for as many kills as arrive before the record is written: a pack kill commits one per
+        // corpse, and a hundred of them were a hundred packets and a hundred gate turns queued ahead of the same
+        // burst's corpse explosions and loot (live 2026-11-17: the tail of a burst landed about two seconds late).
+        uint? experiencePending;
+        bool experienceQueued;
+        public void PlayerExperience(uint total)
+        {
+            experiencePending = total;
+            if (experienceQueued) return;
+            experienceQueued = true;
+            WorldRecords(PlayerId, () =>
+            {
+                experienceQueued = false;
+                if (experiencePending is not { } value) return null;
+                experiencePending = null;
+                return [InstanceEntities.PlayerExperienceUpdate(PlayerId, value)];
+            });
+        }
         sealed class Visual(uint id, ProjectileHeight height)
         {
             public readonly uint Id = id;
             public ProjectileHeight Height = height;
             public bool Created, Ended, SecondFormStarted;
             public ProjectileArc? Arc;
-            public int MotionVersion;
             // Where the object is created (the release point) and whether its first move has been sent from there.
             public ProjectileVector SpawnedAt;
             public bool Glided;
+            // The move the client has to make to follow the flight as it stands now, and whether one intent is already
+            // queued to write it. A redirect replaces the pending move instead of being dropped as superseded.
+            public byte[][]? PendingGlide;
+            public bool GlideQueued;
             // An ended flight whose stop keeps the object (an impact clip, a stuck arrow) is still created when its
             // creation snapshot runs late: the shot then appears at its impact rather than not at all.
             public bool StaysAfterEnd;
@@ -106,21 +146,26 @@ public static partial class Game
                     Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
                     {
                         if (!Active || !valid()) return;
-                        try
-                        {
-                            var use = release() with { Seed = ++seed };
-                            long useId = Runtime.Release(use);
-                            if (ServerTrace.Projectiles && !Quiet(use.Payload))
-                                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
-                                    + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
-                                    + $"origin={use.Origin} aim={use.Aim} speed={use.Profile.Speed:0.###}");
-                        }
+                        try { ReleaseNow(release()); }
                         catch (InvalidOperationException ex)
                         { Console.WriteLine($"[gateway] {remote} projectile path unavailable: {ex.Message}"); }
                     });
         }
 
+        /// <summary>Releases a resolved use at the runtime's current instant. Call under the Monsters lock.</summary>
+        public long ReleaseNow(ProjectileUse use)
+        {
+            var seeded = use with { Seed = ++seed };
+            long useId = Runtime.Release(seeded);
+            if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
+                Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
+                    + $"skill={PayloadLabel(seeded.Payload)} metadata={seeded.Profile.Id} count={seeded.Profile.Count} "
+                    + $"origin={seeded.Origin} aim={seeded.Aim} speed={seeded.Profile.Speed:0.###}");
+            return useId;
+        }
+
         public double NowTicks => Runtime.Now;
+        public long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
 
         public void Invalidate()
         {
@@ -130,6 +175,7 @@ public static partial class Game
                 invalid = true;
                 lifetime?.Dispose();
                 ClearPods();
+                if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
                 visuals.Clear(); output.Writer.TryComplete();
@@ -182,6 +228,49 @@ public static partial class Game
             WorldRecords(id, () => snapshot() is { } bytes ? [bytes] : null, log);
         public void Create(uint id, Func<byte[]?> snapshot, bool wake = false, string? log = null) =>
             WorldRecords(id, () => snapshot() is { } bytes ? [bytes] : null, log, create: true, wake: wake);
+
+        // A projectile's create and the move it already owes the client leave in one admission. The client draws the
+        // object where it is created and moves it only on 0x1ba, so a shot whose flight was over before a second record
+        // was projected stood at its release point until its removal (live 2026-11-17: most Kinetic Blast bolts).
+        // Lockstep writes the move in the frame after the create (AfterBirth, ordered by the same admission); a
+        // predictive client gets both records in one write. Neither waits for the birth: a lockstep create is written
+        // at the next frame end, and holding the session's queue for every object was what left the presentation of a
+        // 130 ms volley about a quarter of a second behind the simulation.
+        public void CreateFlight(uint id, Func<byte[]?> create, Func<byte[][]?> glide, string? log = null) => Enqueue(async () =>
+        {
+            while (Active)
+            {
+                bool completed = false;
+                byte[][]? Project()
+                {
+                    lock (Conn.Monsters)
+                    {
+                        if (!Active || Conn.Paused) return null;
+                        completed = true;
+                        if (create() is not { } bytes) return null;
+                        if (glide() is not { } moves) return [bytes];
+                        return [bytes, .. moves.Where(m => m.Length > 0)];
+                    }
+                }
+                if (!Conn.LockstepClient)
+                    await Send(remote, stream, ciphers, [], log, atGate: () => Project() is { } records
+                        ? [.. records.SelectMany(p => p)] : null);
+                else
+                    await SendWorldBatch(Conn, [], admission =>
+                    {
+                        if (Project() is not { } records) return null;
+                        var birth = admission.NewObject(id);
+                        BinaryPrimitives.WriteUInt32BigEndian(records[0].AsSpan(6), uint.MaxValue);
+                        BinaryPrimitives.WriteUInt16BigEndian(records[0].AsSpan(10), 0);
+                        List<OutputRecord> batch = [OutputRecord.Create(birth, records[0], log)];
+                        foreach (var move in records[1..])
+                            batch.Add(OutputRecord.AfterBirth(birth, RecordOrder(move, id), move, log));
+                        return new([.. batch]);
+                    }, transport: (remote, stream, ciphers));
+                if (completed || Conn.WorldOutput.Closed) return;
+                await Task.Delay(16);
+            }
+        });
         public void WorldRecords(uint id, Func<byte[][]?> snapshot, string? log = null, bool create = false,
             bool remove = false, bool wake = false) => Enqueue(async () =>
         {
@@ -199,7 +288,7 @@ public static partial class Game
                 }
                 if (create)
                     await SendWorldCreate(Conn, id, () => Project() is { } records ? records.Single() : null,
-                        log, wake: wake, transport: (remote, stream, ciphers));
+                        log, wake: wake, transport: (remote, stream, ciphers), awaitBirth: false);
                 else if (!Conn.LockstepClient || !remove)
                     await SendWorldRecords(remote, stream, ciphers, Conn, id, Project, log);
                 else
@@ -252,33 +341,99 @@ public static partial class Game
         /// flight never contacts the monster itself.</summary>
         public ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
 
+        // The runtime asks for the actors at every step of the simulation, thousands of times a second in a crowd, and
+        // a new record and position function for each monster each time was a third of what a step cost. A monster keeps
+        // its record for as long as what the record says stands: its id, its walk (the function reads that walk), its
+        // side and its size. The list itself is new every time: the runtime holds one while a hit changes the next.
+        readonly Dictionary<SpawnedMonster, (uint Id, object Walk, bool Hostile, int Size, ProjectileActor Actor)> actorOf =
+            new(ReferenceEqualityComparer.Instance);
+        ProjectileActor? playerActor;
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
-            var result = new List<ProjectileActor>();
+            var result = new List<ProjectileActor>(Conn.Monsters.Count + Conn.Totems.All.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
-                if (monster.Dead || monster.Life == 0) continue;
+                if (monster.Dead || monster.Life == 0 || monster.WorldHidden || ArenaHazards.Untargetable(Conn, monster)) continue;
                 var walk = monster.Walk;
-                result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
-                    t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
+                int size = LivingCollision.Size(monster);
+                if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
+                    || kept.Hostile != monster.Hostile || kept.Size != size)
+                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, MonsterActor(Key(id, monster), walk, monster.Hostile, size));
+                result.Add(kept.Actor);
             }
-            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
-                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            // A monster that died or left keeps its record and generation until here; in a long fight (a horde, a
+            // Simulacrum run) both tables would hold every monster the area ever had. Pruned now and then, not per step:
+            // records only for the living, generations only for the dead that left the list (a corpse keeps its key).
+            if (actorOf.Count > 2 * result.Count + 64) PruneActors();
+            // The monsters come in id order; the totems and the player go where that order puts them, so the runtime
+            // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
+            // A totem's id and place never change, so it keeps one record for as long as it is listed.
+            var totems = Conn.Totems.All;
+            double clock = Conn.Clock.Elapsed.TotalSeconds;
+            for (int i = 0; i < totems.Count; i++)
+                if (totems[i].Alive(clock)) InOrder(result, TotemActor(totems[i]));
             if (Conn.PlayerLife > 0)
-                result.Add(new(new(PlayerId, epoch), 1,
+                InOrder(result, playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
         }
 
+        // Its own method: a lambda in the loop above made the loop keep its walk in a new closure at every monster of
+        // every call (24 bytes each), also when the kept record was used.
+        static ProjectileActor MonsterActor(ProjectileActorKey key, PlayerWalk walk, bool hostile, int size) =>
+            new(key, hostile ? 2 : 1, t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size };
+
+        readonly System.Runtime.CompilerServices.ConditionalWeakTable<TotemState.Totem, ProjectileActor> totemActors = [];
+        ProjectileActor TotemActor(TotemState.Totem totem)
+        {
+            if (totemActors.TryGetValue(totem, out var kept)) return kept;
+            totemActors.Add(totem, kept = new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
+            return kept;
+        }
+
+        static readonly Comparer<ProjectileActor> ContactOrder = Comparer<ProjectileActor>.Create((a, b) =>
+            a.Key.Id != b.Key.Id ? a.Key.Id.CompareTo(b.Key.Id) : a.Key.Generation.CompareTo(b.Key.Generation));
+
+        static void InOrder(List<ProjectileActor> actors, ProjectileActor actor)
+        {
+            int at = actors.Count == 0 || ContactOrder.Compare(actors[^1], actor) <= 0 ? actors.Count
+                : actors.BinarySearch(actor, ContactOrder);
+            actors.Insert(at < 0 ? ~at : at, actor);
+        }
+
+        void PruneActors()
+        {
+            var listed = new HashSet<SpawnedMonster>(Conn.Monsters.Values, ReferenceEqualityComparer.Instance);
+            foreach (var monster in actorOf.Keys.Where(m => m.Dead || m.Life == 0 || !listed.Contains(m)).ToArray())
+                actorOf.Remove(monster);
+            // A living monster that left the list (asleep, held back) keeps its generation, so a flight that already hit
+            // it does not see a new actor when it returns.
+            foreach (var monster in generations.Keys.Where(m => (m.Dead || m.Life == 0) && !listed.Contains(m)).ToArray())
+                generations.Remove(monster);
+        }
+
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
             ProjectileGeometry.TraceGrid(from, to, Wall);
 
+        // The area's cells and heights, looked up once for the session (a connection plays one area): by the area's name
+        // it was a string and two dictionary lookups for every cell every flight crossed at every step. Kept only once
+        // found, and the heights asked for again after a capture was forgotten (TerrainHeights.Forget).
+        ProjectileGrid.Area? blocking;
+        TerrainHeights.Area? heights;
+        int heightsAsOf = -1;
+
         bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
             || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true || Conn.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Conn.Layout.Id, Conn.Seed))?.Blocks(x, y) == true || Conn.ProjectileWalls.Contains((x, y));
 
-        int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
+        int? Height(int x, int y)
+        {
+            int asOf = TerrainHeights.Forgotten;
+            if (heights is null || heightsAsOf != asOf) (heights, heightsAsOf) = (TerrainHeights.AreaOf(Conn.Layout.Id, Conn.Seed), asOf);
+            return heights?.At(x, y);
+        }
 
         // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
         // continuation children and monster shots keep the plain projectile grid.
@@ -295,11 +450,13 @@ public static partial class Game
             if (!Active) return ProjectileHitResult.Miss;
             // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            // A player minion's shot: a hostile monster is the target and the existing minion outcome pipeline owns it.
+            if (contact.Projectile.Use.Payload is MinionProjectileOffense minion) return MinionProjectileHit(this, contact, minion);
             // A server object's shot (a trial's dart trap): its own rule commits the hit.
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
                 return ProjectileHitResult.Miss;
-            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
+            if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Conn, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
@@ -313,9 +470,12 @@ public static partial class Game
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance;
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
-                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
+                    shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
                 if (ownedHit is null) return ProjectileHitResult.Miss;
+                Conn.RecentEvents.RecordCriticalOutcome(
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond, crit);
                 if (ownedHit.Value.StageStarts) CommitProjectileBossStage(this, contact.Target.Id, target, contact.At);
                 var stun = RampageStatusLocked(Conn, contact.Target.Id, target, shot.RampageSkill,
                     contact.At / (double)ProjectileRuntime.QuantaPerSecond);
@@ -334,7 +494,11 @@ public static partial class Game
                     Enqueue(() => SendRampageStun(remote, stream, ciphers, Conn, stun));
                 return ProjectileHitResult.Hit;
             }
+            // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
+            // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            shot = shot.Against(Blinded(Conn, contact.Target.Id), target.SpiderWebs.Count(at),
+                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
             int hitChance = 100;
             if (!shot.Spell)
             {
@@ -353,17 +517,17 @@ public static partial class Game
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Conn, player, target, (gambler with { DamageMorePct = 0 })
+                GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                     .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0)
+                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
-                    shot.VsProfaneCriticalChance);
+                    shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, player: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
-            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
+            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -374,12 +538,17 @@ public static partial class Game
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
-                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
+                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
+            uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            Conn.RecentEvents.RecordCriticalOutcome(at, critical);
+            // Cruelty: a player projectile's hit grants its skill's buff (a totem's or a monster's never does).
+            if (shot.ActualCaster is null && target.Hostile)
+                CrueltyOnHitLocked(Conn, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
             else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
@@ -395,16 +564,24 @@ public static partial class Game
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);
             if (!immune)
-                AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
+                AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
+                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    sourceSkill: shot.SourceSkill, blind: shot.Blind,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
-            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled)) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
+            if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
+                TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
+            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
+                IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
+                    playerIgnite: shot.ActualCaster is null,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
+                BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
+                    BleedReflected(CharacterPlayerStats(Conn)));
             if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
-            InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
@@ -457,7 +634,7 @@ public static partial class Game
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
                 visuals[p.Id] = visual; Conn.ProjectileObjects.Add(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
-                Create(id, () =>
+                CreateFlight(id, () =>
                 {
                     // A flight that ended before this snapshot is created only when its stop keeps the object (the impact
                     // clip or stuck arrow then shows where it hit); otherwise a create followed by its removal is a flash.
@@ -471,17 +648,14 @@ public static partial class Game
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
-                        { AnimatedObject = flightVisual,
-                            // DelveMonkeyMortar.ot appends an empty StateMachine; omitting its two counts
-                            // makes the client consume the task byte as a count and throw Buffer Underflow.
-                            StateMachine = p.Profile.Id == "Metadata/Projectiles/DelveMonkeyMortar" ? new([], 0) : null };
+                        { AnimatedObject = flightVisual };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
-                });
+                    return CreateProjectileObject(id, obj);
+                }, () => Projected(visual));
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
                 // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
@@ -502,7 +676,9 @@ public static partial class Game
                 end.Ended = true;
                 // A lobbed shot's landing is its impact too (the mortar's "end" clip plays where it comes down).
                 end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
-                    && value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing;
+                    && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
+                        || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
+                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true);
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : end.Height;
                 if (end.StaysAfterEnd)
                 {
@@ -533,8 +709,15 @@ public static partial class Game
                     }, remove: true);
                 }
             }
-            else if (value.Kind == ProjectileEventKind.Area && p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
-                Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            else if (value.Kind == ProjectileEventKind.Area)
+            {
+                // Every area event of every projectile skill comes here, under the instance's lock: trace only.
+                if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
+                    Console.WriteLine($"[gateway] {remote} projectile area {value.Stage} t={value.At / (double)ProjectileRuntime.QuantaPerSecond:0.000}"
+                        + $" offset={(value.Position - p.Position).Length:0.0} radius={value.Radius:0.#} use={p.UseId}");
+                if (p.Use.Payload is ProjectileOffense { AreaVisual: { } ao })
+                    Effect(x, y, ao, presentation.EffectLifetime, value.Radius);
+            }
         }
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
@@ -641,40 +824,73 @@ public static partial class Game
 
         void Glide(ProjectileEntity p, Visual visual)
         {
-            int version = ++visual.MotionVersion;
+            // The move is built now, from the state the event describes, and replaces any move still queued: an
+            // ordinary shot is redirected and ends within a couple of the 33 ms steps the output writes at, so a
+            // record built when the queue reached it described a flight that was already over, and a record dropped
+            // for being superseded was never replaced (live 2026-11-17: every Kinetic Blast projectile stood at its
+            // release point until its removal, and a fast one was never created at all).
+            visual.PendingGlide = GlideRecords(p, visual);
+            // Before the create is projected the create carries this move (CreateFlight); after it, one intent at a
+            // time carries the latest move.
+            if (!visual.Created || visual.GlideQueued) return;
+            visual.GlideQueued = true;
             WorldRecords(visual.Id, () =>
             {
-                if (visual.Ended || !visual.Created || version != visual.MotionVersion) return null;
-                var end = p.Position + p.Direction * p.Remaining;
-                var startHeight = visual.Height;
-                var endHeight = visual.Height;
-                if (visual.Arc is { } arc)
+                visual.GlideQueued = false;
+                if (visual.Ended || !visual.Created || visual.PendingGlide is not { } glide)
                 {
-                    double fraction = arc.Fraction(p.Distance);
-                    double next = Math.Min(1, (Math.Floor(fraction * ProjectileArc.Segments + .000001) + 1) / ProjectileArc.Segments);
-                    end = p.Position + p.Direction * Math.Min(p.Remaining, (next - fraction) * arc.Distance);
-                    startHeight = arc.Height(fraction);
+                    Conn.Performance.Count("projectile move dropped");
+                    if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
+                        Console.WriteLine($"[gateway] {remote} projectile glide dropped object={visual.Id} entity={p.Id}"
+                            + $" ended={visual.Ended} created={visual.Created} position={p.Position} remaining={p.Remaining}");
+                    return null;
                 }
-                if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
-                    end = p.Position + (end - p.Position) * wall.Fraction;
-                if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
-                // The first move starts where the object was created (the release point), without a stop there and with
-                // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
-                // first stop at the simulated position.
-                bool first = !visual.Glided;
-                visual.Glided = true;
-                var start = first ? visual.SpawnedAt : p.Position;
-                float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
-                byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
-                return first ? [move]
-                    : [startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), move];
+                return Projected(visual);
             });
+        }
+
+        // The pending move as it is projected: the next one built stops at the simulated position first.
+        static byte[][]? Projected(Visual visual)
+        {
+            if (visual.PendingGlide is not null) visual.Glided = true;
+            return visual.PendingGlide;
+        }
+
+        byte[][]? GlideRecords(ProjectileEntity p, Visual visual)
+        {
+            var end = p.Position + p.Direction * p.Remaining;
+            var startHeight = visual.Height;
+            var endHeight = visual.Height;
+            if (visual.Arc is { } arc)
+            {
+                double fraction = arc.Fraction(p.Distance);
+                double next = Math.Min(1, (Math.Floor(fraction * ProjectileArc.Segments + .000001) + 1) / ProjectileArc.Segments);
+                end = p.Position + p.Direction * Math.Min(p.Remaining, (next - fraction) * arc.Distance);
+                startHeight = arc.Height(fraction);
+            }
+            if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceTerrain(p.Position, end) is { } wall)
+                end = p.Position + (end - p.Position) * wall.Fraction;
+            if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
+            // The first move starts where the object was created (the release point), without a stop there and with
+            // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)
+            // first stop at the simulated position. A move replaced before it was projected was never the first.
+            bool first = !visual.Glided;
+            var start = first ? visual.SpawnedAt : p.Position;
+            float duration = (float)Math.Max(.001, (end - start).Length / p.Speed);
+            byte[] move = endHeight.MoveTo(visual.Id, (int)Math.Round(end.X), (int)Math.Round(end.Y), duration);
+            if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
+                Console.WriteLine($"[gateway] {remote} projectile glide object={visual.Id} entity={p.Id}"
+                    + $" from={start} to={end} duration={duration:0.###}"
+                    + $" speed={p.Speed:0.##} first={first}");
+            return first ? [move]
+                : [startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), move];
         }
         public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
         static string? PayloadLabel(object? payload) => payload switch
         {
             ProjectileOffense offense => offense.Label,
             HostileProjectileOffense hostile => hostile.Label,
+            MinionProjectileOffense minion => minion.Label,
             ObjectProjectileOffense thrown => thrown.Label,
             _ => null,
         };
@@ -717,6 +933,7 @@ public static partial class Game
             {
                 if (advance && !conn.Paused && conn.ProjectileRuntime is { Active: true } session)
                     session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds)));
+                if (ChargeSessions.TryGetValue(conn, out var charges)) charges.SettleDegeneration(ResourceEffectsTime(conn));
             }
             catch { Dispose(); throw; }
         }

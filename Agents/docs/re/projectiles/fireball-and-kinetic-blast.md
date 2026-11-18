@@ -408,6 +408,9 @@ execution/lifetime contract, not a new C2S reporting message or full skill trace
 
 ## 4. KB positions and exact random consumption
 
+3.29.3c: the same body at `0x141ac9630..0x141ac99b9` (stat ids, constants 1.0/100/tau/0.5, the counter of four,
+the line test `0x141d8a7f0` and the endpoint test `0x141d888f0`), and the timer below at `0x141ac99c0` (0.1 at `0x1436adb78`).
+
 `0x141ac6bd0..0x141ac6f58` reads cluster count `0x4fea` and additional-blast chance `0x11f3`.
 Its independent eight-word RNG input is
 `[sequence,derived,owner,repeats2d0,zeroExtendedInnerRepeat2b8,0,0,0]`.

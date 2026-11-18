@@ -47,7 +47,8 @@ public static partial class Game
     /// (<see cref="ShowIgnitedLocked"/>), or null when nothing was added.</summary>
     public static List<byte[]>? IgniteLocked(ClientState conn, uint id, SpawnedMonster m, DamageOverTime ignite, double now)
     {
-        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds)) return null;
+        if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
+                aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
@@ -60,34 +61,83 @@ public static partial class Game
         ushort buff = conn.NextBuff++;
         set.Buff = buff;
         packets.Add(InstanceEntities.AddBuff(id, buff, row, PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now))));
+            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now)),
+            visual: row == IgnitedBuffRow ? AilmentArtVisual(conn, "ignite")
+                : row == LabyrinthTrials.BleedingBuffRow ? AilmentArtVisual(conn, "bleed") : null));
         return packets;
     }
+
+    // The art of the ailments the player causes: BuffVisualsArtVariations' Id and the derived stat SkillArtVariations
+    // names for it. The value is that of the skill that last worked out its ailments (a worn Skill Gem Effect's
+    // ignite_art_variation …, or gloves that restyle ailments), kept per connection. The buff names its BuffVisuals row,
+    // as every buff whose art follows a variation does (11-skills.md §12); 0 keeps the buff's own art.
+    static readonly (string Buff, string Stat)[] AilmentArtStats =
+        [("ignite", "virtual_ignite_visual_override"), ("poison", "virtual_poison_art_variation"), ("bleed", "virtual_bleed_art_variation")];
+
+    static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
+
+    /// <summary>Notes the art of the ailments this skill's use can cause (AilmentArt), where its ignite is worked out:
+    /// its gem's worn Skill Gem Effect's stats and the character's cosmetics, by the client's rules (DerivedArt).</summary>
+    public static void NoteIgniteArt(ClientState conn, ushort skillId)
+    {
+        var worn = new Dictionary<uint, int>();
+        uint gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
+        if (gem != 0)
+            foreach (var (key, cosmetic) in CharacterSaves.SkillCosmetics(CharacterName(conn)))
+                if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(cosmetic) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
+                    foreach (var (k, v) in fx.Stats) worn[k] = v;
+        var derived = SkillCosmeticDerivedStats(conn, worn).ToDictionary(s => s.Stat, s => s.Value);
+        var noted = AilmentArt.GetOrCreateValue(conn);
+        foreach (var (buff, stat) in AilmentArtStats)
+            noted[buff] = Stats.Key(stat) is uint key ? derived.GetValueOrDefault(key) : 0;
+    }
+
+    /// <summary>The settings as given, with the skill's ignite art noted (for an object initializer).</summary>
+    public static MonsterIgnites.Settings NotedIgnite(ClientState conn, ushort skillId, MonsterIgnites.Settings settings)
+    {
+        NoteIgniteArt(conn, skillId);
+        return settings;
+    }
+
+    /// <summary>The BuffVisuals row an ailment's buff shows ("ignite", "poison", "bleed"), null for the buff's own.</summary>
+    public static ushort? AilmentArtVisual(ClientState conn, string buff) =>
+        AilmentArt.TryGetValue(conn, out var art) && art.GetValueOrDefault(buff) is int variation and not 0
+            ? Art.BuffVisual(buff, variation) : null;
 
     /// <summary>What a skill's hit can ignite with, as a projectile captures it at release: the skill's ignite rows in the
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
     /// chance from <paramref name="player"/> and the skill's stats.</summary>
     public static MonsterIgnites.Settings SupportedIgnite(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+        SupportedHitInputs? capturedInputs = null)
     {
-        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        Func<string, int> get;
+        if (capturedInputs is null)
+        {
+            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+        }
+        else
+            get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
-        var settings = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+        NoteIgniteArt(conn, skillId);
+        var rows = capturedInputs is null
+            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
+        var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
-        int per = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final") is uint perKey
-            ? merged.GetValueOrDefault(perKey) : 0;
+        int per = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final");
         if (per > 0)
         {
-            int cap = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum") is uint capKey
-                ? merged.GetValueOrDefault(capKey) : 0;
+            int cap = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum");
             int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
             long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
             double more = Math.Max(0, 1 + added / 100.0);
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
-        return WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand);
+        return WithOverheat(conn, skillId,
+            WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand));
     }
 
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
@@ -127,11 +177,14 @@ public static partial class Game
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
-    public static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    public static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var sourceWeapon = weapon ?? WeaponFor(conn);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            Get, additionalIncreased),
             "main_hand", Get), player, null, spell: false, "main_hand");
     }
 
@@ -139,13 +192,19 @@ public static partial class Game
     // (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the packets of the
     // monster's ignited buff, or null when it did not ignite.
     public static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now)
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
+        IgniteOnHitLocked(conn, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
+
+    public static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        bool playerIgnite = true)
     {
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
-                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom)) return null;
+                e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom,
+                UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {
@@ -154,7 +213,12 @@ public static partial class Game
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
             target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
         }
-        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+        if (playerIgnite && target.Hostile)
+        {
+            conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            HerEmbraceOnIgniteLocked(conn, now);
+            GainFromAttackAilmentLocked(conn, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
+        }
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
@@ -163,8 +227,13 @@ public static partial class Game
         + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now) =>
-        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now),
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
+        IgniteOnHitLocked(session, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
+
+    public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        bool playerIgnite = true) =>
+        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now, attackGains, playerIgnite),
             IgnitedLog(id, target, critical, now));
 
     // Queues a projectile hit's ignited or bleeding buff packets on its session, the log on the last.
@@ -195,7 +264,7 @@ public static partial class Game
     // mitigation of it, <paramref name="aggravated"/> the strongest aggravated bleed's extra share (MonsterIgnites.Advance).
     static async Task TickStrongestDots(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<SpawnedMonster, MonsterIgnites> of, Func<SpawnedMonster, double, double> factor, string died,
-        Func<SpawnedMonster, double, double>? aggravated = null)
+        Func<SpawnedMonster, double, double>? aggravated = null, Action<SpawnedMonster, double>? settle = null)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();
@@ -205,11 +274,16 @@ public static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (OwnedGolemActor(conn, id, m)) continue;
                 var set = of(m);
                 if (set.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) set.Clear();
-                else damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                else
+                {
+                    settle?.Invoke(m, now);
+                    damage = set.Advance(now, factor(m, now), aggravated?.Invoke(m, now) ?? 0);
+                }
                 if (!set.Burning && set.Buff is ushort gone) { ended.Add((id, gone)); set.Buff = null; }
                 if (damage == 0) continue;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);

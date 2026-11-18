@@ -91,7 +91,7 @@ public static partial class Game
         if (SkillsFor(conn).HasType(effect, TotemSkillType)
             && TotemVarieties.Value.Effects.TryGetValue(effect, out int own)
             && Monsters.Find(own.ToString()) is { Supported: true } placed) return placed;
-        if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
+        if (SkillsFor(conn).EffectId(effect) is { } id && (TotemAuras.ContainsKey(id) || NativeProjectileTotem(conn, effect))
             && TotemVarieties.Value.Effects.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
         if (!SpellTotemEffect(conn, effect) && !BallistaEffect(conn, effect)) return null;
@@ -111,14 +111,14 @@ public static partial class Game
         || PlacedKind(SupportedSkill(conn, skill)) is (false, false)
             && TotemVariety(conn, effect) is not null && TotemLimit(conn, skill) > 0
             && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
-                // Upstream refused every payload it did not execute, which would refuse Decoy and Devouring Totem too:
-                // those are dedicated totem skills the local path places and gives their effect (taunt, corpse meal).
-                // A dedicated totem skill whose row is a ranged attack totem is a ballista: it places only through the
-                // ballista path, so a payload main refuses there (Focused Ballista Support off a bow) is refused here
-                // too instead of being placed by the dedicated-skill clause and then kept alive by it.
-                || SkillsFor(conn).HasType(effect, TotemSkillType) && TotemDoesSomething(conn, skill, effect)
-                    && (GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
-                        || BallistaPathAvailable(conn, skill))
+                || NativeProjectileTotem(conn, effect) && ResolveProjectileDefinition(effect) is not null
+                // A dedicated totem skill the local path runs (TotemUseLocked): its own hit, the corpse meal or the taunt.
+                // A ranged attack totem is a ballista and Holy Flame Totem flies its own projectile: both place only
+                // through their own clause, so what that clause refuses (Focused Ballista off a bow) stays refused, and
+                // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
+                || SkillsFor(conn).HasType(effect, TotemSkillType) && !NativeProjectileTotem(conn, effect)
+                    && GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
+                    && TotemDoesSomething(conn, skill, effect)
                 || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
                 || BallistaPathAvailable(conn, skill));
 
@@ -151,7 +151,7 @@ public static partial class Game
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
         speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
         // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
-        double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) ? .6
+        double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) || NativeProjectileTotem(conn, effect) ? .6
             : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
         double seconds = basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
         var lifetime = CombatLifetime;
@@ -217,7 +217,7 @@ public static partial class Game
         (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, conn.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
         var playerStats = CharacterPlayerStats(conn);
         bool ballista = BallistaEffect(conn, effect) && GolemStat(own, "is_ranged_attack_totem") != 0;
-        bool spellTotem = (SpellTotemEffect(conn, effect) || ballista) && IsTotemSkill(conn, skillId);
+        bool spellTotem = (SpellTotemEffect(conn, effect) || ballista || NativeProjectileTotem(conn, effect)) && IsTotemSkill(conn, skillId);
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
         if (spellTotem && proxy is null) return null;

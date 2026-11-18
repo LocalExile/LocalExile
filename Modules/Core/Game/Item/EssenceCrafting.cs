@@ -37,7 +37,7 @@ public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string
     public Item? Apply(uint essenceHash, Item item, Random random)
     {
         var essence = All.FirstOrDefault(e => e.Hash == essenceHash);
-        if (essence is null || item.Corrupted || item.Mirrored || !item.Components.Contains("Mods") ||
+        if (essence is null || item.Corrupted || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods") ||
             item.Rarity != ItemRarity.Normal && !(item.Rarity == ItemRarity.Rare && essence.ReforgesRare) ||
             catalog.ByHash(item.TypeHash) is not { } type || Guaranteed(essence, type) is not { } forced ||
             forced.Domain != type.ModDomain ||

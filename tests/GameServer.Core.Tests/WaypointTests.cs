@@ -87,11 +87,10 @@ public class WaypointTests
         Assert.True(w.Find(0x235c)!.IsTown);
     }
 
-    [Fact]
+    [ClientTablesFact]
     public void The_real_table_has_90_waypoints_from_lioneyes_watch_to_aspirants_plaza()
     {
         var table = TestTables.Real("WorldAreas");
-        if (table is null) return;   // needs the extracted game data
         var w = WorldAreaWaypoints.Load(table);
         Assert.Equal(90, w.Entries.Count);
         Assert.Equal(("1_1_town", 0), (w.Entries[0].Id, w.BitOf(0x235c)));
@@ -126,11 +125,10 @@ public class WaypointTests
         Assert.Equal(none.Length + 9, some.Length);
     }
 
-    [Fact]
+    [ClientTablesFact]
     public void Waypoint_areas_carry_their_access_flags()
     {
         var table = TestTables.Real("WorldAreas");
-        if (table is null) return;
         var w = WorldAreaWaypoints.Load(table);
         Assert.Equal([0], w.Find(0x235c)!.AccessFlags);     // a1q1-KilledHillock
         Assert.Equal([24], w.Find(0x3275)!.AccessFlags);    // The Submerged Passage: a1q4-PlacedGlyphs

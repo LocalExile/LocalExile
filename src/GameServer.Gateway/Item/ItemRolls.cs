@@ -26,16 +26,22 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>Words.dat: rare name words (lists 1 and 2) and the other lists.</summary>
     public IReadOnlyList<Word> Words => _words.Value;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Lazy<Dictionary<(int Class, int Influence), string>> _influenceTags = new(() => LoadInfluenceTags(folder));
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, int itemLevel,
-        ItemInfluence influences = ItemInfluence.None) =>
-        _pools.GetOrAdd((t.Row, itemLevel, influences), _ =>
+        ItemInfluence influences = ItemInfluence.None) => Pool(t, itemLevel, influences, null);
+
+    /// <summary>The same with a tag the item itself has beyond its base's: a cluster jewel's theme, behind which its
+    /// notables are. Its own overload: mods built against the three-parameter one keep working.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, int itemLevel,
+        ItemInfluence influences, string? tag) =>
+        _pools.GetOrAdd((t.Row, itemLevel, influences, tag), _ =>
         {
             var tags = TagsWith(t, influences);
+            if (tag is { Length: > 0 }) tags = new HashSet<string>(tags) { tag };
             return [.. catalog.Mods.All
                 .Where(m => m.Domain == t.ModDomain && m.GenerationType is Prefix or Suffix && m.Level <= itemLevel && !m.EssenceOnly)
                 .Select(m => (m, m.WeightFor(tags))).Where(p => p.Item2 > 0)];
@@ -43,7 +49,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
 
     /// <summary>The affixes that can roll on this item.</summary>
     public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> Pool(ItemCatalog.BaseType t, Item item) =>
-        Pool(t, item.ItemLevel, item.Influences);
+        Pool(t, item.ItemLevel, item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag);
 
     /// <summary>A base's spawn tags with those its influences open.</summary>
     public IReadOnlySet<string> TagsWith(ItemCatalog.BaseType t, ItemInfluence influences)
@@ -61,7 +67,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     bool TryModifiable(Item item, out ItemCatalog.BaseType type)
     {
         type = null!;
-        if (item.Corrupted || item.Mirrored || !item.Components.Contains("Mods") ||
+        if (item.Corrupted || item.Mirrored || item.Vestigial || !item.Components.Contains("Mods") ||
             catalog.ByHash(item.TypeHash) is not { } found || !found.Supported || !found.Components.Contains("Mods") ||
             found.Unmodifiable) return false;
         type = found;
@@ -149,6 +155,20 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out var type) ||
             Pool(type, item).Count == 0) return null;
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
+    }
+
+    /// <summary>A Tainted Chaos Orb's "removes all of its modifiers": every explicit but the fractured ones leaves a
+    /// modifiable rare, which drops to the lowest rarity its fractured mods allow (none normal, at most one prefix and
+    /// one suffix magic, else rare). Implicits and other lists stay.</summary>
+    public Item? StripExplicits(Item item)
+    {
+        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out _)) return null;
+        var fractured = item.FracturedIndexes();
+        var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || fractured.Contains(i)).ToArray();
+        var sides = fractured.Select(i => catalog.Mods.ByHash(item.Mods[i].Hash)?.GenerationType).ToArray();
+        var rarity = sides.Length == 0 ? ItemRarity.Normal
+            : sides.Count(g => g == Prefix) <= 1 && sides.Count(g => g == Suffix) <= 1 ? ItemRarity.Magic : ItemRarity.Rare;
+        return item with { Mods = kept, Rarity = rarity, NameWords = rarity == ItemRarity.Rare ? item.NameWords : [] };
     }
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
@@ -374,7 +394,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
                 ? t.Class == "AnimalCharm" ? (1, 1, 1) : (rng.Next(1, 3), 1, 1)
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
-        var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences)
+        var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences, ClusterJewels.ThemeOf(t, item)?.Tag)
             .Where(p => !respectMetamods || generation.Allows(p.Mod)).ToList();
         var chosen = kept.Where(m => m.Section == ModSection.Explicit).Select(m => catalog.Mods.ByHash(m.Hash)).OfType<ModCatalog.Mod>().ToList();
         int keptCount = chosen.Count;
@@ -410,6 +430,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// change the mod, and the client reorders the tooltip by mod). Null when the item has no explicit mods.</summary>
     public Item? Reforge(Item item, Random rng, UniqueCatalog.StatRoll? own = null)
     {
+        if (item.Vestigial) return null;
         var rules = new MetacraftRules(item, catalog.Mods);
         bool Mutable(int i) => item.Mods[i].Section == ModSection.Explicit && !rules.Protected(i) && catalog.Mods.ByHash(item.Mods[i].Hash) is not null;
         if (!Enumerable.Range(0, item.Mods.Count).Any(Mutable)) return null;
@@ -451,7 +472,7 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     /// <see cref="Reforge"/> does for explicits; explicit, enchant and other mods stay. Null when the item has no implicit
     /// mod (nothing is spent).</summary>
     public Item? Bless(Item item, Random rng, UniqueCatalog.StatRoll? own = null) =>
-        !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
+        item.Vestigial || !item.Mods.Any(m => m.Section == ModSection.Implicit) ? null
         : item with { Mods = [.. item.Mods.Select(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is not null
             ? Reroll(m, rng, own) : m)] };
 

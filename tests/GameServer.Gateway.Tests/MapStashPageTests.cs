@@ -7,11 +7,13 @@ namespace GameServer.Gateway.Tests;
 
 /// <summary>The map tab's pages (#477): the 191 pages the client asks for, the next page once one is full, and a page only
 /// taking the maps that belong to it.</summary>
-public class MapStashPageTests
+public class MapStashPageTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     static AccountStash OpenMapStash(ItemCatalog catalog, string? account = null)
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-mapstash-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("mapstash");
         return AccountStash.For(account ?? "MapStash" + Guid.NewGuid().ToString("N"), catalog);
     }
 

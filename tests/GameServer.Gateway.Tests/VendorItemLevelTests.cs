@@ -4,12 +4,14 @@ using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
-public class VendorItemLevelTests
+public class VendorItemLevelTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public void Vendor_membership_prices_and_generated_requirements_follow_the_reviewed_rules()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-gem-layout-"+Guid.NewGuid().ToString("N")+".db"));
+        TestEnvironment.OpenOwnSaves("gem-layout");
         var catalog = new ItemCatalog("data");
         var rewards = QuestRewardCatalog.Load();
         var npcs = NpcCatalog.Load(); var skills = new SkillCatalog();
@@ -94,7 +96,7 @@ public class VendorItemLevelTests
     [Fact]
     public void Stock_survives_reopening_purchases_and_reload_and_rotates_partially_with_atomic_multicurrency_payment()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(),"LocalExile-vendors-"+Guid.NewGuid().ToString("N")+".db"));
+        TestEnvironment.OpenOwnSaves("vendors");
         var catalog = new ItemCatalog("data"); var skills = new SkillCatalog();
         string name = "Vendor"+Guid.NewGuid().ToString("N");
         var items = PlayerInventories.For(name,catalog); var stash = AccountStash.For(name,catalog);

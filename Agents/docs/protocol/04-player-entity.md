@@ -82,6 +82,11 @@ throws (the out-of-range builder is `0x140e272d0`, the exception type `0x143a5c5
 4. **tasks** (`0x141ee6950`): u8 n, then n × (u16 task id + task data; an unknown id logs "Unrecognised task serialised by
    server; missing registration?")
 
+A base-data entity variable is raw u32 name hash, u8 flags (0), u8 value count (1), u8 type (1), raw u32 entity id.
+`0x141dfe5a0` resolves type 1 through the instance entity table and defers an unresolved forward reference.
+The variable-name hash is `0x1406db8f0`, Murmur2 of UTF-16LE with seed 0; `next` is `0x61f4555e`.
+This is distinct from the narrowed-byte metadata type hash.
+
 ### Component order: traced, and now derived from the .ot files
 
 Components are built from the type's component list (`0x14242dfe0`). The object-type constructor `0x141ec7c10`
@@ -305,6 +310,9 @@ The stationary Crawler's wheels use zero values for these optional fields and th
 An empty bone name means `<root>` and `*` means `<lock>` (`0x141dc6820`). The attachment kind is a mask on the transform
 (`0x142909a50`): 1 drops the scale, 2 the translation, 4 the rotation, and 0x08 / 0x10 / 0x20 the same for the bone alone.
 Righteous Fire's ring rides on the player's `<root>` with kind 4, so it does not turn with the player.
+A monster rides the same way (the Goddess of Justice on Izaro's `jnt_back_spirit`, kind 0, mask 3). The attached
+object's facing comes from the bone and parent alone: `0x142909a50` never reads its own Positioned rotation, so an
+action aimed elsewhere does not turn it (live).
 Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 

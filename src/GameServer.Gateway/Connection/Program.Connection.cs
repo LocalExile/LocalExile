@@ -47,6 +47,7 @@ public partial class Program
         long total = 0;
         uint ticket = 0;
         ClientState? left = null;
+        InstanceState? entered = null;
         bool prepared = false;
         long connectedAt = Stopwatch.GetTimestamp();
         string? reason = null;   // why the connection ended, for the DISCONNECT line
@@ -96,13 +97,20 @@ public partial class Program
                     return;
                 }
                 ushort areaHash = resolved.Area;
-                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
-                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                byte areaLevel = MapDevice.OpenOf(characterName) is { } openMap && openMap.Area.Hash16 == areaHash
-                    && openMap.Area.Level > 0 ? (byte)Math.Clamp(openMap.Area.Level, 1, 100) : (byte)0;
-                // The client generates the area at the seed and level of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel);
                 ulong instanceId = resolved.Instance;
+                var instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null);
+                entered = instance;
+                var map = MapDevice.Admit(instance, ticket, areaHash, instanceId);
+                // An opened map's level goes in 0x1d (0: the client takes the area's WorldAreas level).
+                byte areaLevel = map is { Area.Level: > 0 } ? (byte)Math.Clamp(map.Area.Level, 1, 100) : (byte)0;
+                // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
+                // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
+                string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
+                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(
+                    ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup),
+                    new AreaStatsRequest(characterName, resolved.League, areaHash, map)));
+                // The client generates the area at the seed, level and stats of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -112,14 +120,24 @@ public partial class Program
                 Console.WriteLine($"[gateway] {remote} => 0x0011 (start encryption)");
 
                 // Anything after the opening was already encrypted by the client.
-                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, Instance = Instances.Enter(instanceId, resolved.Created, resolved.Ssf ? resolved.CharacterId?.ToString("N") : null), InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
+                var conn = new ClientState(layout, ticket, seed) { Character = resolved.Character, CharacterId = resolved.CharacterId, InstanceOwner = resolved.InstanceOwner, CosmeticPortalVariation = resolved.Character is { Length: > 0 } savedCharacter ? CharacterSaves.PortalCosmetic(savedCharacter) : (ushort)0, PortraitFrame = resolved.PortraitFrame, Account = resolved.Account, League = resolved.League, Hardcore = resolved.Hardcore, Ssf = resolved.Ssf, LeagueForm = resolved.LeagueForm, CameFrom = AreaLayouts.CameFrom.TryRemove(ticket, out var from) ? from : null, ArrivalEntrance = AreaLayouts.ArrivalEntrances.TryRemove(ticket, out var entrance) ? entrance : null, Instance = instance, InstanceNumber = instanceId, LastTown = resolved.LastTown, ClassRow = Skills.RowOfClass(resolved.Class), Pools = CharacterStats.For(Skills.ClassFor(Skills.RowOfClass(resolved.Class)), resolved.Level), Hnc = new HncSender(keyring.Key(opening.Ticket)), Keyring = keyring };
                 ConnectionMetrics.Add(ciphers, conn.Performance);
                 PacketHistories.Add(ciphers, conn.Packets);
                 left = conn;
-                Logic.Admitting(conn);
-                // Another connection's requests (a trade, a party invite) reach this client through its own send gate.
+                // Another connection's requests (a trade, a party invite) reach this client through its own send gate, and
+                // a rule that takes this connection over (AdmittingAsync) can tell it why before it is prepared.
                 conn.Outbox = (bytes, log) => Send(remote, stream, ciphers, bytes, log);
                 conn.Wire = (remote, stream, ciphers);
+                // A rule may end the connection this one replaces first (one connection per character, AdmittingAsync):
+                // this connection's character is loaded only after that.
+                // Closed: a third login of the character ended this one while it waited for the first.
+                if (!await Logic.AdmittingAsync(conn) || conn.Closed)
+                {
+                    conn.CloseReason ??= "the game rules refused the connection";
+                    Console.WriteLine($"[gateway] {remote} connection refused by the rules");
+                    return;
+                }
+                Logic.Admitting(conn);
                 conn.Commands = Commands(remote, stream, ciphers, conn);
                 HotReload.Register(conn);
                 InGame[conn] = 0;
@@ -136,10 +154,10 @@ public partial class Program
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
                 if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
-                    Text: resolved.League ?? "", LeagueStats: Logic.AreaLeagueStats(conn),
+                    Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
                     AchievementSets: moduleHeader?.AchievementSets);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; ascendancy family {conn.MainAscendancy.Selection?.Family}" +
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
@@ -226,7 +244,9 @@ public partial class Program
         {
             // A client leaving for another area often resets the connection instead of closing it; otherwise a reset
             // (IOException) is how a crashed client often looks from here, and its packets are the lead.
-            if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
+            if (left is { Closed: true, CloseReason: { } declared })
+                reason = declared;   // the server ended it on purpose (another login took the character, a failed output)
+            else if (ex is IOException && left is { } leaving && (leaving.LeavingArea || leaving.PendingTransfer is not null))
                 reason = "the client reset the connection (area change)";
             else
             {
@@ -239,24 +259,34 @@ public partial class Program
             left.Packets.Print(remote, "before the client closed the connection");
         if (left is not null)
         {
-            // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                if (!left.BuildFinalized) Logic.Save(left, prepared);
+                // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
+                try
+                {
+                    if (!left.BuildFinalized) Logic.Save(left, prepared);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                }
+                // What follows must run whatever the rules do, or the player stays in the instance.
+                try { if (!left.BuildFinalized) Logic.Left(left); }
+                catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
+                left.Instance.RemovePlayer(left.PeerId);
+                if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
+                ForgetCommands(left);
+                Instances.Leave(left.Instance);
+                CharacterBuildImports.Release(left);
             }
-            catch (Exception e)
+            finally
             {
-                Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
+                // The connection has ended and its save is written: whoever ended it for another connection goes on. Set
+                // whatever threw above, or that login (and every later one of the character) would wait for ever.
+                left.Ended.TrySetResult();
             }
-            // What follows must run whatever the rules do, or the player stays in the instance.
-            try { if (!left.BuildFinalized) Logic.Left(left); }
-            catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
-            left.Instance.RemovePlayer(left.PeerId);
-            if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
-            ForgetCommands(left);
-            Instances.Leave(left.Instance);
-            CharacterBuildImports.Release(left);
         }
+        else if (entered is not null) Instances.Leave(entered);   // ended before its ClientState existed
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
             ? left.Packets.Dump(folder, remote, $"{remote} {CharacterName(left)} in {left.Layout.Id} seed {left.Seed}: {reason ?? "?"}")
@@ -286,7 +316,9 @@ public partial class Program
             conn.CloseReason = $"the client's stream no longer decodes ({conn.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
-                if (id is 0x0024 or 0x0025 or 0x0190 or 0x0191)
+                // 0x18e click, 0x192 the held button's newest target, 0x195 release: a lockstep client's whole move
+                // input, beside the predictive 0x24/0x25/0x190/0x191.
+                if (id is 0x0024 or 0x0025 or 0x018e or 0x0190 or 0x0191 or 0x0192 or 0x0195)
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
@@ -321,6 +353,9 @@ public partial class Program
                 finally { inbox.Handled(); }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
+                foreach (var (id, _) in batch.Messages)
+                    if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
+                        conn.Performance.AreaLoaded(remote, conn.Layout.Id, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
                 var took = Stopwatch.GetElapsedTime(start);
                 if (took > ClientInbox.SlowAfter)
@@ -412,7 +447,15 @@ public partial class Program
             var hold = Stopwatch.GetElapsedTime(heldAt, held);
             gate.Release();
             performance.Elapsed(LatencyPhase.SendHold, heldAt);
-            if (sentId is ushort id) performance.Send(id, held - heldAt);
+            if (sentId is ushort id)
+            {
+                performance.Send(id, held - heldAt, bytes.Length);
+                // Why a full player stat packet went out (its log label names the cause), per interval.
+                if (ConnectionPerformance.LagProbe && id == 0x01b3)
+                    performance.Count(log is not null && log.IndexOf('(') is >= 0 and var open
+                        ? "stats sent " + log[open..(log.IndexOfAny([':', ')'], open) is >= 0 and var close ? close : log.Length)].TrimEnd() + ")"
+                        : "stats sent (no cause in its label)");
+            }
             else if (ConnectionPerformance.LagProbe) performance.EmptySend(SendCaller(), held - heldAt);
             // Temporary: which send holds the gate while input waits behind it.
             if (ConnectionPerformance.LagProbe && hold > TimeSpan.FromMilliseconds(50))

@@ -49,6 +49,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The offline audit `scripts/re/exits` checks every generated area at several seeds (`--quests`: with the act tables,
   so the gated disabled exits too);
   verified town ↔ The Coast ↔ The Tidal Island and The Coast ↔ The Mud Flats; area change through them;
+  Repeated connections between the same two areas retain the selected entrance in both directions.
   Ctrl+click opens the Instance Manager (list, join, create); `/goto <area>`.
   Old-area stat and recovery writers retire before their socket closes and cannot replace current equipment qualification.
   Native requirement removal/restoration, four town/Coast transfers, spell payment, ES recovery and relog controls pass.
@@ -58,7 +59,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arrival points: entering through an exit (or `/goto`) puts the player next to the exit back;
   The Twilight Strand → Lioneye's Watch arrives at the town's `entrance1`; in a generated layout a one-way entrance
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
-  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
+  Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it; in a map
+  it leaves the map for the map device's area it was entered from, as the official servers do (3.30.0b; #1002).
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
   Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
@@ -67,7 +69,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceRegistry.cs`, `WorldAreaTowns.cs`.
   Docs: [09](../docs/protocol/09-area-change.md).
 - Walk maps and area transitions captured from the client on first visit (optional, `live.ps1 -Walkmaps`: without
-  it nothing is recorded); the Gateway uses them for the areas it does not generate itself.
+  it nothing is recorded); the Gateway uses them for the areas it does not generate itself, and a capture that names
+  no waypoint falls back to the one its generated layout places. A recording holds the walk grid, the projectile
+  grid, the cell heights, the area transitions, doodads, room placement and the generation trace; every act area is
+  captured at seed 1 (220 areas, 189 with every file, 62 naming a waypoint), and the captures stay in `data/`, so a
+  fresh clone records its own.
   Code: `scripts/walkmaps`, `live.ps1 -Walkmaps`.
   Docs: [GettingStarted](../GettingStarted.md) step 9, [08](../docs/protocol/08-area-transitions.md) §7.
 - Waypoints: the Waypoint object where the area's layout is captured (Lioneye's Watch built in), activated on entry
@@ -79,8 +85,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [16](../docs/protocol/16-waypoints.md).
 - Pause: the Escape menu outside towns and hideouts pauses the area (C→S 0x1d4 → S→C 0x1d3): the Gateway's clock
   stops, monsters neither move nor swing, regeneration and flasks wait, and the client pauses its world;
-  closing the menu resumes.
-  Code: `InstancePause.cs`, Gateway (`SetPaused`).
+  closing the menu resumes, and so does the pausing player leaving or another player arriving (#991).
+  Code: `InstancePause.cs`, Gateway (`SetPaused`, `EndEscapePause`).
   Docs: [22](../docs/protocol/22-pause.md).
 
 - Instance framing retains split 0x020a and 0x0059 messages at their primary-writer lengths of 3 and 16 bytes.
@@ -89,6 +95,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [instance framing](../docs/protocol/02-instance-connection.md#fixed-message-boundaries-across-tcp-reads).
 
 ## Partly working
+
+- Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
+  re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
+  the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
+  so overlapping shrines cannot restore stale encounter stats; Divine protects against hits and damage over time.
+  Standing Ice/Lightning novas use player resistances, avoidance, block, suppression and normal death accounting.
+  Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
+  explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.
+  Source: `Modules/Core/World/Shrines`, `src/GameServer.Gateway/World/Shrines`, `ShrineTests`.
+  Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
+  Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
+  a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
+  before payment because the Conqueror apparition skills are not implemented.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
@@ -137,6 +156,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
+  Predictive Leap Slam acknowledges without the old source-cell echo; the Delve follow-up live check is pending.
   Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
@@ -201,7 +221,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet. Izaro's three arenas
   (`1_Labyrinth_boss_1`, `1_Labyrinth_boss_2`, `2_Labyrinth_boss_2_end`) are listed by hand in the world update's
   area list: the level snapshot drops them, and without a row the room is never built (live, three seeds each: the
-  room generates and places its three Izaros).
+  room generates and places its three Izaros). Their furniture is in the room data: `scripts/re/atlas room-points`
+  keeps a room that carries one of `Metadata/Terrain/Labyrinth/Objects/` (`RoomFile.IsLabyrinthObject`, a prefix
+  `IsQuestObject` does not name), so the file has 249 more rooms — the 30 boss rooms among them — with the arena
+  doors, boss markers and teleport markers an area places; `object-types` names those types and, by name from the
+  arena's tiles, `Elevator_Izaro` and `BossObjectiveMarker` (both entries go to version 10, with the client tables'
+  rows in `sql/updates/client/`). Checked by the build and the suites over the regenerated data; not yet with the
+  client.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
@@ -213,7 +239,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   and a statue by an exit also shows the room behind it, the way there in green (checked live 2026-11-07);
   being anywhere else ends the run, and the plaza's door shuts again. Checked live 2026-11-03.
   In the last room's Ascendancy Chamber the font gives the tier's two ascendancy points and opens the class selector
-  (0x7b kind 0x0a; the choice, C→S 0x39, is saved and the area reloads), and its portal goes back to town.
+  (0x7b kind 0x0a; the choice, C→S 0x39, is saved and reloads the same instance at the font), and its portal goes back to town.
   Checked live 2026-11-03: the class chosen there stays after a relog.
   Izaro's three Aspirant's Trials: the corridor's gate opens when used (his prefight line), he rises on the elevator
   with the day's weapon as the player comes into the arena (the mechanic's line) and the arena's doors shut; his life
@@ -225,13 +251,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
   stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08 on 3.29.3c.
   A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
-  his arena reads, and the Goddess's Guardians come in circles (without her yet). Checked live 2026-11-09.
+  his arena reads, and the Goddess's Guardians come in circles. Checked live 2026-11-09.
   He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
   Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
   2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
   Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
   leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
-  Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  Coming into an arena the instance already holds retires the Izaro it had — dead, out of life, out of the
+  connection's monsters and the instance's origins — and sends 0x02bd for him to every player in the instance, so the
+  arena holds one fight rather than two. Checked by the build and the suites; not yet with the client.
+  The Goddess of Justice rides up on his back and turns with him, lobs her Spirit Mortars (five a volley), throws the
+  mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
+  flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
+  Not yet: his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
   `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
@@ -303,6 +335,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
-  (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
+- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
+  waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other
+  seed does. Quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").

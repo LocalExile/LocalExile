@@ -10,6 +10,10 @@ public static partial class Game
         uint id, SpawnedMonster monster, double now, (int X, int Y) from, double playerDistance)
     {
         if (!CurrentRampageWork) return false;
+        // With no Rampage actor there is no weapon to find, and the search below passes over every monster of the
+        // instance for each monster that plans (half a second in ten with 1000 of them). Asked only of a world that
+        // stands: the search's own RampageWorld would make one, and then only when the player owns a living monster.
+        if (monster.Hostile && conn.StandingRampageWorld is { Actors.Count: 0 }) return false;
         var owned = monster.Hostile ? conn.Monsters.Where(p => p.Value.OwnerId == PlayerId && !p.Value.Dead
             && p.Value.Life > 0 && conn.RampageWorld.Actors.TryGetValue(p.Key, out var actor) && actor.Weapon is not null)
             .OrderBy(p => Dist(from, p.Value.Walk.Position(now))).FirstOrDefault() : default;
@@ -70,12 +74,13 @@ public static partial class Game
             if (!TargetCurrent() || Dist(attacker.Walk.Position(now), weapon.Walk.Position(now)) > attack.Range + 2)
                 return null;
             int accuracy = attacker.Mods.Effects.Accuracy(Monsters.BaseAccuracy(attacker.Level) ?? 0);
-            var sources = conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId)
+            var sources = conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || PhysicalAegisBlinds(conn, id)
+                || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId) || PhysicalAegisBlinds(conn, targetId)
                 ? CharacterStatSources(conn).Stats : null;
             accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
             if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
             var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
-                weapon.MaxLife, Random.Shared, out bool critical);
+                weapon.MaxLife, Random.Shared, out bool critical, now: now);
             var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;

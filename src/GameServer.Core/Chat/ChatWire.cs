@@ -50,6 +50,22 @@ public static class ChatWire
         return clean.Length > MaxText ? clean[..MaxText] : clean;
     }
 
+    /// <summary>Cleans a frame's text and keeps each item on its original mark after control characters are removed.</summary>
+    public static ChatFrame CleanLine(ChatFrame frame)
+    {
+        string original = frame.Text ?? "", text = Clean(original);
+        var items = new List<ChatFrameItem>();
+        int at = 0, removed = 0;
+        foreach (var item in Items(original, frame.Items) ?? [])
+        {
+            for (; at < item.At; at++)
+                if (char.IsControl(original[at])) removed++;
+            int position = item.At - removed;
+            if (position < text.Length) items.Add(item with { At = position });
+        }
+        return frame with { Text = text, Items = items.Count == 0 ? null : items };
+    }
+
     /// <summary>The items that stand on a mark of the text, in its order as the client wants them; null for none.</summary>
     public static IReadOnlyList<ChatFrameItem>? Items(string text, IReadOnlyList<ChatFrameItem>? items)
     {

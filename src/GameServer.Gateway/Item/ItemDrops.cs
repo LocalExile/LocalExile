@@ -27,13 +27,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// unique, then rare, then magic.</summary>
     public readonly record struct Chances(double Unique, double Rare, double Magic);
 
-    /// <summary>What a monster's rarity adds to the item level of its drops (the project's rule): magic 1, rare 2, unique 3.
+    /// <summary>What a monster's rarity adds to the item level of its drops: magic 1, rare and unique 2.
     /// The level that decides which bases and currency can drop stays the monster's.</summary>
     public static int ItemLevelBonus(MonsterRarity monster) => monster switch
     {
         MonsterRarity.Magic => 1,
-        MonsterRarity.Rare => 2,
-        MonsterRarity.Unique => 3,
+        MonsterRarity.Rare or MonsterRarity.Unique => 2,
         _ => 0,
     };
 

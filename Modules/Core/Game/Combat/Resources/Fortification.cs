@@ -99,7 +99,7 @@ public static partial class Game
         var recovery = new Dictionary<uint, int>(sources);
         lock (conn.Monsters)
             foreach (var (key, value) in conn.PlayerStats) recovery[key] = value;
-        UtilityFlasks.AddRawStats(recovery,
+        AddItemUtilityFlaskRawStats(recovery,
             conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         ConfigureFortificationRecovery(conn, maximumLife,
             name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);
@@ -183,6 +183,7 @@ public static partial class Game
                     {
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
+                            visual: BuffArtVisual(conn, "fortify_buff", "virtual_fortify_art_variation"),
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));

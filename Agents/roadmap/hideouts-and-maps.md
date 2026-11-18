@@ -31,7 +31,7 @@ bench.
   [game/maps.md](../docs/game/maps.md).
   Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
   are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards) and the Atlas graph validation;
+- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
   Voidstones; the map stash tab's layout (18 A5); the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 
@@ -55,6 +55,7 @@ bench.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: the arrival point, a return portal, fragments and device recipes and map mods;
-  `An Audience With The King` already opens the Crux (fragments otherwise remain inert).
+  `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
+  Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).
 - **Done when:** the hideout looks like the real one, can be edited and saved, and maps can be run from its device.

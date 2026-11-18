@@ -71,6 +71,11 @@ public static class InstanceEntities
     public static (byte Preset, uint Node, byte Flag) ReadAtlasRefund(ReadOnlySpan<byte> m) =>
         (m[2], (uint)(m[3] << 24 | m[4] << 16 | m[5] << 8 | m[6]), m[7]);
 
+    /// <summary>C→S 0x2a8 (3 bytes): an Atlas tree tab picked; u8 the tab's AtlasTrees row, the preset to make active.
+    /// C→S 0x40 and 0x41 (3 bytes, u8 the active preset) are the Atlas tree's analogues of 0x37 and 0x38.</summary>
+    public const ushort AtlasTreeTabId = 0x2a8, AtlasRefundAllId = 0x40, AtlasTreeWidgetId = 0x41;
+    public const int AtlasTreeTabLength = 3;
+
     public const ushort AddBuffId = 0x1c1, RemoveBuffId = 0x1c2;
 
     /// <summary>
@@ -85,7 +90,8 @@ public static class InstanceEntities
     /// per GrantedStats value when its IsRecovery (+0x7c) is set (<paramref name="values"/>: the caller must give exactly
     /// that many, or the client misreads the message), and a u32-counted list of u32 (<paramref name="list"/>, buff +0x80: a
     /// RecordSkillUseLocations buff's first entry and the <c>frost_fury_stage</c> buff's entries 1 and 2 (the client's
-    /// Winter Orb channelling art), which those behaviours read unchecked: give at least the entries the row's behaviour
+    /// Winter Orb channelling art), and MirageArcherVisualBuff's element 0 / MirageArcherDisplayBuff's elements 0..2,
+    /// which those behaviours read unchecked: give at least the entries the row's behaviour
     /// reads, since an empty list leaves the vector null). The buff's visual (BuffVisuals)
     /// plays while it lasts. u68 is the raw IEEE-754 f32 duration in seconds (not integer milliseconds);
     /// f6c is the countdown rate (default 1.0). A duration is drawn as a countdown clock under the icon (below the
@@ -287,6 +293,16 @@ public static class InstanceEntities
     public static byte[] AnimatedModel(uint entityId, byte animatedIndex, string ao) =>
         ComponentUpdate(entityId, animatedIndex, new BlobWriter().U8(1).WStr32(ao).ToArray());
 
+    public const ushort ActorFileId = 0x1b6;
+
+    /// <summary>
+    /// S→C 0x1b6 (class 0x1435e82b8, read 0x141fe4570; handled by the Actor, 0x14219aa10): object header, wstr, u8. The
+    /// path is an .act file the Actor loads in place of its own animation set, and the u8 the stance it takes there
+    /// (0 the base one); the live counterpart of the Actor's leading path in the object blob.
+    /// </summary>
+    public static byte[] ActorFile(uint entityId, string act, byte stance = 0) =>
+        new LoginWriter().U16(ActorFileId).U32(entityId).U32(0).U16(0).WStr(act).U8(stance).ToArray();
+
 
     /// <summary>
     /// Changes the player's skills (0x2bc to the Actor, flags 0x20 → <c>0x14219f170</c>): u8 records, u8 ids, the skill
@@ -307,6 +323,17 @@ public static class InstanceEntities
         foreach (var s in soulSeeds ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity);
         w.U8(checked((byte)(soulUpdates?.Count ?? 0)));
         foreach (var s in soulUpdates ?? []) w.U32(s.ActiveSkillsRow).U32(s.Current).U32(s.NewCapacity);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
+    /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
+    /// other entries append, so changing a source/type first requires a removal.</summary>
+    public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,
+        bool canDetonateMines = false)
+    {
+        var w = new BlobWriter().U16(canDetonateMines ? (ushort)0x180 : (ushort)0x100)
+            .U16(checked((ushort)changes.Count));
+        foreach (var change in changes) w.U32(change.Id).U16(change.Source).U16(change.Type);
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
@@ -632,12 +659,30 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
+    public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
+    /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
+    public byte ActorStance { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
+
+    /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
+    /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
+    public uint Parent { get; init; }
+
+    /// <summary>The parent's bone it rides on.</summary>
+    public string Bone { get; init; } = "<root>";
+
+    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 drops the parent's turn. The client
+    /// takes the attached object's facing from the bone alone (0x142909a50), never its own.</summary>
+    public byte AttachKind { get; init; } = EffectObject.AttachWithoutRotation;
+
+    /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
+    public byte AttachFlags { get; init; }
 
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
@@ -685,15 +730,18 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     break;
                 case "Buffs": w.U16(0); break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
-                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
+                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, EnergyShield); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
-                    if (AnimatedObject is null) w.U8(0);
-                    else w.U8(1).WStr32(AnimatedObject);
+                    w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
+                    if (AnimatedObject is not null) w.WStr32(AnimatedObject);
+                    if (Parent != 0)
+                        w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
+                            .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
                 case "Actor":
-                    w.WStr32("").U16(0).U8(0).U32(0).U32(0);
+                    w.WStr32("").U16(0).U8(ActorStance).U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;
@@ -837,7 +885,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
-    const byte AttachWithoutRotation = 4;
+    public const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -1067,6 +1115,9 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
 
+/// <summary>One native Actor ownership update; Source zero removes the object.</summary>
+public readonly record struct MinionOwnershipChange(uint Id, ushort Source, ushort Type);
+
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
     float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
@@ -1112,8 +1163,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, bool Shown = true, string? AnimatedObject = null,
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
-    uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
+    uint ManaReserved = 0, uint LifeReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0,
+    IReadOnlyCollection<int>? LeagueQuestFlags = null,
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     // The connection keeps its player's record: its lists are the record's own (Owned).
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
@@ -1130,6 +1182,13 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+    /// <summary>The Animated component's index in the same order.</summary>
+    public const byte AnimatedIndex = 5;
+
+    /// <summary>The Actor's leading path (0x1421993f0): an .act file that replaces the type's own animation set, which a
+    /// replacement <see cref="AnimatedObject"/> of another rig needs (a morph: 23-microtransactions.md §3). Null or
+    /// empty keeps the class's.</summary>
+    public string? ActorFile { get; init; }
 
     /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
     public byte PantheonMajor { get; init; }
@@ -1215,7 +1274,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32("").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);

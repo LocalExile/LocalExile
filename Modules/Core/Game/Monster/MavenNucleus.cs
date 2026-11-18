@@ -59,7 +59,7 @@ public static partial class Game
             int? fallback = null;
             foreach (int effect in effects)
             {
-                if (skills.IsMovement(effect)) continue;
+                if (skills.IsMovement(effect) || skills.CastsOnDeath(effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
@@ -80,7 +80,7 @@ public static partial class Game
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
-            return fallback ?? effects[0];
+            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e), -1);
         }
 
         public static bool AttackIsRanged(SkillCatalog skills, int effect) =>

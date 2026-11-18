@@ -22,6 +22,13 @@ Those native findings were provided with this task; this child did not run a cli
 - After that delay, loss is `10 * max(0, 1 + rage_decay_speed_+% / 100)` Rage per second.
   Fractional progress survives observations, rate changes and area carry; each complete unit removes one Rage.
   `no_inherent_rage_loss` and `should_not_lose_rage` suppress this inherent loss.
+- Regeneration is a continuous gain from `base_rage_regeneration_per_minute` (`RageStats.Inputs`; Akoya's
+  Leadership sets 300, five Rage per second). It settles in the same advance as the inherent loss at the previous
+  inputs' rate, keeps a fraction like the loss, caps at the maximum and is blocked by `cannot_gain_rage`. A point it
+  adds refreshes activity like any other positive gain; while the maximum caps it, it refreshes activity on every
+  advance, so a full bar stays full instead of falling, being refilled and falling again (policy v2; the regression
+  covers 0.25 s, 0.1 s and 60 Hz advances). Other capped or blocked gains do not refresh (policy v2). The soul-gain prevention window is not part of `RageState.Inputs`, so it does not
+  stop this gain yet.
 - Effective Rage is the held count times `max(0, 1 + rage_effect_+% / 100)`, truncated to an integer native stat.
   The attack packet receives the single final multiplier `1 + effective Rage / 100`.
   It scales attack damage types and converted/added damage once, without changing generic damage or spell damage.
@@ -71,16 +78,18 @@ Supported area-hit and projectile behavior otherwise retains the existing combat
 
 ## Ownership and versioned policies
 
-`RageState.PolicyVersion = 1` explicitly defines capped-attempt behavior:
-a zero, blocked or capped gain does not refresh activity and does not consume the shared hit interval.
-Official capped-attempt refresh behavior is undocumented in the evidence above and still needs measurement.
-Change this version and the boundary regressions if native evidence requires a different rule.
+`RageState.PolicyVersion = 2` defines capped-attempt behavior:
+a zero or blocked gain does not refresh activity and does not consume the shared hit interval; a capped gain from a
+discrete source does not refresh either, while a capped **regeneration** point does at any advance cadence (the
+regeneration is continuous; `LeadershipConsumersTests` covers 0.25 s, 0.1 s and 60 Hz). Change this version and the
+boundary regressions if native evidence requires a different rule.
 
 The connection owns its transient state; there is no saved Rage or implicit login grant.
 The stopped game clock freezes decay during pause.
 Death clears Rage before death handling awaits, and presentation clears the count and buff even while paused.
 On a successful Auth transfer, the old owner atomically settles and moves its count, activity age, hit-interval age,
-fractional loss and previous inputs to the destination ticket under `Monsters`, then becomes permanently retired.
+fractional loss, regeneration fraction and previous inputs to the destination ticket under `Monsters`, then becomes
+permanently retired.
 The same-character destination consumes the ticket once in `SendPlayer`, immediately before its initial stats build.
 The ticket remains unconsumed during the running destination clock before `0x7d`; that loading time spends no Rage.
 Another character cannot consume it, and duplicate restoration or the retired connection cannot copy the balance.
@@ -97,7 +106,7 @@ At zero only the removal remains.
 `virtual_maximum_rage` (12139), `effective_rage_for_per_rage_effects` (20860),
 `attack_damage_+%_final_from_rage` (20817), `is_at_maximum_rage` and the final delay.
 The count never grants inherent attack speed.
-Logs emit `Rage <held>/<maximum>, effective <value>, policy v1` on presentation changes.
+Logs emit `Rage <held>/<maximum>, effective <value>, policy v2` on presentation changes.
 Queued old-area refreshes are discarded when they reach the send gate.
 The queued-refresh regression also covers expiry and changes to another stat source before that gate opens.
 Shared character, skill, command, equipment, charge and player-attribute refreshes use `SendPlayerStatSnapshot`.
@@ -131,13 +140,14 @@ Further native composition checks remain:
 - Supported attack projectiles, area sweeps, linked Rage Support, active/inactive equipment and converted damage.
 - Notification delays beyond the half-second interval and slow destination loading before player construction.
 - Charge, equipment and command refreshes queued across expiry, plus separate decay-speed modifiers.
-- Official capped-attempt refresh behavior and area-loading timer parity before replacing policy v1.
+- Official capped-attempt refresh behavior for discrete gains and area-loading timer parity before replacing policy v2.
 
 ## Limits outside this mechanic
 
 Vaal costs/souls, class selection and the rest of Behemoth remain separate mechanics.
-This does not implement every item-specific per-Rage effect, regeneration, alternate resource spending,
-weapon/warcry/stun/kill-specific conditional source or independent additional-loss mechanic.
+This does not implement every item-specific per-Rage effect (Akoya's Leadership regeneration is the one generic
+regeneration input), alternate resource spending, weapon/warcry/stun/kill-specific conditional source or independent
+additional-loss mechanic.
 The model retains a generic atomic spending primitive for future consumers; no Vaal consumer is introduced.
 Existing attack-gem accuracy, skill shapes, projectile snapshots and target/block approximations remain as before.
 Additional native composition checks are listed above; whole-class acceptance remains separate.

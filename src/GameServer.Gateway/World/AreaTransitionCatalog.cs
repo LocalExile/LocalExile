@@ -25,6 +25,16 @@ public static class AreaTransitionCatalog
     /// <summary>The WorldAreas id of an area hash (from the atlas), or null without the atlas.</summary>
     public static string? IdOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Id;
 
+    // Repeated area connections are distinct edges: the k-th way out pairs with the k-th way back.
+    public static int? PairedEntrance(ushort source, ushort destination, int? entrance)
+    {
+        var outgoing = Atlas.Value?.GetValueOrDefault(source)?.Connections?.Where(c => c.Hash16 == destination).ToArray() ?? [];
+        var incoming = Atlas.Value?.GetValueOrDefault(destination)?.Connections?.Where(c => c.Hash16 == source).ToArray() ?? [];
+        if (outgoing.Length < 2 || outgoing.Length != incoming.Length || entrance is null) return null;
+        int index = Array.FindIndex(outgoing, c => c.Index == entrance);
+        return index < 0 ? null : incoming[index].Index;
+    }
+
     /// <summary>The WorldAreas name of an area hash (from the atlas), or null.</summary>
     public static string? NameOf(ushort hash) => Atlas.Value?.GetValueOrDefault(hash)?.Name;
 
@@ -127,6 +137,18 @@ public static class AreaTransitionCatalog
     // around the Reverie Device) or on it (Sin's EpiloguePortal is the room object itself), unless the layout made it already.
     static void AddQuestPortals(List<AreaTransitionObject> placed, string id, uint seed, List<string> notes)
     {
+        foreach (var rule in Quests.Everything.PointPortals(id))
+        {
+            if (HashOf(rule.To) is not { } destination || Quests.Everything.SourceOf(rule) is not { } source
+                || QuestObjectTypes.Find(rule.Type)?.AnimatedModel is not { Length: > 0 } model) continue;
+            foreach (var exit in placed.Where(t => t.DestinationHash16 == destination && t.Model is null && t.TeleportTo is null
+                         && t.SourceType is null && t.QuestSource is null).ToArray())
+            {
+                int index = placed.IndexOf(exit);
+                placed[index] = exit with { QuestReplaced = true, QuestSource = source };
+                placed.Add(exit with { Model = model, SourceType = rule.Type, QuestSource = source });
+            }
+        }
         foreach (var portal in Quests.Portals(id))
         {
             if (placed.Any(t => t.SourceType == portal.Type)) continue;
@@ -355,7 +377,7 @@ public static class AreaTransitionCatalog
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
                     placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
                         Type: Resolve(o.Type, what, notes))
-                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled && openDisabled });
+                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:

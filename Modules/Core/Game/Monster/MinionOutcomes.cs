@@ -8,7 +8,7 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false);
+        double now, string by, StunHit? stun = null) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
@@ -26,6 +26,7 @@ public static partial class Game
 
     public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
+        HitSummonsOnDeathLocked(conn, victimId, monster, now);
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
@@ -38,6 +39,8 @@ public static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            QueueMadnessExplosionLocked(conn, victimId, monster);
+            conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));
@@ -79,7 +82,7 @@ public static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); TrimLeechLocked(conn);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
@@ -93,7 +96,7 @@ public static partial class Game
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
+            int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
@@ -180,6 +183,9 @@ public static partial class Game
                     notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
+                // A minion's kill is committed here, not through Game.MonsterKilled: the overlay's count (S→C 0x1a0) is one
+                // monster smaller too.
+                await SendRemainingMonsters(remote, stream, ciphers, conn);
                 continue;
             }
             if (output.Kind == PlayerMinions.OutputKind.GroundItem)
@@ -205,6 +211,8 @@ public static partial class Game
                     if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
                         || !ReferenceEquals(state.OutputQueue[0], output)) return null;
                     state.OutputQueue.RemoveAt(0);
+                    if (output.RemovesObject)
+                        return InstanceProtocol.RemoveObject(output.WorldId!.Value);
                     if (output.Kind == PlayerMinions.OutputKind.Remove)
                         return output.TargetId is uint gone && !conn.Monsters.ContainsKey(gone) ? output.Packet : null;
                     if (output.Kind == PlayerMinions.OutputKind.MonsterType)
@@ -225,6 +233,8 @@ public static partial class Game
                             [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
                     }
                     if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
+                    if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)
+                        return RighteousFireRingCurrentLocked(conn, output.RighteousFireRing!) ? output.Packet : null;
                     if (output.Target is not null && output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
                     if (output.Kind == PlayerMinions.OutputKind.GolemAction)
                     {
@@ -232,6 +242,11 @@ public static partial class Game
                         return actionRecords is null ? null : [.. actionRecords.SelectMany(p => p)];
                     }
                     if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);
+                    if (output.Kind == PlayerMinions.OutputKind.EnergyShield)
+                    {
+                        actionRecords = GolemEnergyShieldRecords(conn, output);
+                        return actionRecords is null ? null : [.. actionRecords.SelectMany(p => p)];
+                    }
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {
@@ -258,7 +273,7 @@ public static partial class Game
                 await SendWorldCreate(conn, output.WorldId!.Value, Project, output.Log, transport: (remote, stream, ciphers));
             else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
                 await SendWorldRemoval(remote, stream, ciphers, conn, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
-            else if (output.Kind == PlayerMinions.OutputKind.GolemAction)
+            else if (output.Kind is PlayerMinions.OutputKind.GolemAction or PlayerMinions.OutputKind.EnergyShield)
                 await SendWorldRecords(remote, stream, ciphers, conn, output.TargetId!.Value,
                     () => Project() is null ? null : actionRecords, output.Log);
             else if (worldId is uint targetId)
@@ -308,10 +323,11 @@ public static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "accepted minion outcomes");
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-            await Send(remote, stream, ciphers, [], "player life after minion outcomes", atGate: () =>
-            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "player life after minion outcomes", atGate: () =>
+            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? PlayerLifeUpdate(conn) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
+        await SendSentinelOwnership(remote, stream, ciphers, conn, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
         await SynchronizeAccountLevel(conn);
         lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);

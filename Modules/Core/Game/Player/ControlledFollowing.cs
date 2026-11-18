@@ -134,6 +134,9 @@ public static partial class Game
             int radius = 3 + (int)(seed % 5);
             var at = (X: here.X + (int)Math.Round(Math.Cos(angle) * radius),
                 Y: here.Y + (int)Math.Round(Math.Sin(angle) * radius));
+            // A radius-three diagonal can round below the move admission's minimum distance. Keep trying instead
+            // of consuming this idle decision on a destination which MoveControlledFollower will refuse.
+            if (Dist(here, at) < 3) continue;
             if (Dist(at, leader.Walk.Position(now)) > ControlledFollowerLeash || !Floor(at.X, at.Y)
                 || ClientPathfinder.ObjectBlocks(bodies, at.X, at.Y, 3, 6)) continue;
             var path = ClientPathfinder.FindPath(here, at, Floor, conn.Layout.GridW, conn.Layout.GridH, bodies, 2);
@@ -142,8 +145,7 @@ public static partial class Game
             var origin = leader.Walk.Position(now);
             if (path.Zip(path.Skip(1)).Any(p => ClientPathfinder.Line(p.First, p.Second)
                 .Any(cell => Dist(cell, origin) > ControlledFollowerLeash))) continue;
-            MoveControlledFollower(conn, at, now);
-            break;
+            if (MoveControlledFollower(conn, at, now)) break;
         }
     }
 
@@ -169,17 +171,18 @@ public static partial class Game
         ScheduleControlledIdle(conn, plan, plan.AttackUntil);
     }
 
-    static void MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
+    static bool MoveControlledFollower(ClientState conn, (int X, int Y) at, double now)
     {
         lock (conn.Monsters)
         {
-            if (conn.Walk.Moving(now) && Dist(conn.Walk.Destination, at) < 6) return;
-            if (Dist(conn.Walk.Position(now), at) < 3) return;
+            if (conn.Walk.Moving(now) && Dist(conn.Walk.Destination, at) < 6) return false;
+            if (Dist(conn.Walk.Position(now), at) < 3) return false;
             Interlocked.Increment(ref conn.ActionCount);
             Interlocked.Increment(ref conn.ChannelGeneration);
             conn.ChannelSkill = 0;
             conn.Walk.Order(at.X, at.Y, now);
         }
         PublishPlayerPose(conn);
+        return true;
     }
 }

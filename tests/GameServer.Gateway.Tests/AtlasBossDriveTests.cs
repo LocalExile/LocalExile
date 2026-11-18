@@ -38,6 +38,7 @@ public sealed class AtlasBossDriveTests
 
             var (conn, boss) = MeleeSetup(server.GetStream(), serverCiphers);
             var fight = new ShaperFight(BossId, boss, conn);
+            await fight.Bind(conn);
 
             // The hand-set clock: Step's own `now` is what the rotation reads, so one step well past 0 is enough for
             // the melee branch (the variety's AttackRange is 12 and the player stands 5 cells away).
@@ -83,22 +84,16 @@ public sealed class AtlasBossDriveTests
             conn.EntryProtection.Start(0, (100, 100), GracePeriod.BuffRow, town: false, hideout: false);
             Assert.True(Game.InGracePeriod(conn));
             var fight = new ShaperFight(BossId, boss, conn);
+            await fight.Bind(conn);
 
             // The controller still drives: the same step that put 0x1ab on the wire above orders its swing here too
             // (the fight's own trace prints "swing 481 returned after 0 ms"). Only the wire is silent.
             await fight.Step(conn, 5.0);
             Assert.True(boss.ActionGeneration > 0, "the controller ordered no action at all");
 
-            // Bounded wait for the fire-and-forget MonsterSwing: the same swing crossed the wire in the test above.
-            var header = new byte[2];
-            using var arrived = new EventWaitHandle(false, EventResetMode.ManualReset);
-            _ = Task.Run(() =>
-            {
-                try { if (client.GetStream().Read(header, 0, header.Length) > 0) arrived.Set(); }
-                catch (Exception) { }
-            });
-            Assert.False(arrived.WaitOne(TimeSpan.FromSeconds(1)),
-                "a swing reached the client despite the player's entry protection");
+            // MonsterSwing returns at its entry-protection check before its first await, so nothing is pending here:
+            // no wait on real time is needed to see that nothing was written.
+            Assert.Equal(0, client.Available);
             // The swing never reached the send gate, which is what stamps this.
             Assert.Null(boss.SwingGeneration);
         }

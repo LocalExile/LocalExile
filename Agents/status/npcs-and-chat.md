@@ -18,12 +18,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).
+  Chat-server frame cleanup preserves original item marks in automated checks; native presentation remains unverified.
   The global and trade channel joins (C→S 0x134, after entering an area and for `/global N` and `/trade N`) are
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Party and guild lines are not sent. A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
-  Code: `Modules/Core/Player/Chat`, `src/GameServer.Core/Chat`.
+  Guild lines are not sent. A `%` party line reaches every member of the sender's party, in whatever area each one is
+  (S→C 0x17 with the sender prefixed `%`); a player in no party is sent none (tested, not yet checked with the real
+  client).
+  A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
+  Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and
@@ -59,6 +63,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
   Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
   0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
+  Party rows carry each member's area; campaign travel and quest-gate refusal were checked through the native client.
+  Native map travel arrives outside the owner's device, spends its shared portals on entry and returns to that source ([28](../docs/protocol/28-player-trade.md)).
   Decline and disconnects are open.
   Decline and human-only disconnect cleanup remain open.
   See [28](../docs/protocol/28-player-trade.md) §5.
@@ -119,7 +125,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
   from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
   (a module reload clears that flag until the bot's next update).
-  Followers stand calmly within 60 cells of an idle leader, with rare short adjustments, and enter on clear cells ahead of the entrance.
+  Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.

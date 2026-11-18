@@ -33,6 +33,13 @@ all original items. Socketed equipment cannot enter the sale until its gems have
   magic/rare bases; three identical uncorrupted unique variants with matching explicit modifier identities.
 - Three-to-one essence tiers, oils and table-defined map upgrades; five-to-one Kalguuran rune upgrades. No upgrade
   when the data has no next tier. Unspent units of a successfully matched currency upgrade are returned.
+- Three tattoos of one tribe -> one random tattoo of that tribe (`TattooCatalogue.VendorPool`/`VendorTattoo`). The
+  client tables carry `PassiveSkillTattoos.Tribe` (11 on the untagged Honoured/Journey/Ancestral/Forbidden rows) but
+  not the recipe weights; they are the wiki's 60,000-tattoo vendoring sample (3:3:3:1:1 per tribe, Kitava may be
+  4:2:2:2:1). Only the five tradeable tattoos of a tribe come out; Loyalty and Makanga tattoos can go in as tribe
+  tattoos. Unspent units of a matched tribe group come back like the essence block's remainders; fewer than three
+  units of a tribe do not match and sell normally. The input acceptance and the five-item output pool are this
+  recipe's reading and are not live-checked.
 - Currency downgrades for Portal/Transmutation/Alteration/armour/weapon quality currency; Fusing + Chromatic;
   Mirror -> 2 Exalted + 5 Regal + 1 Divine. These are sell recipes, not the direct-purchase currency exchange chain.
 - Vaal Orb from seven Vaal gems and a Sacrifice fragment; Mortal fragments do not qualify.
@@ -57,7 +64,9 @@ named unique combinations (Loreweave, Kingmaker, The Taming, etc.), catalyst qua
 conversions, random catalyst/scarab exchanges, bandit reform books and other special league recipes are **not
 implemented**. The map upgrade uses Maps.dat's target, not the full official atlas-combination selection algorithm.
 A 40-quality subset uses least-excess matching; global optimal partitioning for arbitrary large mixed offers is not
-claimed. Further implementation must keep these limitations explicit instead of calling the system complete.
+claimed. The tattoo recipe's weights are a wiki sample rather than a client table column, and its output pool is the
+five tradeable tattoos of each tribe. Further implementation must keep these limitations explicit instead of calling
+the system complete.
 
 ## Sources and version checks
 

@@ -35,6 +35,28 @@ public sealed class MonsterElementalAilments
     public int SentActionSpeed;
     public double WalkFactor = 1;
 
+    /// <summary>Moves the active elemental ailments without carrying their old presentation identities.</summary>
+    public void MoveTo(MonsterElementalAilments target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.effects.AddRange(effects);
+        target.spread.Clear();
+        foreach (var (kind, effect) in spread) target.spread[kind] = effect;
+        target.expiryRate = expiryRate;
+        target.Shattered = Shattered;
+        target.shown.Clear();
+        target.SentActionSpeed = 0;
+        target.WalkFactor = 1;
+
+        effects.Clear();
+        spread.Clear();
+        expiryRate = 1;
+        Shattered = false;
+        shown.Clear();
+        SentActionSpeed = 0;
+        WalkFactor = 1;
+    }
+
     public bool Idle => effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
 
     IEnumerable<Effect> Active(Kind kind, double now) => (spread.Count == 0 ? effects : effects.Concat(spread.Values))
@@ -166,9 +188,9 @@ public sealed class MonsterElementalAilments
         var added = new List<Effect>();
         if (threshold <= 0) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
-        double chilling = Inflicting("chill", DamageType.Cold, damage, attacker);
-        double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker);
-        double shocking = Inflicting("shock", DamageType.Lightning, damage, attacker);
+        double chilling = Inflicting("chill", DamageType.Cold, damage, attacker, critical);
+        double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker, critical);
+        double shocking = Inflicting("shock", DamageType.Lightning, damage, attacker, critical);
         // "X% chance to Freeze Enemies which are Chilled" (Hypothermia) counts the target's chill from earlier hits, not
         // the one this hit is about to add.
         bool wasChilled = Magnitude(Kind.Chill, now) > 0;
@@ -209,14 +231,17 @@ public sealed class MonsterElementalAilments
     /// <summary>The damage that counts for an ailment: its own element's, and another type's with "All Damage with Hits can
     /// Shock" (all_damage_can_*), "Your Chaos Damage can Shock" (one type's, Stormy Seas' cold among them) or, for shock,
     /// "Your Elemental Damage can Shock". Each type counts once. "Your Cold Damage cannot Freeze" (Replica Tasalio's
-    /// Sign) keeps a type out whatever lets it, as a cannot does.</summary>
-    static double Inflicting(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker)
+    /// Sign) keeps a type out whatever lets it, as a cannot does. A critical strike also lets every type with "All Damage
+    /// from Critical Strikes can Shock" (all_damage_from_critical_strikes_can_*: Stormblood during its effect).</summary>
+    static double Inflicting(string ailment, DamageType own, DamagePacket damage, Func<string, int> attacker,
+        bool critical = false)
     {
         bool Counts(DamageType type)
         {
             string name = type.ToString().ToLowerInvariant();
             return attacker($"{name}_damage_cannot_{ailment}") == 0 && (type == own
                 || attacker($"all_damage_can_{ailment}") != 0 || attacker($"{name}_damage_can_{ailment}") != 0
+                || critical && attacker($"all_damage_from_critical_strikes_can_{ailment}") != 0
                 || ailment == "shock" && DamageTypes.IsElemental(type) && attacker("elemental_damage_can_shock") != 0);
         }
         return damage.Components.Where(c => Counts(c.Type)).Sum(c => c.Range.Min);

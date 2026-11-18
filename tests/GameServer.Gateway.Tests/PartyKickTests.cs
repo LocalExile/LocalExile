@@ -62,7 +62,7 @@ public class PartyKickTests
             {
                 var info = Assert.Single(WithId(messages, InstanceSocial.PartyInfoId));
                 var reader = new LoginReader(info);
-                Assert.Equal(InstanceSocial.PartyInfoId, reader.U16());
+                reader.U16(); // the id WithId chose the message by
                 Assert.Equal(party, reader.U32());
             }
             // Two left: the second kick leaves one member, so the party is disbanded on both.

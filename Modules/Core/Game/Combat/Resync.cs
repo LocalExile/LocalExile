@@ -60,6 +60,8 @@ public static partial class Game
                 }
                 if (conn.LockstepClient) packets.AddRange(LockstepPlace(back));
                 else foreach (var (id, x, y) in back) packets.AddRange(InstanceProtocol.Teleport(id, x, y, 0x7fffffff));
+                foreach (var (id, _, _) in back)
+                    if (Arakaali.StanceUpdateLocked(conn, id, now) is { } stance) packets.AddRange(stance);
                 return packets.Count == 0 ? null : [.. packets];
             }
         });
@@ -87,14 +89,16 @@ public static partial class Game
         return [.. bytes];
     }
 
+
     // ActiveSkillType Movement also covers these, which leave the player where it stands when used: the estimate must stay
     // too, or a resync would teleport the client to the aimed cell.
     static readonly string[] MovementInPlace = ["MirrorArrow", "SmokeMine", "PhaseRun", "ChainHook", "WitheringStep", "Ambush"];
 
-    /// <summary>Whether a skill puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
+    /// <summary>Whether a skill immediately puts the player where it was aimed. A channelled one (Cyclone) reports its own way.</summary>
     public static bool LandsAtAim(ClientState conn, int effect) =>
         SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
-        && !(SkillsFor(conn).EffectId(effect) is { } id && MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal)));
+        && !(SkillsFor(conn).EffectId(effect) is { } id && (id == "LightningWarp" || id.StartsWith("BlinkArrow", StringComparison.Ordinal)
+            || MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal))));
 
     public static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim) =>
         MovementLanding(conn, effect, from, aim, 0, 0);
@@ -167,12 +171,39 @@ public static partial class Game
         return direct ? end : last;
     }
 
+    // Resolve Dash through the current terrain-aware landing before payment and commit it in the same
+    // admission transaction: a blocked endpoint or a stale action cannot displace the player without a paid use.
+    public static bool TryDashLanding(ClientState conn, int effect, (int X, int Y) aim,
+        out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null, ushort skill = 0, ushort flags = 0)
+    {
+        to = from = default;
+        if (!IsDashEffect(SkillsFor(conn).EffectId(effect)) || !SkillsFor(conn).IsTravel(effect)
+            || !SkillsFor(conn).IsMovement(effect) || !conn.ProjectileActive(conn.ProjectileEpoch)
+            || !conn.PlayerSent || conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea
+            || conn.RageRetired || conn.PendingTransfer is not null || InTown(conn)
+            || conn.Layout.Walkable is not { } walkable || conn.Layout.GridW <= 0 || conn.Layout.GridH <= 0)
+            return false;
+        double now = acceptedAt ?? ProjectileWorldTime(conn);
+        from = conn.Walk.Position(now);
+        // Bound the raw client aim before MovementLanding subtracts coordinates or projects the native distance.
+        if (aim == from || aim.X < 0 || aim.Y < 0 || aim.X >= conn.Layout.GridW || aim.Y >= conn.Layout.GridH
+            || from.X < 0 || from.Y < 0 || from.X >= conn.Layout.GridW || from.Y >= conn.Layout.GridH
+            || !walkable(from.X, from.Y) || conn.Barrier.Contains(from)) return false;
+        var landing = MovementLanding(conn, effect, from, aim, skill, flags);
+        to = landing;
+        if (landing == from || landing.X < 0 || landing.Y < 0 || landing.X >= conn.Layout.GridW
+            || landing.Y >= conn.Layout.GridH || !walkable(landing.X, landing.Y) || conn.Barrier.Contains(landing))
+            return false;
+        return !conn.Blockers.Any(b => Math.Max(Math.Abs((long)landing.X - b.X), Math.Abs((long)landing.Y - b.Y))
+            - b.Size < 2);
+    }
+
     /// <summary>The least time after a movement spell before the resync goes out.</summary>
     const double MovementResyncSeconds = .5;
 
     /// <summary>How long a movement skill's action lasts on the client: its attack time, or its cast time.</summary>
-    public static double MovementSeconds(ClientState conn, int effect, int level) =>
-        SkillsFor(conn).IsAttack(effect) ? SkillAttackSeconds(conn, effect, level)
+    public static double MovementSeconds(ClientState conn, int effect, int level, ushort skillId = 0) =>
+        SkillsFor(conn).IsAttack(effect) ? skillId == 0 ? SkillAttackSeconds(conn, effect, level) : SupportedAttackSeconds(conn, skillId)
             : Math.Max(MovementResyncSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / PlayerActionFactor(conn));
 
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.

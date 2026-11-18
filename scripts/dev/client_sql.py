@@ -168,14 +168,20 @@ def full(_):
 
 
 def build_original(db):
-    """base/client + updates/client in the updater's order (base first, then updates by name); not the fixes."""
+    """base/client + updates/client in the updater's order and per-file transactions; not the fixes.
+    The scratch rebuild must not fsync every row update independently in a large generated migration."""
     for folder in (BASE, UPDATES):
         if not os.path.isdir(folder):
             continue
         for f in sorted(os.listdir(folder)):
             if f.endswith(".sql"):
                 with open(os.path.join(folder, f), encoding="utf-8") as h:
-                    db.executescript(h.read())
+                    try:
+                        db.executescript("BEGIN;\n" + h.read() + "\nCOMMIT;")
+                    except sqlite3.Error:
+                        if db.in_transaction:
+                            db.execute("ROLLBACK")
+                        raise
 
 
 def decode(value, kind):

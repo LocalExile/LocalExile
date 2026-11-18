@@ -16,14 +16,16 @@ public sealed class MonsterPoisons
     }
     /// <param name="WeaponChance">The attacking weapon's own local_poison_on_hit_% ("X% chance to Poison on Hit" on
     /// it), which the panel's chance counts for that hand's attacks.</param>
+    /// <param name="ProjectileChance">The qualified Yriel projectile-attack poison chance frozen at release. It is
+    /// additive to the contact's live generic attack chance and is not read again at contact.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds, int WeaponChance = 0)
+        double Seconds, int WeaponChance = 0, int ProjectileChance = 0, bool Secondary = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
         /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
         public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get,
-            IReadOnlyDictionary<string, int>? local = null)
+            IReadOnlyDictionary<string, int>? local = null, bool projectileAttack = false)
         {
             if (Prohibited(get)) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -32,12 +34,14 @@ public sealed class MonsterPoisons
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault($"{bound}_poison_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
             long chance = (long)get("base_chance_to_poison_on_hit_%") + get("chaos_damage_chance_to_poison_%");
+            int projectileChance = projectileAttack
+                ? Math.Clamp(get("projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion"), 0, 100) : 0;
             double seconds = Ailments.PoisonDurationSeconds
                 * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0);
+                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance, Secondary: hand == "secondary");
         }
     }
 
@@ -59,6 +63,30 @@ public sealed class MonsterPoisons
 
     /// <summary>The native <c>poison</c> buff instance on the monster (BuffDefinitions row 10).</summary>
     public ushort? Buff;
+
+    /// <summary>The attacking object shown as the buff source (0 for generic self-created poisons).</summary>
+    public uint BuffSource;
+
+    /// <summary>Moves the active stacks and integration state to a fresh owner without restarting either.</summary>
+    public void MoveTo(MonsterPoisons target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.active.AddRange(active);
+        target.last = last;
+        target.carry = carry;
+        target.expiryRate = expiryRate;
+        target.DiedPoisoned = DiedPoisoned;
+        target.BuffSource = BuffSource;
+        target.Buff = null;
+
+        active.Clear();
+        last = 0;
+        carry = 0;
+        expiryRate = 1;
+        DiedPoisoned = false;
+        BuffSource = 0;
+        Buff = null;
+    }
 
     public bool Poisoned => active.Count > 0;
 
@@ -83,6 +111,7 @@ public sealed class MonsterPoisons
     public bool Add(double now, double perSecond, double seconds)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
+        cleared = advancedDeath = null; DiedPoisoned = false;
         if (active.Count == 0) { last = now; carry = 0; }
         active.Add(new(now, now + seconds / expiryRate, perSecond));
         return true;
@@ -90,9 +119,15 @@ public sealed class MonsterPoisons
 
     /// <summary>Sums the concurrent chaos damage of all active poison stacks from last advance to <paramref name="until"/>,
     /// multiplied by the monster's chaos mitigation <paramref name="factor"/>.</summary>
-    public int Advance(double until, double factor)
+    public int Advance(double until, double factor, uint? lifeAtStart = null) => Advance(until, factor, out _, lifeAtStart);
+
+    /// <summary>The same advance, also reporting the end of the last cut where the active stacks dealt positive damage:
+    /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
+    public int Advance(double until, double factor, out double? lastDamageAt, uint? lifeAtStart = null)
     {
+        lastDamageAt = null;
         if (active.Count == 0 || !(until > last)) return 0;
+        advancedDeath = null;
         var cuts = active.SelectMany(p => new[] { p.From, p.Until }).Where(t => last < t && t < until)
             .Append(last).Append(until).Distinct().Order().ToArray();
         double damage = carry;
@@ -100,7 +135,16 @@ public sealed class MonsterPoisons
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
             double sumDps = active.Where(p => p.From <= mid && mid < p.Until).Sum(p => p.DamagePerSecond);
-            damage += sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double seconds = cuts[k] - cuts[k - 1];
+            double mitigated = sumDps * Math.Max(0, factor);
+            if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
+
+            double stepDamage = sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            // Preserve the stacks at the lethal contact, even when this advance also expires them. Death callbacks
+            // run after the step and cannot recover that state from the live list.
+            if (advancedDeath is null && lifeAtStart is > 0 && damage + stepDamage >= lifeAtStart.Value)
+                advancedDeath = StrongestOf(active.Where(p => p.From <= mid && mid < p.Until));
+            damage += stepDamage;
         }
         last = until;
         active.RemoveAll(p => p.Until <= until);
@@ -109,7 +153,41 @@ public sealed class MonsterPoisons
         return whole;
     }
 
-    public void Clear() { DiedPoisoned |= Poisoned; active.Clear(); carry = 0; }
+    public void Clear()
+    {
+        active.Clear(); carry = 0;
+        cleared = advancedDeath = null; DiedPoisoned = false;
+    }
+
+    public void ClearAtDeath(double now, bool poisonDeath = false)
+    {
+        cleared = (poisonDeath ? advancedDeath : null) ?? cleared
+            ?? StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+        DiedPoisoned = cleared is not null; active.Clear(); carry = 0;
+    }
+
+    /// <summary>Freeze the poison on an accepted death before asynchronous kill presentation can outlive it.</summary>
+    public void RememberDeath(double now)
+    {
+        cleared = StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+        DiedPoisoned = cleared is not null;
+    }
+
+    (double DamagePerSecond, double Until)? cleared, advancedDeath;
+
+    /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the
+    /// poisons ended (<see cref="ClearAtDeath"/>): a deferred kill callback keeps the state of that death.</summary>
+    public (double DamagePerSecond, double Until)? Strongest(double now) =>
+        cleared ?? StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+
+    static (double DamagePerSecond, double Until)? StrongestOf(IEnumerable<Poison> stacks)
+    {
+        (double, double)? best = null;
+        foreach (var p in stacks)
+            if (best is not { } b || p.DamagePerSecond > b.Item1 || p.DamagePerSecond == b.Item1 && p.Until > b.Item2)
+                best = (p.DamagePerSecond, p.Until);
+        return best;
+    }
 
     public bool DiedPoisoned { get; private set; }
 }

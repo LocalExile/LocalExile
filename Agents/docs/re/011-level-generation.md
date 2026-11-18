@@ -122,8 +122,11 @@ which is why the traces of The Twilight Strand and The Coast start with the topo
 that rolls goes on (`0x142051ecf`, every stat 0): `Next(100) < 50` adds one `BrequelHiveEncounter` row to the pool
 (`BrequelSkyHiveEncounter` when the area level is 68 or more and `Next(10000)` at `0x142051f49` falls below 1600);
 otherwise the generator's +0x18b breach count goes up and no row is added (2026-10-25; checked on 22 traced loads).
-Rolls with a nonzero
-league-mechanic chance (`0x141ea8530`, which mixes in stats) are not ported and throw. The WorldAreas row in memory
+With area stats (0x1d's
+list, `AreaInfo.Stats`) the same function first tests stats that force or replace rolls (Blight map, envoy rooms,
+Vaal side area and trial forcing, shrine and breach counts) and `0x141ea8530` mixes stats into each CoreLeagues
+chance; checked live on five maps with area stats by the client's tile hash (2026-11-14), not yet draw by draw
+(traces do not record the stats). The WorldAreas row in memory
 is the `.datc64` row, so `AreaInfo.Load` reads these offsets from the file (`RawDat`).
 
 **The extra room pool** (generator +0x40, `ExtraRoomPool.cs`). Each rolled feature that is an `ExtraTerrainFeatures`
@@ -1524,14 +1527,18 @@ This enables manual recording and Gateway `/tour`; `tourloop.py` and `client_con
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
   the change). The servers do not read the baseline: they read world.db's `server_level_areas` (the areas they
   generate, and the seed in place of seed 1), so a baseline that gains or loses an area also needs a world update
-  of those rows (`ServerLevelAreas`' rules); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  of those rows (`ServerLevelAreas`' rules). The gate prints a `WARNING` naming each area the new baseline would
+  leave out, with or without `-Save`: a newly logged load that does not match is a new entry, not a lost one, so
+  "lost 0" does not mean no area was dropped. `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
   An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
   seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
-  Three Labyrinth boss rooms are listed by hand in a world update (`pending_world/1_labyrinth_boss_rooms.sql`) because
-  the snapshot drops them: `1_Labyrinth_boss_1` and `1_Labyrinth_boss_2` for one logged load the port cannot build
-  (its oracle entry all 0/-1), and `2_Labyrinth_boss_2_end` for two transition objects more than its capture. Every
-  captured seed of each room matches, and the Gateway builds all three at seed 1 and at random seeds, placing the
-  three Izaros `WorldAreas.json` lists for them. Regenerating the list drops them again.
+  A Labyrinth room played in a day's Labyrinth is built with the day's node (the AreaInstance's labyrinth data,
+  `LEVELGEN_LAB=seed:row:difficulty`), which `Client.txt` does not record: the oracle runs it without one and does not
+  match (`1_Labyrinth_OH_straight` 820631882, day 20770 node 1: client 2944466374, the port with the node the same,
+  without it 1506586991). `ServerLevelAreas` therefore does not count a Labyrinth room's oracle against it; five Normal
+  rooms left out that way came back in a world update (`labyrinth_day_rooms.sql`), as did `1_Labyrinth_boss_1` and
+  `1_Labyrinth_boss_2` (`2026_11_12_130843_labyrinth_boss_rooms.sql`, oracle entries all 0/-1). `2_Labyrinth_boss_2_end` is listed by
+  hand for two transition objects more than its capture: regenerating the list drops it again.
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,

@@ -2,8 +2,8 @@ using GameServer.Core.World;
 
 /// <summary>"X% chance to Knock Enemies Back on Hit" (the Tukohama Brawler tattoo, Knockback Support and other
 /// sources): pushes the monster away from the player by the base distance, modified by <c>knockback_distance_+%</c>,
-/// interrupts the action it had and stores the destination for the next AI tick to present with a Teleport (the client
-/// has no knockback animation; the same state the resync and boss teleports use).</summary>
+/// interrupts the action it had and stores the destination for the next AI tick to present with a Teleport (the same
+/// state the resync and boss teleports use).</summary>
 static partial class Game
 {
     internal const string KnockbackChanceStat = "base_global_chance_to_knockback_%";
@@ -42,13 +42,59 @@ static partial class Game
         return null;
     }
 
+    /// <summary>Clears enemies overlapping a Leap Slam landing, independently of the later hit's accuracy, block or damage.
+    /// Native 0x1419fe0f0 separates centers by source size + target size + 2; this server queues the destination through
+    /// its existing Teleport presentation, without reproducing native knockback speed or animation. Call under the
+    /// Monsters lock before damage, with the final skill radius. Only a coincident target uses <paramref name="from"/>
+    /// toward <paramref name="landing"/> as its direction; without a nonzero direction it stays in place.</summary>
+    public static void LeapSlamDisplaceOccupants(ClientState conn, (int X, int Y) landing, double radius, double now,
+        IReadOnlyDictionary<uint, int>? skill = null, (int X, int Y)? from = null)
+    {
+        if (!(radius > 0) || !double.IsFinite(radius)) return;
+        foreach (var m in conn.Monsters.Values)
+        {
+            if (!KnockbackAllowed(m) || m.Effects["cannot_be_knocked_back"] > 0) continue;
+            var at = m.Walk.Position(now);
+            double dx = (double)at.X - landing.X, dy = (double)at.Y - landing.Y;
+            double distance = Math.Sqrt(dx * dx + dy * dy);
+            int size = Math.Max(0, LivingCollision.Size(m));
+            double separation = LivingCollision.PlayerSize + size + 2;
+            if (distance > radius || distance >= separation) continue;
+            double directionLength = distance;
+            if (directionLength == 0)
+            {
+                if (from is not { } origin) continue;
+                dx = (double)landing.X - origin.X;
+                dy = (double)landing.Y - origin.Y;
+                directionLength = Math.Sqrt(dx * dx + dy * dy);
+                if (directionLength == 0) continue;
+            }
+            var to = (X: (int)Math.Round(landing.X + dx / directionLength * separation),
+                Y: (int)Math.Round(landing.Y + dy / directionLength * separation));
+            if (to == at || !conn.Layout.WalkableFor(to.X, to.Y, size) || conn.Barrier.Contains(to)) continue;
+            KnockbackCommitLocked(m, to, now);
+        }
+    }
+
+    /// <summary>Commits a validated knockback destination and invalidates the interrupted action. Call under the
+    /// Monsters lock; the next AI tick presents <see cref="SpawnedMonster.KnockbackPending"/>.</summary>
+    public static void KnockbackCommitLocked(SpawnedMonster m, (int X, int Y) to, double now)
+    {
+        m.Walk.Teleport(to.X, to.Y, now);
+        m.KnockbackPending = (to.X, to.Y);
+        m.LastTarget = null;
+        m.SwingGeneration = null;
+        m.ActionGeneration++;
+        m.BusyUntil = Math.Max(m.BusyUntil, now + KnockbackDelaySeconds);
+    }
+
     /// <summary>Rolls "X% chance to Knock Enemies Back on hit" for a player hit that landed on a monster: the
     /// character's and the skill's own chance and distance (Knockback Support's 25-44% chance and 50% increased
     /// distance are skill stats) add. On success the monster is pushed away from the player, its action is interrupted
     /// and <see cref="SpawnedMonster.KnockbackPending"/> carries the cell for the AI tick's packet. Under the Monsters
     /// lock, after the hit's damage.</summary>
     internal static bool KnockbackOnHitLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? skill, double now, Random random)
+        IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null)
     {
         if (!KnockbackAllowed(m)) return false;
         int Stat(string name)
@@ -59,17 +105,12 @@ static partial class Game
         }
         if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
         var at = m.Walk.Position(now);
-        var from = conn.Walk.Position(now);
+        var from = origin ?? conn.Walk.Position(now);
         double cells = KnockbackMinimumMetres * CellsPerMetre * Math.Max(0, 1 + Stat(KnockbackDistanceStat) / 100d);
         int size = Math.Max(0, LivingCollision.Size(m));
         if (KnockbackDestination(from, at, cells,
                 (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y))) is not { } to) return false;
-        m.Walk.Teleport(to.X, to.Y, now);
-        m.KnockbackPending = (to.X, to.Y);
-        m.LastTarget = null;
-        m.SwingGeneration = null;
-        m.ActionGeneration++;
-        m.BusyUntil = Math.Max(m.BusyUntil, now + KnockbackDelaySeconds);
+        KnockbackCommitLocked(m, to, now);
         return true;
     }
 }

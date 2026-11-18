@@ -27,9 +27,24 @@ public static class ClientStateRules
                         conn.RetiredCombatObjects.Clear(); conn.RetiredCombatBuffs.Clear();
                         conn.OwnedCombatState = current;
                         conn.SentRampage = default;
+                        conn.SentRampageStat = null;
+                        conn.SentRampageStacks = 0;
                     }
                     return current;
                 }
+            }
+        }
+
+        /// <summary>The Rampage world this connection has, when <see cref="RampageWorld"/> would hand that one out as
+        /// it is (the same test); null when asking would make a new one, or the rules are retired. Makes and changes
+        /// nothing.</summary>
+        public RampageWorld? StandingRampageWorld
+        {
+            get
+            {
+                lock (conn.Monsters)
+                    return Game.CurrentGameRules && conn.OwnedCombatState is RampageWorld current
+                        && ReferenceEquals(current.SourceOwner, AscendancyPolicies.SourceOwner(conn)) ? current : null;
             }
         }
 

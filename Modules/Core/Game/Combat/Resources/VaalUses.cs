@@ -13,7 +13,9 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "VaalGroundSlam";
+    public static bool VaalExecutor(ClientState conn, int effect) =>
+        SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+            || IsVaalMinion(SkillsFor(conn).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
@@ -30,7 +32,7 @@ public static partial class Game
     static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
     {
         var gem = SupportedSkill(conn, id);
-        if (!gem.RequirementsMet || WeaponRestricted(conn, gem.Effect) is not null
+        if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
             || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
         var player = CharacterPlayerStats(conn);
         int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);
@@ -51,9 +53,16 @@ public static partial class Game
             life = mana;
             mana = 0;
         }
+        int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
+        // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
+        bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats)
+            : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
+            ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
+            : preventionMs / 1000d;
         double prevention = Get("vaal_skill_does_not_apply_soul_gain_prevention") != 0
             || Get("map_player_disable_soul_gain_prevention") != 0 ? 0
-            : Math.Max(0, SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level) / 1000.0
+            : Math.Max(0, preventionBase
                 * (1 + Get("vaal_skill_soul_gain_prevention_+%_final_from_pact_of_ktash") / 100.0));
         return new(id, gem.Effect, conn.ActionCount, conn.ProjectileEpoch, rage, souls, mana, life, prevention)
             { RageConverted = conversion };
@@ -105,8 +114,23 @@ public static partial class Game
         ManaSpentLocked(conn, plan.Mana, stats);
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
+        Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +
+            $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={conn.VaalPreventionUntil:0.000})");
         conn.VaalUse = plan with { Action = conn.ActionCount, Epoch = conn.ProjectileEpoch,
             CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
+    }
+
+    public const string MaximumPowerOnVaalUse = "gain_maximum_power_charges_on_vaal_skill_use";
+    public static void GrantVaalUseChargesLocked(ClientState conn, double at)
+    {
+        if (conn.Paused || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameWork) return;
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get(MaximumPowerOnVaalUse) <= 0) return;
+        var session = ChargesOf(conn); session.Observe(Get);
+        var step = session.Admit(at, [new ChargeEvent.Grant(ChargeType.Power, session.Limits(ChargeType.Power).Maximum,
+            MaximumPowerOnVaalUse)], Get, () => WeaponProfileFor(conn), true, Random.Shared);
+        if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
     }
 
     static VaalUseReservation? ExecuteVaalUse(ClientState conn, ushort id, int effect)
@@ -117,6 +141,8 @@ public static partial class Game
                 || paid.Effect != effect || paid.Action != conn.ActionCount || paid.Epoch != conn.ProjectileEpoch
                 || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action)) return null;
             paid.Executed = true;
+            conn.RecentEvents.Record(StatConditions.UsedVaalSkill, VaalResourceTime(conn));
+            GrantVaalUseChargesLocked(conn, VaalResourceTime(conn));
             return paid;
         }
     }
@@ -164,6 +190,8 @@ public static partial class Game
             await SendRage(remote, stream, ciphers, conn);
             if (!Current()) return;
             await SendVaalSouls(remote, stream, ciphers, conn);
+            if (!Current()) return;
+            await SendChargeStats(remote, stream, ciphers, conn, "accepted Vaal use");
             if (!Current()) return;
             await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
         }

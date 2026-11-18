@@ -25,6 +25,25 @@ public static class ProjectileGrid
         return x < 0 || y < 0 || x >= level.Width || y >= level.Height || level.Projectile[y * level.Width + x] == 0;
     }
 
+    /// <summary>An area's cells, looked up once. <see cref="Blocks(string, uint, int, int)"/> finds the area by its name
+    /// for every cell asked, and a flight asks for each cell it crosses at every step of the simulation.</summary>
+    public sealed class Area
+    {
+        readonly int w, h;
+        readonly byte[] cells;
+        internal Area(int w, int h, byte[] cells) => (this.w, this.h, this.cells) = (w, h, cells);
+        /// <summary>Whether the cell stops projectiles (cells off the grid do).</summary>
+        public bool Blocks(int x, int y) => x < 0 || y < 0 || x >= w || y >= h || cells[y * w + x] == 0;
+    }
+
+    /// <summary>The area's cells as <see cref="Blocks(string, uint, int, int)"/> reads them (the capture, else the level
+    /// the Gateway generated), or null when it has neither.</summary>
+    public static Area? Of(string areaId, uint seed)
+    {
+        if (Loaded.GetOrAdd($"{areaId}_seed{seed}", Load) is { } g) return new(g.W, g.H, g.Cells);
+        return ServerLevels.For(areaId, seed) is { } level ? new(level.Width, level.Height, level.Projectile) : null;
+    }
+
     static Grid? Load(string stem)
     {
         string bin = Path.Combine(Folder, stem + ".projectile.bin"), meta = Path.Combine(Folder, stem + ".json");
