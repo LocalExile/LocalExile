@@ -2152,7 +2152,7 @@ public static partial class Game
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
-        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage);
+        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

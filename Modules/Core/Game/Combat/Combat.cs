@@ -1291,6 +1291,7 @@ public static partial class Game
                     $"0x01b1 player cost {conn.PlayerMana} mana, {conn.PlayerLife} life (-{cost} mana, -{lifeCost} life for {gem.Name}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
             }
         }
+        if (gem.Name is not null) ChargesOnSkillUse(conn, gem.Effect, vaalCast);
         if (vaalCast)
         {
             recoveryGeneration = vaalUse!.RecoveryGeneration;
@@ -2525,7 +2526,7 @@ public static partial class Game
                 {
                     using (ProjectileMutation(conn, advance: false))
                     {
-                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0);
+                        ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
                         CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
@@ -2544,7 +2545,7 @@ public static partial class Game
                     impactArt: !spell && hammer is null ? MeleeImpactArt(SkillsFor(conn).EffectId(gem.Effect)) : null);
                 await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
                 await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
-                ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
+                ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id, skillStats: skillStats);
             }
         }
         finally

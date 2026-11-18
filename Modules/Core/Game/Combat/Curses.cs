@@ -38,7 +38,8 @@ public static partial class Game
     static int CurseLimit(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string n) => GolemStat(player, n);
-        return Get("has_curse_limit_equal_to_maximum_power_charges") != 0 ? Get("max_power_charges")
+        // Anathema: the maximum Power Charges (Character.ot's 3 with the mods), not the raw +N stat.
+        return Get("has_curse_limit_equal_to_maximum_power_charges") != 0 ? ChargeMaxima.Of(ChargeType.Power, Get)
             : Math.Max(0, 1 + Get("number_of_additional_curses_allowed"));
     }
 
