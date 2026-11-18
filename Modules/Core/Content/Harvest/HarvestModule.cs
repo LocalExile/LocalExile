@@ -4,8 +4,8 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Harvest;
 
-/// <summary>Horticrafting (the station in the hideout, its recipe browser and its crafts) and the Sacred Grove of a map
-/// (<see cref="SacredGrove"/>).</summary>
+/// <summary>Horticrafting (the station in the hideout, its recipe browser and its crafts), the Sacred Grove of a map
+/// (<see cref="SacredGrove"/>) and Oshabi's fight (<see cref="OshabiEncounter"/>).</summary>
 public sealed class HarvestModule : IModule
 {
     const string StationType = "Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout";
@@ -28,16 +28,29 @@ public sealed class HarvestModule : IModule
         });
         GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
-        GameEvents.AreaGenerated.Add(module.Manifest.Id, SacredGrove.Enter);
-        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => SacredGrove.Tick(conn));
-        GameEvents.Drops.Add(module.Manifest.Id, HarvestLifeforce.Drops);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
+        {
+            await SacredGrove.Enter(conn);
+            await OshabiEncounter.Enter(conn);
+        });
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
+        {
+            await SacredGrove.Tick(conn);
+            await OshabiEncounter.Tick(conn);
+        });
+        GameEvents.Drops.Add(module.Manifest.Id, drop =>
+        {
+            HarvestLifeforce.Drops(drop);
+            OshabiEncounter.Drops(drop);
+        });
+        module.Lifetime.Own(OshabiEncounter.CleanupOnUnload());
         GameEvents.Experience.Add(module.Manifest.Id, HarvestLifeforce.Experience);
         // The grove monsters' more life: HarvestLifeScalingPerLevel and the Doubling scarab's.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station)
-                return await SacredGrove.Use(conn, use, at);
+                return await SacredGrove.Use(conn, use, at) || await OshabiEncounter.Use(conn, use, at);
             var world = WorldOf(conn);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");

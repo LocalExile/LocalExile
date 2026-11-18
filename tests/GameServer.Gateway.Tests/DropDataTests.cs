@@ -8,8 +8,8 @@ public sealed class DropDataTests
         var store = GameData.Store!;
         var counts = store.DropCounts();
         Assert.Equal(36, counts.CurrencyWeights);
-        Assert.Equal(633, counts.Bosses);
-        Assert.Equal(112, counts.BossItems);
+        Assert.Equal(634, counts.Bosses);
+        Assert.Equal(120, counts.BossItems);
         Assert.Equal(555, counts.CardAreas);
         Assert.Equal(531, counts.ItemWeights);
 
@@ -27,6 +27,8 @@ public sealed class DropDataTests
         Assert.Null(drops.BossItems[("Metadata/Monsters/Atziri/Atziri", "The Vertex")].Chance);
         // The Sacred Blossom the Harvest module rolls on a Tier 4 grove boss.
         Assert.Equal(0.12, drops.BossItems[("Metadata/Monsters/LeagueHarvest/Red/HarvestBearBoss", "Metadata/Items/MapFragments/CurrencyHarvestBossKey")].Chance);
+        // Oshabi's guaranteed unique: Forbidden Shako's share of the one pick.
+        Assert.Equal(0.50, drops.BossItems[("Metadata/Monsters/LeagueHarvest/Oshabi/OshabiBoss", "Forbidden Shako")].Chance);
         Assert.Equal("3.27.0", drops.ItemWeights[("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos")].Patch);
     }
 }

@@ -272,11 +272,11 @@ public static class SacredGrove
         finally { area.Gate.Release(); }
     }
 
-    static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
+    internal static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
         .Select(p => p.Owner).OfType<ClientState>().Prepend(conn)
         .Where(p => !p.Closed && !p.LeavingArea && p.Instance == conn.Instance).Distinct();
 
-    static (QuestObject Object, HarvestTables.ObjectType Type)? Describe(GroveObject o)
+    internal static (QuestObject Object, HarvestTables.ObjectType Type)? Describe(GroveObject o)
     {
         if (!HarvestTables.Current.Objects.TryGetValue(o.Type, out var type) || type.States is not { } states) return null;
         foreach (var (name, value) in o.States) states = states.Set(name, value);

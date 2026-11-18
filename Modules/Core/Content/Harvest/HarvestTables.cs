@@ -6,7 +6,8 @@ namespace GameServer.Modules.Harvest;
 /// <summary>
 /// The Sacred Grove's client.db tables, read once per process: HarvestSeeds (the seed species by colour and tier),
 /// HarvestPerLevelValues and HarvestLifeScalingPerLevel (server-only tables: the client has no Data/*.dat string for
-/// them), HarvestSeedItems (lifeforce per colour) and the grove objects' types (components and StateMachine defaults).
+/// them), HarvestSeedItems (lifeforce per colour) and the grove's and Oshabi's object types (components and StateMachine
+/// defaults).
 /// </summary>
 public sealed class HarvestTables
 {
@@ -65,7 +66,7 @@ public sealed class HarvestTables
             items[row.Int("Id")] = (row.Int("BaseItem"), row.Int("DropStat") + 1);
         SeedItems = items;
         var shared = ObjectTypes.SharedStates();
-        Objects = ObjectTypes.All().Where(t => t.Type.StartsWith(SacredGrove.ObjectRoot, StringComparison.Ordinal))
+        Objects = ObjectTypes.All().Where(t => t.Type.StartsWith(SacredGrove.ObjectRoot, StringComparison.Ordinal) || OshabiEncounter.Types.Contains(t.Type))
             .ToDictionary(t => t.Type, t => new ObjectType(t.Type, ObjectTypes.Components(t.Row), ObjectTypes.StateMachine(t.Row, shared),
                 int.TryParse(t.Row.Text("positioned_object_size"), out int size) ? size : 1));
     }
