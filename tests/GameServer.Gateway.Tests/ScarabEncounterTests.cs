@@ -186,7 +186,7 @@ public sealed class ScarabEncounterTests
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
-            var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2")], Program.Items.Mods);
+            var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2"), Slot("ScarabEssence4")], Program.Items.Mods);
             var essenceInstance = new InstanceState();
             essenceInstance.OpenedWith(new("EssenceOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, essenceMods));
             essenceInstance.AreaStats(() => Compose(essenceMods));
@@ -201,6 +201,17 @@ public sealed class ScarabEncounterTests
             await MapEssences.Enter(essencePeer.Conn);
             Assert.Equal(sealedMonoliths.Select(m => m.Id), Monoliths().Select(m => m.Id));
             var firstMonolith = sealedMonoliths[0];
+            var naturalRare = extra.First(s => s.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Rare
+                && ordinary.Scattered.Any(p => p.Pack.Id == s.Pack));
+            Assert.True(await MapEssences.Imprison(essenceOwner.Conn, naturalRare));
+            Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
+            var converted = Monoliths()[^1];
+            Assert.Equal(Game.Monsters.Find(naturalRare.Variety.ToString())!.Id, converted.Variety);
+            Assert.Empty(essenceOwner.Conn.Monsters);
+            Assert.True(await MapEssences.Imprison(essencePeer.Conn, naturalRare));
+            Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
+            Assert.False(await MapEssences.Imprison(essenceOwner.Conn, naturalRare with { Rarity = GameServer.Core.Protocol.Instance.MonsterRarity.Unique }));
+            Assert.False(await MapEssences.Imprison(essenceOwner.Conn, naturalRare with { Pack = MapScarabPacks.Packs[0].Id }));
             essenceOwner.Conn.Walk.Teleport(firstMonolith.X + 8, firstMonolith.Y, 0);
             for (byte stage = 2; stage <= 4; stage++)
             {

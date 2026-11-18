@@ -535,6 +535,7 @@ public static partial class Game
         byte level = (byte)Math.Clamp(areaLevel, 1, 100);
         foreach (var s in spawns)
         {
+            if (await MapEssences.Imprison(conn, s)) continue;
             var variety = Monsters.Find(s.Variety.ToString())!;
             bool notable = s.Rarity is MonsterRarity.Unique or MonsterRarity.Rare;
             await SpawnMonster(remote, stream, ciphers, conn, variety, level, s.Rarity, s.X, s.Y, log: notable, alone: false);

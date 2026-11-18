@@ -11,10 +11,14 @@ using static Program;
 /// <summary>Retained Essence monoliths, released through the ordinary monster and loot paths.</summary>
 public static class MapEssences
 {
-    public const string Type = "Metadata/MiscellaneousObjects/Monolith", Content = "Essence", Ascent = "Essence.Ascent";
+    public const string Type = "Metadata/MiscellaneousObjects/Monolith", Content = "Essence", Ascent = "Essence.Ascent",
+        Calcification = "Essence.Calcification";
     const string SaveKey = "Essence/monoliths";
     public sealed record Monolith(uint Id, int Index, int X, int Y, string Variety, IReadOnlyList<int> Essences,
-        byte Stage = 1, uint Monster = 0);
+        byte Stage = 1, uint Monster = 0)
+    {
+        public string? Source { get; init; }
+    }
     sealed class Area
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
@@ -28,7 +32,7 @@ public static class MapEssences
         if (request.Campaign || request.Opening is not { } opening || MapEssenceCatalog.Pool(opening.Area.Level).Count == 0) return;
         if (Packs.For(opening.Area.Id)?.Scattered.Any(p => p.Pack.Entries.Any(e =>
             Monsters.Find(e.Variety.ToString()) is { Supported: true })) != true) return;
-        request.HandledContent.UnionWith([Content, Ascent]);
+        request.HandledContent.UnionWith([Content, Ascent, Calcification]);
     }
 
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
@@ -42,6 +46,44 @@ public static class MapEssences
         var area = AreaInfo.Load(GamePack.Default.TryRead, map.Area.Id, map.Area.Level) with
         { Stats = stats.ToDictionary(s => (int)s.Key, s => s.Value) };
         return ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(conn.Seed ^ 0x45535345, false), 6);
+    }
+
+    /// <summary>Replaces a planned natural rare before it exists; it earns no kill rewards until actually released and killed.</summary>
+    public static async Task<bool> Imprison(ClientState conn, AreaPopulation.Spawn spawn)
+    {
+        if (spawn.Rarity != MonsterRarity.Rare || MapModsOf(conn) is not { } mods
+            || mods.Get("map_rare_monsters_trapped_in_essences") <= 0
+            || Packs.For(conn.Layout.Id)?.Scattered.Any(p => p.Pack.Id == spawn.Pack) != true
+            || MapScarabPacks.Packs.Any(p => p.Id == spawn.Pack)
+            || Monsters.Find(spawn.Variety.ToString()) is not { Supported: true } variety) return false;
+        await Enter(conn);
+        var area = Areas.GetValue(conn.Instance, _ => new());
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (area.Monoliths is not { } monoliths) return false;
+            string source = $"{spawn.Pack}/{spawn.Variety}/{spawn.X}/{spawn.Y}";
+            if (monoliths.Any(m => m.Source == source)) return true;
+            var essences = MapEssenceCatalog.Roll(MapRunOf(conn)!.Area.Level, mods,
+                new Random(unchecked((int)conn.Seed ^ spawn.X * 397 ^ spawn.Y)));
+            if (essences.Count == 0) return false;
+            bool Floor(int x, int y) => conn.Layout.WalkableFor(x, y, 4);
+            var blockers = conn.MonsterPlacementBlockers(0);
+            (int X, int Y)? at = CollisionEscape.Clear((spawn.X, spawn.Y), conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, 4)
+                ? (spawn.X, spawn.Y) : CollisionEscape.Find((spawn.X, spawn.Y), conn.Layout.GridW, conn.Layout.GridH, Floor, blockers, moverSize: 4);
+            if (at is null)
+            {
+                Console.WriteLine($"[map-content] Calcification area={conn.Layout.Id}: no clear monolith cell for natural rare {source}; retaining the rare");
+                return false;
+            }
+            var monolith = new Monolith(conn.Instance.World.NewMonsterId(), monoliths.Count, at.Value.X, at.Value.Y,
+                variety.Id, essences) { Source = source };
+            monoliths.Add(monolith);
+            Keep(conn, area);
+            foreach (var member in Members(conn)) await Present(member, monolith);
+            return true;
+        }
+        finally { area.Gate.Release(); }
     }
 
     public static async Task Enter(ClientState conn)
