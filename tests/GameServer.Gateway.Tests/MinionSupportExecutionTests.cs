@@ -7,7 +7,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class MinionSupportExecutionTests
 {
     static void Invoke(string name, params object[] arguments) =>
-        typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments);
+        typeof(Game).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, arguments);
 
     static async Task<GolemState.Golem> Skeleton(AnimatedAdmissionTests.Fixture f, params string[] supports)
     {
@@ -27,6 +27,7 @@ public sealed class MinionSupportExecutionTests
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
         var fighter = f.Conn.Summons.Fighters[id];
         fighter.Monster.Walk.Teleport(100, 100, 0);
+        Invoke("RefreshGolemLocked", f.Conn, fighter, Game.CharacterPlayerStats(f.Conn), (double?)0d);
         fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<string, int>
             { ["accuracy_rating"] = 1000000, ["never_crit"] = 1,
                 ["support_melee_splash_damage_+%_final_for_splash"] = fighter.Own.GetValueOrDefault(Program.Stats.Key("support_melee_splash_damage_+%_final_for_splash")!.Value) }) };
@@ -111,6 +112,7 @@ public sealed class MinionSupportExecutionTests
         var fighter = await Skeleton(f, "Melee Splash Support");
         var original = fighter.Abilities.First(a => !a.Attack.Spell && Program.Skills.IsMelee(a.Effect));
         var ability = original with { Attack = original.Attack with { Damage = DamagePacket.Of(DamageType.Physical, 100, 100) } };
+        fighter.Abilities = [ability];
         var enemies = new[] { (999u, 105, 100, true), (998u, 108, 100, true), (997u, 160, 100, true), (996u, 108, 100, false) };
         foreach (var (id, x, y, hostile) in enemies)
             f.Conn.Monsters[id] = new("target", new(x, y, 0), 100, 3, 10000) { Hostile = hostile };

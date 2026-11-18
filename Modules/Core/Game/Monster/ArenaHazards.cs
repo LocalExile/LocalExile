@@ -116,7 +116,9 @@ internal static class ArenaHazards
                         amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds;
                     }
                     int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.MinionCarry[g.Id] = amount - damage;
-                    int absorbed = Math.Min((int)g.Shield, damage); g.Shield -= absorbed; damage -= absorbed;
+                    int beforeShield = damage;
+                    damage = g.ShieldPool.Damage(damage, false, now);
+                    int absorbed = beforeShield - damage;
                     g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
                     if (absorbed > 0 || damage > 0) p.Minions.OutputQueue.Add(new([], "campaign ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
                     if (g.Monster.Life == 0) GolemDieLocked(p, g, now);

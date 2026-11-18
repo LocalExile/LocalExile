@@ -217,6 +217,29 @@ public class DamageTakenTriggerTests
         var guardPacket = Game.TriggeredGuardPresentation(conn, now);
         Assert.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(guardPacket.AsSpan(guardPacket.Length - 8)));
         Assert.Equal(54u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(guardPacket.AsSpan(guardPacket.Length - 4)));
+        var guardStats = Game.CharacterPlayerStats(conn);
+        Assert.Equal(100, guardStats[Program.Stats.Key("avoid_bleed_%")!.Value]);
+        var bleedingEnemy = new SpawnedMonster("Steelskin bleed source", new(0, 0, 0), 0, 0, 100)
+        {
+            Mods = MonsterModSet.None with { Effects = new(new Dictionary<string, int> { ["global_bleed_on_hit"] = 1 }) },
+        };
+        var physicalHit = GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, 100, 100);
+        Game.ApplyMonsterDamagingAilmentsLocked(conn, 77, bleedingEnemy, physicalHit, false, now, prepared: guardStats);
+        Assert.False(conn.IncomingAilments.Bleeding(now));
+        conn.Experience = CharacterStats.ExperienceFor(100);
+        var inventories = Game.ItemsOf(conn);
+        foreach (var old in inventories.Items(PlayerInventories.Offhand1).ToArray())
+            inventories.Remove(PlayerInventories.Offhand1, old.Id);
+        var aegisItem = inventories.Add(PlayerInventories.Offhand1, 0, 0,
+            new UniqueCatalog(Program.Items).Create("The Ghastly Theatre", new Random(832))!);
+        conn.Pools = Game.PoolsFor(conn, 100);
+        Assert.True(Game.PhysicalAegisStatus(conn, now).Active);
+        var aegisStats = Game.CharacterPlayerStats(conn);
+        Assert.Equal(0, Game.DamagePlayerHitTyped(conn, 600, 0, 0, now, aegisStats, physicalHit));
+        Assert.Equal(400, Game.PhysicalAegisStatus(conn, now).Current);
+        inventories.Remove(PlayerInventories.Offhand1, aegisItem.Id);
+        conn.Pools = Game.PoolsFor(conn, 100);
+        // Aegis took the previous hit, so all 54 points of the guard buffer remain available.
         Assert.Equal((46, 0, 0), Game.TriggeredGuardHit(conn, 100, 0, 0, now));
         // The level-one shield absorbs only 54, and starts its 3s cooldown when depleted.
         Assert.False(Game.TriggerGuardReady(conn, now + 2.99));
