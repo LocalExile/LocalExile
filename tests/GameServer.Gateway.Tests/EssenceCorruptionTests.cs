@@ -132,6 +132,40 @@ public sealed class EssenceCorruptionTests
             Assert.Equal(changed.Essences.Select(row => MapEssenceCatalog.Find(row)!.Item), rewards.Items);
             await MapEssences.UseItemOn(owner.Conn, Packet(1, stack.Id, target.Id));
             Assert.Equal(2, Left());
+
+            var interrupted = Read().First(m => m.Stage < 4 && !m.Corrupted);
+            owner.Conn.Walk.Teleport(interrupted.X + 8, interrupted.Y, 0);
+            var outgoing = Program.Outgoing;
+            var creates = new List<byte[]>();
+            try
+            {
+                Program.Outgoing = (cipher, packet) =>
+                {
+                    if (ReferenceEquals(cipher, owner.Conn.Wire.Ciphers) && packet[0] == 0 && packet[1] == 0xbf)
+                        throw new IOException("Interrupted after committing the corruption");
+                    outgoing?.Invoke(cipher, packet);
+                };
+                await Assert.ThrowsAsync<IOException>(() => MapEssences.UseItemOn(owner.Conn,
+                    Packet(1, stack.Id, interrupted.Id)));
+                Assert.True(Read().Single(m => m.Id == interrupted.Id).Corrupted);
+                Assert.Equal(1, Left());
+                owner.Conn.LeavingArea = true;
+                Program.Outgoing = (cipher, packet) =>
+                {
+                    if (ReferenceEquals(cipher, peer.Conn.Wire.Ciphers)) creates.Add(packet.ToArray());
+                    outgoing?.Invoke(cipher, packet);
+                };
+                await MapEssences.Tick(peer.Conn, 0);
+                var prefix = new LoginWriter().U16(0x2bb).U32(interrupted.Id).ToArray();
+                Assert.Single(creates, packet => packet.AsSpan().IndexOf(prefix) >= 0);
+                creates.Clear();
+                await MapEssences.Tick(peer.Conn, 0);
+                Assert.DoesNotContain(creates, packet => packet.AsSpan().IndexOf(prefix) >= 0);
+                peer.Conn.Walk.Teleport(interrupted.X + 8, interrupted.Y, 0);
+                await MapEssences.UseItemOn(peer.Conn, Packet(1, peerVaal.Id, interrupted.Id));
+                Assert.Contains(peerItems.Items(PlayerInventories.MainInventory), i => i.Id == peerVaal.Id);
+            }
+            finally { Program.Outgoing = outgoing; }
         }
         finally
         {

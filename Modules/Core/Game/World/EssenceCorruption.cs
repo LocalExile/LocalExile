@@ -62,6 +62,7 @@ public static partial class MapEssences
             if (!CurrentGameWork || items.ConsumeOne(row, used.Id) is not { } taken) return true;
             monolith = result.Monolith;
             area.Monoliths[monolith.Index] = monolith;
+            area.Dirty.Add(monolith.Index);
             Keep(conn, area); // commit shared state before any output or another player's request
             var wire = conn.Wire;
             await Send(wire.Remote, wire.Stream, wire.Ciphers,
@@ -69,7 +70,7 @@ public static partial class MapEssences
                 $"0x00bf Vaal Orb used on essence monolith 0x{monolith.Id:x}");
             Console.WriteLine(Log($"corrupted outcome={result.Outcome} essences=[{string.Join(',', monolith.Essences)}]"));
             if (monolith.ForcedRelease) await Release(conn, area, monolith);
-            else foreach (var member in Members(conn)) await Recreate(member, monolith);
+            else await PresentDirty(conn, area);
         }
         finally { area.Gate.Release(); }
         return true;
@@ -98,6 +99,7 @@ public static partial class MapEssences
             monolith.X, monolith.Y, mods: mods, unrisen: false, alone: false, owned: (id, _) =>
             {
                 area.Monoliths![monolith.Index] = monolith with { Stage = 4, Monster = id, ForcedRelease = false };
+                area.Dirty.Add(monolith.Index);
                 ApplyReleaseEffects(conn, area, monolith.Index);
                 Keep(conn, area);
             });
