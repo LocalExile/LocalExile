@@ -555,7 +555,7 @@ public static partial class Game
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
-                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
+                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
                 (damage, stored, impaled) = WithImpaleHitLocked(conn, m, damage, ownRolled, critical, sourceCriticalMultiplier,
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
@@ -578,6 +578,8 @@ public static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
+                if (ElementalOverloadCritLocked(conn, SkillCatalog.FirstSkillId, null, player, critical) is { } eoBuff)
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
@@ -650,6 +652,7 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+        player = WithElementalOverload(conn, SkillCatalog.FirstSkillId, player);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
         return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(accuracy), additionalIncreased),
             DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion, accuracy),
@@ -2420,7 +2423,7 @@ public static partial class Game
                         mods = HitResistMods(player, skillStats);
                         sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                         if (!spell) accuracy = SupportedAccuracy(conn, skillId, hand);
-                        leech = HitLeechSources(player, !spell, skillStats, local);
+                        leech = HitLeechSources(player, !spell, skillStats, local, !spell && SkillsFor(conn).IsMelee(gem.Effect));
                         impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
                         criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
                     }
@@ -2514,6 +2517,9 @@ public static partial class Game
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(conn,
                             ProjectilesFor(remote, stream, ciphers, conn), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
+                        if (ElementalOverloadCritLocked(conn, skillId, SkillsFor(conn).EffectId(gem.Effect), player, critical)
+                            is { } eoBuff)
+                            ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.

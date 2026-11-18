@@ -71,7 +71,9 @@ public static partial class Game
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
             dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get("aggravate_bleeding_on_attack_crit_chance_%"), 0, 100),
-            !dance && get("aggravate_inflicted_bleeding") != 0, rupture);
+            !dance && get("aggravate_inflicted_bleeding") != 0, rupture,
+            NeverFromCrit: get("keystone_elemental_overload") != 0,
+            OnlyFromCrit: get("keystone_ailment_crit") != 0);
     }
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; the swung weapon
@@ -120,6 +122,8 @@ public static partial class Game
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
+        // Elemental Overload: the ailment is not from a critical strike, so it rolls the hit's chance and aggravate.
+        if (settings.NeverFromCrit) critical = false;
         SettleBleeding(target, now);
         target.Bleeds.Stacks = settings.Stacks;
         if (target.Bleeds.Burning

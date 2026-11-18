@@ -574,7 +574,10 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         var tree = (PassiveTree)Game("PassivesFor", conn)!;
         ushort node = Enumerable.Range(1, ushort.MaxValue - 1).Select(i => (ushort)i)
             .First(i => tree.Find(i) is { Stats.Count: > 0, IsAscendancy: false, IsStart: false, IsKeystone: false, IsMastery: false,
-                IsJewelSocket: false, IsProxy: false, IsExpansion: false });
+                IsJewelSocket: false, IsProxy: false, IsExpansion: false } candidate
+                // A conditional stat may correctly count for nothing here (the character is not dual wielding, say),
+                // so the node has to carry one without a condition for the snapshot to change.
+                && candidate.Stats.Any(s => StatConditions.PlainOf(Program.Stats.Name(s.Key) ?? "") is null));
         lock (conn.Monsters) conn.Passives.Add(node);
         RebuildPools();
         Step("passive allocated");
@@ -637,7 +640,7 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         lock (conn.Monsters)
         {
             object leech = Game("LeechOf", conn)!;
-            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true]);
+            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true, false]);
         }
         Step("leeching");
         lock (conn.Monsters)
