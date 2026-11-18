@@ -107,18 +107,18 @@ public sealed class PlayerElementalAilments
     // Damaging ailments use the pre-critical base, not damage taken. Non-damaging ailments use damage dealt
     // against the ordinary player's maximum-Life threshold. No enemy chance-to-ailment modifiers are invented.
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, uint? source = null) =>
-        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source);
+        Func<string, int> get, Random random, uint? source = null, double durationFactor = 1) =>
+        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source, durationFactor);
 
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, HitSettings settings, uint? source = null)
+        Func<string, int> get, Random random, HitSettings settings, uint? source = null, double durationFactor = 1)
     {
         lock (effects)
         {
             Reconcile(get);
-            // Lethe Shade doubles the duration of ailments a hit puts on you; a reflected one (Inflict) is excluded.
+            // The caller's duration factor scales the ailments a hit puts on you; a reflected one (Inflict) is excluded.
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude,
-                seconds * IncomingResourceDefences.LetheShadeAilmentDuration(get), now, get, random, source);
+                seconds * durationFactor, now, get, random, source);
             if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
                 Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
                     * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);

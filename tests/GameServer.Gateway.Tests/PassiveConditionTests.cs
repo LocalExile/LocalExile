@@ -107,15 +107,21 @@ public sealed class PassiveConditionTests
         Assert.Equal(1000, EvasionKeystones.Rating(1000, projectile: false, melee: false, Dancing));
 
         // Magebane: Dexterity's inherent evasion bonus is gone (its accuracy bonus is not), and every 15 Dexterity is
-        // 1% spell suppression. 300 Dexterity: 15 base evasion stays 15 instead of 24, and 20% suppression.
+        // 1% spell suppression. 300 Dexterity: 15 base evasion stays 15 instead of 24, and 20% suppression. The sheet
+        // takes generic inputs; Core's PassiveBonus turns the keystone into them.
         var classInfo = Game.SkillsFor(f.Conn).ClassFor(f.Conn.ClassRow);
         var plain = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300));
-        var magebane = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300, Magebane: true));
+        var magebane = CharacterStats.For(classInfo, 90, new CharacterStats.Bonus(Dexterity: 300,
+            NoDexterityEvasion: true, SpellSuppressionPerFifteenDexterity: 1));
         Assert.Equal(24, plain.Evasion);
         Assert.Equal(15, magebane.Evasion);
         Assert.Equal(0, plain.SpellSuppressionChance);
         Assert.Equal(20, magebane.SpellSuppressionChance);
         Assert.Equal(plain.Accuracy, magebane.Accuracy);
+        var magebaneStats = new Dictionary<uint, int> { [Program.Stats.Key("keystone_magebane")!.Value] = 1 };
+        var magebaneBonus = Game.PassiveBonus(magebaneStats, new WeaponProfile(false, false, false, false, false), default);
+        Assert.True(magebaneBonus.NoDexterityEvasion);
+        Assert.Equal(1, magebaneBonus.SpellSuppressionPerFifteenDexterity);
 
         // Pain Attunement: 30% more Spell Damage on low life, and nothing off it.
         var fire = DamagePacket.Of(DamageType.Fire, new DamageRange(100, 100));
@@ -218,20 +224,20 @@ public sealed class PassiveConditionTests
         // Lethe Shade: ailments on you last twice as long (a reflected one does not), and the damaging-ailment DoT you
         // take is halved while one started within the past second.
         int Lethe(string name) => name == "keystone_lethe_shade" ? 1 : 0;
-        Assert.Equal(2, IncomingResourceDefences.LetheShadeAilmentDuration(Lethe));
-        Assert.Equal(1, IncomingResourceDefences.LetheShadeAilmentDuration(_ => 0));
+        Assert.Equal(2, Game.LetheShadeAilmentDuration(Lethe));
+        Assert.Equal(1, Game.LetheShadeAilmentDuration(_ => 0));
         var letheBleed = new IncomingDamagingAilments();
-        letheBleed.ApplyBleed(0, 10, 5, victim: Lethe);
+        letheBleed.ApplyBleed(0, 10, 5, durationFactor: 2);
         Assert.Equal(10, letheBleed.BleedingUntil(0));   // 5 s doubled
         Assert.Equal(0, letheBleed.LatestStart);
         var reflectedBleed = new IncomingDamagingAilments();
-        reflectedBleed.ApplyBleed(0, 10, 5, reflected: true, victim: Lethe);
+        reflectedBleed.ApplyBleed(0, 10, 5, reflected: true, durationFactor: 2);
         Assert.Equal(5, reflectedBleed.BleedingUntil(0));   // reflection keeps its duration
         PlayerElementalAilments Ignited()
         {
             var a = new PlayerElementalAilments();
             a.Apply(DamagePacket.Of(DamageType.Fire, 100, 100), DamagePacket.Of(DamageType.Fire, 100, 100),
-                critical: true, 1000, 0, Lethe, new Random(1));
+                critical: true, 1000, 0, Lethe, new Random(1), durationFactor: 2);
             return a;
         }
         // 100 fire × 90% × 1.3 critical = 117/s; the halved window takes 58 of it.
@@ -241,8 +247,8 @@ public sealed class PassiveConditionTests
         // Vaal Pact: melee life leech is instant, non-melee life leech is not; non-leech life recovery is blocked while
         // leech itself still recovers.
         int Vaal(string name) => name == "keystone_vaal_pact" ? 1 : 0;
-        Assert.True(PetrifiedBlood.NonLeechLifeRecoveryBlocked(Vaal));
-        Assert.False(PetrifiedBlood.NonLeechLifeRecoveryBlocked(_ => 0));
+        Assert.True(LifeRecovery.NonLeechBlocked(Vaal));
+        Assert.False(LifeRecovery.NonLeechBlocked(_ => 0));
         ClientState VaalPlayer(uint life) => new(new(1, "vaal", 300, 300, 100, 100, null, []), 1, 1)
             { Pools = new(1, 1000, 1000, 0, 0), PlayerLife = life };
         var vaalTarget = new SpawnedMonster("vaal", new(0, 0, 0), 0, 0, 1000) { Life = 1000 };

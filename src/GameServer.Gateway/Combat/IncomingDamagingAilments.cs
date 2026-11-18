@@ -46,12 +46,12 @@ public sealed class IncomingDamagingAilments
     /// provenance only: removing the source that admitted it does not remove an instance already on the victim.
     /// </summary>
     public bool ApplyBleed(double now, double perSecond, double seconds, uint? source = null, bool reflected = false,
-        Func<string, int>? victim = null)
+        Func<string, int>? victim = null, double durationFactor = 1)
     {
         if (now < bleedProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         seconds *= SelfDuration(victim, bleed: true);
-        if (!reflected) seconds *= IncomingResourceDefences.LetheShadeAilmentDuration(victim);
+        if (!reflected) seconds *= durationFactor;
         if (!(seconds > 0)) return false;
         bleeds.Add(new(now, now + seconds, perSecond, source, reflected));
         latestStart = now;
@@ -61,12 +61,12 @@ public sealed class IncomingDamagingAilments
 
     /// <summary>Adds one independently expiring poison stack.</summary>
     public bool ApplyPoison(double now, double perSecond, double seconds, uint? source = null, bool reflected = false,
-        Func<string, int>? victim = null)
+        Func<string, int>? victim = null, double durationFactor = 1)
     {
         if (now < poisonProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         seconds *= SelfDuration(victim, bleed: false);
-        if (!reflected) seconds *= IncomingResourceDefences.LetheShadeAilmentDuration(victim);
+        if (!reflected) seconds *= durationFactor;
         if (!(seconds > 0)) return false;
         poisons.Add(new(now, now + seconds, perSecond, source, reflected));
         latestStart = now;

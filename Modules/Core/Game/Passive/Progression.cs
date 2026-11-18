@@ -1446,7 +1446,10 @@ public static partial class Game
             NoStrengthBonuses: Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
             NoDexterityBonuses: Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
             NoIntelligenceBonuses: Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
-            Magebane: Get("keystone_magebane") != 0,
+            // Magebane: "Dexterity provides no inherent bonus to Evasion Rating; +1% Chance to Suppress Spell Damage
+            // per 15 Dexterity" (poewiki /wiki/Magebane).
+            NoDexterityEvasion: Get("keystone_magebane") != 0,
+            SpellSuppressionPerFifteenDexterity: Get("keystone_magebane") != 0 ? 1 : 0,
             Armour: Get("base_physical_damage_reduction_rating"), ArmourPct: armourPct,
             Evasion: Get("base_evasion_rating"), EvasionPct: evasionPct,
             EvasionWhileMovingPct: Get("evasion_rating_+%_while_moving"),

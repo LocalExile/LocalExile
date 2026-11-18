@@ -5,6 +5,11 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    /// <summary>Lethe Shade: "100% more Duration of Ailments on you" (a multiplicative doubling). Reflected ailments are
+    /// excluded by the callers, which skip the factor for a reflection (poewiki /wiki/Lethe_Shade).</summary>
+    public static double LetheShadeAilmentDuration(Func<string, int> get) =>
+        get("keystone_lethe_shade") != 0 ? 2 : 1;
+
     public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<string, int> get) => new(
         get("always_ignite") != 0 ? 100 : get("base_chance_to_ignite_%"),
         get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
@@ -35,8 +40,10 @@ public static partial class Game
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+        double durationFactor = LetheShadeAilmentDuration(Get);
         ApplyPlayerAilmentsLocked(conn, now, ailments =>
-            ailments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, settings, source));
+            ailments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, settings, source,
+                durationFactor));
     }
 
     /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their
@@ -161,7 +168,7 @@ public static partial class Game
                 * Math.Max(0, 1 + effects["base_bleed_duration_+%"] / 100.0);
             conn.IncomingAilments.ApplyBleed(now, physical * 0.70 * more
                 * Math.Max(0, 1 + effects["monster_bleeding_damage_+%_final"] / 100.0), seconds, source,
-                victim: Player);
+                victim: Player, durationFactor: LetheShadeAilmentDuration(Player));
         }
         if (poisonChance > 0 && poisonable && Player("cannot_be_poisoned") == 0
             && Player("immune_to_poison") == 0
@@ -173,7 +180,7 @@ public static partial class Game
                 * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0);
             conn.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
                 * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0), seconds, source,
-                victim: Player);
+                victim: Player, durationFactor: LetheShadeAilmentDuration(Player));
         }
     }
 

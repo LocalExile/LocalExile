@@ -115,9 +115,9 @@ public static class CharacterStats
         bool NoLifeFromStrength = false, bool NoManaFromIntelligence = false,
         bool NoStrengthBonuses = false, bool NoDexterityBonuses = false, bool NoIntelligenceBonuses = false,
         bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
-        // Magebane: "Dexterity provides no inherent bonus to Evasion Rating; +1% Chance to Suppress Spell Damage per 15
-        // Dexterity". Unlike NoDexterityBonuses it leaves Dexterity's accuracy bonus alone.
-        bool Magebane = false)
+        // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
+        // can add spell suppression chance per complete group of 15 Dexterity.
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -228,7 +228,7 @@ public static class CharacterStats
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
             + (long)b.EvasionPctPerTenIntelligence * (intel / 10);
-        long totalEvasionPct = (b.NoDexterityBonuses || b.Magebane ? 0L : dex / 5L) + ordinaryEvasionPct;
+        long totalEvasionPct = (b.NoDexterityBonuses || b.NoDexterityEvasion ? 0L : dex / 5L) + ordinaryEvasionPct;
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion;
         decimal evasionValue = More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
@@ -295,9 +295,9 @@ public static class CharacterStats
             LightningResistance: BaseResistance + b.LightningResistance, ChaosResistance: BaseResistance + b.ChaosResistance,
             FireMaxResistance: Max(b.FireMaxResistance), ColdMaxResistance: Max(b.ColdMaxResistance),
             LightningMaxResistance: Max(b.LightningMaxResistance), ChaosMaxResistance: Max(b.ChaosMaxResistance),
-            SpellSuppressionChance: Math.Clamp(b.SpellSuppressionChance + (b.Magebane ? dex / 15 : 0),
+            SpellSuppressionChance: Math.Clamp(b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
                 0, DamageModel.SpellSuppressionChanceCap),
-            SpellSuppressionChanceUncapped: b.SpellSuppressionChance + (b.Magebane ? dex / 15 : 0),
+            SpellSuppressionChanceUncapped: b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
             SpellSuppressionEffect: Math.Max(0, DamageModel.SpellSuppressionEffect + b.SpellSuppressionEffect),
             SpellSuppressionLucky: b.SpellSuppressionLucky, SpellSuppressionUnlucky: b.SpellSuppressionUnlucky,
             SpellSuppressionWhileFullLife: b.SpellSuppressionWhileFullLife,
