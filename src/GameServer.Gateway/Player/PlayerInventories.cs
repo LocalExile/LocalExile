@@ -1107,7 +1107,8 @@ public sealed class PlayerInventories
     /// <summary>
     /// The class's opening kit from Characters.dat: its start weapon waits on the Strand's ground, while the
     /// skill and support gems are saved as pending tutorial rewards (the biting zombie and large chest).
-    /// Two Small Life Flasks (keys 1/2) and one Small Mana Flask (key 5) are available immediately.
+    /// Two Small Life Flasks (keys 1/2), one Small Mana Flask (key 5) and a stack of three Scrolls of Wisdom are
+    /// available immediately.
     /// Existing saves are loaded unchanged. Game_START_ITEMS=0 starts empty.
     /// </summary>
     static PlayerInventories StartKit(ItemCatalog catalog, string folder, int characterRow = 1)
@@ -1143,6 +1144,9 @@ public sealed class PlayerInventories
         Put(Flask, 0, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 1, 0, catalog.Find("Metadata/Items/Flasks/FlaskLife1"));
         Put(Flask, 4, 0, catalog.Find("Metadata/Items/Flasks/FlaskMana1"));
+        // Three Scrolls of Wisdom, one stack in the main inventory's first cell, to identify the first drops.
+        if (catalog.Find("Metadata/Items/Currency/CurrencyIdentification") is { Supported: true } wisdom)
+            inv.Add(MainInventory, 0, 0, ItemCatalog.Create(wisdom) with { StackSize = 3 });
         return inv;
     }
 }

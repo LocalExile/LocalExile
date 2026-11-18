@@ -1246,7 +1246,8 @@ gems must not be granted:** a support's effect in the list crashed the client in
 ## 7. Start kit, saves and dev command
 
 A new character gets Characters.dat StartSkillGem and StartSupportGem in the main inventory, and in the flask bar two
-Small Life Flasks (cells 0 and 1: flask keys 1 and 2) and a Small Mana Flask (cell 4: key 5). Its StartWeapons[0], with
+Small Life Flasks (cells 0 and 1: flask keys 1 and 2) and a Small Mana Flask (cell 4: key 5), and a stack of three
+Scrolls of Wisdom in the main inventory's first cell. Its StartWeapons[0], with
 two linked white sockets (3.29: a gem fits any colour), is worn
 in Weapon1. With `Game_START_WEAPON=ground` it lies on the ground instead, as on the real game's Twilight Strand: `PlayerInventories.StartWeapon` keeps it (in the save as
 `StartWeapon`) until it is picked up, and on entering an instance outside towns the Gateway puts it once per character, weapon
