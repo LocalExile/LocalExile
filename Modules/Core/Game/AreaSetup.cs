@@ -22,6 +22,7 @@ public static class AreaSetup
         // A reload reaches an area that already has this module's systems from an earlier start.
         if (area.Systems.All.Any(s => ReferenceEquals(s.Source, source))) return;
         MonsterRegeneration.Start(area, conn, source);
+        Game.StartMonsterAi(area, conn, source);
         // The area's walkers, once a frame for everyone (AreaMovement); whoever needs them current between frames steps
         // them to its time first, and this pass then has nothing left to do.
         var frames = conn.Frames;

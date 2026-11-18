@@ -731,7 +731,8 @@ public static partial class Game
         {
             while (PlayerUpdatesCurrent(conn, updates) && !conn.LeavingArea && conn.PendingTransfer is null)
             {
-                await StepMonsterAi(remote, stream, ciphers, conn, cadence);
+                // In an instance the area runs the AI once a frame for every player (MonsterAiSystem.cs).
+                if (!AreaRunsMonsterAi(conn)) await StepMonsterAi(remote, stream, ciphers, conn, cadence);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 int delay;
                 lock (conn.Monsters)
@@ -1174,19 +1175,43 @@ public static partial class Game
             ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
         using (ProjectileMutation(conn, phase: "ai")) plan = PlanMonsterAi(conn, cadence, Math.Max(ProjectileWorldTime(conn), AreaTime(conn)));
-        const ushort Move = 0x2909;
         foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
         foreach (uint id in plan.EndedActions)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
+        foreach (var (id, m, action, packet, log) in MonsterAiOrders(conn, plan))
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, packet, log);
+        foreach (var (id, m) in plan.BossBars)
+        {
+            lock (conn.Monsters) { if (!MonsterPresent(conn, id, m)) continue; conn.BossBarsSeen.Add(id); }
+            await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
+        }
+        if (!CurrentGameWork) return;
+        foreach (var (id, m, action) in plan.Swings)
+            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+        foreach (var (id, m, action, begun) in plan.ArrivedSwings)
+            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
+        foreach (var attack in plan.MinionSwings)
+            StartMinionSwing(remote, stream, ciphers, conn, attack);
+        foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
+            _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
+        conn.Performance.MaybeLog(remote);
+    }
+
+    /// <summary>The orders of an AI pass (its moves, chases and legs), each as the record it writes when its turn comes:
+    /// on a lockstep client the walk is placed then, at the start of the frame being sent (LockstepOrderFrom).</summary>
+    public static List<(uint Id, SpawnedMonster M, int Action, Func<byte[]?> Packet, string? Log)> MonsterAiOrders(ClientState conn, MonsterAiPlan plan)
+    {
+        var orders = new List<(uint Id, SpawnedMonster M, int Action, Func<byte[]?> Packet, string? Log)>();
+        const ushort Move = 0x2909;
         // A chase is re-ordered every few ticks: its lines only with Game_TRACE=ai (the packet history keeps them).
         foreach (var (id, m, action, from, to, why) in plan.Moves)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => PlanMoveAtGate(conn, plan, id, m, action, from, to, why),
-                ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null);
+            orders.Add((id, m, action, () => PlanMoveAtGate(conn, plan, id, m, action, from, to, why),
+                ServerTrace.Ai || why == "gives up" ? $"0x01ab monster 0x{id:x} {why}: move from {from} to {to}" : null));
         foreach (var (id, m, action, from, to) in plan.Chases)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () => ChaseAtGate(conn, plan, id, m, action, from, to),
-                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases the player from {from} to {to}" : null);
+            orders.Add((id, m, action, () => ChaseAtGate(conn, plan, id, m, action, from, to),
+                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases the player from {from} to {to}" : null));
         foreach (var (id, m, action, from, to) in plan.Legs)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+            orders.Add((id, m, action, () =>
                 {
                     var aim = to;
                     bool noWay = false;
@@ -1203,9 +1228,9 @@ public static partial class Game
                     }
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, NextMonsterMoveSequence(conn, m), conn.MonsterOrderFlags);
                 },
-                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases a leg from {from} to {to}" : null);
+                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases a leg from {from} to {to}" : null));
         foreach (var (id, m, action, from, to) in plan.MoveLegs)
-            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
+            orders.Add((id, m, action, () =>
                 {
                     var aim = to;
                     bool taken = true;
@@ -1222,22 +1247,8 @@ public static partial class Game
                     }
                     return InstanceProtocol.ActionStarted(id, start.X, start.Y, aim.X, aim.Y, Move, NextMonsterMoveSequence(conn, m), conn.MonsterOrderFlags);
                 },
-                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases from {from} to {to}" : null);
-        foreach (var (id, m) in plan.BossBars)
-        {
-            lock (conn.Monsters) { if (!MonsterPresent(conn, id, m)) continue; conn.BossBarsSeen.Add(id); }
-            await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
-        }
-        if (!CurrentGameWork) return;
-        foreach (var (id, m, action) in plan.Swings)
-            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
-        foreach (var (id, m, action, begun) in plan.ArrivedSwings)
-            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
-        foreach (var attack in plan.MinionSwings)
-            StartMinionSwing(remote, stream, ciphers, conn, attack);
-        foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
-            _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
-        conn.Performance.MaybeLog(remote);
+                ServerTrace.Ai ? $"0x01ab monster 0x{id:x} chases from {from} to {to}" : null));
+        return orders;
     }
 
     public static async Task RunPlannedMonsterSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers,

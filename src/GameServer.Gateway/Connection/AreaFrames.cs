@@ -279,7 +279,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
                     {
                         pausedStep = Stopwatch.GetTimestamp();
-                        Step(watch.Elapsed.TotalSeconds, simulate: false);
+                        Step(BeginStep(watch.Elapsed.TotalSeconds));
                     }
                     continue;
                 }
@@ -311,8 +311,10 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                         }
                     }
                     await Input();
+                    // The frame's time first: the area's systems and the loops then see the same Now.
+                    var due = BeginStep(boundary);
                     await StepArea(boundary);
-                    Step(boundary);
+                    Step(due);
                 }
                 if (Program.GameLogicOrNull is { } rules)
                     foreach (var m in ended)
@@ -404,14 +406,14 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         foreach (var r in requests) r.TrySetResult(InputTurn.None);
     }
 
-    /// <summary>Steps the frame at <paramref name="time"/>: the area's world (unless paused), then the due waits complete
-    /// here, in role order, then member order.</summary>
-    public void Step(double time, bool simulate = true)
+    /// <summary>Begins the frame at <paramref name="time"/> (its number and Now) and takes the waits due in it, in role
+    /// order, then member order; <see cref="Step"/> completes them, after the area's world stepped.</summary>
+    List<Waiter> BeginStep(double time)
     {
         List<Waiter> due = [];
         lock (gate)
         {
-            if (!Running) return;
+            if (!Running) return due;
             Frame++;
             Time = time;
             stepStarted = Stopwatch.GetTimestamp();
@@ -427,6 +429,12 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
             foreach (var w in due)
                 if (w.Role != PlayerUpdateRole.MonsterAction) { active[(int)w.Role]++; activeTotal++; }
         }
+        return due;
+    }
+
+    /// <summary>Completes the frame's due waits here, in order: each loop's continuation runs inline up to its next await.</summary>
+    void Step(List<Waiter> due)
+    {
         foreach (var w in due)
         {
             w.Cancel.Dispose();
@@ -482,9 +490,9 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         {
             foreach (var (id, joined) in changes)
                 if (joined) area.Entities.Add(id, EntityKind.Player); else area.Entities.Remove(id);
-            area.Step(Frame + 1, time);
+            area.Step(Frame, time);
         }
-        catch (Exception ex) { Console.WriteLine($"[area] frame {Frame + 1} failed: {ServerLog.Describe(ex)}"); }
+        catch (Exception ex) { Console.WriteLine($"[area] frame {Frame} failed: {ServerLog.Describe(ex)}"); }
         foreach (var m in now)
         {
             var records = area.Output.Take(new EntityId(m.Conn.PeerId));

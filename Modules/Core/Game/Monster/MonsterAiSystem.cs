@@ -1,0 +1,127 @@
+using System.Runtime.CompilerServices;
+using GameServer.Core.Diagnostics;
+using GameServer.Core.Protocol.Instance;
+
+/// <summary>
+/// The monsters' AI as the area's system: every two frames (MonsterAiCadence.StepMilliseconds), for each player in the
+/// order they joined, the pass of the monsters that act for that player (a monster acts for its target,
+/// MonsterTargetsLocked), decided on the area's frame instead of each player's own AI loop. The plan is then sent as the
+/// loop sent it, as the player's task: each order is built at its frame's gate (SendMonsterAction), one after another,
+/// and the next pass waits until the last one is sent. The plan runs on the player's frame time (AreaTime), which the area
+/// step shares since the frame begins before it (AreaFrames.BeginStep): planned a frame ahead (live 2026-11-18), a chase
+/// that followed a monster's walk-up swing reached the client while its swing still ran, and the monster stood for about
+/// 2 s on the client while the server walked it, up to 11 cells apart.
+/// </summary>
+public static partial class Game
+{
+    // Each player's pass: its cadence, and the sending of the last plan (never two at once).
+    sealed class AreaAi
+    {
+        public readonly MonsterAiCadence Cadence = new();
+        public Task Pass = Task.CompletedTask;
+    }
+    static readonly ConditionalWeakTable<ClientState, AreaAi> AreaAis = new();
+    // The areas that run the AI, with the rules (module lifetime) that started it there.
+    static readonly ConditionalWeakTable<GameArea, object> AiAreas = new();
+
+    // MonsterAiCadence.StepMilliseconds (50 ms) is two frames, as the AI loop's wait was.
+    const int AiEveryFrames = 2;
+
+    public static void StartMonsterAi(GameArea area, ClientState conn, object source)
+    {
+        var frames = conn.Frames;
+        AiAreas.AddOrUpdate(area, source);
+        area.Systems.Add("monster ai", AreaPhase.Ai, a =>
+        {
+            foreach (var player in frames.Players()) AreaMonsterAi(a, player);
+        }, every: AiEveryFrames, source: source);
+    }
+
+    /// <summary>Whether the area runs this connection's monster AI (its own AI loop then only waits).</summary>
+    public static bool AreaRunsMonsterAi(ClientState conn) =>
+        conn.Instance is not null && conn.Frames.Running && conn.Frames.Area is { } area
+        && AiAreas.TryGetValue(area, out var source) && ReferenceEquals(source, CombatLifetime);
+
+    static void AreaMonsterAi(GameArea area, ClientState player)
+    {
+        if (!CurrentGameWork || player.Instance is null || player.Closed || player.LeavingArea || player.PendingTransfer is not null || !player.PlayerSent
+            || player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)) return;
+        var ai = AreaAis.GetValue(player, _ => new());
+        // The last pass is still sending (each order waits for its frame's gate): as in the AI loop, the next waits.
+        if (!ai.Pass.IsCompleted) return;
+        MonsterAiPlan plan;
+        // Planned as the player's loop planned: on their frame time (AreaTime) and output guard.
+        var (context, guard) = (AreaUpdateContext.Value, Program.ProjectileOutputGuard.Value);
+        AreaUpdateContext.Value = updates;
+        Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(player, updates);
+        try
+        {
+            using (ProjectileMutation(player, phase: "ai"))
+                plan = PlanMonsterAi(player, ai.Cadence, Math.Max(ProjectileWorldTime(player), AreaTime(player)));
+        }
+        finally { (AreaUpdateContext.Value, Program.ProjectileOutputGuard.Value) = (context, guard); }
+        var (remote, stream, ciphers) = player.Wire;
+        ai.Pass = AsPlayer(player, updates, async () =>
+        {
+            await SendMonsterAiPlan(remote, stream, ciphers, player, ai.Cadence, plan);
+            // The next pass's upkeep, before its plan as in the AI loop.
+            await MonsterAiUpkeep(remote, stream, ciphers, player);
+        });
+    }
+
+    // The plan's records and actions, sent as the AI loop sent them: each order built at its frame's gate.
+    static async Task SendMonsterAiPlan(string remote, System.Net.Sockets.NetworkStream stream,
+        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    {
+        foreach (var (packet, log) in plan.Ailments) await Send(remote, stream, ciphers, packet, log);
+        foreach (uint id in plan.EndedActions)
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionEnded(id), ServerTrace.Ai ? $"0x01ac monster 0x{id:x} action ended" : null);
+        foreach (var (id, m, action, packet, log) in MonsterAiOrders(conn, plan))
+            await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, packet, log);
+        await MonsterAiActions(remote, stream, ciphers, conn, cadence, plan);
+    }
+
+    // The pass's upkeep, before its plan as in the AI loop: summons running out, traps, markers, grounds, debuffs.
+    static async Task MonsterAiUpkeep(string remote, System.Net.Sockets.NetworkStream stream,
+        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
+    {
+        await ExpireSummonedMonsters(remote, stream, ciphers, conn);
+        await MonsterTrapsTick(remote, stream, ciphers, conn);
+        await MonsterMarkersTick(remote, stream, ciphers, conn);
+        await HostileGroundsTick(conn);
+        await PlayerDebuffsTick(conn);
+        if (DamageTriggers.TryGetValue(conn, out _))
+            ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
+        conn.Performance.MaybeLog(remote);
+    }
+
+    // What the pass starts besides its orders: boss bars, swings (each waits for its contact on the player's frames).
+    static async Task MonsterAiActions(string remote, System.Net.Sockets.NetworkStream stream,
+        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan)
+    {
+        foreach (var (id, m) in plan.BossBars)
+        {
+            lock (conn.Monsters) { if (!MonsterPresent(conn, id, m)) continue; conn.BossBarsSeen.Add(id); }
+            await ShowBossLifeBar(remote, stream, ciphers, id, m, conn);
+        }
+        if (!CurrentGameWork) return;
+        foreach (var (id, m, action) in plan.Swings)
+            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action);
+        foreach (var (id, m, action, begun) in plan.ArrivedSwings)
+            _ = RunPlannedMonsterSwing(remote, stream, ciphers, conn, cadence, id, m, action, begun);
+        foreach (var attack in plan.MinionSwings)
+            StartMinionSwing(remote, stream, ciphers, conn, attack);
+        foreach (var (id, m, action, target, weapon) in plan.WeaponSwings)
+            _ = RunPlannedRampageWeaponSwing(remote, stream, ciphers, conn, cadence, id, m, action, target, weapon);
+    }
+
+    // Work of the area's pass that sends, run as the player's: on their frame waits (AreaUpdateContext) and output guard.
+    static async Task AsPlayer(ClientState conn, PlayerUpdatesState updates, Func<Task> work)
+    {
+        AreaUpdateContext.Value = updates;
+        Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, updates);
+        try { await work(); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
+        catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} area AI work failed: {ServerLog.Describe(ex)}"); }
+    }
+}
