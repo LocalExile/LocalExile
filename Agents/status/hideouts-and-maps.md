@@ -210,6 +210,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
   The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
   Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
+  A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
+  of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
+  0x1d's extra data, and ruleset 171; not run on the client yet, and the Gateway does not generate these areas
+  ([03](../docs/protocol/03-area-and-world.md) §8).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

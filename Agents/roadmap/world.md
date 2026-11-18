@@ -60,8 +60,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     rooms ("Unknown Incursion Temple room hash").
   - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
     the floor graph from the rooms the server sends.
-  - Deepwater (2): the 3.29 league's DeepwaterEncounter and DeepwaterEncounterVoyage, built from a biome grid the
-    server sends; the only seed-1 traces the port does not match.
+  - Deepwater (2): DeepwaterEncounter and DeepwaterEncounterVoyage are ported (011 §3c4) but not yet compared: run
+    the gate on their seed-1 traces (the default grid) and a capture with a module grid (`pluginStates` in the trace),
+    then list them in `server_level_areas`.
 - The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
@@ -113,7 +114,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   areas DeepwaterEncounter and DeepwaterEncounterVoyage with the biomes DeepwaterSandy, CoralForest, CoralReef and
   ThermalVents (never shipped), and the `Deepwater*` tables.
   What works is in the [status](../status/hideouts-and-maps.md) ("The Sovereign").
-  Ruleset 171 crashes the client where the DeepwaterPlugin is missing and is not sent yet
+  Ruleset 171 crashes the client where the DeepwaterPlugin is missing; it is sent only in the encounter areas
   ([03](../docs/protocol/03-area-and-world.md) §8). Valerie (NPCs 789) waits for the flag that ends the tutorial, which
   the client data does not name. The boat gates are written as plain AreaTransitions, so the client highlights them on
   hover (Boat_AreaTransition_Animate has `no_highlight`).
@@ -121,10 +122,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
-  1. Encounter levels and the biome grid: generate DeepwaterEncounter from a chart's biome and room shape
-     (DeepwaterRooms, DeepwaterConnectionStrings' direction bits, the "Deepwater (2)" item of
-     [server-side level generation](#server-side-level-generation)), and the server data the client needs to build it;
-     then send ruleset 171 there once a live entry shows the client keeps it.
+  1. Encounter levels: the grid is sent and generated (status, "The Sovereign"); left: a live run of both areas
+     (the client keeps ruleset 171, the walk grids equal), the direction of the orientation byte and which board corner
+     is cell 0 (the start), the "Deepwater (2)" item of [server-side level generation](#server-side-level-generation),
+     and the chart's own room, rotation, level, cell stats and border mods once charts exist (step 3).
   2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
      already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
      then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
