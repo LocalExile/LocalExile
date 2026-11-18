@@ -36,6 +36,8 @@ public sealed class ItemCatalog
         Mods = new ModCatalog(folder, hardMode);
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
+        _byId = new(() => _rows.Value.Rows.GroupBy(t => t.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.FirstOrDefault(t => t.Supported) ?? g.First(), StringComparer.OrdinalIgnoreCase));
         _gems = new(() => LoadGems(folder, hardMode));
         _activeGemEffects = new(() => LoadActiveGemEffects(folder));
         _requirements = new(() => LoadRequirements(folder));
@@ -150,6 +152,8 @@ public sealed class ItemCatalog
     public BaseType? ByHash(uint hash) => _byHash.Value.GetValueOrDefault(hash);
 
     private readonly Lazy<Dictionary<uint, BaseType>> _byHash;
+    // Find's first match (the exact Id) without a scan: drops name their items by Id on every kill.
+    private readonly Lazy<Dictionary<string, BaseType>> _byId;
 
     public ItemCatalog() : this("data") { }
 
@@ -208,6 +212,7 @@ public sealed class ItemCatalog
     {
         var rows = _rows.Value.Rows;
         if (int.TryParse(query, out int row)) return Row(row) is { } numbered ? EmptyResonatorType(numbered) : null;
+        if (_byId.Value.TryGetValue(query, out var byId)) return EmptyResonatorType(byId);
         foreach (Func<BaseType, bool> match in new Func<BaseType, bool>[]
         {
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),

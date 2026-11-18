@@ -49,7 +49,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
   conditional damage and support/modifier scope; check equipment UI refresh live.
-  Attack base/added coefficients are separate; remaining skill-specific added inputs and native checks stay in #368.
+  Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
+  skill-specific added inputs and native checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
@@ -78,6 +79,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     sources. Do not add overlapping displayed scopes, substitute regeneration for leech, broaden the attack-only item
     scope, infer Vaal Pact from legacy raw flag names, or multiply one boolean doubling per item copy.
   - Damage: alternative quality, endpoint-only modifiers and official rounding.
+    Hits still multiply a target's physical damage taken and Maim separately; DoT adds them ([20](../docs/protocol/20-damage.md)).
   - Dual wielding ([11](../docs/protocol/11-skills.md) §4): when the client calls the hand selector and its stage for
     Multistrike repeats and Barrage's projectiles (they keep the use's hand) and channels (Cyclone keeps the main hand);
     the off hand's own stun threshold reduction and weapon-family modifiers; a wand beside a melee weapon (the default

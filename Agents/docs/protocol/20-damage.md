@@ -59,6 +59,10 @@ does the mirror pass through the player's resistances. Damage over time is outsi
 penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
 monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
 before the ignites, the burn took only the mods' resistance).
+A DoT adds the target's per-type damage taken to its general increase: Izaro's Toggle Statues (BuffDefinitions
+559–564, Stats 2085/3688/3689, -20 fire/cold/lightning), Vulnerability's `physical_damage_taken_+%` (BuffDefinitions 79)
+and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
+separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
@@ -271,7 +275,22 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
 `global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
 alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
-armour bonus, added only while a bow is the weapon) and the stats below are read.
+armour bonus, added only while a bow is the weapon) and the stats below are read. Weapon-family ranges go to the
+attacking hand only, before the skill's added effectiveness:
+
+- Wands: `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats 412-417) and
+  `…_physical_damage_with_wands` (6772-6773). Claws and daggers: Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815,
+  14155-14158; Rune Daggers count as Daggers (ReminderText 157).
+- Varunastra (Mod 12753): local Stat 4196, hand aliases 4197/4198 (client keys `0x1066/0x1067`). It counts as every
+  one-hand melee type for these ranges and weapon conditions; the hand's native weapon type stays a sword.
+- Fan of Blades (Stats 11248, 11815): the extra projectile checks either hand (type 10/12/16 or a Varunastra alias),
+  the 20% projectile hit increase only the attacking hand.
+- `DualWield3` (Stat 15135): generic increased damage; ordinary and thrusting swords are one type, and Varunastra alone
+  qualifies (as PoB).
+- Eclipse Solaris (Stats 22169-22170): the range per 1% increased light radius; none at zero or less.
+- Ritual boots implicit (Stats 13539-13540, per 200 accuracy; Stat 13577, less accuracy): whole 200-rating groups of
+  the hand's accuracy, with the less factor and Blind applied before one rounding (floor(381 × .75 × .7) = 200, not 199).
+
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`

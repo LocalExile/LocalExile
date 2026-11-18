@@ -146,10 +146,17 @@ The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
 
-## 8. Rulesets: S→C 0x1f, 0x2c9, 0x1e and C→S 0x2ca
+## 8. S→C 0x1f: add a ruleset
 
-S→C 0x1f adds a `Rulesets` row to the area (`u8 row, u32 value`; `InstanceProtocol.AddRuleset`); a league's windows
-look their ruleset up by row. S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-7
+`u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
+the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
+instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
+ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
+when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
+HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
+
+S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-7
 come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
 S→C 0x1e carries a ruleset event by name (such as `open_deepwater_device`, `update_collection_chest`); its layout is
 not decoded.

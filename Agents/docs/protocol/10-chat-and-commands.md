@@ -314,8 +314,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
   DiesAfterTime, StateMachine or Transitionable. The blob also writes MinimapIcon (u8), DiesAfterTime (no data: its
   live vtable is the factory's `0x1435a7888`, slot 17 `ret`), Preload, Functions, PlayerClass (no data), Transitionable
   and StateMachine (below), NPC (`00 ff`, [17](17-npcs.md)), InteractionAction (u8 flags 0, `0x141e218a0`: Act 2's
-  bandit lords Kraityn, Alira and Oak) and Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
-  Lunaris on The Harbour Bridge). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
+  bandit lords Kraityn, Alira and Oak), Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
+  Lunaris on The Harbour Bridge) and TriggerableBlockage (`0x141e47880`: u8 blocked, then only while blocked a u8 section
+  count; Oshabi's Root Wall, sent unblocked, not yet seen live). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
   are refused with a message box. The type is the variety's own Id when an
   `.ot` exists under it, else its `BaseMonsterTypeIndex`: `KitavaBoss/KitavaFinal`'s base column names `Kitava1`, but
   the client builds it from `kitavafinal.ot`, which has no Transitionable; sent with Kitava1's list, the extra byte was

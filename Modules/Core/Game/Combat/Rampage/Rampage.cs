@@ -111,7 +111,7 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key
             ? conn.PlayerStats.TryGetValue(key, out int dev) ? dev : sources.GetValueOrDefault(key) : 0;
         int heal = Get("recover_%_maximum_life_on_rampage_threshold");
-        if (heal > 0 && conn.PlayerLife > 0)
+        if (heal > 0 && conn.PlayerLife > 0 && !LifeRecovery.NonLeechBlocked(Get))
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
                 (long)conn.PlayerLife + (long)conn.PlayerMaxLife * heal / 100);
         double now = conn.Clock.Elapsed.TotalSeconds;

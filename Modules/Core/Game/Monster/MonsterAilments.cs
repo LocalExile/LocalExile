@@ -11,8 +11,11 @@ public static partial class Game
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
     /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
-        bool chaos = false) =>
-        m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
+        bool chaos = false) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0);
+
+    static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
+        bool chaos, double increasedPct) =>
+        m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
