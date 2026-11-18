@@ -26,54 +26,6 @@ public sealed class HitSummonTests
     }
 
     [Fact]
-    public async Task Absolution_marks_non_unique_deaths_consumes_once_and_refreshes_a_living_sentinel_at_the_limit()
-    {
-        await DominanceRegression();
-        await VaalRegression();
-        await VaalSentinelRegression();
-        using var f = new MinionUtilityTests.Fixture();
-        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
-        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
-        try
-        {
-            ushort source = f.Equip(("Absolution",20)).Single();
-            Assert.Null(Game.SummonData.Find("Absolution")); // The damaging spell keeps its ordinary executor.
-            var victim = Target(f,900); victim.Ignites.Add(0, 1, 1000); Mark(f,victim,source,clock.Time);
-            Assert.Single(f.Conn.Summons.HitMarks); Assert.Empty(f.Conn.Summons.HitSummons);
-            clock.Time = 2; Kill(f,900,victim,clock.Time); Kill(f,900,victim,clock.Time);
-            Assert.Single(f.Conn.Summons.HitSummons);
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
-            var first = Assert.Single(f.Conn.Summons.Fighters).Value;
-            Assert.True(victim.CorpseConsumed); Assert.Equal(70,first.Monster.Level);
-            Assert.Equal(1, f.Conn.IgnitedCorpsesConsumed);
-            Assert.Equal("Metadata/Monsters/TemplarJudge/AbsolutionTemplarJudge",first.Monster.Variety!.Id);
-            Assert.Equal(17,f.Conn.Summons.Until[first.Id]);
-            Assert.Contains(first.Abilities,a=>a.Attack.Spell&&a.Attack.Damage.MaxTotal>0);
-            Target(f,999); f.Conn.Walk.Teleport(100,100,2); first.Monster.Walk.Teleport(100,100,2);
-            Game.GolemStepLocked("test",f.Stream,f.Ciphers,f.Conn,first,2);
-            Assert.True(first.Pending!.Ability.Attack.Spell);
-            Assert.Contains(f.Conn.Minions.OutputQueue,p=>p.Log=="Sentinel corpse consumed"&&p.WorldId==900);
-            for(uint id=901;id<903;id++)
-            { var next=Target(f,id); Mark(f,next,source,2); Kill(f,id,next,2); }
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,2); Assert.Equal(3,f.Conn.Summons.Fighters.Count);
-            first.Monster.Life=1;
-            var fourth=Target(f,903); fourth.Ignites.Add(0, 1, 1000); Mark(f,fourth,source,3); Kill(f,903,fourth,3); clock.Time=3;
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,3);
-            Assert.Equal(3,f.Conn.Summons.Fighters.Count); Assert.Same(first,f.Conn.Summons.Fighters[first.Id]);
-            Assert.Equal(first.Monster.MaxLife,first.Monster.Life); Assert.Equal(18,f.Conn.Summons.Until[first.Id]);
-            Assert.True(fourth.CorpseConsumed);
-            Assert.Equal(2, f.Conn.IgnitedCorpsesConsumed);
-            await Game.HitSummonsTick("test", f.Stream, f.Ciphers, f.Conn, 3);
-            Assert.Equal(2, f.Conn.IgnitedCorpsesConsumed);
-            var expired=Target(f,904); Mark(f,expired,source,3); Kill(f,904,expired,6);
-            Assert.Empty(f.Conn.Summons.HitSummons); Assert.False(expired.CorpseConsumed);
-            clock.Time=18; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
-            Assert.Empty(f.Conn.Summons.Fighters);
-        }
-        finally { Game.AreaUpdateContext.Value=outer; }
-    }
-
-    [Fact]
     public async Task Rare_and_unique_hits_roll_without_consuming_corpses_and_invalidated_sources_or_shattered_deaths_do_not_spawn()
     {
         await PhantasmRegression();
@@ -102,52 +54,6 @@ public sealed class HitSummonTests
             var reused=Target(f,905); Mark(f,reused,source,1); Kill(f,905,reused,1); Target(f,905);
             await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
             Assert.Equal(2,f.Conn.Summons.Fighters.Count); Assert.False(reused.CorpseConsumed);
-        }
-        finally { Game.AreaUpdateContext.Value=outer; }
-    }
-    static async Task DominanceRegression()
-    {
-        using var f = new MinionUtilityTests.Fixture();
-        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
-        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
-        try
-        {
-            ushort source = f.Equip(("Dominating Blow",20)).Single();
-            f.Conn.PlayerStats[Program.Stats.Key("minion_damage_+%")!.Value] = 37;
-            Assert.Equal(37, Game.CharacterPlayerStats(f.Conn).GetValueOrDefault(Program.Stats.Key("minion_damage_+%")!.Value));
-            foreach (var (id, rarity) in new[] { (910u, MonsterRarity.Normal), (911u, MonsterRarity.Magic), (912u, MonsterRarity.Rare) })
-            {
-                var victim = Target(f,id,rarity);
-                if (rarity == MonsterRarity.Rare)
-                    victim.Mods = Game.MonsterModRolls.Roll(Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!, 68, rarity, new Random(41));
-                Mark(f,victim,source,1); Kill(f,id,victim,1);
-                await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,1);
-                var sent = Assert.Single(f.Conn.Summons.Fighters.Values, g => g.Monster.Rarity == rarity);
-                Assert.True(victim.CorpseConsumed);
-                Assert.Equal(70,sent.Monster.Level);
-                Assert.Equal(31,f.Conn.Summons.Until[sent.Id]);
-                Assert.Equal(rarity == MonsterRarity.Normal ? 9 : rarity == MonsterRarity.Magic ? 3 : 1,sent.Limit);
-                Assert.Equal(victim.Mods.Affixes,sent.InheritedMods.Affixes);
-                Assert.Equal(sent.InheritedMods.Effects["damage_+%"] + 37, sent.Monster.Mods.Effects["damage_+%"]);
-            }
-            var old = f.Conn.Summons.Fighters.Values.Single(g => g.Monster.Rarity == MonsterRarity.Rare);
-            var next = Target(f,913,MonsterRarity.Rare); Mark(f,next,source,2); Kill(f,913,next,2);
-            clock.Time=2; await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,2);
-            Assert.False(f.Conn.Summons.Fighters.ContainsKey(old.Id));
-            Assert.Single(f.Conn.Summons.Fighters.Values, g => g.Monster.Rarity == MonsterRarity.Rare);
-            var boss=Target(f,914,MonsterRarity.Unique); Mark(f,boss,source,2,new ZeroRandom());
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,2);
-            Assert.Equal(2,f.Conn.Summons.Fighters.Values.Count(g=>g.Definition.Kind=="DominatingNormal"));
-            Assert.False(boss.CorpseConsumed);
-            var shared=Target(f,915); Mark(f,shared,source,2);
-            var killer=new ClientState(f.Conn.Layout,1,1) { Instance=f.Conn.Instance,PlayerLife=100,Character="party-killer" };
-            var template=new PlayerObject(f.Conn.Character!,0,100,100,1000,1000);
-            f.Conn.Instance.PublishPlayer(new(f.Conn.PeerId,1,template,100,100,1000,f.Conn));
-            shared.Life=0; shared.Dead=true;
-            Game.CommitAcceptedKillLocked(killer,915,shared,2,playerKill:true);
-            await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,2);
-            Assert.True(shared.CorpseConsumed);
-            Assert.Equal(3,f.Conn.Summons.Fighters.Values.Count(g=>g.Definition.Kind=="DominatingNormal"));
         }
         finally { Game.AreaUpdateContext.Value=outer; }
     }

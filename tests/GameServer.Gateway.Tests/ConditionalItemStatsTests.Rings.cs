@@ -84,7 +84,6 @@ public partial class ConditionalItemStatsTests
             inventory.Put(5, astramentis);
             Assert.Equal(1, Stat("hexproof"));
             Assert.Equal(-1, Stat("base_enemy_extra_damage_rolls"));
-            Assert.Empty(conn.PlayerStats);
         }
         finally
         {

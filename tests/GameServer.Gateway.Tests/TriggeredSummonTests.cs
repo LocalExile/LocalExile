@@ -138,8 +138,6 @@ public sealed class TriggeredSummonTests
             Saves.Open(save); Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             Conn.Clock.Start(); Conn.Summons.Restored = Conn.Golems.Restored = true;
-            foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
-                Conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
             Item Gem(string name)
             {
                 var type = Program.Items.FindGem(name)!.Value;

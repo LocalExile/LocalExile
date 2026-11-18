@@ -17,8 +17,6 @@ public sealed class SquireOffhandSupportTests
             Pools = new(100, 2000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
-        foreach (string attr in new[] { "strength", "dexterity", "intelligence" })
-            conn.PlayerStats[Program.Stats.Key($"virtual_{attr}_for_requirements")!.Value] = 1000;
         return conn;
     }
 

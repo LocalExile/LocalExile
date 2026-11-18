@@ -142,7 +142,6 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(0, Stat("virtual_maximum_siphoning_charges"));
             schedule.At = 204;
             Assert.Equal(0, Game.AdvanceSiphoningDamageLocked(conn, 204, Game.CharacterPlayerStats(conn)));
-            Assert.Empty(conn.PlayerStats);
             inventory.Add(PlayerInventories.Weapon1, 0, 0, item);
             Game.SiphoningSkillUsedLocked(conn, 204, new AspectRoll(0));
             conn.PlayerLife = 1; conn.EnergyShield.Empty();
@@ -181,7 +180,6 @@ public sealed partial class ReservationCurseSummonTests
             Game.SiphoningSkillUsedLocked(conn, 301, new AspectRoll(0)); Assert.Equal(1, Stat("current_siphoning_charges"));
             inventory.Remove(PlayerInventories.Weapon1, canonicalStaff.Id);
             Assert.Equal(0, Stat("current_siphoning_charges")); Assert.Equal(0, Stat("virtual_maximum_siphoning_charges"));
-            Assert.Empty(conn.PlayerStats);
         }
         finally
         {

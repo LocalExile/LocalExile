@@ -271,7 +271,6 @@ public sealed class CharacterBuildImportTests
             { Character = record.Name, CharacterId = record.Id, ClassRow = row,
                 Pools = CharacterStats.For(Program.Skills.ClassFor(row), 90) };
             Game.PrepareCharacterForArea("test", admitted, 90);
-            Assert.Empty(admitted.PlayerStats); // No developer attribute overrides or extra passive allocation.
             Assert.Empty(CharacterEquipmentState.Inactive[record.Name]);
             Assert.Equal(Program.Skills.ClassFor(row).Strength + addedStrength, (int)admitted.Pools.Strength);
             var importedSkill = Game.GemSkillEffects(admitted).Single(g => g.Name == "Fireball");

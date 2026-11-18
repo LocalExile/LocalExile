@@ -32,8 +32,6 @@ static class WornSkillSourceCases
         conn.Clock.Stop();
         try
         {
-            foreach (string attribute in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
-                conn.PlayerStats[Program.Stats.Key(attribute)!.Value] = 1000;
             var supportType = catalog.FindGem("Arrogance Support")!.Value;
             var support = ItemCatalog.Create(supportType.Type) with { GemVariant = supportType.Variant.Index };
             int effect = supportType.Variant.Effect;
@@ -79,8 +77,6 @@ static class WornSkillSourceCases
             Assert.True(supported.RequirementsMet);
             Assert.Contains(supported.Supports, s => s.Effect.Row == effect);
             Assert.Null(Game.GemSkillInstanceDisabled(conn, source.Effect, source.Id));
-            foreach (string attribute in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
-                conn.PlayerStats.Remove(Program.Stats.Key(attribute)!.Value);
             conn.Experience = CharacterStats.ExperienceFor(1);
             conn.Pools = conn.Pools with { Level = 1, Strength = 1, Dexterity = 1, Intelligence = 1 };
             Assert.False(Game.SupportedSkill(conn, source.Id).RequirementsMet);

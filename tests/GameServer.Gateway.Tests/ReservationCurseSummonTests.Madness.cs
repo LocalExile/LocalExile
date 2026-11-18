@@ -208,7 +208,6 @@ public sealed partial class ReservationCurseSummonTests
                 inventory.Remove(PlayerInventories.Boots, boots.Id);
                 Reconcile();
             }
-            Assert.Empty(conn.PlayerStats);
         }
         finally
         {

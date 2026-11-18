@@ -15,35 +15,6 @@ static class ConditionalSourceTestDrivers
         ConnectionCiphers ciphers, ClientState conn)
     {
         return commands
-        .Add("set_stat", "fixture attribute override", async args =>
-        {
-            if (args[0] is not ("strength" or "dexterity" or "intelligence"))
-                throw new ArgumentException("This fixture changes attributes only");
-            using (ProjectileMutation(conn, advance: false))
-            {
-                var before = CaptureGemSourceRowsLocked(conn);
-                int value = int.Parse(args[1]);
-                conn.PlayerStats[Stats.Key(args[0])!.Value] = value;
-                conn.PlayerStats[Stats.Key($"virtual_{args[0]}_for_requirements")!.Value] = value;
-                RecomputePoolsAndSpeed(conn);
-                ReconcileEquipmentSourceLifetimesLocked(conn, before);
-            }
-            await SendCharacterStats(remote, stream, ciphers, conn, "fixture attributes");
-        })
-        .Add("set_aoe", "fixture area override", async args =>
-        {
-            uint key = Stats.Key("base_skill_area_of_effect_+%")!.Value;
-            bool off = args[0] == "off";
-            using (ProjectileMutation(conn, advance: false))
-            {
-                if (off) conn.PlayerStats.Remove(key); else conn.PlayerStats[key] = int.Parse(args[0]);
-                RecomputePoolsAndSpeed(conn);
-            }
-            await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-                () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), "fixture area");
-            await SendSkills(remote, stream, ciphers, conn);
-            await commands.Reply(off ? "Increased area of effect: the character's own" : $"Increased area of effect: {args[0]}%");
-        })
         .Add("god", "fixture god state", async args =>
         {
             bool on = args[0] == "on";

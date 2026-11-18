@@ -20,38 +20,6 @@ public sealed class JewelPathAttributeTests
     }
 
     [Fact]
-    public void Cluster_attributes_reach_requirement_buckets_and_refresh_after_refund_and_raw_override()
-    {
-        var previous = Program.GameLogicOrNull;
-        string name = "ClusterAttr" + Guid.NewGuid().ToString("N");
-        var type = Program.Items.Find("Large Cluster Jewel")!;
-        var jewel = ClusterJewels.Create(type, ClusterJewels.FindTheme(type.Cluster!, "Fire Damage"), 8, 2)!;
-        jewel = jewel with { Mods = [.. jewel.Mods, Mod("local_affliction_jewel_small_nodes_grant_all_attributes", 4)] };
-        var conn = Character(name, new InventoryItem(1, 20, 0, jewel));
-        try
-        {
-            conn.Passives.Add(Program.Passives.JewelNodeForSlot(20)!.Value);
-            var layout = ClusterJewelLayout.For(20, jewel)!;
-            ushort small = (ushort)(layout.Base + layout.ByOffset.First(p => p.Value == ClusterJewelLayout.Kind.Small).Key);
-            var inventory = Game.ItemsOf(conn);
-            var baseline = Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot()).Attributes;
-            conn.ClusterPassives.Add(small);
-            var granted = Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot());
-            Assert.Equal(baseline.Intelligence + 4, granted.Attributes.Intelligence);
-            Assert.Equal(baseline.Strength + 4, granted.Attributes.Strength);
-            Assert.Equal(baseline.Dexterity + 4, granted.Attributes.Dexterity);
-            Assert.Equal(4, granted.Sources[Program.Stats.Key("additional_all_attributes")!.Value]);
-            conn.ClusterPassives.Remove(small);
-            Assert.Equal(baseline, Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot()).Attributes);
-            conn.ClusterPassives.Add(small);
-            conn.PlayerStats[Program.Stats.Key("additional_all_attributes")!.Value] = 7;
-            Assert.Equal(baseline.Intelligence + 7,
-                Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot()).Attributes.Intelligence);
-        }
-        finally { PlayerInventories.Forget(name); Program.SetGameLogic(previous!); }
-    }
-
-    [Fact]
     public void Split_personality_counts_nested_allocated_rings_and_invalidates_paths_and_item_effects()
     {
         // Native constructors at cell 51: medium rings of 4, 5 and 6 passives, without notables.

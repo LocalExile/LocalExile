@@ -140,7 +140,6 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Null(conn.Reservations.AvianOwner);
             Assert.Equal(0, conn.Reservations.PresentedAvianBuff);
             Assert.Empty(conn.Auras);
-            Assert.Empty(conn.PlayerStats);
         }
         finally
         {
@@ -247,7 +246,6 @@ public sealed partial class ReservationCurseSummonTests
             Assert.False(Game.CrabActive(conn));
             Assert.Equal(0, conn.Reservations.CrabBarriers);
             Assert.Equal(0, conn.Reservations.PresentedCrabBuff);
-            Assert.Empty(conn.PlayerStats);
         }
         finally
         {

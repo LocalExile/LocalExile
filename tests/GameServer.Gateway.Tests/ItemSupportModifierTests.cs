@@ -23,8 +23,6 @@ public sealed class ItemSupportModifierTests
         };
         try
         {
-            foreach (string name in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
-                "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
             body(conn);
         }
         finally
