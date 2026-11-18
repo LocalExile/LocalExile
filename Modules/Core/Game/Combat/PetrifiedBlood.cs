@@ -7,7 +7,7 @@ public static partial class Game
     // Petrified Blood is a reservation buff, not an aura: reservation and the received buff are its own, and the
     // own-aura restriction does not touch it. Its hit prevention lives in PetrifiedBloodState (Gateway Combat).
     public static async Task<bool> TogglePetrifiedBlood(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
+        ClientState conn, ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         bool started;
         lock (conn.Monsters)
@@ -24,14 +24,14 @@ public static partial class Game
             {
                 var stats = PetrifiedBloodEffectStats(conn, effect, level, quality);
                 var context = ReservationContext(conn, skillId);
-                if (!ReservationBudgetFits(conn, reservation.Percent, context.Life, context.Efficiency))
+                if (!ReservationBudgetFits(conn, reservation.ManaPercent, context.Life, context.Efficiency))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
                     return false;
                 }
                 conn.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-                    reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
+                    reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
                     conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
                 ClampReservedResources(conn);
                 started = true;
@@ -58,14 +58,13 @@ public static partial class Game
             || SpellsDisabled(conn)) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == PetrifiedBlood.EffectId);
         if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null
-            || SupportedReservation(conn, gem.Id) is not { } reservation) return;
+            || SupportedReservationCost(conn, gem.Id) is not { } reservation) return;
         var context = ReservationContext(conn, gem.Id);
-        if (!ReservationBudgetFits(conn, reservation.Percent, context.Life, context.Efficiency)) return;
-        var supported = SupportedSkill(conn, gem.Id);
-        var stats = PetrifiedBloodEffectStats(conn, gem.Effect, supported.Level, supported.Quality);
+        if (!ReservationBudgetFits(conn, reservation.ManaPercent, context.Life, context.Efficiency)) return;
+        var stats = PetrifiedBloodEffectStats(conn, gem.Effect, gem.Level, gem.Quality);
         conn.PetrifiedBlood.Activate(gem.Id, gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
             Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
-            reservation.Percent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
+            reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
             conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
         ClampReservedResources(conn);
         conn.AuraStatsDirty = true;

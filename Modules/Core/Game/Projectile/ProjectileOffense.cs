@@ -1,13 +1,23 @@
 using GameServer.Core.World;
 
 
+/// <summary>Damage outputs captured for a target condition at release. A null
+/// <see cref="ProjectileOffense.VsBlinded"/> means the shot has no frozen alternate and must stay on its normal
+/// damage if the target later becomes Blinded.</summary>
+public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? AreaHit, MonsterIgnites.Settings Ignite,
+    MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+
 /// <summary>Frozen offensive inputs. Targets, including evasion and resistance, are resolved at contact.</summary>
 public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }
+    public bool IntimidatingCryExerted { get; init; }
+    public double HitProfileMore { get; init; } = 1;
+    public double AilmentProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     public Penetration.PerType Penetration { get; init; }
@@ -17,6 +27,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterIgnites.Settings Ignite { get; init; }
     /// <summary>The bleed an attack's hits can inflict, captured at release (MonsterBleeds); the default bleeds nothing.</summary>
     public MonsterIgnites.Settings Bleed { get; init; }
+    /// <summary>The maim chance an attack's hits can inflict, captured at release; the default maims nothing.</summary>
+    public int MaimChance { get; init; }
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
@@ -42,7 +54,12 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
-    public (int Chance, int Effect, double Seconds) Blind { get; init; }
+    public BlindHitInput Blind { get; init; }
+    /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
+    /// Blinded target, or null when the shot has none.</summary>
+    public ProjectileOffenseAlternate? VsBlinded { get; init; }
+    public SpiderDamageSource? Spider { get; init; }
+    public SpiderDamageSource? SpiderArea { get; init; }
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
@@ -61,4 +78,39 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+
+    /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
+    /// release inputs or drawing random numbers.</summary>
+    public ProjectileOffense Against(bool targetWasBlinded, int webs = 0, bool ignited = false, bool bleeding = false, bool lowLife = false)
+    {
+        if (Spider is { } spider)
+        {
+            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife);
+            return this with { Hit = profile.Hit.Scale(HitProfileMore), AreaHit = SpiderArea is { } area
+                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife).Hit.Scale(HitProfileMore) : AreaHit,
+                Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
+                Poison = Scale(profile.Poison, AilmentProfileMore) };
+        }
+        return targetWasBlinded && VsBlinded is { } alternate ? this with
+        {
+            Hit = alternate.Hit.Scale(HitProfileMore),
+            AreaHit = alternate.AreaHit?.Scale(HitProfileMore),
+            Ignite = Scale(alternate.Ignite, AilmentProfileMore),
+            Bleed = Scale(alternate.Bleed, AilmentProfileMore),
+            Poison = Scale(alternate.Poison, AilmentProfileMore),
+        }
+        : this;
+    }
+
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
+    {
+        Min = value.Min * more, Max = value.Max * more,
+        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
+    };
+
+    static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
+    {
+        Min = value.Min * more, Max = value.Max * more,
+        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
+    };
 }

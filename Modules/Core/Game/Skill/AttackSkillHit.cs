@@ -10,13 +10,15 @@ public static class AttackSkillHit
     {
         // Damage modifiers and added attack damage keep the existing character-only inputs. Skill-owned damage
         // modifiers are not implemented in combat and must not become panel-only effects here.
-        int Get(string name) => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
+            name => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0);
         var raw = SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon, Get), effectiveness);
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, Get,
             DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
-            melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand), Get), Get);
+            melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
+            additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get)), Get), Get);
     }
 }
