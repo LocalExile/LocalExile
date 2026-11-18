@@ -15,7 +15,7 @@ public sealed class MinionTacticsTests
     }
     sealed class ZeroRandom : Random { public override int Next(int maxValue) => 0; }
     static object? Invoke(string name, params object[] args) =>
-        typeof(Game).GetMethod(name, BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, args);
+        typeof(Game).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, args);
     static SpawnedMonster Enemy(MinionUtilityTests.Fixture f, uint id, int x) => f.Conn.Monsters[id] =
         new("target", new(x, 100, 0), 100, 3, 1000000) { Hostile = true };
 
@@ -31,8 +31,10 @@ public sealed class MinionTacticsTests
             Game.SummonData.Find("SummonSkeletons")!, (100, 100));
     static bool Hit(MinionUtilityTests.Fixture f, GolemState.Golem fighter, uint id, SpawnedMonster target, double now)
     {
+        Invoke("RefreshGolemLocked", f.Conn, fighter, Game.CharacterPlayerStats(f.Conn), (double?)now);
         var a = fighter.Abilities.First() with { Attack = new(0x4000, 1, 20,
             DamagePacket.Of(DamageType.Physical, 100, 100)) { Spell = true }, Crit = 0 };
+        fighter.Abilities = [a];
         return (bool)Invoke("GolemHitLocked", "test", f.Stream, f.Ciphers, f.Conn, fighter, a, id, target, now)!;
     }
 

@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ReservationCurseSummonTests
+public sealed partial class ReservationCurseSummonTests
 {
     [Fact]
     public void LifeReservationIsSeparateCappedAndCursesReplaceWithoutMutatingMods()
@@ -69,6 +69,10 @@ public sealed class ReservationCurseSummonTests
         foreach (string s in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" }) conn.PlayerStats[Program.Stats.Key(s)!.Value] = 1000;
         try
         {
+            await MadnessFixture(conn, lifetime);
+            SiphoningFixture(conn, lifetime);
+            await AvianAspectFixture(conn, lifetime);
+            await CrabAspectFixture(conn, lifetime);
             var catalog = new SummonCatalog(); var monsters = new MonsterCatalog();
             foreach (var definition in catalog.All.Where(d => d.Variety.Length > 0 && d.Family != "Clone"))
             {
@@ -212,10 +216,27 @@ public sealed class ReservationCurseSummonTests
             Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
-            await Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, conn, [animated]);
+            var animatedHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn,
+                new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), animatedHost.Id, 0));
             Assert.Empty(conn.Summons.Fighters);
+            foreach (var cursor in Game.ItemsOf(conn).Items(PlayerInventories.Cursor).ToArray())
+                Game.ItemsOf(conn).Remove(PlayerInventories.Cursor, cursor.Id);
             ushort claritySource = Equip("Clarity");
             CharacterSaves.SetAuraActive(conn.Character!, "Clarity", true);
+            Game.RestoreRememberedAuras(conn, ["Clarity"]);
+            Assert.NotNull(conn.Auras[claritySource].SourceBuff);
+            uint efficiency = Program.Stats.Key("clarity_mana_reservation_efficiency_+%")!.Value;
+            conn.PlayerStats[efficiency] = -99;
+            Game.EnsureOwnAuraPools(conn);
+            Assert.DoesNotContain(claritySource, conn.Auras.Keys);
+            Assert.Contains("Clarity", CharacterSaves.Remembered(conn.Character!).Auras);
+            Game.ReconcileOwnAuras(conn, validateSkills: true);
+            Assert.DoesNotContain(claritySource, conn.Auras.Keys);
+            Assert.Contains("Clarity", CharacterSaves.Remembered(conn.Character!).Auras);
+            conn.PlayerStats.Remove(efficiency);
+            Game.ReconcileOwnAuras(conn, validateSkills: true);
+            Assert.Contains(claritySource, conn.Auras.Keys);
             conn.ClientSkillIds = [claritySource];
             var heldHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), heldHost.Id, 0);
@@ -233,6 +254,19 @@ public sealed class ReservationCurseSummonTests
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.DoesNotContain(conn.Auras.Values, a => a.EffectId == "Clarity");
             Assert.DoesNotContain("Clarity", CharacterSaves.Load(conn.Character!)!.ActiveAuras ?? []);
+            foreach (string name in new[] { "Herald of Ice", "Arctic Armour", "Tempest Shield" })
+            {
+                ushort id = Equip(name);
+                var gemSkill = Game.SupportedSkill(conn, id);
+                string effectId = Program.Skills.EffectId(gemSkill.Effect)!;
+                Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, id,
+                    gemSkill.Effect, name, Game.SupportedReservationCost(conn, id)!.Value, 20, 0));
+                Assert.Null(conn.Auras[id].SourceBuff);
+                conn.Auras.Clear();
+                Game.RestoreRememberedAuras(conn, [effectId]);
+                Assert.Null(conn.Auras[id].SourceBuff);
+                await Game.DisableReservations("test", wire.Stream, wire.Ciphers, conn, "all");
+            }
         }
         finally
         {
@@ -252,4 +286,17 @@ public sealed class ReservationCurseSummonTests
         }
         public void Dispose() { reader.Dispose(); writer.Dispose(); listener.Stop(); drain.GetAwaiter().GetResult(); }
     }
+
+    sealed class CatClockSchedule : IPlayerUpdateSchedule
+    {
+        public double At;
+        public bool AdvanceOnWait = false;
+        public double Now(ClientState conn) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            if (AdvanceOnWait) At += milliseconds / 1000.0;
+            return Task.CompletedTask;
+        }
+    }
+
 }

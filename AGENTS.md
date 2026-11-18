@@ -103,6 +103,9 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
   `Agents/roadmap/` in the same change. Edit an existing entry instead of adding a note; the rules are in
   [Agents/Status.md](Agents/Status.md) ("Editing the status").
 - **Verify with the real client and the logs** (`logs\`).
+- **Code that runs per hit, per kill or per stat lookup stays cheap.** Read
+  [hot paths](Agents/docs/dev/performance.md#hot-paths) before changing player stat building or what a stat lookup
+  gathers, and give its measurement in the pull request.
 - **Tests:** only Gateway tests, in `tests/GameServer.Gateway.Tests`; modules have no tests. A PR adds at most 2 tests. A test never waits on
   real time: no sleeps, no realtime delays. `dotnet test tests/GameServer.Gateway.Tests` and the Core and Data suites stay passing.
 - **Level generator changes pass `scripts/re/levelgen/gate.ps1`** before they are committed (nothing lost against
