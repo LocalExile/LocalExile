@@ -2699,7 +2699,10 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
   monsters as a spawn is.
   The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2bb) and enters it
-  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it, then plays the Emerge basic
+  action at once (0x1ab, 0x1ac): a totem has no Transitionable, so the monster rise's 0x2bc does not apply.
+  The placement wait does not gate on the cast's action token: live 2026-11-09 it dropped six of seven placements whose
+  mana was paid (the client walked 0.38 s after the cast). Source, cooldown, Vaal and channel checks still cancel it.
 - Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
   Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
   24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
@@ -2737,6 +2740,13 @@ their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`,
 Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
 Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
 before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
+
+Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry the spell totems'
+proxy `0x4000` plus their radius and `skill_is_non_pathing`; with the gem's own `is_totem` the client plays no action. Shockwave Totem is a `Nova`: it casts while a hostile is
+within `base_totem_range` (80) and hits within its radius (24) of itself at the end of each cast, as the Arc totem's hit.
+Devouring Totem eats the nearest corpse in range once a cast while the player misses Life or Mana; the corpse is the
+totem's, not the player's. Decoy Totem (its taunt is the separate `totem_taunt_triggerable`), the ancestral melee
+totems (`ancestor_totem_parent_activiation_range`, owner buffs) and Searing Bond are still refused before cost.
 
 ## 10h. Player minions that fight
 
