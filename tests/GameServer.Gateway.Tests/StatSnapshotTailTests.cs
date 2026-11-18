@@ -442,6 +442,16 @@ public class StatSnapshotTailTests
         Happen();
         Snapshot(conn);
         Assert.NotSame(cached, conn.StatSourcesCache);
+
+        // The conditions' sums of the worn items (WornItemSum) are remembered for exactly the items they were asked for.
+        conn.PlayerLife = 1;
+        var belt = new UniqueCatalog(Program.Items).Create("Coward's Legacy", new Random(1))!;
+        uint cursedKey = Program.Stats.Key("cursed_by_vulnerability")!.Value;
+        int Cursed(params Item[] worn) =>
+            ((Dictionary<uint, int>)Game("SelfCurseConditionInputs", conn, worn, null, null, null, null)!)[cursedKey];
+        Assert.Equal(1, Cursed(belt));
+        Assert.Equal(0, Cursed());
+        Assert.Equal(1, Cursed(belt));
     }
 
     [Fact]
