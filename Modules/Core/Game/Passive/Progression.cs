@@ -843,20 +843,13 @@ public static partial class Game
         void Add(uint key, int value) => folded[key] = ActorScale.Add(key, folded.GetValueOrDefault(key), value);
         foreach (var (key, raw) in passives)
         {
-            int value = raw;
-            if (Stats.Name(key) is not { } name) { Add(key, value); continue; }
+            if (Stats.Name(key) is not { } name) { Add(key, raw); continue; }
             var state = StatConditions.Of(name, subject);
             if (!StatConditions.Counts(state)) continue;
-            if (state is StatConditions.State.Holds)
-                value = StatConditions.ApplyRecentAmount(name, value, subject);
-            if (state is StatConditions.State.Holds
-                && StatConditions.FoldAll(name, Stats.Has, subject) is { Count: > 0 } targets)
-            {
-                int scaled = StatConditions.ValueForFold(name, value);
-                foreach (string target in targets)
-                    if (Stats.Key(target) is uint targetKey) Add(targetKey, scaled);
-            }
-            else Add(key, value);
+            int value = StatConditions.Counted(name, raw, state, subject, Stats.Has, out var targets);
+            if (targets is null) Add(key, value);
+            else foreach (string target in targets)
+                    if (Stats.Key(target) is uint targetKey) Add(targetKey, value);
         }
         return folded;
     }
