@@ -88,6 +88,7 @@ public static partial class Game
             TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
+        SelfBuffsOnKill(conn);
         CurseCharges(conn, m, true);
     }
 
@@ -324,7 +325,7 @@ public static partial class Game
         double castSeconds = WarcryCastSeconds(conn, effect, player, own);
         double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
         int epoch = conn.ProjectileEpoch;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own, DurationKinds(conn, effect));
         double buffEffect = Math.Max(0, 1 + ((long)Player("warcry_buff_effect_+%") + Own("warcry_buff_effect_+%")) / 100d);
         _ = Task.Run(async () =>
         {
@@ -333,7 +334,7 @@ public static partial class Game
             if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) player[k] = v;
-            int radius = SkillArea.Radius(WarcryRadius, name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0, spell: false);
+            int radius = SkillRadius(conn, WarcryRadius, own, spell: false, effect);
             double now = conn.Clock.Elapsed.TotalSeconds;
             int power, taunted;
             (int X, int Y) here;

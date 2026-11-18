@@ -190,6 +190,9 @@ public static class GameEvents
     {
         foreach (var (owner, run) in MapOpening.Subscribers(request.Conn))
             GameEventOwners.Guard(owner, nameof(MapOpening), () => run(request));
+        if (request.Opening is not null)
+            foreach (string message in request.UnhandledContent)
+                Console.WriteLine($"[map-content] {message}");
     }
 
     /// <summary>A hostile monster died by the player's hand, after its kill was committed (<see cref="Kill"/> runs inside the commit).</summary>

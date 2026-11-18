@@ -239,7 +239,10 @@ public static partial class Game
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && variety.BossHealthBar && MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety))
+            && MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        if (mapBoss && MapModsOf(conn) is { } bossMap)
+            mods = mods with { Effects = mods.Effects.Combine(MapBossEffects(bossMap)) };
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
@@ -625,13 +628,20 @@ public static partial class Game
         var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
         Phase("shrines, traps, later forms");
-        var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
+        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
+            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
+            additionalPacks: MapScarabPacks.Requests(mapMods),
+            ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
+        // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
+        spawns = WithTwinBosses(spawns, mapMods).ToList();
+        if (mapMods?.Get("map_shrines_have_standalone_map_boss") > 0 && ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms)
+            spawns.AddRange(MapScarabBosses.Guards(conn,
+                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y))], spawns));
         Phase("pack plan");
         spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
@@ -660,6 +670,7 @@ public static partial class Game
         int created = 0;
         foreach (var s in spawns)
         {
+            if (await MapEssences.Imprison(conn, s)) continue;
             var variety = Monsters.Find(s.Variety.ToString())!;
             if (HeldBackAt(variety, s.Rarity, hostile: true, (s.X, s.Y), here))
             {
@@ -1536,13 +1547,17 @@ public static partial class Game
         return Math.Min(now, frame.Start);
     }
 
+    // The record belongs to the acting monster unless the caller names another published object: a Rampage weapon's
+    // hit answers with the weapon's own life (RampageIncoming), and the action's generation still gates that answer.
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null,
+        uint? recordId = null)
     {
+        uint record = recordId ?? id;
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, record, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1553,7 +1568,7 @@ public static partial class Game
                     var bytes = packet();
                     sent = bytes is not null;
                     // The others in the instance see it too (SharedMonsters.cs).
-                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    if (bytes is not null) BroadcastMonsterMessage(conn, record, bytes);
                     return bytes;
                 }
             });
@@ -2141,8 +2156,8 @@ public static partial class Game
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
-        AilmentsWhenHitLocked(m, StatOf, blocked, now);
+            InflictedLocked(conn, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
+        AilmentsWhenHitLocked(conn, m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { DamageTriggers.Remove(conn); conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);

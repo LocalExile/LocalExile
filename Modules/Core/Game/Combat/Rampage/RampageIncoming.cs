@@ -85,6 +85,6 @@ public static partial class Game
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;
             return InstanceProtocol.LifeUpdate(targetId, weapon.Life);
-        }, "Monster hit on Rampage weapon");
+        }, "Monster hit on Rampage weapon", recordId: targetId);
     }
 }

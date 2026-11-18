@@ -49,10 +49,11 @@ public abstract record ChargeEvent
 /// (Metadata/StatDescriptions), each its own roll; "Gain a … Charge …" flags count as 100%. A chance is rolled as
 /// <c>rng.Next(100) &lt; chance</c>; 100 and above always gain without a roll.
 /// Skill rules: the Frenzy gem gives a Frenzy Charge when it hits (ActiveSkills <c>frenzy</c>: "gives the character a
-/// frenzy charge if it hits"), once per use; Power Siphon a Power Charge when its hit kills (ActiveSkills <c>power_siphon</c>; the
-/// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (freeze,
-/// ignite or taunt as one attack's own result, mines, totems) are not here; 11-skills.md §15 lists them. A hit and a stun
-/// count the used skill's own stats with its supports' (Power Charge on Critical, Endurance Charge on Melee Stun).
+/// frenzy charge if it hits"), once per use. Power Siphon's 3.29 stats grant its Power Charge on hitting a rare or unique
+/// enemy (the rule above); its ActiveSkills text still names a kill, which no stat carries. Gains that need mechanics the
+/// server does not have (freeze, ignite or taunt as one attack's own result, mines, totems) are not here; 11-skills.md §15
+/// lists them. A hit and a stun count the used skill's own stats with its supports' (Power Charge on Critical, Endurance
+/// Charge on Melee Stun).
 /// </summary>
 public static class ChargeGains
 {
@@ -211,7 +212,6 @@ public static class ChargeGains
         {
             // Once per use: an area hit on several monsters gives one charge (its first target).
             if (hit.SkillEffect == "Frenzy" && hit.Primary) gains.Add(new(ChargeType.Frenzy, 1, "Frenzy hit"));
-            if (hit.SkillEffect == "PowerSiphon" && hit.Killed) gains.Add(new(ChargeType.Power, 1, "Power Siphon kill"));
         }
         return gains;
     }

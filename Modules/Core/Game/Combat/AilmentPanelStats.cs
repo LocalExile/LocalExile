@@ -49,6 +49,11 @@ public static class AilmentPanelStats
         new("support_spirit_strike_damage_+%_final"), new("support_storm_barrier_damage_+%_final"),
         new("support_pure_shock_damage_+%_final"), new("support_blood_thirst_damage_+%_final"),
         new("support_spell_cascade_damage_+%_final"), new("support_barrage_damage_+%_final"),
+        new("support_trap_damage_+%_final"), new("support_trap_and_mine_damage_+%_final"),
+        new("support_clustertrap_damage_+%_final"), new("support_multithrow_damage_+%_final"),
+        new("support_gem_mine_damage_+%_final"), new("support_remote_mine_2_damage_+%_final"),
+        new("support_locus_mine_damage_+%_final"), new("support_additional_totem_damage_+%_final"),
+        new("support_focused_ballista_totem_damage_+%_final"),
         new("support_better_ailments_ailment_damage_+%_final"), new("support_unbound_ailments_ailment_damage_+%_final"),
         new("support_efficacy_damage_over_time_+%_final"), new("support_rapid_decay_damage_over_time_+%_final"),
         new("support_brutality_physical_damage_+%_final", DamageTypeHistory.Physical),
@@ -132,6 +137,8 @@ public static class AilmentPanelStats
             + (critical ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1)
+            // Puncture's "49% more Damage with Bleeding".
+            * (ailment == "bleeding" ? Math.Max(0, 1 + get("active_skill_bleeding_damage_+%_final") / 100.0) : 1)
             // Crimson Dance: "50% less Damage with Bleeding" (ReminderTextKeystoneCrimsonDance).
             * (ailment == "bleeding" && get("keystone_crimson_dance") != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Slug(type) + "_damage_+%"))).ToArray();

@@ -425,6 +425,7 @@ public static partial class Game
             SiphoningSkillUsedLocked(conn, begun);
             cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
         }
+        PhaseRunOnSkillUse(conn, use.SkillId, duration);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
@@ -537,7 +538,8 @@ public static partial class Game
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m,
-                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted).RollOutgoingHit(hit, Random.Shared));
+                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted)
+                        .ForWeapon(weapon.LocalSources).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
                         AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
@@ -1105,6 +1107,11 @@ public static partial class Game
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
             return false;
         }
+        if (gem.Name is not null && SelfBuffRefused(conn, gem.Effect) is { } refused)
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
+            return false;
+        }
         if (IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(gem.Effect)))
         {
             beastCompanion = SupportedSkill(conn, skillId);
@@ -1289,6 +1296,7 @@ public static partial class Game
         if (!PlacedCastFamilyCurrent(conn, skillId, placedAdmission))
             return false;
         if (!locationInstant && gem.Name is not null && placedAdmission is null) RecordAcceptedGemUse(conn, gem.Effect);
+        if (gem.Name is not null) PhaseRunOnSkillUse(conn, skillId);
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
@@ -1345,6 +1353,7 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1427,7 +1436,7 @@ public static partial class Game
     }
 
     static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
-        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
+        InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect) || InPlaceSelfBuff(conn, effect)
         || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -1509,8 +1518,7 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         int Own(string name) => GolemStat(own, name);
         int Player(string name) => GolemStat(player, name);
-        int Area(string name) => Own(name) + Player(name);
-        int groundRadius = SkillArea.Radius(16, Area, spell: true);
+        int groundRadius = SkillRadius(conn, 16, own, spell: true, gem.Effect, player);
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         var crit = CaptureSkillCriticalRoll(conn, gem.Id);
         var sacrifice = new SacrificeUse(conn, gem.Id, gem.Effect, gem.Gem);
@@ -1743,13 +1751,13 @@ public static partial class Game
                 if (ready)
                 {
                     fistMore = 1 + Fist("support_ancestral_slam_big_hit_damage_with_hits_and_ailments_+%_final") / 100.0;
-                    fistRadius = 1 + Fist("support_ancestral_slam_big_hit_area_+%") / 100.0;
+                    fistRadius = SkillArea.RadiusMultiplier(Fist("support_ancestral_slam_big_hit_area_+%"));
                 }
             }
         }
         if (leap is not null && IsLeapSlam(conn, gem.Effect))
             return ScheduleLeapSlam(remote, stream, ciphers, conn, skillId, gem, leap, criticalRoll,
-                sequence, fistMore, Math.Sqrt(Math.Max(0, fistRadius)));
+                sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
@@ -1976,16 +1984,16 @@ public static partial class Game
     // (SkillArea). The radius stat is in cells (Righteous Fire's 18 is its 1.8 m, verified against the real game 2026-10-23).
     public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
     {
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+        var areaStats = SkillAreaStats(conn, skillStats, effect);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
 
     // A gem skill's secondary radius in cells (active_skill_base_secondary_area_of_effect_radius: Holy Sweep's hammers'
     // 12), grown by the player's area stats as the main one is; 0 for a skill without one.
-    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell)
+    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
     {
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+        var areaStats = SkillAreaStats(conn, skillStats, effect);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
         int baseRadius = Get("active_skill_base_secondary_area_of_effect_radius");
         return baseRadius > 0 ? SkillArea.Radius(baseRadius, Get, spell) : 0;
@@ -2063,6 +2071,7 @@ public static partial class Game
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
         var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
+        var meleeKillTrigger = spell ? null : CaptureMeleeKillTriggerSource(conn, skillId);
         sacrifice ??= new SacrificeUse(conn, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(conn, skillId);
         var skillStats = admittedGem.Stats;
@@ -2107,7 +2116,11 @@ public static partial class Game
             : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId), out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
-        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect)) * radiusMore);
+        // Greater Spell Echo: each repeat of the spell has more increased area than the one before.
+        var areaStats = skillStats;
+        if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0 && Stats.Key(SkillArea.BaseIncreased) is uint baseKey)
+            areaStats = new Dictionary<uint, int>(skillStats) { [baseKey] = skillStats.GetValueOrDefault(baseKey) + perRepeat * repeat };
+        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, areaStats, spell, gem.Effect)) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
@@ -2220,7 +2233,7 @@ public static partial class Game
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
             if (!spell && hammer is null)
             {
-                var merged = SupportedStats(conn, skillId);
+                var merged = SkillAreaStats(conn, SupportedSkill(conn, skillId).Stats, gem.Effect);
                 int SplashStat(string name) => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
                 if (MeleeSplash.Settings(SplashStat) is { } splash)
                     foreach (var (_, m) in targets.ToArray())
@@ -2259,6 +2272,7 @@ public static partial class Game
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
+        IReadOnlyDictionary<string, int>? weaponLocal = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
@@ -2308,6 +2322,7 @@ public static partial class Game
                         var shield = spell ? null : ShieldWeapon(conn, skillId);
                         var sourceWeapon = shield ?? WeaponFor(conn);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
+                        weaponLocal = local;
                         if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem)
                             is not { } capturedInputs) break;
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
@@ -2386,7 +2401,7 @@ public static partial class Game
                     var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(conn, player, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                             .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect)), cryExerted == true)
-                            .RollOutgoingHit(contactHit, Random.Shared)),
+                            .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, Random.Shared)),
                         ProjectileWorldTime(conn));
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
                     // extra fire, and removes the flame.
@@ -2430,6 +2445,8 @@ public static partial class Game
                         if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                         else ArcaneSurgeOnSpellHitLocked(conn, player, m);
+                        if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(conn,
+                            ProjectilesFor(remote, stream, ciphers, conn), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
@@ -2585,7 +2602,7 @@ public static partial class Game
         {
             int epoch = conn.ProjectileEpoch;
             double start = conn.Clock.Elapsed.TotalSeconds;
-            var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
+            var areaStats = SkillAreaStats(conn, skillStats, gem.Effect);
             int Area(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
             int radius = SkillArea.Radius(hammers.BaseRadius, Area, spell: false);
             var waves = new List<(double At, List<(int X, int Y)> Points)>();
@@ -2605,8 +2622,11 @@ public static partial class Game
             }
             else
             {
+                // The player's own and the skill's own increases each once: Area holds both.
+                var player = CharacterPlayerStats(conn);
+                int Player(string name) => GolemStat(player, name);
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
-                double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
+                double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Player, Own, DurationKinds(conn, gem.Effect));
                 // The rate the client's controller holds: the combined_main_hand_attack_speed_+% of the skill list it last
                 // received, not the character's attack speed now (a Rage or charge change since is not in it until the
                 // list goes out again).
@@ -3236,7 +3256,7 @@ public static partial class Game
             // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn, m),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.

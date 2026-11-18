@@ -55,7 +55,11 @@ public static partial class Game
         long critical = chance + get("bleed_on_crit_%_with_attacks") + Local("local_bleed_on_critical_strike_chance_%")
             + 50L * Local("local_chance_to_bleed_on_crit_50%")
             + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
-        double seconds = Ailments.BleedDurationSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
+        // Puncture (bleed_duration_is_skill_duration): its bleed lasts the skill's duration, with the skill duration
+        // modifiers (ActiveSkills puncture: "affected by modifiers to skill duration"), then the bleed's own.
+        double baseSeconds = get("bleed_duration_is_skill_duration") != 0 && get("base_skill_effect_duration") > 0
+            ? SkillDurationModifiers.Seconds(get("base_skill_effect_duration"), _ => 0, get) : Ailments.BleedDurationSeconds;
+        double seconds = baseSeconds * Math.Max(0, 1 + ((double)get("bleed_duration_+%")
             + get("base_bleed_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
         bool dance = get("keystone_crimson_dance") != 0;
@@ -125,6 +129,7 @@ public static partial class Game
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
                 conn.IgniteRandom, out double perSecond)) return null;
+        InflictedLocked(conn, target, AilmentType.Bleed, now + settings.Seconds);
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0)
         {

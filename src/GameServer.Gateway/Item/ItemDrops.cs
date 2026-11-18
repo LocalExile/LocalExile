@@ -151,6 +151,33 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
 
     readonly Lazy<List<ItemCatalog.BaseType>> _scarabs = new(() => LoadScarabs(catalog, folder));
 
+    // Each scarab's BaseItemTypes row → its type's MoreLikely and DisableDrops stat names (Scarabs.Items, ScarabTypes).
+    readonly Lazy<Dictionary<int, (string? MoreLikely, string? Disable)>> _scarabTypeStats = new(() =>
+    {
+        var result = new Dictionary<int, (string?, string?)>();
+        if (!ClientTables.Has("Scarabs") || !ClientTables.Has("ScarabTypes") || !ClientTables.Has("Stats")) return result;
+        var types = ClientTables.Table("ScarabTypes").ToArray();
+        var stats = ClientTables.Table("Stats");
+        string? Name(int? row) => row is int r && stats.Row(r) is { } s ? s.Text("Id") : null;
+        foreach (var row in ClientTables.Table("Scarabs"))
+            if (row.IntOrNull("Type") is int t && t >= 0 && t < types.Length)
+                foreach (int item in row.Ints("Items"))
+                    result.TryAdd(item, (Name(types[t].IntOrNull("MoreLikely")), Name(types[t].IntOrNull("DisableDrops"))));
+        return result;
+    });
+
+    /// <summary>The weight factor of each scarab the area's stats change (absent: 1).</summary>
+    Dictionary<int, double> ScarabFactors(MapMods mods)
+    {
+        var factors = new Dictionary<int, double>();
+        foreach (var (row, (more, disable)) in _scarabTypeStats.Value)
+        {
+            if (disable is not null && mods.Get(disable) != 0) factors[row] = 0;
+            else if (more is not null && mods.Get(more) is int x and not 0) factors[row] = Math.Max(0, 100 + x) / 100.0;
+        }
+        return factors;
+    }
+
     static List<ItemCatalog.BaseType> LoadScarabs(ItemCatalog catalog, string folder)
     {
         var list = new List<ItemCatalog.BaseType>();
@@ -175,8 +202,23 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
 
     /// <summary>A random scarab. When the published scarab weights cover scarabs at this level, the pick follows them;
     /// otherwise it is uniform among the client's scarabs. <paramref name="level"/> 0 skips the DropLevel gate.</summary>
-    public Drop? Scarab(Random rng, int level = 0)
+    public Drop? Scarab(Random rng, int level = 0) => Scarab(rng, level, null);
+
+    /// <summary>A random scarab, with the area's scarab-type stats (ScarabTypes): its <c>MoreLikely</c> stat (the Atlas
+    /// "Carapaces" notables, <c>map_&lt;type&gt;_scarab_more_likely_%</c>: "Scarabs found in your Maps are X% more likely to be
+    /// &lt;type&gt; Scarabs") multiplies the type's weight by (100 + X)%, and its <c>DisableDrops</c> stat drops none of it.</summary>
+    public Drop? Scarab(Random rng, int level, MapMods? mods)
     {
+        if (mods is not null && ScarabFactors(mods) is { Count: > 0 } factors)
+        {
+            var weights = _scarabWeights.Value;
+            var pool = Droppable(_scarabs.Value, level);
+            bool published = weights.Count > 0 && pool.Any(t => weights.ContainsKey(t.Id));
+            var favoured = pool.Where(t => !published || weights.ContainsKey(t.Id))
+                .Select(t => (Value: t, Weight: (published ? weights[t.Id] : 1) * factors.GetValueOrDefault(t.Row, 1)))
+                .Where(p => p.Weight > 0).ToList();
+            return Pick(favoured, rng) is { } picked ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked) : null;
+        }
         if (PickPublished(_scarabs.Value, "scarab", level, rng) is { } weighted)
             return new Drop(ItemCatalog.Create(weighted) with { StackSize = 1 }, weighted);
         var scarabs = Droppable(_scarabs.Value, level);
@@ -193,7 +235,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             yield return packCard;
         if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && Card(rng, monsterLevel) is { } card)
             yield return card;
-        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && Scarab(rng, monsterLevel) is { } scarab)
+        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && Scarab(rng, monsterLevel, mods) is { } scarab)
             yield return scarab;
         if (mods.CurrencyDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CurrencyDropChance, 0, 80)
             && Pick(_pools.Value.Currency.Where(c => c.Type.DropLevel <= monsterLevel).ToList(), rng) is { } currency)
@@ -201,14 +243,19 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
-    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng) =>
+        Container(level, count, increasedRarity, rng, null);
+
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng,
+        Func<ItemCatalog.BaseType, bool>? accepts)
     {
         if (count < 0 || count > 2000) throw new ArgumentOutOfRangeException(nameof(count));
         var chances = WithIncreasedRarity(RarityChances(MonsterRarity.Rare), increasedRarity,
             SystemSettings.Default.DropMultiplier("unique_rarity"));
         var result = new List<Drop>();
-        for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
-            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+        for (int attempt = 0; result.Count < count && attempt < count * (accepts is null ? 8 : 256); attempt++)
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop
+                && (accepts is null || accepts(drop.Type))) result.Add(drop);
         return result;
     }
 
@@ -218,7 +265,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// In a map (<paramref name="mapTier"/> &gt; 0) the kill also rolls the base card and scarab chances from
     /// <c>drop_card_chance_pct</c>/<c>drop_scarab_chance_pct</c>, scaled by the quantity multiplier.</summary>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0,
-        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0)
+        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0) =>
+        Roll(monsterLevel, rarity, rng, increasedRarity, quantityMultiplier, rarityMultiplier, mapTier, null);
+
+    /// <param name="mods">The map's stats, for its scarab-type weights (<see cref="Scarab(Random, int, MapMods?)"/>).</param>
+    public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity,
+        double quantityMultiplier, double rarityMultiplier, int mapTier, MapMods? mods)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -242,7 +294,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         }
         if (mapTier > 0)
         {
-            if (MapExtra("drop_scarab_chance_pct", quantity, rng) && Scarab(rng, monsterLevel) is { } scarab)
+            if (MapExtra("drop_scarab_chance_pct", quantity, rng) && Scarab(rng, monsterLevel, mods) is { } scarab)
                 drops.Add(scarab with { Item = scarab.Item with { ItemLevel = (byte)Math.Clamp(monsterLevel, 1, 100) } });
             if (MapExtra("drop_card_chance_pct", quantity, rng) && Card(rng, monsterLevel) is { } card)
                 drops.Add(card);
