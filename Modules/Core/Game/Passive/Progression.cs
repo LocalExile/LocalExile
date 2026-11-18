@@ -930,8 +930,14 @@ public static partial class Game
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
         Dictionary<string, long> All() { foreach (string key in values.Keys) read[key] = true; return values; }
         /// <summary>Whether every amount this build read has the same value in <paramref name="other"/>.</summary>
-        public bool ReadSame(ReadAmounts other) => read.Keys.All(key =>
-            values.TryGetValue(key, out long mine) == other.values.TryGetValue(key, out long theirs) && mine == theirs);
+        public bool ReadSame(ReadAmounts other)
+        {
+            // Enumerated in place: ConcurrentDictionary.Keys takes every lock and copies (4% of a lookup).
+            foreach (var (key, _) in read)
+                if (values.TryGetValue(key, out long mine) != other.values.TryGetValue(key, out long theirs) || mine != theirs)
+                    return false;
+            return true;
+        }
     }
 
     public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
