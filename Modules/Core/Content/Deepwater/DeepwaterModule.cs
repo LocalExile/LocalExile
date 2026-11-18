@@ -7,7 +7,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.Deepwater;
 
 /// <summary>The Allflame league (the client's "Deepwater"): its league category, the league's area stat, the ways to The Sovereign
-/// (the World panel pin, /boat, the rowboat on The Coast), the hub's rulesets and its quest table (DeepwaterQuests). Charts,
+/// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests). Charts,
 /// voyages and Allflame crafting are not built yet (Agents/roadmap/world.md).</summary>
 public sealed class DeepwaterModule : IModule
 {
@@ -34,9 +34,10 @@ public sealed class DeepwaterModule : IModule
         return null;
     });
 
-    // Rulesets rows (S→C 0x1f): DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
-    // a null check) and DeepwaterRules (ClientDeepwater; the collection chest's update_collection_chest event reaches it).
-    static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules")), Rules = new(() => Ruleset("DeepwaterRules"));
+    // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
+    // a null check). DeepwaterRules (ClientDeepwater, row 171) is not sent: the client closes about 2 s after it is added on
+    // The Sovereign (live 2026-11-18, without a server layout), and what it needs first is not known.
+    static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules"));
 
     static byte? Ruleset(string id) =>
         ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
@@ -60,13 +61,12 @@ public sealed class DeepwaterModule : IModule
         // server's extra terrain feature roll for Deepwater encounters read).
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);
         InstanceEvents.AreaStats.Add(id, _ => Stats.Key("map_deepwater_league") is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
-        // The hub's rulesets, before its objects.
+        // The hub's ruleset, before its objects.
         GameEvents.EnterMessages.Add(id, conn =>
         {
             if (PlayerOf(conn).AreaId != HubId) return [];
             var messages = new List<(string Log, byte[] Message)>();
             if (HubRules.Value is { } hub) messages.Add(($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub)));
-            if (Rules.Value is { } rules) messages.Add(($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules)));
             return messages;
         });
         // C→S 0x183: the World panel's Deepwater pin (enabled by the league category, disabled on The Sovereign itself).

@@ -113,8 +113,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   areas DeepwaterEncounter and DeepwaterEncounterVoyage with the biomes DeepwaterSandy, CoralForest, CoralReef and
   ThermalVents (never shipped), and the `Deepwater*` tables.
   The Deepwater module sends the category and `map_deepwater_league`, answers the Deepwater pin (0x183), `/boat` and the
-  Coast's rowboat, and gives the hub its rulesets, stash, Valerie and Vesper
+  Coast's rowboat, and gives the hub ruleset 172, its stash and guild stash
   ([status](../status/hideouts-and-maps.md), [16](../docs/protocol/16-waypoints.md)).
+  Adding ruleset 171 on The Sovereign closed the client about 2 s later (live 2026-11-18, without a server layout); it
+  is not sent until what it needs is known. Valerie, ValerieTutorial and Vesper are not created: the NPC writer does not
+  serialize their `Stats` component.
   The ruleset messages: S→C 0x2c9 (data) and C→S 0x2ca (actions; the hub's opcodes 0-7, from `0x14041b5d0` and its
   neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
   Not decoded: S→C 0x1e (a ruleset event such as `open_deepwater_device`, `update_collection_chest`) and the chart

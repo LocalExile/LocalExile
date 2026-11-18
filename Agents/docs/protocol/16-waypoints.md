@@ -134,7 +134,7 @@ the panel was opened from; the Gateway moves the player to the hub (arriving at 
 | 0x181 | `0181 00002F00 00` | Kingsmarch | KalguuranSettlersLeague |
 | 0x182 | `0182 00002F00 00` | Monastery of the Keepers | ChayulaLeague |
 | 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
-| 0x183 | `0183 <u32 BE object> <u8 Ctrl>` (not seen live) | Deepwater | DeepwaterHub (The Sovereign) |
+| 0x183 | `0183 00002F00 00` | Deepwater | DeepwaterHub (The Sovereign) |
 
 The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in). The click
 handler `0x140aa3880` switches on the row: 0 Hideout 0x17a, 1 Guild Hideout 0x185, 2 Labyrinth 0x4d, 3 Menagerie 0x17b,

@@ -176,7 +176,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
   The hub waypoints stay unlit (client area-type rule).
   In the Allflame leagues the Deepwater pin, `/boat` and the Deepwater Coast's rowboat lead to The Sovereign, with its
-  rulesets, deck stash and guild stash, Valerie and Vesper; it has no server layout yet (not in server_level_areas).
+  hub ruleset and its deck stash and guild stash (verified live 2026-11-18); it has no server layout yet (not in
+  server_level_areas), so the player arrives off the ship, and no waypoint, NPC or way back but /hideout is there.
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
