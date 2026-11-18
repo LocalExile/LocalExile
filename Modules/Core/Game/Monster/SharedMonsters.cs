@@ -141,7 +141,8 @@ public static partial class Game
                     if (conn.MinionOrigins.TryGetValue(id, out var origin) && !m.Dead && m.Life > 0)
                     {
                         var at = m.Walk.Position(now);
-                        minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life));
+                        minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life, origin.Object.EnergyShield,
+                            SnapshotMaximumEnergyShield(origin.Object)));
                     }
             }
             conn.PublishedMinions = [.. minions];
@@ -571,7 +572,7 @@ public static partial class Game
                         o = o with { Object = o.Object with { Parent = owner.PeerId } };
                     lock (conn.Monsters)
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
-                    packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life }).Blob()));
+                    packets.Create(id, InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life, EnergyShield = m.EnergyShield }).Blob()));
                     packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
                     if (owner.ProjectileRuntimeState is ProjectileSession mirages && mirages.MiragePeerDisplay(m.Id, id) is { } display)
                         packets.World(id, display);
@@ -586,6 +587,12 @@ public static partial class Game
                     else if (m.Destination == (m.X, m.Y) && Math.Max(Math.Abs(before.X - m.X), Math.Abs(before.Y - m.Y)) > 20)
                         packets.World(id, InstanceProtocol.Teleport(id, m.X, m.Y, 0x7fffffff));
                     if (before.Life != m.Life) packets.World(id, InstanceProtocol.LifeUpdate(id, m.Life));
+                    if (before.MaximumEnergyShield != m.MaximumEnergyShield
+                        && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+                        packets.World(id, InstanceEntities.StatsUpdate(id, [(maximumEnergyShield,
+                            (int)Math.Min(m.MaximumEnergyShield, int.MaxValue))]));
+                    if (before.EnergyShield != m.EnergyShield)
+                        packets.World(id, InstanceProtocol.LifeUpdate(id, m.EnergyShield, pool: 2));
                 }
                 if (conn.LockstepClient && before is null)
                 {

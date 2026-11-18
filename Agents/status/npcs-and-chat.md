@@ -6,6 +6,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Vendors persist stock; campaign Lilly saves her account shop unlock after her introduction: [17](../docs/protocol/17-npcs.md).
+- Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
+- `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
 
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
   `/raw <hex>`, `/set_stat`, `/set_speed`, `/set_level <1 to 100>` (saved to the account, sent in place),

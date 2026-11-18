@@ -5,6 +5,8 @@
 `GemSupports` reads native GrantedEffects, ActiveSkills and GrantedEffectsPerLevel tables.
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
+`SupportsGemsOnly` is retained from GrantedEffects. It excludes meta supports from item-granted non-gem actives while
+leaving them available to real skill gems.
 These item supports do not require links and pass through the same compatibility and duplicate-family resolver.
 The Squire's mod adds every support gem in the active off-hand, unlinked, to the main hand's gems (verified live).
 An unambiguous displayed support-level stat uses the item's rolled value, including developer-set levels.
@@ -82,9 +84,13 @@ A boss stage that the hit starts, or one still running, keeps the boss alive, an
 Executioner archnemesis mod) stops the cull.
 The support's quality stat `recover_%_maximum_life_on_cull` (0.1 per 1% quality) recovers that share of maximum Life
 on a cull, applied at once and sent with the next vitals update like instant leech.
-Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the conditional sources
-(against bleeding, burning, frozen, cursed or marked enemies, bow attacks, weapon-local critical strikes, flasks), the
-flat Life and Mana gained on cull, or the "Culled Recently" stats.
+Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the bow-attack, cleave,
+tincture, weapon-local (critical, bleeding and crit-recently), flask and stun conditional sources, the "Culled
+Recently" stats or the onslaught buff on cull. The target-state conditional sources (burning — including Righteous
+Fire's own burn — frozen, cursed, marked and poacher's-marked enemies, and a hit that leaves the enemy under 10% Life)
+now cull at 10%, and flat Life and Mana gained on cull are granted. The weapon-local bleeding source
+(`local/main_hand/off_hand_culling_strike_vs_bleeding_enemies`) needs the hit's weapon context and remains outside
+this implementation.
 
 Green supports with a condition or an execution of their own now run: Cull the Weak culls normal and magic enemies at
 `kill_normal_or_magic_enemy_on_hit_if_under_x%_life` (Culling Strike's share still applies to every rarity), Pacifism's
