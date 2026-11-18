@@ -186,6 +186,53 @@ public sealed class ScarabEncounterTests
             Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
             Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
             Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
+            var essenceMods = catalog.Of([Slot("ScarabEssence1"), Slot("ScarabEssence2")], Program.Items.Mods);
+            var essenceInstance = new InstanceState();
+            essenceInstance.OpenedWith(new("EssenceOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, essenceMods));
+            essenceInstance.AreaStats(() => Compose(essenceMods));
+            await using var essenceOwner = await Wire.Open(essenceInstance, layout, seed);
+            await using var essencePeer = await Wire.Open(essenceInstance, layout, seed);
+            Assert.True(MapEssences.Count(essenceOwner.Conn) >= 3);
+            await MapEssences.Enter(essenceOwner.Conn);
+            MapEssences.Monolith[] Monoliths() => System.Text.Json.JsonSerializer.Deserialize<MapEssences.Monolith[]>(
+                essenceInstance.ContentState["Essence/monoliths"])!;
+            var sealedMonoliths = Monoliths();
+            Assert.Equal(MapEssences.Count(essenceOwner.Conn), sealedMonoliths.Length);
+            await MapEssences.Enter(essencePeer.Conn);
+            Assert.Equal(sealedMonoliths.Select(m => m.Id), Monoliths().Select(m => m.Id));
+            var firstMonolith = sealedMonoliths[0];
+            essenceOwner.Conn.Walk.Teleport(firstMonolith.X + 8, firstMonolith.Y, 0);
+            for (byte stage = 2; stage <= 4; stage++)
+            {
+                Assert.True(await MapEssences.Use(essenceOwner.Conn, new(firstMonolith.Id, 0, stage, 0), 0));
+                Assert.Equal(stage, Monoliths()[0].Stage);
+                Assert.Equal(stage == 4 ? 1 : 0, essenceOwner.Conn.Monsters.Count);
+            }
+            var released = Monoliths()[0];
+            Assert.True(released.Monster > 0);
+            var monster = essenceOwner.Conn.Monsters[released.Monster];
+            Assert.Equal(released.Monster, monster.ObjectId);
+            Assert.Equal(GameServer.Core.Protocol.Instance.MonsterRarity.Rare, monster.Rarity);
+            Assert.Contains(monster.Mods.Mods, m => firstMonolith.Essences.Select(MapEssenceCatalog.Find)
+                .OfType<MapEssenceCatalog.Essence>().SelectMany(e => e.MonsterMods)
+                .Any(row => Program.Items.Mods.Row(row)!.Hash == m.Hash));
+            var wrongMonster = new DropRoll(essenceOwner.Conn, Game.ModMonster(monster, (released.X, released.Y)) with { ObjectId = released.Monster + 1 });
+            MapEssences.Drops(wrongMonster);
+            Assert.Empty(wrongMonster.Items);
+            var rewards = new DropRoll(essenceOwner.Conn, Game.ModMonster(monster, (released.X, released.Y)));
+            MapEssences.Drops(rewards);
+            Assert.Equal(released.Essences.Select(e => MapEssenceCatalog.Find(e)!.Item), rewards.Items);
+            var duplicate = new DropRoll(essencePeer.Conn, rewards.Monster);
+            MapEssences.Drops(duplicate);
+            Assert.Empty(duplicate.Items);
+            await MapEssences.Use(essencePeer.Conn, new(firstMonolith.Id, 0, 5, 0), 0);
+            Assert.Single(essenceOwner.Conn.Monsters);
+            MapEssences.Leave(essenceOwner.Conn);
+            await MapEssences.Enter(essenceOwner.Conn);
+            Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));
+            Assert.Equal(released.Essences, Monoliths()[0].Essences);
+            PlayerInventories.Forget(essenceOwner.Conn.Character!);
+            PlayerInventories.Forget(essencePeer.Conn.Character!);
             PlayerInventories.Forget(boxOwner.Conn.Character!);
             PlayerInventories.Forget(boxPeer.Conn.Character!);
         }
@@ -249,6 +296,15 @@ public sealed class ScarabEncounterTests
             StrongboxCatalog.Blob(arcanist, 100, 100, true, false));
         Assert.NotEqual(StrongboxCatalog.Blob(arcanist, 100, 100, true, false),
             StrongboxCatalog.Blob(arcanist, 100, 100, true, true));
+        Assert.DoesNotContain(MapEssenceCatalog.Pool(70), e => e.Tier > 5 || e.Corrupted);
+        Assert.Contains(MapEssenceCatalog.Pool(73), e => e.Tier == 6);
+        var screaming = MapEssenceCatalog.All.First(e => e.Tier == 5);
+        Assert.Equal(6, MapEssenceCatalog.Higher(screaming).Tier);
+        var essenceRequest = Request("ScarabEssence1", "ScarabEssence2", "ScarabEssence3");
+        essenceRequest.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(essenceRequest.Slots, Program.Items.Mods) };
+        MapScarabContent.Describe(essenceRequest);
+        MapEssences.Opening(essenceRequest);
+        Assert.Contains("Essence.Stability", Assert.Single(essenceRequest.UnhandledContent));
     }
 
     sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable

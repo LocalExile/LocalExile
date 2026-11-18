@@ -170,6 +170,7 @@ public sealed record MonsterMovement
 
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public uint ObjectId { get; set; }
     /// <summary>How it moves where its variety's row does not say (SpawnMonster's <c>movement</c>).</summary>
     public MonsterMovement Movement { get; init; } = MonsterMovement.Default;
     public double ReceivedActionFactor = 1;

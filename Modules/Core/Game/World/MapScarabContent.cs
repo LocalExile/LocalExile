@@ -33,6 +33,11 @@ public static class MapScarabContent
                 : mods.Get("map_strongbox_mod_effect_+%") > 0 ? "Ambush.Potency"
                 : mods.Get("map_monstrous_treasure_no_monsters") > 0 ? MapStrongboxes.Containment
                 : mods.Get("map_strongbox_rare_boxes_weighting_multiplier") > 0 ? MapStrongboxes.Discernment : MapStrongboxes.Content;
+        if (family == "Essence")
+            return mods.Get("map_stable_essence_corruption") > 0 ? "Essence.Stability"
+                : mods.Get("map_rare_monsters_trapped_in_essences") > 0 ? "Essence.Calcification"
+                : mods.Get("map_essence_imprisoned_monsters_enhanced_for_each_essence") > 0 ? "Essence.Adaptation"
+                : mods.Get("map_essences_are_1_tier_higher_chance_%") > 0 ? MapEssences.Ascent : MapEssences.Content;
         if (mods.Get(MapScarabPacks.CountStat) > 0) return MapScarabPacks.Cloister;
         if (mods.Get("map_atlas_boss_pack_replacement_chance_%") > 0) return "AtlasBossPacks";
         return Encounters.GetValueOrDefault(family);
