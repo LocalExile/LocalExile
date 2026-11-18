@@ -58,7 +58,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - One connection per character: a newer login ends the older connection and loads the character after it saved; an
   area change is not a second login (not checked with two clients in the real game).
 - Selected league modes have server rules with automated coverage and native entry, exit and migration checks.
-  Ordinary Hardcore death migrates to the matching softcore base while preserving SSF; Hardcore Ruthless stays dead.
+  Ordinary Hardcore death migrates to the matching softcore base while preserving SSF; Hardcore Ruthless moves to its
+  parent, or to Void with the Ruthless setting `hardcoreDeathToVoid` (both live 2026-11-14).
   Carried progress and the death record commit together, source stash/gold stay behind, and stale writes cannot undo it.
   Automated coverage includes lethal ignite, stale death callbacks and one-time death effects
   in ordinary and Ruthless modes.

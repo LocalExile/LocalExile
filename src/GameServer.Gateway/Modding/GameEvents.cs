@@ -39,11 +39,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     }
 
     /// <summary>The subscribers for this connection's league, with their owners (for <see cref="GameEventOwners.Guard"/>).</summary>
-    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn)
+    public IEnumerable<(string Owner, T Run)> Subscribers(ClientState conn) => Subscribers(Program.LeagueFor(conn));
+
+    /// <summary>The subscribers for a league, before a connection exists (an area's inputs are decided first).</summary>
+    public IEnumerable<T> For(LeagueRuntime league)
+    {
+        foreach (var (_, run) in Subscribers(league)) yield return run;
+    }
+
+    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
-        var league = Program.LeagueFor(conn);
         foreach (var (owner, rank, run) in subscribers)
             if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
                 || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
@@ -139,6 +146,20 @@ public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, strin
 /// <summary>Where the framework hands over to the league's code, the modules and the mods.</summary>
 public static class GameEvents
 {
+    /// <summary>Adjust an entity's walking speed (cells/second) before its movement is resolved and presented.</summary>
+    public static readonly GameEvent<Func<ClientState, uint, double, double>> MovementSpeed = new();
+
+    public static double ResolveMovementSpeed(ClientState conn, uint entity, double speed)
+    {
+        foreach (var (owner, run) in MovementSpeed.Subscribers(conn))
+        {
+            double next = speed;
+            if (GameEventOwners.Guard(owner, nameof(MovementSpeed), () => next = run(conn, entity, speed))
+                && double.IsFinite(next) && next > 0) speed = next;
+        }
+        return speed;
+    }
+
     // ---- The player's connection ---------------------------------------------------------------------------------------
 
     /// <summary>Every player tick (about 4 a second while the player is in an area and not paused), with the game seconds since the last one.</summary>

@@ -35,6 +35,7 @@ public sealed class TotemState
         public bool Ballista;
         public int BonusSlots;
         public double NextCast;
+        public SingleUseCooldownState? Cooldown;
         public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>

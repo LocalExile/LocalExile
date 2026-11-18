@@ -16,9 +16,11 @@ public readonly record struct ContactPoint(float X, float Y, float Z)
 }
 
 /// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position, and
-/// every contact keyframe's time in order (empty when the data predates the "contacts" key).</summary>
+/// every contact keyframe's time in order (empty when the data predates the "contacts" key). Named events are ordered
+/// ms lists, independent of whether the clip has a contact.</summary>
 public readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
-    bool CancellationKnown = false, int? Cancel = null, IReadOnlyList<int>? Contacts = null);
+    bool CancellationKnown = false, int? Cancel = null, IReadOnlyList<int>? Contacts = null,
+    IReadOnlyDictionary<string, IReadOnlyList<int>>? Events = null);
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
 public enum CastAnimationKind { Attack, Projectile, Area, Buff }
@@ -47,7 +49,7 @@ public sealed class AnimationContacts
     public const double DefaultAttackContact = 0.4;
 
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
-        Dictionary<string, DefaultAttackClip[]> AttackPools);
+        Dictionary<string, AnimationClip> AllClips, Dictionary<string, DefaultAttackClip[]> AttackPools);
 
     private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
 
@@ -131,10 +133,28 @@ public sealed class AnimationContacts
         return (found.Name, (double)frames[index] / found.Clip.Length);
     }
 
-    private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip)
+    /// <summary>
+    /// The selected skill clip's natural length and the earliest/latest occurrences of a named event, all in ms.
+    /// Resolves <paramref name="skillClipName"/> like <see cref="SkillAttackContact"/>; with
+    /// <paramref name="includeWithoutContact"/> it also accepts clips that have no contact keyframe. Null when the
+    /// rig, clip or event is absent, including client data from before named events were extracted.
+    /// </summary>
+    public (string Name, int LengthMs, int EarliestMs, int LatestMs)? SkillAnimationEventBounds(
+        string animatedObject, WeaponProfile weapon, string? skillClipName, string eventName,
+        bool includeWithoutContact = true)
+    {
+        if (string.IsNullOrEmpty(eventName)
+            || SkillAttackClip(animatedObject, weapon, skillClipName, includeWithoutContact) is not { } found
+            || found.Clip.Events is not { } events || !events.TryGetValue(eventName, out var times) || times.Count == 0)
+            return null;
+        return (found.Name, found.Clip.Length, times.Min(), times.Max());
+    }
+
+    private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip,
+        bool includeWithoutContact = false)
     {
         if (string.IsNullOrEmpty(skillClip) || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
-        var anims = actor.Clips;
+        var anims = includeWithoutContact ? actor.AllClips : actor.Clips;
         // GemAttackContactDelay returns the clip whose first contact drives this use. Accept that exact name so a second
         // strike reads the same weapon-combination variant (for example doublestrike_sword_claw), not merely the main-hand
         // suffix variant that the generic resolver would otherwise choose.
@@ -281,18 +301,27 @@ public sealed class AnimationContacts
         // Every contact frame of a clip, in order: the clip then has only its earliest contact without them, and skills
         // that ask for a later frame get null and model the timing themselves.
         var framesByClip = By("animation_clip_contacts", "clip");
+        var eventsByClip = By("animation_clip_events", "clip");
         var attacksByRig = By("animation_default_attacks", "rig");
         foreach (var rig in rigs)
         {
             string ao = rig.Text("ao")!;
             var clips = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            var allClips = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
             foreach (var c in clipsByRig[rig.Index])
             {
                 if (c.IsNull("length")) continue;   // a clip listed only for its position, index or cancel
                 var times = framesByClip[c.Index].Where(f => !f.IsNull("ms")).Select(f => f.Int("ms")).ToList();
-                clips[c.Text("name")!] = new AnimationClip(c.Int("length"), c.Int("contact"), Point(c, "position"),
+                var events = eventsByClip[c.Index].Where(e => e.Text("name") is not null && !e.IsNull("ms"))
+                    .GroupBy(e => e.Text("name")!, StringComparer.Ordinal)
+                    .ToDictionary(g => g.Key, g => (IReadOnlyList<int>)g.Select(e => e.Int("ms")).Order().ToArray(),
+                        StringComparer.Ordinal);
+                var clip = new AnimationClip(c.Int("length"), c.IntOrNull("contact") ?? 0, Point(c, "position"),
                     c.IsNull("rig_index") ? uint.MaxValue : c.UInt("rig_index"),
-                    c.BoolOrNull("cancel_listed") ?? false, c.IntOrNull("cancel"), times.Count > 0 ? times : null);
+                    c.BoolOrNull("cancel_listed") ?? false, c.IntOrNull("cancel"), times.Count > 0 ? times : null,
+                    events.Count > 0 ? events : null);
+                allClips[c.Text("name")!] = clip;
+                if (!c.IsNull("contact")) clips[c.Text("name")!] = clip;
             }
             // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
             // served before the stance pools replaced them.
@@ -314,7 +343,7 @@ public sealed class AnimationContacts
                     throw new InvalidDataException($"Invalid default attack animation pool {ao}/{stance.Key}.");
                 pools.Add(stance.Key, entries);
             }
-            result[ao] = new ActorAnimations(clips, pools);
+            result[ao] = new ActorAnimations(clips, allClips, pools);
         }
         return result;
     }

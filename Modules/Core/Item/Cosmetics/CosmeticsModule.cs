@@ -68,14 +68,28 @@ public static class CosmeticsFeature
     // server-made art the next time it is cast).
     internal static async Task PickSkillCosmetic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Key, uint RecordId) pick)
     {
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
-        if (!conn.SkillSlots.TryGetValue(pick.Key, out var slot)
-            || !SkillCosmeticPlaces(conn).Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType))
-            || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
-                || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
+        InstanceMicrotransactions.SkillSlot slot;
+        InstanceMicrotransactions.Record? record;
+        RighteousFireState? expectedRelight;
+        using (ProjectileMutation(conn, advance: false, phase: "skill cosmetic pick"))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
-            return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea)
+                return;
+            record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+            if (!conn.SkillSlots.TryGetValue(pick.Key, out var current))
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                return;
+            }
+            slot = current!;
+            if (!SkillCosmeticPlaces(conn).Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType))
+                || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
+                    || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                return;
+            }
+            expectedRelight = conn.RighteousFire;
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
@@ -83,8 +97,8 @@ public static class CosmeticsFeature
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the skill pick");
         await SendSkills(remote, stream, ciphers, conn);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
-        // nothing, so it is lit again with the new ring and buff visuals.
-        await RelightRighteousFire(remote, stream, ciphers, conn, "restyled by the skill pick", slot.GemHash);
+        // nothing, so it is lit again with the new ring and buff visuals only while the exact pick-time owner still exists.
+        await RelightRighteousFire(remote, stream, ciphers, conn, "restyled by the skill pick", expectedRelight, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
@@ -207,16 +221,36 @@ public static class CosmeticsFeature
 
     internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
-        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
+        int percent = ApplyPetSpeed(conn, id, pet, now);
         var from = pet.Walk.Order(to.X, to.Y, now);
         // Local gates can put the owner in a separate walkable component. A finite loot walk must stop
         // where its path ends, but a following pet rejoins its owner when that path falls short.
         if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
         {
             pet.Walk.Teleport(to.X, to.Y, now);
-            return InstanceProtocol.Teleport(id, to.X, to.Y);
+            return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+                .. InstanceProtocol.Teleport(id, to.X, to.Y)];
         }
-        return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
+        return [.. InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]),
+            .. InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408)];
+    }
+
+    static int ApplyPetSpeed(ClientState conn, uint id, SpawnedPet pet, double now)
+    {
+        double speed = GameEvents.ResolveMovementSpeed(conn, id, Math.Max(conn.Walk.Speed, 1));
+        // Metadata/Pet/Pet.ot has Pathfinding base_speed 37. The native final stat is an integer percent;
+        // quantize the estimate to that same speed rather than letting pickup run ahead of the visible pet.
+        int percent = (int)Math.Round(Math.Clamp((speed / 37 - 1) * 100, -99, int.MaxValue - 100d));
+        double resolved = 37 * (1 + percent / 100d);
+        if (pet.Walk.Speed != resolved) pet.Walk.SetSpeed(resolved, now);
+        return percent;
+    }
+
+    internal static byte[]? PetSpeedUpdate(ClientState conn, uint id, SpawnedPet pet, double now)
+    {
+        double previous = pet.Walk.Speed;
+        int percent = ApplyPetSpeed(conn, id, pet, now);
+        return previous == pet.Walk.Speed ? null : InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, percent)]);
     }
 
     // Pets follow the player, every player tick (GameEvents.Tick): when one is farther than PetFollowRange from the player
@@ -226,6 +260,15 @@ public static class CosmeticsFeature
     {
         try
         {
+            uint[] pets;
+            lock (conn.Pets) pets = [.. conn.Pets.Keys];
+            foreach (uint id in pets)
+                await global::Game.SendWorldRecord(conn, id, () =>
+                {
+                    lock (conn.Pets)
+                        return !conn.Closed && !conn.LeavingArea && conn.Pets.TryGetValue(id, out var pet)
+                            ? PetSpeedUpdate(conn, id, pet, conn.Clock.Elapsed.TotalSeconds) : null;
+                });
             double now = conn.Clock.Elapsed.TotalSeconds;
             var player = conn.Walk.Position(now);
             var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();

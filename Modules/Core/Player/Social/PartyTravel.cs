@@ -1,0 +1,60 @@
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
+using static Program;
+
+namespace GameServer.Modules.Social;
+
+/// <summary>C→S 0x92: travel to a current party member's checkpoint or portal.</summary>
+static class PartyTravel
+{
+    static readonly Lazy<AreaModCatalog> AreaMods = new(AreaModCatalog.Load);
+    static readonly Lazy<Dictionary<ushort, int[]>> Access = new(() => ClientTables.Table("WorldAreas")
+        .GroupBy(r => (ushort)r.Int("HASH16"))
+        .ToDictionary(g => g.Key, g => g.First().Ints("EndQuestFlags").ToArray()));
+
+    internal static ClientState? Member(ClientState conn, string name) => PartyRoster.TravelMember(conn, name);
+
+    internal static PendingTransfer? Destination(ClientState conn, ClientState member)
+    {
+        if (member.InstanceNumber == 0) return null;
+        PendingTransfer destination;
+        // Party travel to a map goes outside its device. Direct entry would bypass its six-portal budget.
+        var map = MapDevice.ForInstance(member);
+        if (map is not null || MapDevices.Value.IsMapArea(member.Layout.Hash))
+        {
+            if ((map?.Entrance ?? map?.ReturnTo) is not { Instance: not 0 } origin) return null;
+            destination = new(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y));
+        }
+        else
+        {
+            // These areas have their own admission/lifecycle; a party button cannot enter them midway through a run.
+            if (LabyrinthDay.DifficultyOf(member.Layout.Id) is not null || AreaMods.Value.DisablesPortals(member.Layout.Id))
+                return null;
+            bool waypoint;
+            lock (member.Waypoints) waypoint = member.Waypoints.Contains(member.Layout.Id);
+            var arrival = member.ReturnPortal is { } portal && member.ReturnPortalTo != 0
+                ? member.Layout.Near((portal.X, portal.Y)) : member.Layout.Checkpoint(waypoint);
+            destination = new(member.Layout.Hash, member.InstanceNumber, false, ArriveAt: arrival);
+        }
+        if (!Access.Value.TryGetValue(destination.Area, out var required)) return null;
+        var flags = PlayerQuestFlags(conn).ToHashSet();
+        return required.All(flags.Contains) ? destination : null;
+    }
+
+    internal static async Task<bool> Travel(ClientState conn, string name)
+    {
+        var member = Member(conn, name);
+        if (member is null) return false;
+        var destination = Destination(conn, member);
+        if (destination is null)
+        {
+            if (conn.Commands is { } commands) await commands.Reply("You cannot travel to that party member's area.");
+            return true;
+        }
+        if (destination.Area == conn.Layout.Hash && destination.Instance == conn.InstanceNumber) return true;
+        // Pin the selected member's instance: another party member may be in a different copy of the same area.
+        var (remote, stream, ciphers) = conn.Wire;
+        await ChangeArea(remote, stream, ciphers, conn, destination, $"party panel: travel to {name}");
+        return true;
+    }
+}

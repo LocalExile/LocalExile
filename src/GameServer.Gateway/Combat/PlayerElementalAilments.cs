@@ -8,6 +8,13 @@ public sealed class PlayerElementalAilments
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
     public const double MonsterCriticalAilmentMultiplier = 1.3;
     public enum Kind { Ignite, Chill, Freeze, Shock }
+    /// <summary>The source skill's native ailment stats. Critical strikes and native chances share one application
+    /// per kind, so the defender's avoidance is rolled once even when both would inflict the same ailment.</summary>
+    public readonly record struct HitSettings(int IgniteChance, int FreezeChance, int ShockChance,
+        int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
+    {
+        public bool NeverFreeze { get; init; }
+    }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
@@ -24,7 +31,7 @@ public sealed class PlayerElementalAilments
         }
     }
     double actionFloor, actionCeiling = double.PositiveInfinity, freezeEffect = 1;
-    bool chillReversed, unaffectedByShock, unaffectedByIgnite;
+    bool chillReversed, unaffectedByChill, unaffectedByFreeze, unaffectedByShock, unaffectedByIgnite;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -41,6 +48,12 @@ public sealed class PlayerElementalAilments
     /// <summary>When the freeze on the player ends; <paramref name="now"/> without one.</summary>
     public double FreezeUntil(double now)
     {
+        lock (effects) return unaffectedByFreeze ? now : FreezeStatusUntil(now);
+    }
+
+    // Unaffected suppresses its action hold, but the retained freeze still produces "been Frozen" history.
+    public double FreezeStatusUntil(double now)
+    {
         lock (effects) return effects.Where(e => e.Kind == Kind.Freeze && e.From <= now && now < e.Until)
             .Select(e => e.Until).DefaultIfEmpty(now).Max();
     }
@@ -52,7 +65,8 @@ public sealed class PlayerElementalAilments
     /// still stops you (wiki Changing Seasons).</summary>
     public double TotalActionFactor(double now, double statReduction)
     {
-        double freeze = Magnitude(Kind.Freeze, now) * freezeEffect, chill = Magnitude(Kind.Chill, now);
+        double freeze = unaffectedByFreeze ? 0 : Magnitude(Kind.Freeze, now) * freezeEffect,
+            chill = unaffectedByChill ? 0 : Magnitude(Kind.Chill, now);
         double change = (chillReversed && freeze <= 0 ? chill : -Math.Max(freeze, chillReversed ? 0 : chill)) - statReduction;
         return Math.Min(actionCeiling, Math.Max(actionFloor, 1 + change / 100));
     }
@@ -73,6 +87,8 @@ public sealed class PlayerElementalAilments
         {
             effects.RemoveAll(e => Immune(e.Kind, get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
+            unaffectedByChill = get("unaffected_by_chill") != 0;
+            unaffectedByFreeze = get("unaffected_by_freeze") != 0;
             unaffectedByShock = get("unaffected_by_shock") != 0;
             unaffectedByIgnite = get("unaffected_by_ignite") != 0;
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
@@ -85,26 +101,34 @@ public sealed class PlayerElementalAilments
     // Damaging ailments use the pre-critical base, not damage taken. Non-damaging ailments use damage dealt
     // against the ordinary player's maximum-Life threshold. No enemy chance-to-ailment modifiers are invented.
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, uint? source = null)
+        Func<string, int> get, Random random, uint? source = null) =>
+        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source);
+
+    public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
+        Func<string, int> get, Random random, HitSettings settings, uint? source = null)
     {
         lock (effects)
         {
             Reconcile(get);
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude, seconds, now, get, random, source);
-            if (critical) Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * MonsterCriticalAilmentMultiplier, 4);
+            if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
+                Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
+                    * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
             if (maxLife == 0) return;
             double cold = taken[DamageType.Cold].Min / maxLife;
             double lightning = taken[DamageType.Lightning].Min / maxLife;
             // Changing Seasons (all_damage_taken_can_chill): every type of the hit's damage counts toward its chill.
             double chilling = get("all_damage_taken_can_chill") != 0 ? taken.MinTotal / maxLife : cold;
             double chill = Math.Min(30, Math.Floor(50 * Math.Pow(chilling, .4)
-                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)));
+                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)
+                * Math.Max(0, 1 + settings.ChillEffectFinalPct / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
-            if (!critical) return;
-            Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
+            if (!settings.NeverFreeze && (critical || RandomRolls.Chance(settings.FreezeChance, 100, random)))
+                Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
                 * Math.Max(0, 1 + EffectOnSelfPct(Kind.Shock, get) / 100.0)));
-            if (shock >= 5) Add(Kind.Shock, shock, 2);
+            if (shock >= 5 && (critical || RandomRolls.Chance(settings.ShockChance, 100, random)))
+                Add(Kind.Shock, shock, 2 * Math.Max(0, 1 + settings.ShockDurationFinalPct / 100.0));
         }
     }
 
@@ -118,8 +142,9 @@ public sealed class PlayerElementalAilments
         uint? source = null)
     {
         seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
+        string avoid = $"avoid_{Name(kind)}_%";
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
-            || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
+            || RandomRolls.Chance(get(avoid), 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
     }
 

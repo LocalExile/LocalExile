@@ -139,6 +139,7 @@ public sealed class HitAilmentTests
         Assert.Equal((still, 0.0), (Game.BleedTaken(target, 0.1), Game.AggravatedExtra(target, 0)));
         conn.PlayerStats[Program.Stats.Key("cannot_cause_bleeding")!.Value] = 1;
         Assert.Equal(MonsterIgnites.Settings.None, Bleed());
+        VerifyRuptureClocks(conn);
 
         // The club's own "chance to Poison on Hit", which the panel counts, poisons an attack's hit and not a spell's.
         var player = Game.CharacterPlayerStats(conn);
@@ -154,6 +155,116 @@ public sealed class HitAilmentTests
             Assert.True(poisoned.Poisons.Poisoned);
         }
     });
+
+    static void VerifyRuptureClocks(ClientState conn)
+    {
+        var bleed = new MonsterIgnites.Settings(100, 100, 100, 100, 100, 10, CriticalChance: 100, RupturePercent: 25);
+        var target = Monster();
+        target.Bleeds.Add(0, 200, 10); // A stronger bleed applied before the first Rupture.
+        var first = Game.BleedOnHitLocked(conn, 10, target, bleed, critical: true, now: 1)!;
+        var visible = Assert.Single(first, IsRupture);
+        Assert.Equal(31, visible.Length); // IsRecovery=false: no inline values, extra word or stack field.
+        Assert.Equal(2, visible[22]);
+        Assert.Equal(3f, BitConverter.UInt32BitsToSingle(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(visible.AsSpan(23))));
+        Assert.Empty(Game.PresentRupturesLocked(conn, 10, target, 2)); // Ticking must not restart the duration.
+        var observer = new ClientState(conn.Layout, 2, 1) { Instance = conn.Instance };
+        var observed = Assert.Single(Game.PresentRupturesLocked(observer, 10, target, 2), IsRupture);
+        Assert.Equal(2f, BitConverter.UInt32BitsToSingle(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(observed.AsSpan(23))));
+        Assert.NotEqual(visible[12..14], observed[12..14]);
+        Assert.Equal(9, target.Bleeds.Until, 8); // The new ten-second bleed immediately runs at 1.25x.
+        Assert.Equal(250, target.Bleeds.Advance(2, Game.BleedTaken(target, 2)) - 200); // One unruptured second retained.
+        Game.SettleBleeding(target, 5); // Crosses the stack's t=4 expiry with no intermediate tick.
+        Assert.Equal(700, target.Bleeds.Advance(5, 1)); // 2 seconds at 250, then one at 200.
+        Assert.Equal(10.25, target.Bleeds.Until, 8); // New bleed: 10 - 3*1.25 base seconds remain at t=4.
+        Assert.Equal(1, Game.BleedingExpiryRate(target, 5));
+        var ended = Game.PresentRupturesLocked(conn, 10, target, 5);
+        Assert.Single(ended, p => p[0] == 1 && p[1] == 0xc2);
+        Assert.Contains(ended, p => p.SequenceEqual(InstanceEntities.StatsUpdate(10,
+            [(Program.Stats.Key("rupture_debuff_bleeding_time_passed_+%_final")!.Value, 0)])));
+
+        var staggered = Monster();
+        var shown = new HashSet<ushort>();
+        for (int i = 0; i < 5; i++)
+        {
+            var hit = Game.BleedOnHitLocked(conn, 11, staggered, bleed with { Seconds = 20 }, critical: true, now: i * .5)!;
+            var add = Assert.Single(hit, IsRupture);
+            ushort instance = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(add.AsSpan(12));
+            Assert.DoesNotContain(instance, shown);
+            int removed = hit.Count(p => p[0] == 1 && p[1] == 0xc2
+                && shown.Remove(System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p.AsSpan(12))));
+            Assert.Equal(i == 4 ? 1 : 0, removed);
+            shown.Add(instance);
+            Assert.Equal(Math.Min(i + 1, 4), shown.Count);
+        }
+        Assert.Equal(4, staggered.Ruptures.Stacks(2));
+        Game.SettleBleeding(staggered, 6); // Replacement and every distinct expiry, in one advance.
+        Assert.Equal(0, staggered.Ruptures.Stacks(6));
+        Assert.Equal(1, Game.BleedingExpiryRate(staggered, 6));
+        Assert.True(staggered.Bleeds.Advance(6, 1) > 600);
+        Assert.Equal(4, Game.PresentRupturesLocked(conn, 11, staggered, 6).Count(p => p[0] == 1 && p[1] == 0xc2));
+
+        var slowed = Monster(("buff_time_passed_+%_other_than_temporal_chains", -50));
+        slowed.RecipientDebuffRate = .5;
+        slowed.Bleeds.SetExpiryRate(0, .5);
+        var slowHit = Game.BleedOnHitLocked(conn, 12, slowed, bleed, critical: true, now: 0)!;
+        uint clockKey = Program.Stats.Key("buff_time_passed_+%_other_than_temporal_chains")!.Value;
+        Assert.Contains(slowHit, p => p.SequenceEqual(InstanceEntities.StatsUpdate(12, [(clockKey, -50)])));
+        var slowView = Game.PresentRupturesLocked(observer, 12, slowed, 1);
+        Assert.Contains(slowView, p => p.SequenceEqual(InstanceEntities.StatsUpdate(12, [(clockKey, -50)])));
+        Assert.Equal(2.5f, BitConverter.UInt32BitsToSingle(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+            Assert.Single(slowView, IsRupture).AsSpan(23)))); // Remaining base time, with the observer's native clock slowed.
+        Assert.Empty(Game.PresentRupturesLocked(observer, 12, slowed, 2));
+        Assert.Equal(.625, Game.BleedingExpiryRate(slowed, 0));
+        Assert.Equal(16, slowed.Bleeds.Until, 8);
+        Assert.Equal(6, slowed.Ruptures.NextExpiry); // Rupture is itself a debuff; Temporal Chains slows it too.
+        Game.SettleBleeding(slowed, 4);
+        Assert.Equal(16, slowed.Bleeds.Until, 8);
+        Assert.Equal(500, slowed.Bleeds.Advance(4, 1));
+        Assert.Equal(100, slowed.Bleeds.PerSecond(4)); // Expiry never scales the base DPS.
+        Game.SettleBleeding(slowed, 7);
+        Assert.Equal(18.5, slowed.Bleeds.Until, 8);
+        Assert.Equal(350, slowed.Bleeds.Advance(7, 1));
+        slowed.Mods = Monster().Mods;
+        var restoredView = Game.PresentRupturesLocked(observer, 12, slowed, 7);
+        Assert.Contains(restoredView, p => p.SequenceEqual(InstanceEntities.StatsUpdate(12, [(clockKey, 0)])));
+
+        var changed = Monster();
+        Game.BleedOnHitLocked(conn, 14, changed, bleed, critical: true, now: 0);
+        Game.SettleBleeding(changed, 1);
+        changed.Mods = Monster(("buff_time_passed_+%_other_than_temporal_chains", -50)).Mods;
+        changed.RecipientDebuffRate = .5;
+        changed.Ruptures.SetExpiryRate(1, .5);
+        changed.Bleeds.SetExpiryRate(1, Game.BleedingExpiryRate(changed, 1));
+        Assert.Equal(InstanceEntities.StatsUpdate(14, [(clockKey, -50)]),
+            Assert.Single(Game.PresentRupturesLocked(conn, 14, changed, 1))); // Retimes the live native instance, no new buff.
+        Assert.Equal(5, changed.Ruptures.NextExpiry);
+        Game.SettleBleeding(changed, 6);
+        Assert.Equal(17.5, changed.Bleeds.Until, 8);
+        Assert.Equal(725, changed.Bleeds.Advance(6, 1));
+        // Speeding a live timer back up preserves elapsed progress, and never revives an expired stack.
+        var restored = new MonsterRuptures(); restored.Add(0, 25);
+        restored.SetExpiryRate(1, .5); restored.SetExpiryRate(2, 1);
+        Assert.Equal(3.5, restored.NextExpiry);
+        restored.SetExpiryRate(4, .5);
+        Assert.Equal(0, restored.Stacks(4));
+
+        var shortBleed = Monster();
+        Game.BleedOnHitLocked(conn, 13, shortBleed, bleed with { Seconds = 1 }, critical: true, now: 0);
+        Game.SettleBleeding(shortBleed, 4);
+        Assert.False(shortBleed.Bleeds.Burning);
+        Assert.Equal(100, shortBleed.Bleeds.Advance(4, 1)); // 100 DPS * 1.25 taken * 0.8 seconds.
+        Assert.Equal(0, shortBleed.Bleeds.Advance(5, 1));
+
+        var dying = Monster();
+        Game.BleedOnHitLocked(conn, 15, dying, bleed, critical: true, now: 0);
+        dying.Dead = true;
+        Assert.Single(Game.PresentRupturesLocked(conn, 15, dying, .5), p => p[0] == 1 && p[1] == 0xc2);
+        Assert.Empty(dying.Ruptures.Active);
+        Assert.Empty(Game.PresentRupturesLocked(conn, 15, dying, 1));
+
+        static bool IsRupture(byte[] p) => p.Length >= 16 && p[0] == 1 && p[1] == 0xc1
+            && System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(p.AsSpan(14)) == Game.RuptureBuffRow;
+    }
 
     static SpawnedMonster Monster(params (string, int)[] stats) => new("target", new(105, 100, 0), 0, 0, 100)
         { Mods = new([], [], new(stats.ToDictionary(s => s.Item1, s => s.Item2))) };

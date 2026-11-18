@@ -17,6 +17,8 @@ Closes #
 - [ ] `dotnet build GameServer.slnx`
 - [ ] Core, Data and Gateway test suites, with their counts:
 - [ ] Seen in the client (optional):
+- [ ] Only for a change to player stat building or the item-stat lookup: `stat-builds` %cpu in a fight, before and after
+  ([hot paths](https://github.com/LocalExile/LocalExile/blob/main/Agents/docs/dev/performance.md#hot-paths)):
 
 ## For the reviewer
 

@@ -1,0 +1,10 @@
+{
+  "id": "Shrines",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "Game",
+    "Social"
+  ],
+  "assembly": "bin/shrines.dll"
+}

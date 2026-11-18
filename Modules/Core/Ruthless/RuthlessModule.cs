@@ -55,6 +55,7 @@ public sealed class RuthlessRulesSource(string settingsPath, Action<string>? log
         ExperiencePenaltyStartLevel = settings.ExperiencePenaltyStartLevel,
         ExperienceMultiplierPerLevel = settings.ExperienceMultiplierPerLevel,
         BossLifeRecoveryFraction = settings.CampaignBossLifeRecoveryFraction,
+        HardcoreDeathToVoid = settings.HardcoreDeathToVoid,
         BossRecoveryAreaPrefixes = ["1_", "2_"],
         PersistsVitals = true,
         TownRefillsFlasks = false,
@@ -108,6 +109,9 @@ public sealed record RuthlessRules
     public double ExperienceMultiplierPerLevel { get; init; } = 0.90;
     /// <summary>See <see cref="LeagueRules.BossLifeRecoveryFraction"/>.</summary>
     public double CampaignBossLifeRecoveryFraction { get; init; } = 0.25;
+    /// <summary>See <see cref="LeagueRules.HardcoreDeathToVoid"/>. Retail voids Hardcore Ruthless deaths; LocalExile moves
+    /// them to the league's parent unless this is on.</summary>
+    public bool HardcoreDeathToVoid { get; init; }
 
     /// <summary>Throws <see cref="ArgumentException"/> for a number out of range.</summary>
     public void Validate()

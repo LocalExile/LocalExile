@@ -178,6 +178,22 @@ item messages (13-items.md). The server takes the ItemClasses `Map`, `MapKey` an
 `0x1424b5290`: u8 flags, then optional u32/u16/u8; zeros are enough because `MapKeyTierN` names the tier, and the server
 sends one zero byte). `/item Map (Tier 5)` makes a tier-5 map.
 
+**Ctrl + click into the slots** is **C→S 0x00e4** (into) or **0x00e5** (out), 12 bytes: u32 BE item id, u8 flags (bit 0
+of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the low 7 bits are +0x27), u16 BE the open
+map device object's +0x7b (0 when it has none). The writers are `0x14216e300` and `0x14216e5d0`, serializer `0x141f9eac0`;
+the Ctrl + click handler `0x14030e970` picks them for any item class it finds "map-ish" (`0x140310fa6`). Both directions go
+through one handler (`ItemMoves.MoveToMapDevice`), which takes the direction from where the item is.
+
+- **A map never sends C→S 0xe8** — that is the Atlas Idol path: the handler tests the ItemClasses row 94 `AtlasRelic`
+  (`cmp eax,0x5f`, `0x140310f44`) and only that class reaches it, with a u32 BE item id, then five single bytes, no byte
+  swap (`0x14216e750`, serializer `0x141f9f660`); its first byte is 1 when the item is in inventory row 84
+  (`ExpandedMainInventory1`), and there is no row-13 byte. (The old note read `+0x10b8` as a window check: no such field is
+  used by this handler; what it tests are client UI state — a virtual at `[ui+0x10c8]`, `0x140310f63`, plus the branch
+  selector `[ui+0x6c0]`/`[ui+0x658]` — which no server message sets.)
+- Before these two ids were framed (`InstanceProtocol.KnownClientLength`), the click produced only an "unframed 0x00e4"
+  run in the gateway log and the map had to be dragged in. Live 2026-11-15: the click now arrives as `00E4 00000295 …` and
+  the map moves.
+
 **Activate** is **C→S 0x00d8** (5 bytes): u16 BE, u8. The window's button handler `0x140c284f0` (window mode 0xd)
 calls `0x14216ce30`, which writes a u16 from the target its slots name (+0x7b; 0 seen with a map in the slots) and a
 u8 (0 seen); the writer class is `0x1435ca958`, as C→S 0xc7. Mode 0x5e (another device) sends C→S 0x297 instead.
@@ -206,7 +222,7 @@ type (`0x141e30280` stores it in the "portal" state; MultiplexPortal.ot: 1 playe
 
 | Field | Meaning |
 |---|---|
-| u8 | flags: bit0 → +0x32, bit1 → +0x33, bit2: a u64 follows at the end |
+| u8 | flags: bit0 → +0x32 (a portal listed as just opened; its own render path), bit1 → +0x33 (the label's completed suffix), bit2: a u64 follows at the end |
 | u8, u8 | +0x2e, +0x31 (0) |
 | u32 BE | the map device object (looked up; its Functions get `on_map_portal_opened` / `on_map_portal_closed`) |
 | u16 BE, u8, u8 | +0x2c, +0x2f, +0x30 (0) |
@@ -229,6 +245,25 @@ is now missing or has area 0 closes (+0xc0) and runs `on_map_portal_closed`. See
   Created untransitioned and opened with S→C 0x2bc to Transitionable (component 5, u8 1), the client hung, or
   crashed with the update 2 s later; that was before 0x008f had given the portal its area. **Type 1 (player) renders**,
   so the Gateway uses it (`Game_MAP_PORTAL_TYPE` overrides).
+
+**The label over a portal is the Portal component's own nametag** (`0x14161bb60`, vtable `0x143477000`). For the player's
+own portal, slot +0xb8 (`0x14161c0e0`) calls the text getter `0x14161ca80`: `[rcx+8]` is the component, `[+0xb0]` the
+WorldAreas row the entry's area HASH16 resolved to and `[+8]` its localized name; `cmp byte ptr [rax], r8b`
+(`0x14161caa7`) then tests one byte of the component and, when it is set, appends `ClientStrings` row `0x1fe5`
+`MapPortalsSuffixMapCompleted`, "{0} (Completed)" (`0x14161caf1`). That byte is **native message +0x33**, filled by bit 1 of this
+message's flags and nothing else: the reader stores `flags & 1` at +0x32 and `(flags >> 1) & 1` at +0x33 (`0x1421a73b2`,
+`0x1421a73c1`), the dispatcher's case 0x21 hands bit 1 to the handler (`0x14218ca36`, kept at world +0xb7b), and the
+handler forwards it per listed portal as the 7th argument of slot +0xb8 (`0x14218cc2d`, call `0x14218cc4c`). Because it
+runs +0xb8 for every listed portal on every 0x008f, a re-sent list relabels them all. **Bit 0 must stay clear** for a
+plain list: it is a different byte, +0x32, and it selects the "just opened" render path. None of this is S→C
+0x1a3/0x1a4, the AtlasNode masks, section 0x4 or `MapDeviceRecipes`.
+
+So the Gateway sets bit 1 for the run whose map boss has died, and leaves it clear otherwise: before the boss dies, and
+for a map its character finished on another day, the label stays plain; so do the map's own portal back and the towns.
+The mark follows the exact device run and its instance, including guest kills; opening the same map again starts a
+new run. Only that area’s declared terminal bosses count, including every living twin, not unrelated unique monsters. Seen live 2026-11-14 (3.29.3c): after a
+map's boss died and the player returned to the hideout, the standing portals read "<area name> (已完成)" in a Chinese
+client, and the logged message began `008F02 00 00` (`00` before the change).
 
 **Portal cosmetics without the shop.** The entry's u16 is the portal's own visual, so a shop portal effect replaces the
 base one rather than adding a second object: `/cosmetic portal <name or index>` (Gateway) sets a per-connection

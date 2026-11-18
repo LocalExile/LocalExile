@@ -15,7 +15,8 @@ public sealed class MonsterCatalog(string folder = "data")
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,
         int MovementSpeed = 30, int ObjectSize = 3, int AggroRange = 60, IReadOnlyList<int>? GrantedEffects = null,
-        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100, bool BossHealthBar = false)
+        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100,
+        bool BossHealthBar = false, IReadOnlyList<int>? SpeciesMods = null)
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
@@ -32,6 +33,9 @@ public sealed class MonsterCatalog(string folder = "data")
         /// 0x1ab only puts it on the order's from cell (no path search, no step: a unique Maven's orb, traced
         /// 2026-11-10), so it gets no chase, like a variety with MovementSpeed 0.</summary>
         public bool Immobile { get; init; }
+        /// <summary>The resolved Actor resource's slow_animations_go_to_idle flag. Null for legacy or incomplete
+        /// metadata, or varieties with addon types whose Actor overrides are not resolved here.</summary>
+        public bool? SlowAnimationsGoToIdle { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -45,6 +49,8 @@ public sealed class MonsterCatalog(string folder = "data")
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>Mods.dat rows owned by this MonsterVarieties row (ModsKeys, ModsKeys2 and Special_ModsKeys).</summary>
+        public IReadOnlyList<int> SpeciesModsOrEmpty => SpeciesMods ?? [];
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
@@ -72,6 +78,9 @@ public sealed class MonsterCatalog(string folder = "data")
     /// the 0.4 s minimum applies.
     /// </summary>
     public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
+
+    /// <summary>Builds the life tables and the take-hit animations at startup: the first monsters placed read them.</summary>
+    public void Warm() { _ = _life.Value; _ = _takeHit.Value; }
 
     /// <summary>
     /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
@@ -283,6 +292,7 @@ public sealed class MonsterCatalog(string folder = "data")
         var blocking = new Dictionary<string, bool>();
         var phasing = new HashSet<string>();
         var immobile = new HashSet<string>();
+        var idleSlowAnimations = new Dictionary<string, bool?>();
         if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
             var sharedStates = ObjectTypes.SharedStates();
@@ -293,6 +303,7 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
                 if (t.BoolOrNull("phases") == true) phasing.Add(type);
                 if (t.BoolOrNull("immobile") == true) immobile.Add(type);
+                idleSlowAnimations[type] = t.BoolOrNull("actor_slow_animations_go_to_idle");
                 // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
                 if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
                 if (t.IntOrNull("transitionable_num_states") is int numStates)
@@ -309,6 +320,8 @@ public sealed class MonsterCatalog(string folder = "data")
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
+        int bowClass = ClientTables.Has("ItemClasses")
+            ? Array.FindIndex(ClientTables.Table("ItemClasses").ToArray(), r => r.Text("Id") == "Bow") : -1;
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
         {
             var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
@@ -319,7 +332,8 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (visual < visualHashes.Count && type < classStances.Count && type < 255)
                     held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
             }
-            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            bool bow = bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass;
+            Hold(0, bow ? "Weapon2_ItemVisualIdentityKeys" : "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
             Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
             return held;
         }
@@ -336,6 +350,9 @@ public sealed class MonsterCatalog(string folder = "data")
                 // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
                 string type = components.ContainsKey(id) ? id : baseType;
                 string? ao = r.Texts("AOFiles").FirstOrDefault();
+                int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
+                    .SelectMany(r.Ints)
+                    .Distinct().ToArray();
                 rows.Add(new Variety(rows.Count, id, r.Text("Name") ?? "", baseType, ao,
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
                     r.Int("LifeMultiplier"),
@@ -345,10 +362,11 @@ public sealed class MonsterCatalog(string folder = "data")
                     [.. r.Ints("GrantedEffectsKeys")],
                     r.Int("AttackSpeed"), r.Int("MaximumAttackDistance"),
                     r.Int("DamageMultiplier"), r.Int("ExperienceMultiplier"),
-                    r.BoolOrNull("BossHealthBar") == true)
+                    r.BoolOrNull("BossHealthBar") == true, speciesMods)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
+                        SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

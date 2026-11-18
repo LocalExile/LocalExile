@@ -157,6 +157,20 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return Roll(item, ItemRarity.Rare, random, respectMetamods: true) with { Identified = true };
     }
 
+    /// <summary>A Tainted Chaos Orb's "removes all of its modifiers": every explicit but the fractured ones leaves a
+    /// modifiable rare, which drops to the lowest rarity its fractured mods allow (none normal, at most one prefix and
+    /// one suffix magic, else rare). Implicits and other lists stay.</summary>
+    public Item? StripExplicits(Item item)
+    {
+        if (item.Rarity != ItemRarity.Rare || item.Components.Contains("Flask") || !TryModifiable(item, out _)) return null;
+        var fractured = item.FracturedIndexes();
+        var kept = item.Mods.Where((m, i) => m.Section != ModSection.Explicit || fractured.Contains(i)).ToArray();
+        var sides = fractured.Select(i => catalog.Mods.ByHash(item.Mods[i].Hash)?.GenerationType).ToArray();
+        var rarity = sides.Length == 0 ? ItemRarity.Normal
+            : sides.Count(g => g == Prefix) <= 1 && sides.Count(g => g == Suffix) <= 1 ? ItemRarity.Magic : ItemRarity.Rare;
+        return item with { Mods = kept, Rarity = rarity, NameWords = rarity == ItemRarity.Rare ? item.NameWords : [] };
+    }
+
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
     /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>

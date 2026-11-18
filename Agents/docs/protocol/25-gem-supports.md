@@ -5,7 +5,10 @@
 `GemSupports` reads native GrantedEffects, ActiveSkills and GrantedEffectsPerLevel tables.
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
+`SupportsGemsOnly` is retained from GrantedEffects. It excludes meta supports from item-granted non-gem actives while
+leaving them available to real skill gems.
 These item supports do not require links and pass through the same compatibility and duplicate-family resolver.
+The Squire's mod adds every support gem in the active off-hand, unlinked, to the main hand's gems (verified live).
 An unambiguous displayed support-level stat uses the item's rolled value, including developer-set levels.
 Non-level pseudo-supports retain their native fixed granted-effect definitions.
 Compatibility uses active skill types, postfix AND/OR/NOT expressions, exclusions and weapon restrictions.
@@ -81,10 +84,13 @@ A boss stage that the hit starts, or one still running, keeps the boss alive, an
 Executioner archnemesis mod) stops the cull.
 The support's quality stat `recover_%_maximum_life_on_cull` (0.1 per 1% quality) recovers that share of maximum Life
 on a cull, applied at once and sent with the next vitals update like instant leech.
-Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the weapon-local, flask, stun
-and "crit recently" conditional sources, the "Culled Recently" stats or the onslaught buff on cull. The target-state
-conditional sources (bleeding, burning, frozen, cursed, marked and poacher's-marked enemies, and a hit that leaves the
-enemy under 10% Life) now cull at 10%, and flat Life and Mana gained on cull are granted.
+Hits from minions, warcries, passive-granted skills and Rampage do not cull yet, nor do the bow-attack, cleave,
+tincture, weapon-local (critical, bleeding and crit-recently), flask and stun conditional sources, the "Culled
+Recently" stats or the onslaught buff on cull. The target-state conditional sources (burning — including Righteous
+Fire's own burn — frozen, cursed, marked and poacher's-marked enemies, and a hit that leaves the enemy under 10% Life)
+now cull at 10%, and flat Life and Mana gained on cull are granted. The weapon-local bleeding source
+(`local/main_hand/off_hand_culling_strike_vs_bleeding_enemies`) needs the hit's weapon context and remains outside
+this implementation.
 
 Green supports with a condition or an execution of their own now run: Cull the Weak culls normal and magic enemies at
 `kill_normal_or_magic_enemy_on_hit_if_under_x%_life` (Culling Strike's share still applies to every rarity), Pacifism's
@@ -93,13 +99,22 @@ Green supports with a condition or an execution of their own now run: Cull the W
 `additional_chance_to_freeze_chilled_enemies_%` counts an enemy chilled by an earlier hit (not the hit's own chill),
 Sadism's `support_faster_ailments_ailment_duration_+%_final` shortens its ignites, bleeds and poisons, Vicious Projectiles'
 `support_projectile_attack_speed_+%_final` is a factor of the supported attack's rate, and Greater Chain's
-`support_chain_count_+%_final` multiplies the whole chain count, rounded up (`GatewayProjectileModifiers`).
+`support_chain_count_+%_final` multiplies the whole chain count; PoB keeps the resulting fraction, so the server
+truncates it rather than rounding up (`GatewayProjectileModifiers`).
 
 Greater Fork's `chance_to_fork_extra_projectile_%` rolls per projectile at the fork and adds a third child straight ahead
 (`ProjectileProfile.ForkExtraProjectileChancePercent`). Rupture's critical bleeding hits add up to four three-second
 Ruptures on the monster, each raising its bleeding damage taken by `support_rupture_bleeding_damage_taken_+%_final`
-(`MonsterRuptures`, `BleedTaken`); "bleeding expires more quickly" and the native Rupture buff are not modelled, because a
-bleed's duration is captured when it is applied. Close Combat's supported melee hit grants Combat Rush for its listed
+(`MonsterRuptures`, `BleedTaken`). Each Rupture speeds up all running bleed timers by 25%, including its hit's own bleed;
+stack expiry restores the remaining time at the new rate, composed with Temporal Chains. Rupture itself is category 2
+in BuffDefinitions, so its own expiry clock is slowed too. This is a dynamic expiry rate, not a shorter base duration
+([GGG Q&A](https://www.pathofexile.com/forum/view-thread/3123794)).
+Native BuffDefinitions 1722 `rupture` uses one instance per stack (limit 4, UIStackMode 3), each with a three-second
+base timer. It is not `IsRecovery`: no inline values or extra word follow its duration. Its public
+`rupture_debuff_bleeding_time_passed_+%_final` stat carries 25 per stack; the native bleeding buff then runs at 2x with
+four stacks. BuffVisuals 1481 supplies `rupture_02.epk`. Each observer also needs the recipient's public timer stats:
+another player's Temporal Chains otherwise leaves that client's Rupture clock at 1x while the server runs it slower.
+Close Combat's supported melee hit grants Combat Rush for its listed
 duration, and a travel skill the support does not support then takes
 `support_slashing_buff_attack_speed_+%_final_to_grant` as more attack speed.
 A successfully paid travel use consumes the buff.
@@ -119,7 +134,7 @@ raises the supported gem's level like the generic `supported_active_skill_gem_le
 `chance_to_crush_on_hit_%` crushes for 4 s and a crushed monster's physical damage reduction is 15% lower
 (BuffDefinitions `crushed`); Awakened Spell Echo's `spell_echo_plus_chance_double_damage_%_final` rolls only on the final
 repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
-keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
+keeps that aura out of the player's stats (the buff icon is not shown, and an enemy-debuff aura such as Pride still
 applies).
 Cruelty Support grants its buff on a hit of a supported skill: `CrueltyPctFor` computes `round(100 * (1 + cruelty_effect_+%/100) * (D/L)^0.2)`
 from the hit's damage `D` (capped at the life the target could lose) and the monster's maximum life `L`, capped at 40%.
@@ -131,11 +146,23 @@ chill, Exposure and Arcane Surge, the client's strongest-instance buffs. Every C
 (BuffDefinitions 1815) shows that value, with `u82 = 0` and one value (the percent), re-sent on a value change or a
 deadline move of at least 0.25 s (the Arcane Surge pattern). The ailments of the granting hit itself do not get it yet.
 
-Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
-repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
-speed reads its actual `support_multiple_attacks_melee_attack_speed_+%_final` (the old code read a stat that does not
-exist, so the base support was a pure damage penalty). Melee Splash hits the enemies around each struck one for the
-support's less damage; its radius is the 12-cell default grown by the area modifier and
+Multistrike's native melee constructor (`0x141b71600`) reads **`attack_repeat_count`**, not the support's
+`base_melee_attack_repeat_count`; network stats run no calculator. Completion (`0x1419e6370`) decrements the
+action's `+0x2d0` and restarts a full swing. Its cancellation gate (`0x1419e6460`) lets Multistrike use each
+swing's clip gate, unlike ordinary Spell Echo's intermediate casts. The server retains one payment and one
+Ruthless count for the use, spaces its repeats by the supported attack time, and drops remaining repeats when
+the action is replaced or interrupted. Each repeat's hit and ailments take its independent
+`multistrike_damage_+%_final_on_{first,second,third}_repeat`; attack speed uses
+`support_multiple_attacks_melee_attack_speed_+%_final`.
+
+The native damage panel does **not** average those repeat bonuses: the main-hand average (`0x142793170`),
+combined average (`0x1427947b0`), per-use display (`0x142795ca0`) and DPS (`0x142795ea0`) use the individual
+hit and attack rate. Invoking those calculators with a fixed 100-damage hit at two attacks per second gave
+100 average damage and 200 DPS with zero, two or three repeats and their 22/44/66% bonuses. The server's
+panel preserves that per-hit convention for both hands.
+
+Melee Splash hits the enemies around each struck one for the
+support's less damage; its radius is the 14-unit base (poewiki) grown by the area modifier and
 `melee_splash_area_of_effect_+%_final` (`MeleeSplash`).
 
 Spell Cascade repeats a supported area spell in a line: one extra area per side along the caster-to-target
@@ -211,7 +238,7 @@ level 1, 98% at 20; poedb). Each skill keeps its own count, counted as the use s
 counts (the wiki: the count advances whether or not the hit lands); that a use cancelled before its contact counts
 too is not verified. The count is server state only;
 the client's invisible `ruthless_big_hit_counter` buff is not sent. Not built: the blow's 0.8 s stun duration, its
-more damage with bleeding, poison and ignite, and the count across Multistrike repeats.
+more damage with bleeding, poison and ignite.
 
 PoEDB comparisons: [Second Wind](https://poedb.tw/us/Second_Wind_Support) (200% cost multiplier,
 +1 non-instant use, 24% reduced recovery at level 1, 5% at 20 and up to 5% increased recovery from quality),
@@ -219,6 +246,26 @@ PoEDB comparisons: [Second Wind](https://poedb.tw/us/Second_Wind_Support) (200% 
 and [Close Combat](https://poedb.tw/us/Close_Combat_Support) (two-second Combat Rush, consumed by travel,
 20% more travel attack speed only without Close Combat). Values are read from the installed 3.29.3c tables;
 PoEDB is a comparison source, not a replacement for those versioned tables.
+
+## Mirage Archer presentation
+
+The 3.29.3c `MirageArcherVisualBuff` constructor at `0x1415d4c20` and destructor at `0x1417c7cb0`
+read element 0 of the buff's trailing u32 list without a length check.
+An empty list causes the null dereference at `0x1415d4d0c`; the owner actor itself is valid.
+The default appearance uses `[0]` on BuffDefinitions 1017, retained until the archer ends.
+This behaviour plays appear/disappear art; it does not create the persistent character model.
+That model is the class's `Metadata/Monsters/Mirage/*Mirage` actor with the owner's equipment,
+attached at `Head_Attachment` and tinted by BuffVisuals 802 `mirage_archer_effect`.
+BuffDefinitions 1748 `MirageArcherDisplayBuff` reads list element 1 in `0x1417c7010` and
+elements 0 and 2 in `0x1417c7260`; `[0, 0, 0]` selects default art without the separate proximity ring.
+The native actor is presentation for the existing server-side archer, outside the summon combat roster.
+Its autonomous actions use sequence `0xffff`, independently of the player's action counter.
+Consuming that counter for the visual actor inserted extra player sequence values between real attacks.
+The head attachment still controls model orientation: dropping its rotation with attachment kind 4 leaves
+the mirage fixed in world space rather than letting its action aim turn the mesh (native predictive check).
+Independent facing and the reported client CPU spikes remain unresolved; a rendered character model alone
+is not evidence that either is correct.
+Microtransaction variants and independent Occupying Force archers remain unverified.
 
 ## Remaining execution gaps
 

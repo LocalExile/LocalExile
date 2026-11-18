@@ -27,6 +27,9 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
 
     public bool IsTown(ushort area) => Towns.Contains(area);
 
+    /// <summary>Areas whose default destination belongs to the character, independently of visits to another owner's instance.</summary>
+    public IReadOnlySet<ushort> PersonalAreas { get; init; } = new HashSet<ushort>();
+
     /// <summary>Seed for a new non-town instance. Default: random. The server cannot generate layouts itself yet, so the
     /// dev servers pin it (one dumped layout per area); towns always use 1.</summary>
     public Func<ushort, uint>? SeedFor { get; init; }
@@ -39,6 +42,13 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
         {
             Prune();
             if (IsTown(area)) return Join(TownLocked(area, league), character);
+            if (PersonalAreas.Contains(area))
+            {
+                var home = _instances.Values.FirstOrDefault(i => i.AreaHash == area && i.League == LeagueKey(league)
+                    && string.Equals(i.Owner, character, StringComparison.OrdinalIgnoreCase)
+                    && CanEnter(i, soloIdentity ?? character, league, solo));
+                return Join(home ?? CreateLocked(area, league, solo ? soloIdentity ?? character : null, owner: character), character);
+            }
             if (_last.TryGetValue((character.ToUpperInvariant(), LeagueKey(league), area), out ulong id)
                 && _instances.TryGetValue(id, out var previous) && CanEnter(previous, soloIdentity ?? character, league, solo))
                 return Join(previous, character);
@@ -68,7 +78,8 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
         {
             Prune();
             return Join(IsTown(area) ? TownLocked(area, league)
-                : CreateLocked(area, league, solo ? soloIdentity ?? character : null, seed), character);
+                : CreateLocked(area, league, solo ? soloIdentity ?? character : null, seed,
+                    PersonalAreas.Contains(area) ? character : null), character);
         }
     }
 
@@ -138,12 +149,12 @@ public sealed class InstanceRegistry(TimeProvider? clock = null)
     private AreaInstanceState TownLocked(ushort area, string? league) =>
         _instances.Values.FirstOrDefault(i => i.AreaHash == area && i.League == LeagueKey(league)) ?? CreateLocked(area, league);
 
-    private AreaInstanceState CreateLocked(ushort area, string? league, string? soloOwner = null, uint requested = 0)
+    private AreaInstanceState CreateLocked(ushort area, string? league, string? soloOwner = null, uint requested = 0, string? owner = null)
     {
         bool town = IsTown(area);
         // Towns use seed 1 (their layout is fixed anyway); other areas the requested seed, else SeedFor's, else random.
         uint seed = town ? 1u : requested != 0 ? requested : SeedFor?.Invoke(area) ?? (uint)Random.Shared.Next(1, int.MaxValue);
-        var inst = new AreaInstanceState(_nextId++, area, town, seed, _clock.GetUtcNow(), LeagueKey(league), soloOwner);
+        var inst = new AreaInstanceState(_nextId++, area, town, seed, _clock.GetUtcNow(), LeagueKey(league), soloOwner) { Owner = owner };
         _instances[inst.Id] = inst;
         return inst;
     }
@@ -182,6 +193,7 @@ public sealed class AreaInstanceState(ulong id, ushort areaHash, bool isTown, ui
     public string League { get; } = league;
     /// <summary>SSF non-town instances are private to this character, including after leaving and re-entering.</summary>
     public string? SoloOwner { get; } = soloOwner;
+    public string? Owner { get; init; }
     /// <summary>When the last player left (expiry starts), or null while someone is in it.</summary>
     public DateTimeOffset? EmptySince { get; internal set; }
     public HashSet<string> Players { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -155,7 +155,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
   barrier, both Shakaris), a9q4, a9q2 (the feather to Irasha), a9q1 (both ingredients in one click, the membrane, the
   three spirits, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
-  (Bannon becomes Innocence: Oriath Docks' two stages), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
+  (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
   earned, −60% with Act 5's, before him −30%; Sin's portal home) and A11q0 (Lilly sails to Karui Shores). Every act
   7–10 quest done with every act 7–10 flag of `EpilogueAtlasDemo`, 24 quest passive points and 20 refund points.
   The exits the layouts disable and a quest gates (The Ashen Fields' way north, The Harbour Bridge's into Act 9, Sin's

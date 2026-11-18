@@ -184,6 +184,9 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x1435b31a8`, `0x141e76860` | Vt, Fn | Monster component type; slot 9 parses the `@level` suffix |
 | `0x141e30ba0` | Fn | Positioned .ot keys (`serialise_collidable` → +0x1b, …) |
 | `0x14161d160` (3.29.3b; not found in 3.29.3c) | Fn | Targetable deleter (where a failed object build crashes) |
+| `0x14346cd80` (read `0x140e27980`) | Cls | S→C 0x1a0 monsters remaining, one byte: handler case 0x7e at `0x14215718b` stores it at `instance+0xd7cd` ([14](14-monster-packs.md) §2) |
+| `0x1406b25f0` | Fn | map overlay builder: area name from the WorldAreas row, the count at `instance+0xd7cd` → `0x1406b24e0`, the level at `+0xd7cc` → `0x1406b2400` |
+| `0x1406b24e0` | Fn | map overlay "X monsters remain": 1 → ClientStrings `0x1ab6`, 0..50 → `0x1ab7`, 51..255 → `0x1ab8` ([14](14-monster-packs.md) §2) |
 
 ## Patching
 | Address | Kind | What |

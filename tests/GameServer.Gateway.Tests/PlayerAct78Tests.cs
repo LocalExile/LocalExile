@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class PlayerAct78Tests
 {
     [Fact]
-    public void Native_shots_receive_final_counts_without_changing_simulated_mortars()
+    public void Native_shots_receive_counts_and_art_without_changing_simulated_mortar_flights()
     {
         InGame(conn =>
         {
@@ -36,8 +36,10 @@ public sealed class PlayerAct78Tests
             var mortar = new MonsterAttack(0x4000, 1, 30, GameServer.Core.World.DamagePacket.Empty)
                 { Ranged = true, Projectile = new("Metadata/Projectiles/SandspitterMortarProjectile", 100, false, 1)
                     { Count = 3, Variation = 183 } };
-            Assert.Equal(Game.MonsterProjectileSkillStats(conn, 35, 58, mortar),
-                Game.MonsterActionSkillStats(conn, 35, 58, mortar));
+            var final = Game.MonsterActionSkillStats(conn, 35, 58, mortar);
+            uint artKey = Program.Stats.Key("skill_art_variation")!.Value;
+            Assert.Equal(Game.MonsterProjectileSkillStats(conn, 35, 58, mortar), final.Where(s => s.Item1 != artKey));
+            Assert.Equal(21, Assert.Single(final, s => s.Item1 == artKey).Item2);
         });
     }
 

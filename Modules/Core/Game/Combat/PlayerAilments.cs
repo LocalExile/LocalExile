@@ -5,24 +5,45 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    public static PlayerElementalAilments.HitSettings IncomingAilmentSettings(Func<string, int> get) => new(
+        get("always_ignite") != 0 ? 100 : get("base_chance_to_ignite_%"),
+        get("always_freeze") != 0 ? 100 : get("base_chance_to_freeze_%"),
+        get("always_shock") != 0 ? 100 : get("base_chance_to_shock_%"),
+        get("active_skill_chill_effect_+%_final"), get("active_skill_shock_duration_+%_final"),
+        get("active_skill_ignite_damage_+%_final")) { NeverFreeze = get("never_freeze") != 0 };
+
     public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
-        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
+        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null) =>
+        ApplyPlayerAilmentsLocked(conn, baseHit, taken, critical, blocked, now, stats, default, source);
+
+    public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
+        bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats,
+        PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
-        if (blocked || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
+        if (blocked || conn.Immune || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || InGracePeriod(conn)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && Get("all_damage_taken_can_chill") == 0) return;
-        var previousAilments = conn.ElementalAilments.Snapshot(now);
-        double previousFreeze = conn.ElementalAilments.FreezeUntil(now);
-        double previousAction = conn.ElementalAilments.ActionFactor(now);
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
-        int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
+        int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
-        conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, source);
-        if (conn.ElementalAilments.FreezeUntil(now) > previousFreeze)
+        ApplyPlayerAilmentsLocked(conn, now, ailments =>
+            ailments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, settings, source));
+    }
+
+    /// <summary>Apply one source's ailments under the combat lock. Hit, ground and reflected sources retain their
+    /// own admission, magnitude and duration rules; accepted changes share flask events, recent freeze and movement.</summary>
+    public static void ApplyPlayerAilmentsLocked(ClientState conn, double now, Action<PlayerElementalAilments> apply)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0) return;
+        var previousAilments = conn.ElementalAilments.Snapshot(now);
+        double previousFreeze = conn.ElementalAilments.FreezeStatusUntil(now);
+        double previousAction = conn.ElementalAilments.ActionFactor(now);
+        apply(conn.ElementalAilments);
+        if (conn.ElementalAilments.FreezeStatusUntil(now) > previousFreeze)
             conn.RecentEvents.Record(StatConditions.BeenFrozen, now);
         QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         PlayerAilmentsChangedLocked(conn, previousAction, now);
@@ -37,6 +58,7 @@ public static partial class Game
         {
             conn.FreezeGeneration++;
             conn.FreezeHeldUntil = frozenUntil;
+            CancelMeleeRepeats(conn, now);
             Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
             // A lockstep client's walk ends with the freeze's 0x1d1 instead (ShowFreeze), as with a hit's recovery.
@@ -48,17 +70,37 @@ public static partial class Game
     public static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
         IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) { conn.ElementalAilments.Clear(); return 0; }
-        if (!conn.ElementalAilments.HasEffects) return 0;
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0)
+        {
+            conn.ElementalAilments.Clear();
+            conn.IncomingAilments.Clear();
+            return 0;
+        }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
-            MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
-            source => DamageTakenFromBlindedPct(conn, source, stats));
-        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
-            IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
-        int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
-            damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
+        var immunities = PlayerImmunities(conn, stats);
+        int damage = 0, lifeDamage = 0;
+        if (conn.ElementalAilments.HasEffects)
+        {
+            damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
+                MaxResistance(conn, DamageType.Fire), immunities.Contains(DamageType.Fire),
+                source => DamageTakenFromBlindedPct(conn, source, stats));
+            if (Get("base_cannot_be_damaged") > 0) damage = 0;
+            damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
+                IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
+            lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
+                damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
+        }
+        if (conn.PlayerLife > 0 && !conn.IncomingAilments.Idle)
+        {
+            var physical = DamageType.Physical;
+            var chaos = DamageType.Chaos;
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + conn.IncomingAilments.Advance(from, until,
+                conn.Pools, conn.EnergyShield, Get, Resistance(conn, physical), MaxResistance(conn, physical),
+                Resistance(conn, chaos), MaxResistance(conn, chaos), conn.Immune || Get("base_cannot_be_damaged") > 0,
+                immunities.Contains(physical), immunities.Contains(chaos), conn.Walk.MovingSeconds,
+                ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry));
+        }
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {
@@ -68,6 +110,61 @@ public static partial class Game
         }
         if (previousAction != conn.ElementalAilments.ActionFactor(until)) conn.ApplyMovementSpeed();
         return damage;
+    }
+
+    /// <summary>
+    /// A hostile object's accepted, unblocked contact may inflict bleeding and poison. The chances,
+    /// damage and duration come from that monster's own effects and damage packet. Immunity is handled
+    /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
+    /// </summary>
+    public static void ApplyMonsterDamagingAilmentsLocked(ClientState conn, uint source, SpawnedMonster m,
+        DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null)
+    {
+        if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
+        var effects = m.Mods.Effects;
+        var playerStats = prepared ?? CharacterPlayerStats(conn);
+        int Player(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
+        int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
+            attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
+        if (attack) bleedChance += Player("receive_bleeding_chance_%_when_hit_by_attack");
+        int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
+            effects["base_chance_to_poison_on_hit_%"]);
+        if (attack) poisonChance = Math.Max(poisonChance,
+            effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
+        if (bleedChance <= 0 && poisonChance <= 0) return;
+        // Damaging ailments roll their base independently of the hit's roll, before victim mitigation.
+        var rolled = hit.Roll(conn.IncomingHitRandom);
+        double physical = rolled[DamageType.Physical].Min;
+        double chaos = rolled[DamageType.Chaos].Min;
+        bool poisonable = effects["all_damage_can_poison"] != 0
+            ? rolled.Components.Any(c => c.Range.Min > 0)
+            : physical + chaos > 0;
+        double poisonBase = effects["all_damage_can_poison"] != 0 ? rolled.MinTotal : physical + chaos;
+        if (bleedChance > 0 && physical > 0 && Player("cannot_gain_bleeding") == 0
+            && Player("base_cannot_gain_bleeding") == 0
+            && Player("virtual_immune_to_bleeding") == 0 && Player("immune_to_bleeding") == 0
+            && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, conn.IncomingHitRandom)
+            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_bleed_%"), 100, conn.IncomingHitRandom))
+        {
+            double more = Math.Max(0, 1 + effects["bleeding_damage_+%"] / 100.0);
+            double seconds = Ailments.BleedDurationSeconds
+                * Math.Max(0, 1 + effects["base_bleed_duration_+%"] / 100.0);
+            conn.IncomingAilments.ApplyBleed(now, physical * 0.70 * more
+                * Math.Max(0, 1 + effects["monster_bleeding_damage_+%_final"] / 100.0), seconds, source,
+                victim: Player);
+        }
+        if (poisonChance > 0 && poisonable && Player("cannot_be_poisoned") == 0
+            && Player("immune_to_poison") == 0
+            && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, conn.IncomingHitRandom)
+            && !GameServer.Core.World.RandomRolls.Chance(Player("avoid_poison_%"), 100, conn.IncomingHitRandom))
+        {
+            double more = Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0);
+            double seconds = Ailments.PoisonDurationSeconds
+                * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0);
+            conn.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
+                * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0), seconds, source,
+                victim: Player);
+        }
     }
 
     // The chilled, frozen and shocked buffs on the player, as on monsters (AilmentBuff, on the fixed top instances that
@@ -90,6 +187,33 @@ public static partial class Game
             ushort instance = MonsterElementalAilments.Instance(kind);
             if (old > 0) packets.Add((InstanceEntities.RemoveBuff(PlayerId, instance), $"0x01c2 player {kind} ends"));
             if (now > 0) packets.Add((AilmentBuff(PlayerId, instance, kind, now), $"0x01c1 player {kind} {now}%"));
+        }
+        return packets;
+    }
+
+    public static List<(byte[] Packet, string Log)> IncomingAilmentBuffs(
+        IncomingDamagingAilments.State before, IncomingDamagingAilments.State after, double now)
+    {
+        var packets = new List<(byte[], string)>();
+        const ushort bleedingInstance = ushort.MaxValue - 4, poisonInstance = ushort.MaxValue - 3;
+        if (before.Bleeding != after.Bleeding || before.BleedRevision != after.BleedRevision
+            || before.BleedUntil != after.BleedUntil)
+        {
+            if (before.Bleeding) packets.Add((InstanceEntities.RemoveBuff(PlayerId, bleedingInstance), "0x01c2 player bleeding ends"));
+            if (after.Bleeding && LabyrinthTrials.BleedingBuffRow is ushort row)
+                packets.Add((InstanceEntities.AddBuff(PlayerId, bleedingInstance, row,
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, after.BleedUntil - now))),
+                    "0x01c1 player bleeding"));
+        }
+        if (before.Poisons != after.Poisons || before.PoisonRevision != after.PoisonRevision
+            || before.PoisonUntil != after.PoisonUntil)
+        {
+            if (before.Poisons > 0) packets.Add((InstanceEntities.RemoveBuff(PlayerId, poisonInstance), "0x01c2 player poison ends"));
+            if (after.Poisons > 0)
+                packets.Add((InstanceEntities.AddBuff(PlayerId, poisonInstance, PoisonBuffRow, PlayerId,
+                    stacks: (ushort)Math.Clamp(after.Poisons, 1, ushort.MaxValue),
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, after.PoisonUntil - now))),
+                    $"0x01c1 player poisoned ({after.Poisons})"));
         }
         return packets;
     }

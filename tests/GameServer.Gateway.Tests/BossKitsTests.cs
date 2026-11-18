@@ -79,6 +79,13 @@ public sealed class BossKitsTests
             // Standalone mortar and melee attacks remain playable; this does not disable the encounter or its actor.
             Assert.Contains(arakaaliKit, entry => entry.Effect == 4438);
             Assert.Contains(arakaaliKit, entry => entry.Effect == 208);
+            var arakaaliSkills = BossKits.SkillsOf(conn, arakaali, 55, arakaaliKit);
+            uint artKey = Program.Stats.Key("skill_art_variation")!.Value;
+            foreach (var (effect, art) in new[] { (4259, 1), (4260, 2), (4261, 3) })
+            {
+                int slot = arakaaliKit.ToList().FindIndex(entry => entry.Effect == effect);
+                Assert.Contains((artKey, art), arakaaliSkills[slot].Stats!);
+            }
 
             // Yugul starts natively untargetable. He must finish his entrance before generic AI can attack; a rebind
             // already recreates a risen monster in state 2, so first entry must reach the same targetable state.
