@@ -61,18 +61,26 @@ public static partial class Game
     static Dictionary<uint, int> WithSelfBuffs(ClientState conn, Dictionary<uint, int> stats)
     {
         if (!SelfBuffs.TryGetValue(conn, out var set)) return stats;
+        // On the item-stat lookup's path (performance.md, "Hot paths"): no allocation, nothing read when none runs.
+        if (conn.PlayerLife <= 0) return stats;
         double now = conn.Clock.Elapsed.TotalSeconds;
-        foreach (var buff in new[] { set.PhaseRun, set.PhaseRunDamage, set.BloodRage })
-            if (buff is not null && now < buff.Until && conn.PlayerLife > 0)
-                foreach (var (name, value) in buff.Stats)
-                    if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+        AddRunning(set.PhaseRun);
+        AddRunning(set.PhaseRunDamage);
+        AddRunning(set.BloodRage);
         return stats;
+
+        void AddRunning(SelfBuff? buff)
+        {
+            if (buff is null || now >= buff.Until) return;
+            foreach (var (name, value) in buff.Stats)
+                if (Stats.Key(name) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
+        }
     }
 
     // Shows a self buff (a new instance, so the client's timer restarts) with the pools its stats change, and removes
     // it when its time runs out unless a later start or refresh took it over (the token).
     static async Task ShowSelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        SelfBuff buff, ushort row, string label, Action? ended = null)
+        SelfBuff buff, ushort row, string label, Action? ended = null, bool restat = true)
     {
         int token;
         lock (conn.Monsters) token = ++buff.Token;
@@ -87,8 +95,11 @@ public static partial class Game
                 buff.Buff = conn.NextBuff++;
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, buff.Buff, row, PlayerId, sourceSkill: buff.Skill,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, buff.Until - conn.Clock.Elapsed.TotalSeconds))));
-                RecomputePoolsAndSpeed(conn);
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                if (restat)
+                {
+                    RecomputePoolsAndSpeed(conn);
+                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                }
                 return [.. bytes];
             }
         });
@@ -242,7 +253,8 @@ public static partial class Game
         }
         var (remote, stream, ciphers) = conn.Wire;
         if (stream is null) return;
+        // Per kill: the stats are the same while it runs, so only the buff's timer is shown again (no stat build).
         _ = ShowSelfBuff(remote, stream, ciphers, conn, rage, BloodRageBuffRow.Value, "Blood Rage refreshed by a kill",
-            () => EndBloodRageDegen(conn, rage));
+            () => EndBloodRageDegen(conn, rage), restat: false);
     }
 }
