@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.PlayerBots;
 
 namespace GameServer.Gateway.Tests;
@@ -10,6 +11,43 @@ public sealed class PlayerBotsMcpTests
         public long Now;
         public override long TimestampFrequency => 1;
         public override long GetTimestamp() => Now;
+    }
+
+    [Fact]
+    public async Task A_following_bot_sends_its_walk_and_catch_up_to_the_observer()
+    {
+        using var runtime = new PartyFollowerTests.Runtime();
+        using var wire = new PartyFollowerTests.Wire();
+        var instance = new InstanceState();
+        var observer = runtime.Connection(instance, wire);
+        observer.Controlled = false;
+        var actor = runtime.Connection(instance, wire);
+        var resident = new Bot { AccountId = Guid.Empty, CharacterId = Guid.Empty, Account = "bot", Name = "follower",
+            Class = GameServer.Core.Accounts.CharacterClass.Marauder, PeerId = actor.PeerId, Level = 1, Town = "1_1_town" };
+        var template = BotDirector.Template(resident);
+        actor.PeerType = template.Type;
+        actor.PeerTemplate = template.Player;
+        actor.Walk.Teleport(100, 100, 0);
+        Game.PublishPlayerPose(actor);
+        await Game.SyncInstancePlayers("observer", wire.Stream, wire.Ciphers, observer);
+
+        actor.Walk.Order(140, 100, actor.Clock.Elapsed.TotalSeconds);
+        Game.PublishPlayerPose(actor);
+        var pose = instance.Player(actor.PeerId)!;
+        Assert.Equal((140, 100), pose.Destination);
+        var expected = InstanceProtocol.ActionStarted(actor.PeerId, pose.X, pose.Y, 140, 100, 0x2909, 1, 0x0408);
+        string move = Convert.ToHexString(expected[..^2]);
+        int Count(string hex) => Program.HistoryFor(wire.Ciphers).Lines().Count(line => line.Contains(hex, StringComparison.Ordinal));
+        await Game.SyncInstancePlayers("observer", wire.Stream, wire.Ciphers, observer);
+        Assert.Equal(1, Count(move));
+        await Game.SyncInstancePlayers("observer", wire.Stream, wire.Ciphers, observer);
+        Assert.Equal(1, Count(move));
+
+        actor.Walk.Teleport(190, 100, actor.Clock.Elapsed.TotalSeconds);
+        Game.PublishPlayerPose(actor);
+        string correction = Convert.ToHexString(InstanceProtocol.Teleport(actor.PeerId, 190, 100, 0x7fffffff));
+        await Game.SyncInstancePlayers("observer", wire.Stream, wire.Ciphers, observer);
+        Assert.Equal(1, Count(correction));
     }
 
     [Fact]
