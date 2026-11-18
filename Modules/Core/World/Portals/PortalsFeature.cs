@@ -14,14 +14,13 @@ static class PortalsFeature
     internal static bool RecreatedOnEntry(ushort area) =>
         WaypointCatalog.Areas.Find(area) is { IsTown: true } || HideoutCatalog.ByArea(area) is not null;
 
-    // A click on a portal back: into the instance the portal was opened from, at its cell by the device, while that
-    // instance is live; into a new one of the area, at its waypoint, when it is gone and the area is recreated on entry.
-    // A transfer to an instance Auth no longer has is refused ("instance N unavailable in this league") and leaves the
-    // player in the map with a portal that does nothing (live 2026-11-18: the Simulacrum, six minutes after its hideout
-    // stood empty).
-    internal static PendingTransfer ReturnTransfer(MapDevice.Origin origin, bool instanceGone) => instanceGone
-        ? new PendingTransfer(origin.Area, 0, false, AtWaypoint: true)
-        : new PendingTransfer(origin.Area, origin.Instance, false, ArriveAt: (origin.X, origin.Y));
+    // A click on a portal back: at its cell by the device, in the instance the portal was opened from while that instance
+    // is live, else in a new one of the area when it is gone and the area is recreated on entry (a hideout is always seed 1,
+    // so the cell is the same, and the run's portals follow to its device: FollowDeviceToThisInstance). A transfer to an
+    // instance Auth no longer has is refused ("instance N unavailable in this league") and leaves the player in the map
+    // with a portal that does nothing (live 2026-11-18: the Simulacrum, six minutes after its hideout stood empty).
+    internal static PendingTransfer ReturnTransfer(MapDevice.Origin origin, bool instanceGone) =>
+        new(origin.Area, instanceGone ? 0 : origin.Instance, false, ArriveAt: (origin.X, origin.Y));
 
     // In a map's area (one a map item opens): a portal back to the hideout next to the arrival point, listed in 0x8f without
     // a device once the world is active (21-hideouts.md §5). It is not used up.
