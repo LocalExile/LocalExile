@@ -1554,17 +1554,25 @@ public static partial class Game
         return false;
     }
 
+    const int MonsterActionRecheckMs = 100;
+
     public static async Task<bool> WaitMonsterActionTime(ClientState conn, uint id, SpawnedMonster m, int action, double until)
     {
         if (!CurrentGameWork || !double.IsFinite(until)) return false;
+        // Waits for the time itself, looking again at most every MonsterActionRecheckMs (a cancelled action is let go
+        // then), instead of every 16 ms: each attacking monster's wait took the area lock 60 times a second, and in a pack
+        // fight these waits were the lock's largest user (CPU profile 2026-11-18: 3.7 s of lock waits in 25 s).
         while (true)
         {
+            int wait;
             lock (conn.Monsters)
             {
                 if (!MonsterActionCurrent(conn, id, m, action)) return false;
-                if (!conn.Paused && AreaTime(conn) >= until) return true;
+                double left = until - AreaTime(conn);
+                if (!conn.Paused && left <= 0) return true;
+                wait = conn.Paused ? MonsterActionRecheckMs : (int)Math.Clamp(Math.Ceiling(left * 1000), 1, MonsterActionRecheckMs);
             }
-            await AreaWait(PlayerUpdateRole.MonsterAction, 16);
+            await AreaWait(PlayerUpdateRole.MonsterAction, wait);
         }
     }
 
