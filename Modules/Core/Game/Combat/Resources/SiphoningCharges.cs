@@ -58,14 +58,19 @@ public static partial class Game
             state.Pending = state.TakenCarry = state.BypassCarry = 0; state.At = now; state.Degenerating = false;
             return state;
         }
-        raw ??= CharacterStatSources(conn).Stats;
-        int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
-        if (state.Sources.Count == 0 && Get(SiphoningGain) == 0 && Get(SiphoningMaximum) == 0)
-        { state.At = Math.Max(state.At, now); return state; }
         var sources = conn.StatSourcesCache;
         var active = (sources?.Worn ?? []).Where(w => sources?.Inactive.Contains(w.Id) != true).ToArray();
         var hosts = active.Where(w => w.Item.Mods.Any(m => ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats
             .Any(s => s.Id == SiphoningGain || s.Id == SiphoningMaximum) == true)).Select(w => w.Id).ToHashSet();
+        // Only the Elder and Shaper items' mods grant Siphoning Charges: with none worn there is nothing to read, and the
+        // stats cache's key (PlayerStatsKey → SiphoningRevision) no longer gathers every stat source on each lookup to
+        // find that out (CPU sample 2026-11-18: half of all CharacterStatSources work in a Fireball fight).
+        if (raw is null && hosts.Count == 0 && state.Sources.Count == 0)
+        { state.At = Math.Max(state.At, now); return state; }
+        raw ??= CharacterStatSources(conn).Stats;
+        int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
+        if (state.Sources.Count == 0 && Get(SiphoningGain) == 0 && Get(SiphoningMaximum) == 0)
+        { state.At = Math.Max(state.At, now); return state; }
         if (!state.Sources.SetEquals(hosts))
         {
             state.Sources = hosts; state.Held = 0; state.Until = state.UsedUntil = 0;
