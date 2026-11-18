@@ -83,20 +83,21 @@ public sealed class TotemTests
             // A hostile outside its totem range (base_totem_range 80) starts no cast.
             conn.Monsters[0x08000002] = new SpawnedMonster("far", new(50, 140, 0), 100, 8, 1000);
             Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
-            Assert.Null(totem.Strike!.ContactAt);
+            Assert.Equal(0, totem.Strike!.NextCast);
 
             // One inside the range starts it; at the contact only what stands within the radius of the totem is hit.
             var target = new SpawnedMonster("near", new(55, 50, 0), 100, 8, 100000);
             var outside = new SpawnedMonster("outside", new(50, 90, 0), 100, 8, 100000);
             conn.Monsters[0x08000001] = target; conn.Monsters[0x08000003] = outside;
-            Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
-            Assert.NotNull(totem.Strike.ContactAt);
-
-            // Reach the contact without waiting on real time: the tick reads the connection clock, so the test moves
-            // the cast in flight to the past by hand.
             uint before = target.Life, outsideBefore = outside.Life;
-            totem.Strike.ContactAt = 0;
             Game.TickTotemUses("test", wire.Stream, wire.Ciphers, conn);
+            Assert.True(totem.Strike.NextCast > 0);
+
+            // The contact is on the projectile runtime (a kill takes the XP gate before the Monsters lock): advance it to
+            // the end of the cast instead of waiting on real time.
+            var session = Game.ProjectilesFor("test", wire.Stream, wire.Ciphers, conn);
+            using (Game.ProjectileMutation(conn, advance: false))
+                session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(totem.Strike.NextCast));
             Assert.True(target.Life < before, $"the nova dealt no damage: {target.Life} of {target.MaxLife}");
             Assert.Equal(outsideBefore, outside.Life);
 

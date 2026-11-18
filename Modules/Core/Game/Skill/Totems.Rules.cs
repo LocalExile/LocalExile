@@ -3,6 +3,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core;
+using GameServer.Core.Projectiles;
 using DamageModel = GameServer.Core.World.DamageModel;
 
 public static partial class Game
@@ -218,19 +219,20 @@ public static partial class Game
         if (spellTotem && proxy is null) return null;
         // A totem that places its own skill (everything except an adopted projectile spell) carries the granted proxy
         // its object names for the action, with the skill's stats and area radius and no pathing, so the client can play
-        // what it does. A nova (Shockwave Totem) hits around the totem at the end of each cast (TotemStrikeLocked); a
+        // what it does. A nova (Shockwave Totem) hits around the totem at the end of each cast (TotemNovaLocked); a
         // spell totem flies instead and has no Strike: SpellTotems.cs ticks it (Effect >= 0).
         int radius = SkillRadius(conn, own, spell: true, effect);
         GrantedSkill? action = proxy;
         TotemState.Strike? strike = null;
-        if (!spellTotem)
+        if (!spellTotem && TotemProxy(conn, skillId) is { } granted)
         {
-            var payload = own.Select(p => (p.Key, p.Value)).ToList();
+            // The spell totems' proxy (totem flags cleared, cast time and speed its own): with the gem's own stats
+            // (is_totem, base_skill_is_totemified) the client takes the action for a totem placement and plays nothing.
+            var payload = (granted.Stats ?? []).ToList();
             if (Stats.Key("active_skill_area_of_effect_radius") is uint radiusKey) payload.Add((radiusKey, radius));
             payload.Add((StatKeys.SkillIsNonPathing, 1));
-            action = SkillsFor(conn).FindByRow(TotemActionSkill, effect, gemLevel, payload) is { } granted
-                ? granted with { Parent = (PlayerId, skillId) } : null;
-            if (action is not null && TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
+            action = granted with { Stats = payload };
+            if (TotemNova(conn, effect)) strike = new(TotemActionSkill, radius);
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
         // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
@@ -429,25 +431,30 @@ public static partial class Game
     // totem range (base_totem_range, as the other totems read it: TotemTargetRange) and hits around itself at the end of
     // each cast; Devouring Totem eats a corpse. An aura totem (Rejuvenation) has neither, and an adopted projectile spell
     // totem is ticked by SpellTotems.cs instead.
+    // The nova's contact is scheduled on the projectile runtime, as the Arc totem's release is: a hit can kill, and a kill
+    // takes the XP gate, which goes before the Monsters lock (ProjectileMutationScope). This tick holds only the Monsters
+    // lock, so a kill committed here deadlocked against any scope waiting on it (live 2026-11-17).
     static void TotemUseLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
         if (conn.PlayerLife == 0) return;
         if (totem.Devour is { } devour) { TotemDevourLocked(conn, totem, devour, now, bytes); return; }
-        if (totem.Strike is not { } strike) return;
-        if (strike.ContactAt is double contact)
-        {
-            if (now < contact) return;
-            strike.ContactAt = null;
-            TotemStrikeLocked(remote, stream, ciphers, conn, totem, strike, now, bytes);
-        }
+        if (totem.Strike is not { } strike || now < strike.NextCast) return;
         double range = TotemTargetRange(conn, totem.SkillId);
         if (!conn.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
         if (TotemCastSeconds(conn, totem.SkillId) is not double seconds) return;
-        strike.Sequence = ++totem.Sequence;
-        bytes.Presentation(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
-            strike.GrantedId, strike.Sequence, 0x0408));
-        strike.ContactAt = now + seconds;
+        var session = ProjectilesFor(remote, stream, ciphers, conn);
+        ushort sequence = ++totem.Sequence;
+        strike.NextCast = now + seconds;
+        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
+            strike.GrantedId, sequence, 0x0408));
+        var lifetime = CombatLifetime;
+        session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(strike.NextCast)), () =>
+        {
+            if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !conn.Closed
+                && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
+                TotemNovaLocked(conn, session, totem, strike, sequence);
+        });
     }
 
     static bool TotemTargetable(SpawnedMonster m) =>
@@ -494,13 +501,15 @@ public static partial class Game
             + $"+{(life ? devour.Life : 0)} life, +{(mana ? devour.Mana : 0)} mana (player {conn.PlayerLife}/{conn.PlayerMaxLife})");
     }
 
-    // A nova's contact: every targetable hostile within its radius of the totem takes the spell's hit, worked out now
-    // from the owner's stats as a totem's (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not
-    // the totem's), in the Arc totem's steps (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments.
-    // The totem's kills give the player their experience but are not his for his on-kill effects.
-    static void TotemStrikeLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        TotemState.Totem totem, TotemState.Strike strike, double now, WorldRecordBuilder bytes)
+    // A nova's contact, on the projectile runtime (under the XP gate and the Monsters lock): every targetable hostile
+    // within its radius of the totem takes the spell's hit, worked out now from the owner's stats as a totem's
+    // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
+    // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
+    // but are not his for his on-kill effects.
+    static void TotemNovaLocked(ClientState conn, ProjectileSession session, TotemState.Totem totem, TotemState.Strike strike,
+        ushort sequence)
     {
+        double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var skill = SupportedSkill(conn, totem.SkillId);
         if (SupportedHitInputsFor(conn, totem.SkillId, area: true, totem: true) is not { } inputs) return;
         var caster = TotemCasterStats(CharacterPlayerStats(conn));
@@ -523,8 +532,8 @@ public static partial class Game
                 GamblerFor(caster).InvertsResistance(Random.Shared));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: totem.At) is not { } accepted) continue;
-            if (accepted.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); accepted = accepted with { StageStarts = false }; }
-            bytes.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, strike.Sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
+            if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
+            session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared, blind: blind);

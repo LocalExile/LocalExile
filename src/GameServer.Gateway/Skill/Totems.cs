@@ -27,10 +27,8 @@ public sealed class TotemState
     {
         public ushort GrantedId { get; } = grantedId;
         public int Radius { get; } = radius;
-        /// <summary>When the cast in flight lands its hit; null between casts.</summary>
-        public double? ContactAt;
-        /// <summary>The cast in flight's action sequence, which its 0x1af names.</summary>
-        public ushort Sequence;
+        /// <summary>When the cast in flight lands its hit (scheduled on the projectile runtime) and the next may start.</summary>
+        public double NextCast;
     }
 
     /// <summary>Devouring Totem's meal: what one consumed corpse gives the player, and when the next one is due. The

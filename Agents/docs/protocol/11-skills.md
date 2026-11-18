@@ -2741,8 +2741,8 @@ Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.3
 Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
 before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
 
-Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry a granted `0x4000`
-built from their own stats with `skill_is_non_pathing`. Shockwave Totem is a `Nova`: it casts while a hostile is
+Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry the spell totems'
+proxy `0x4000` plus their radius and `skill_is_non_pathing`; with the gem's own `is_totem` the client plays no action. Shockwave Totem is a `Nova`: it casts while a hostile is
 within `base_totem_range` (80) and hits within its radius (24) of itself at the end of each cast, as the Arc totem's hit.
 Devouring Totem eats the nearest corpse in range once a cast while the player misses Life or Mana; the corpse is the
 totem's, not the player's. Decoy Totem (its taunt is the separate `totem_taunt_triggerable`), the ancestral melee
