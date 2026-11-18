@@ -96,6 +96,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
   Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
   are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
+  The tower legionnaires now precede the miscreations, then Dominus appears at the roof's boss point.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.
