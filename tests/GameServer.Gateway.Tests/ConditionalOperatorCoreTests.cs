@@ -49,7 +49,7 @@ static class ConditionalOperatorCoreCases
                 StatConditions.Of("damage_+%_on_full_energy_shield", belowFull));
             int Get(string id) => id == overleech && StatConditions.Counts(StatConditions.Of(id, belowFull)) ? 1 : 0;
             var leech = new LeechSession();
-            leech.Configure(0, LeechLimits.Resolve(Get, 1000, 1000, 1000), Get, _ => null);
+            leech.Configure(0, LeechLimits.Resolve(Get, 1000, 1000, 1000), Get);
             leech.Hit(0, (0, 0, 100), false, false, false, attack: true);
             leech.ClearFull(0, false, false, true);
             Assert.True(leech.Active(0).EnergyShield);

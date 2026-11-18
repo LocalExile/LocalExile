@@ -43,29 +43,26 @@ public static partial class Game
 
     // Endless Hunger's two "while Leeching" defences, on the final flags the server sends and reads (client 0x1427e17d0:
     // cannot_be_stunned_while_leeching and is_leeching; 0x142896810 the same for virtual_unaffected_by_bleeding).
-    // A /set_stat value of either flag keeps its value.
-    public static void WithLeechingDefences(StatMap stats, IReadOnlySet<uint> devSet)
+    public static void WithLeechingDefences(StatMap stats)
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         bool leeching = Get("is_leeching") != 0;
-        if (Stats.Key("cannot_be_stunned") is uint stun && !devSet.Contains(stun)
+        if (Stats.Key("cannot_be_stunned") is uint stun
             && leeching && Get("cannot_be_stunned_while_leeching") != 0) stats[stun] = 1;
-        if (Stats.Key("virtual_unaffected_by_bleeding") is uint bleed && !devSet.Contains(bleed))
+        if (Stats.Key("virtual_unaffected_by_bleeding") is uint bleed)
             stats[bleed] = Get("base_unaffected_by_bleeding") != 0 || leeching && Get("unaffected_by_bleeding_while_leeching") != 0
                 ? 1 : 0;
     }
 
-    public static void ConfigureLeech(ClientState conn, Func<string, int> get, IReadOnlyDictionary<uint, int> replacements,
-        bool onLowLife)
+    public static void ConfigureLeech(ClientState conn, Func<string, int> get, bool onLowLife)
     {
-        int? Replacement(string name) => Stats.Key(name) is uint key && replacements.TryGetValue(key, out int value) ? value : null;
         lock (conn.Monsters)
         {
             int claws = (ActiveMainHand(conn)?.Type?.Class == "Claw" ? 1 : 0)
                 + (ActiveOffHand(conn)?.Type?.Class == "Claw" ? 1 : 0);
             LeechOf(conn).Configure(ProjectileWorldTime(conn),
-                LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, Replacement, onLowLife),
-                get, Replacement, claws);
+                LeechLimits.Resolve(get, conn.Pools.Life, conn.Pools.Mana, conn.Pools.EnergyShield, onLowLife),
+                get, claws);
             LeechOf(conn).OnKill = KillRecovery.From(get, conn.Pools.Level);
             TrimLeechLocked(conn);
         }

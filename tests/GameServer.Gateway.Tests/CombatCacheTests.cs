@@ -13,7 +13,7 @@ public sealed class CombatCacheTests
         var jewel = new Item(1, [], 0) { Rarity = ItemRarity.Magic, Corrupted = true, Mods = [new(ModSection.Explicit, 1, [10])] };
         var catalog = Program.Items;
         var masteries = new Dictionary<ushort, ushort>();   // the key compares these by reference
-        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], [], 0, false, 1,
+        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], 0, false, 1,
             null, [], 0, [], new HashSet<string>(), new HashSet<string>(), null, 0, 0, 0, 100, 100, Catalog: catalog);
 
         var scaled = Game.AdornedJewel(jewel, 100);

@@ -11,7 +11,7 @@ public static partial class Game
     }
 
     sealed record AuraReconcileInputs(object? ItemSources, ItemCatalog Items, SkillCatalog Skills,
-        CharacterStats.Pools Pools, Dictionary<uint, int> Sources, Dictionary<uint, int> Overrides,
+        CharacterStats.Pools Pools, Dictionary<uint, int> Sources,
         (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras,
         string[] Remembered, string? SavedStance, bool SavedBlood, string Stance,
         bool ActiveBlood, ushort BloodBuff, int ManaReserved, int LifeReserved,
@@ -22,7 +22,7 @@ public static partial class Game
             var sources = CharacterStatSources(conn).Stats;
             var saved = CharacterSaves.Remembered(CharacterName(conn));
             return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
-                new(), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
+                [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
                 [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, conn.Stance,
                 conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
@@ -38,7 +38,7 @@ public static partial class Game
             && SavedStance == b.SavedStance && SavedBlood == b.SavedBlood && Stance == b.Stance
             && ActiveBlood == b.ActiveBlood && BloodBuff == b.BloodBuff
             && ManaReserved == b.ManaReserved && LifeReserved == b.LifeReserved
-            && SameInOrder(Sources, b.Sources) && SameInOrder(Overrides, b.Overrides)
+            && SameInOrder(Sources, b.Sources)
             && Remembered.AsSpan().SequenceEqual(b.Remembered) && Auras.AsSpan().SequenceEqual(b.Auras)
             && Equipment.Length == b.Equipment.Length && Equipment.Zip(b.Equipment).All(p =>
                 p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
@@ -63,7 +63,7 @@ public static partial class Game
             sources ??= CharacterStatSources(conn).Stats;
             AddItemUtilityFlaskRawStats(new PlainStatMap(sources),
                 conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
-            return OwnAuraRestriction.Value(sources, NoOverrides);
+            return OwnAuraRestriction.Value(sources);
         }
     }
 
@@ -86,7 +86,7 @@ public static partial class Game
                 sources.GetValueOrDefault(rule.Key) != 0);
     }
 
-    // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
+    // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources.
     // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
     static bool SpellsDisabled(ClientState conn, Dictionary<uint, int>? sources = null)
     {
@@ -117,11 +117,11 @@ public static partial class Game
     }
 
     sealed record ReservationInputs(StatSourcesResult? Sources, CharacterStats.Pools Pools,
-        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Overrides);
+        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras);
     sealed class ReservationInputCache { public bool Building; public ReservationInputs? Inputs; }
     static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
     static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
-        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values], new());
+        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values]);
 
     // Pool readers only check immutable inputs. Skill pricing, source qualification and persistence run on change,
     // while the normal player tick reconciles deadlines. This also handles an equipment edit before publication.
@@ -132,7 +132,7 @@ public static partial class Game
         if (cache.Building) return;
         var current = CaptureReservationInputs(conn);
         if (cache.Inputs is { } old && ReferenceEquals(old.Sources, current.Sources) && old.Pools == current.Pools
-            && old.Auras.AsSpan().SequenceEqual(current.Auras) && SameInOrder(old.Overrides, current.Overrides)
+            && old.Auras.AsSpan().SequenceEqual(current.Auras)
             && old.Equipment.Length == current.Equipment.Length && old.Equipment.Zip(current.Equipment).All(p =>
                 p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
                 && ReferenceEquals(p.First.Item.Item, p.Second.Item.Item))) return;
@@ -178,7 +178,7 @@ public static partial class Game
     // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any
     // equipment/stat notification. Reprice the active owner from current sources here; unchanged auras are left alone.
     sealed record AuraPriceInputs(StatSourcesResult? Qualified, CharacterStats.Pools Pools,
-        string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw, Dictionary<uint, int> Overrides);
+        string Stance, AuraCatalog.Aura[] Auras, Dictionary<uint, int> Raw);
     sealed class AuraPriceCache { public AuraPriceInputs? Last; }
     static readonly RuleTable<ClientState, AuraPriceCache> AuraPrices = new();
 
@@ -187,12 +187,12 @@ public static partial class Game
         poolsRebuilt = false;
         if (conn.Auras.Count == 0) return false;
         var input = new AuraPriceInputs(conn.StatSourcesCache, conn.Pools, conn.Stance,
-            [.. conn.Auras.Values], CharacterStatSources(conn).Stats, new());
+            [.. conn.Auras.Values], CharacterStatSources(conn).Stats);
         var cache = AuraPrices.GetOrCreateValue(conn);
         if (cache.Last is { } old && ReferenceEquals(old.Qualified, input.Qualified)
             && old.Pools == input.Pools && old.Stance == input.Stance
             && old.Auras.AsSpan().SequenceEqual(input.Auras)
-            && SameInOrder(old.Raw, input.Raw) && SameInOrder(old.Overrides, input.Overrides)) return false;
+            && SameInOrder(old.Raw, input.Raw)) return false;
         cache.Last = input;
         bool changed = false;
         bool stanceTouched = false;

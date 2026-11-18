@@ -49,10 +49,10 @@ public static partial class Game
     public static AvatarOfFireRotation AvatarRotationOf(ClientState conn) => AvatarRotations.GetOrCreateValue(conn);
 
     static Dictionary<string, bool> RequalifyAvatarOfFire(ClientState conn, IReadOnlyDictionary<string, bool> flags,
-        IReadOnlyDictionary<uint, int> raw, IReadOnlyDictionary<uint, int> overrides, IEnumerable<Item>? activeItems = null)
+        IReadOnlyDictionary<uint, int> raw, IEnumerable<Item>? activeItems = null)
     {
         int Get(string name) => Stats.Key(name) is uint key
-            ? overrides.TryGetValue(key, out int value) ? value : raw.GetValueOrDefault(key) : 0;
+            ? raw.GetValueOrDefault(key) : 0;
         var equipment = ItemsOf(conn).EquipmentSnapshot();
         var active = activeItems?.ToArray();
         if (conn.LeavingArea) return new(flags)
@@ -71,7 +71,6 @@ public static partial class Game
         if (hosts.Length > 0) ResourceEffectsOf(conn); // Bind/retire the previous owner before installing this interval.
         state.Reconcile(CombatLifetime, conn.ProjectileEpoch, hosts, now);
         bool avatar = alive && (Get(AvatarKeystone) > 0 || state.Read(now).Active);
-        if (Stats.Key(AvatarKeystone) is uint key && overrides.TryGetValue(key, out int replacement)) avatar = alive && replacement > 0;
         return new(flags)
         {
             ["_while_you_have_avatar_of_fire"] = avatar,

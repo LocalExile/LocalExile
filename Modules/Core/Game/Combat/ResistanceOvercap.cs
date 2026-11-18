@@ -38,35 +38,25 @@ public static class ResistanceOvercap
         CriticalStrikeChancePct: criticalFlag ? GameServer.Core.World.DamageModel.Overcap(lightningUncapped, lightningMaximum) : 0);
 
     /// <summary>
-    /// The one derived source for a pool build: re-derives the raw cold and lightning resistances and maxima from the
-    /// aggregated bonus (passives, items and auras) with an explicit dev value replacing its own stat's contribution —
-    /// /set_stat sets a stat, it does not add to the aggregate — and folds the flags' derived increases in.
-    /// Sources must include the aura's raw resistance/max keys already folded into bonus, so a replacement subtracts
-    /// the complete contribution. PoolsFor passes the Kitava penalty; CharacterStats.For stores the increases in Pools.</summary>
+    /// The one derived source for a pool build: the raw cold and lightning resistances and maxima from the aggregated
+    /// bonus (passives, items and auras), with the flags' derived increases folded in. PoolsFor passes the Kitava
+    /// penalty; CharacterStats.For stores the increases in Pools.</summary>
     public static CharacterStats.Bonus Applied(CharacterStats.Bonus bonus, IReadOnlyDictionary<uint, int> sources,
-        IReadOnlyDictionary<uint, int> devStats, int penalty, StatCatalog stats)
+        int penalty, StatCatalog stats)
     {
         int StatOf(string name) => stats.Key(name) is uint key && sources.TryGetValue(key, out int value) ? value : 0;
-        int Effective(string name) => stats.Key(name) is uint key && devStats.TryGetValue(key, out int dev) ? dev : StatOf(name);
-        int Replacement(string name) => Effective(name) - StatOf(name);
-        int commonResistance = Replacement("base_resist_all_elements_%") + Replacement(ColdAndLightningResistance);
-        // The other two pair stats: fire-and-cold raises cold, fire-and-lightning raises lightning.
-        int fireCold = Replacement("fire_and_cold_damage_resistance_%");
-        int fireLightning = Replacement("fire_and_lightning_damage_resistance_%");
-        int coldRaw = bonus.ColdResistance + commonResistance + fireCold + Replacement("base_cold_damage_resistance_%");
-        int lightningRaw = bonus.LightningResistance + commonResistance + fireLightning + Replacement("base_lightning_damage_resistance_%");
-        int commonMaximum = Replacement("additional_maximum_all_resistances_%")
-            + Replacement("additional_maximum_all_elemental_resistances_%");
+        int coldRaw = bonus.ColdResistance;
+        int lightningRaw = bonus.LightningResistance;
         int fireMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
-            + bonus.FireMaxResistance + commonMaximum + Replacement("base_maximum_fire_damage_resistance_%"));
+            + bonus.FireMaxResistance);
         int coldMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
-            + bonus.ColdMaxResistance + commonMaximum + Replacement("base_maximum_cold_damage_resistance_%"));
+            + bonus.ColdMaxResistance);
         int lightningMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
-            + bonus.LightningMaxResistance + commonMaximum + Replacement("base_maximum_lightning_damage_resistance_%"));
-        if (Effective("elemental_resistances_are_limited_by_highest_maximum_elemental_resistance") != 0)
+            + bonus.LightningMaxResistance);
+        if (StatOf("elemental_resistances_are_limited_by_highest_maximum_elemental_resistance") != 0)
             fireMax = coldMax = lightningMax = Math.Max(fireMax, Math.Max(coldMax, lightningMax));
-        var derived = Increases(coldRaw + penalty, coldMax, Enabled(stats, sources, devStats, ColdEvasionFlag),
-            lightningRaw + penalty, lightningMax, Enabled(stats, sources, devStats, LightningCritFlag));
+        var derived = Increases(coldRaw + penalty, coldMax, Enabled(stats, sources, ColdEvasionFlag),
+            lightningRaw + penalty, lightningMax, Enabled(stats, sources, LightningCritFlag));
         return bonus with
         {
             ColdResistance = coldRaw - CharacterStats.BaseResistance,
@@ -85,13 +75,7 @@ public static class ResistanceOvercap
         or "base_maximum_cold_damage_resistance_%" or "base_maximum_lightning_damage_resistance_%"
         or "additional_maximum_all_resistances_%" or "additional_maximum_all_elemental_resistances_%";
 
-    /// <summary>Whether a flag stat is set: an explicit dev value (including 0, which turns the consumer off) wins
-    /// over the passive and item sources, as the explicit value wins for every stat the server sends.</summary>
-    public static bool Enabled(StatCatalog stats, IReadOnlyDictionary<uint, int> sources,
-        IReadOnlyDictionary<uint, int> devStats, string flag)
-    {
-        if (stats.Key(flag) is not uint key) return false;
-        if (devStats.TryGetValue(key, out int dev)) return dev != 0;
-        return sources.TryGetValue(key, out int value) && value != 0;
-    }
+    /// <summary>Whether a flag stat is set in the passive and item sources.</summary>
+    public static bool Enabled(StatCatalog stats, IReadOnlyDictionary<uint, int> sources, string flag) =>
+        stats.Key(flag) is uint key && sources.TryGetValue(key, out int value) && value != 0;
 }

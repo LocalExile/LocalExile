@@ -25,19 +25,13 @@ public static class ActorScale
         return limit == 0 ? result : Math.Min(result, limit);
     }
 
-    public static void Project(StatMap snapshot, IReadOnlyDictionary<uint, int> dev,
-        IEnumerable<(uint Key, int Value)> cosmetics)
+    public static void Project(StatMap snapshot, IEnumerable<(uint Key, int Value)> cosmetics)
     {
         // Character.ot's baseline is an ordinary contribution, not a fallback for an absent source key.
         snapshot[Limit] = Add(Limit, 100, snapshot.GetValueOrDefault(Limit));
         foreach (var (key, value) in cosmetics)
             if (IsInput(key)) snapshot[key] = Add(key, snapshot.GetValueOrDefault(key), value);
-        // An explicit zero replaces all ordinary inputs, including utility flasks and cosmetics.
-        foreach (var (key, value) in dev)
-            if (IsInput(key)) snapshot[key] = value;
-        // Final dev replacements intentionally bypass formula clamps, like other final /set_stat replacements.
-        snapshot[Final] = dev.TryGetValue(Final, out int final) ? final
-            : Derive(snapshot.GetValueOrDefault(Base), snapshot.GetValueOrDefault(Capped),
+        snapshot[Final] = Derive(snapshot.GetValueOrDefault(Base), snapshot.GetValueOrDefault(Capped),
                 snapshot.GetValueOrDefault(Permyriad), snapshot[Limit]);
     }
 }

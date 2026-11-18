@@ -33,20 +33,19 @@ public static class OwnedCountItemStats
         }
     }
 
-    public static void Apply(Dictionary<uint, int> stats, StatCatalog catalog, IReadOnlyDictionary<string, long>? counts,
-        IReadOnlyDictionary<uint, int> overrides)
+    public static void Apply(Dictionary<uint, int> stats, StatCatalog catalog, IReadOnlyDictionary<string, long>? counts)
     {
         var additions = new Dictionary<uint, long>();
         foreach (var (input, count, outputs) in Rules)
         {
             // The count is read only for a coefficient the character has: an unread count cannot change the result
             // (Game.ReadAmounts).
-            long coefficient = catalog.Key(input) is uint key ? overrides.GetValueOrDefault(key, stats.GetValueOrDefault(key)) : 0;
+            long coefficient = catalog.Key(input) is uint key ? stats.GetValueOrDefault(key) : 0;
             if (coefficient == 0) continue;
             long amount = coefficient * Math.Max(0, counts?.GetValueOrDefault(count) ?? 0);
             if (amount == 0) continue;
             foreach (string output in outputs)
-                if (catalog.Key(output) is uint target && !overrides.ContainsKey(target))
+                if (catalog.Key(output) is uint target)
                     additions[target] = additions.GetValueOrDefault(target) + amount;
         }
         foreach (var (key, amount) in additions)

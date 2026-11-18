@@ -12,12 +12,11 @@ public static class MaximumPoolItemSources
 
     public static long Amount(int coefficient, uint maximum) => (long)coefficient * (maximum / 100);
 
-    public static void Apply(StatMap sources, StatCatalog stats, uint maximumLife, uint maximumMana,
-        IReadOnlySet<uint>? replacements = null)
+    public static void Apply(StatMap sources, StatCatalog stats, uint maximumLife, uint maximumMana)
     {
         foreach (var (input, output, lowest) in Rules)
             if (stats.Key(input) is uint key && sources.GetValueOrDefault(key) is int coefficient and not 0
-                && stats.Key(output) is uint target && replacements?.Contains(target) != true)
+                && stats.Key(output) is uint target)
                 sources[target] = ActorScale.Saturate((long)sources.GetValueOrDefault(target)
                     + Amount(coefficient, lowest ? Math.Min(maximumLife, maximumMana) : maximumLife));
     }

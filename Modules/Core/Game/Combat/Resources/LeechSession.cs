@@ -19,15 +19,12 @@ public sealed class LeechSession
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
     public KillRecovery OnKill { get; set; }
 
-    public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, Func<string, int?> replacement,
-        int equippedClaws = 0)
+    public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws = 0)
     {
         limits = value;
-        convertLifeToEnergyShield = replacement("virtual_leech_energy_shield_instead_of_life") is int converted
-            ? converted != 0 : get("keystone_ghost_reaver") != 0 || get("leech_energy_shield_instead_of_life") != 0;
-        keepLife = replacement("virtual_life_leech_does_not_stop_at_full_life") is int lifeOverleech
-            ? lifeOverleech != 0 : get("life_leech_does_not_stop_at_full_life") != 0
-                || get("virtual_life_leech_does_not_stop_at_full_life") != 0;
+        convertLifeToEnergyShield = get("keystone_ghost_reaver") != 0 || get("leech_energy_shield_instead_of_life") != 0;
+        keepLife = get("life_leech_does_not_stop_at_full_life") != 0
+            || get("virtual_life_leech_does_not_stop_at_full_life") != 0;
         keepEnergyShield = get("energy_shield_leech_does_not_stop_on_full_energy_shield") != 0;
         keepAttackEnergyShield = get("energy_shield_leech_from_attacks_does_not_stop_on_full_energy_shield") != 0;
         recoverLife = get("cannot_recover_life") == 0;
@@ -35,19 +32,17 @@ public sealed class LeechSession
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
         double commonInstant = (double)get("leech_%_is_instant")
             + (equippedClaws > 0 ? get("leech_%_is_instant_while_wielding_claw") : 0);
-        lifeInstant = Math.Clamp(replacement("virtual_life_leech_%_is_instant")
-            ?? commonInstant + get("life_leech_%_is_instant")
+        lifeInstant = Math.Clamp(commonInstant + get("life_leech_%_is_instant")
                 + (double)equippedClaws * get("life_leech_%_is_instant_per_equipped_claw"), 0, 100);
-        manaInstant = Math.Clamp(replacement("virtual_mana_leech_%_is_instant") ?? commonInstant, 0, 100);
-        shieldInstant = Math.Clamp(replacement("virtual_energy_shield_leech_%_is_instant") ?? commonInstant, 0, 100);
+        manaInstant = Math.Clamp(commonInstant, 0, 100);
+        shieldInstant = Math.Clamp(commonInstant, 0, 100);
         // GGG 3.22.1d explicitly preserves Life-instant sources through Ghost Reaver. Keep that source scope:
-        // native ES grants do not inherit a Life-only bonus. An explicit final ES replacement still wins.
-        convertedLifeInstant = Math.Clamp(replacement("virtual_energy_shield_leech_%_is_instant") ?? lifeInstant, 0, 100);
+        // native ES grants do not inherit a Life-only bonus.
+        convertedLifeInstant = lifeInstant;
         foreach (var resource in value.Resources)
         {
             var state = State(resource.Pool);
-            double speed = replacement($"virtual_{resource.Pool}_leech_speed_+%")
-                ?? (double)get($"{resource.Pool}_leech_speed_+%") + get("life_mana_es_leech_speed_+%");
+            double speed = (double)get($"{resource.Pool}_leech_speed_+%") + get("life_mana_es_leech_speed_+%");
             double total = Math.Max(0, 1 + speed / 100);
             // Both raw flags describe the same boolean doubling; two copies do not quadruple recovery.
             if (resource.Pool == "life" && (get("life_leech_speed_is_doubled") != 0

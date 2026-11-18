@@ -12,7 +12,7 @@ using GameServer.Core.World;
 public enum PlayerStatStep : byte
 {
     Pools, Sources, Siphoning, CryMovement, Golems, Offerings, PanelDefaults, God, Auras, AuraPenetration, CatAspect,
-    AvianCrab, Subscribers, ClassAttributes, Overrides, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
+    AvianCrab, Subscribers, ClassAttributes, OvercapCrit, AttackSpeed, UtilityFlasks, SelfVulnerability,
     Onslaught, VaalPrevention, VaalAura, SpiritLeadership, TotemAura, Rage, Blind, UsingFlask, SoulEater, MaximumPoolItems,
     ActorScale, IncomingAilments, Recovery, TimedRecovery, TailPanels, Rampage, TailOffence, ElementalAilments,
     TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
@@ -141,11 +141,6 @@ public static partial class Game
                 LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
             })) if (seen.Add(k)) stats[k] = v;
         });
-        // /set_stat: its values replace every other; the steps after it see them (and leave them: devSet).
-        Step(PlayerStatStep.Overrides, (conn, stats, _) =>
-        {
-            foreach (var (k, v) in RawOverrides(conn)) stats[k] = v;
-        });
         // The overcapped lightning resistance's increased crit (PoolsFor derived it once into Pools): the spell consumers read
         // the raw increased stats here (SpellCriticalStrike), while the attack and panel chances already fold the same value
         // into the pools. Additive with whatever won above, as a derived stat source.
@@ -154,16 +149,11 @@ public static partial class Game
             if (conn.Pools.LightningOvercapCritPct is int overCrit and not 0 && Stats.Key("critical_strike_chance_+%") is uint critInc)
                 stats[critInc] = (int)Math.Clamp((long)stats.GetValueOrDefault(critInc) + overCrit, int.MinValue, int.MaxValue);
         });
-        // The passives' conditional attack speed is already one final value in Pools; /set_stat's raw attack-speed stats stay
-        // additive. main_hand_attack_speed_+% is the total the client swings with, so Unarmed reads only it.
+        // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
+        // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (conn, stats, _) =>
-        {
-            var rawOverrides = RawOverrides(conn);
-            int devAttackSpeed = 0;
-            foreach (uint key in StatKeys.AttackSpeedInputs) devAttackSpeed += rawOverrides.GetValueOrDefault(key);
-            stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed
-                + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats);
-        });
+            stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct
+                + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats));
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (conn, stats, _) =>
@@ -186,9 +176,8 @@ public static partial class Game
         Step(PlayerStatStep.UsingFlask, (conn, stats, _) => WithUsingFlask(conn, stats));
         Step(PlayerStatStep.SoulEater, (conn, stats, _) => WithSoulEater(conn, stats));
         Step(PlayerStatStep.MaximumPoolItems, (conn, stats, _) =>
-            MaximumPoolItemSources.Apply(stats, Stats, conn.Pools.Life, conn.Pools.Mana, RawOverrides(conn).Keys.ToHashSet()));
-        // The character panel's sums of base forms (PanelStats); a stat /set_stat set keeps its value.
-        Step(PlayerStatStep.ActorScale, (conn, stats, _) => ActorScale.Project(stats, RawOverrides(conn), CosmeticScaleSources(conn)));
+            MaximumPoolItemSources.Apply(stats, Stats, conn.Pools.Life, conn.Pools.Mana));
+        Step(PlayerStatStep.ActorScale, (conn, stats, _) => ActorScale.Project(stats, CosmeticScaleSources(conn)));
         // A conditional source can invalidate a live stack (poison immunity, for example): the stats it changes are built
         // again from the stacks as they are now.
         Step(PlayerStatStep.IncomingAilments, (conn, stats, _) =>
@@ -209,10 +198,10 @@ public static partial class Game
             double statsAt = conn.Clock.Elapsed.TotalSeconds;
             bool moving = conn.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
-            if (Stats.Key("evasion_rating") is uint evasionKey && !RawOverrides(conn).ContainsKey(evasionKey))
+            if (Stats.Key("evasion_rating") is uint evasionKey)
                 stats[evasionKey] = PlayerEvasion(conn, statsAt);
             ConfigureFortificationRecovery(conn, conn.Pools.Life, Get);
-            ConfigureLeech(conn, Get, RawOverrides(conn), CriticalOnLowLife(conn, stats));
+            ConfigureLeech(conn, Get, CriticalOnLowLife(conn, stats));
             ConfigureKillOnslaught(conn, Get);
             WithLeechConditions(conn, stats);
             // The unmodified recovery baseline, before the temporary contribution. The resource writer integrates
@@ -231,7 +220,7 @@ public static partial class Game
                 var session = FortificationOf(conn);
                 var value = session.Read(now);
                 AddFortificationCounts(stats, value);
-                if (Stats.Key(FortificationSession.Regeneration) is uint regen && !RawOverrides(conn).ContainsKey(regen))
+                if (Stats.Key(FortificationSession.Regeneration) is uint regen)
                     stats[regen] = (int)Math.Clamp((long)stats.GetValueOrDefault(regen)
                         + value.LifeRegenerationPerMinutePercent(session.RegenPerStack), int.MinValue, int.MaxValue);
             }
@@ -252,7 +241,7 @@ public static partial class Game
                 SuppressionChance = Suppression(conn).Chance,
             }, StatSnapshotStage.Critical);
         });
-        Step(PlayerStatStep.LeechingDefences, (conn, stats, _) => WithLeechingDefences(stats, RawOverrides(conn).Keys.ToHashSet()));
+        Step(PlayerStatStep.LeechingDefences, (conn, stats, _) => WithLeechingDefences(stats));
         Step(PlayerStatStep.AuraRestriction, (conn, stats, _) => stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn));
         Step(PlayerStatStep.AlwaysHit, (_, stats, _) =>
         {
@@ -274,25 +263,16 @@ public static partial class Game
         return steps;
     }
 
-    /// <summary>No /set_stat replacements any more (they are stat buffs that add): for what still takes a set of them.</summary>
-    static readonly Dictionary<uint, int> NoOverrides = [];
-
     static readonly string[] AlwaysHitRows = ["main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
         "main_hand_chance_to_hit_evasive_monsters_%", "off_hand_chance_to_hit_evasive_monsters_%"];
-
-    static Dictionary<uint, int> RawOverrides(ClientState conn)
-    {
-        lock (conn.Monsters) return new();
-    }
 
     // The tail's inputs as a step reads them: the stats before it and the state it reads.
     static StatSnapshotTailInputs PlayerTailInputs(ClientState conn, StatMap stats)
     {
-        var rawOverrides = RawOverrides(conn);
         var (mainLocal, offLocal) = HandLocalStats(conn);
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
             name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
-        return ReadStatSnapshotTailInputs(conn, stats, rawOverrides, rawOverrides.Keys.ToHashSet(), mainLocal, offLocal,
+        return ReadStatSnapshotTailInputs(conn, stats, mainLocal, offLocal,
             lifeRegenerationToEnergyShield, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds));
     }
 
@@ -300,8 +280,7 @@ public static partial class Game
     internal static void RunPlayerStep(PlayerStatStep step, ClientState conn, StatMap stats, PlayerStepOutputs outputs) =>
         PlayerSteps[(int)step](conn, stats, outputs);
 
-    public sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw,
-        IReadOnlySet<uint> Overrides, int PlayerLevel,
+    public sealed record PanelSourceSnapshot(IReadOnlyDictionary<uint, int> Raw, int PlayerLevel,
         IReadOnlyDictionary<string, int> MainHand, IReadOnlyDictionary<string, int> OffHand, bool MainArmed, bool OffArmed);
 
     public static Dictionary<uint, int> CharacterPlayerStatsCore(ClientState conn, out double baselineLifePerSecond) =>
@@ -320,7 +299,7 @@ public static partial class Game
             if (capturePanelSources && (PlayerStatStep)i == PlayerStatStep.TailPanels)
             {
                 var (mainLocal, offLocal) = HandLocalStats(conn);
-                panelSources = new(stats.Stats.ToFrozenDictionary(), RawOverrides(conn).Keys.ToFrozenSet(), conn.Pools.Level,
+                panelSources = new(stats.Stats.ToFrozenDictionary(), conn.Pools.Level,
                     mainLocal.ToFrozenDictionary(), offLocal.ToFrozenDictionary(),
                     WeaponIn(conn, ActiveMainHand(conn)) is not null, OffhandWeaponFor(conn) is not null);
             }

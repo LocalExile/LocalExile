@@ -24,8 +24,7 @@ public static class LeechLimits
 
     /// <summary>
     /// Six absolute limits and their native permyriad companions, plus the shared cannot-leech flags that gate them.
-    /// <paramref name="get"/> reads resolved sources without Character.ot's defaults; <paramref name="replacement"/>
-    /// optionally supplies explicit developer replacements, preserving zero for default inputs and virtual limits.
+    /// <paramref name="get"/> reads resolved sources without Character.ot's defaults.
     /// Increased maximum rate is distinct from leech recovery speed. Integer wire endpoints truncate nonnegative
     /// fractions; PoB retains fractional values, so this projection is not a measured official-server rounding rule.
     /// Conditional modifiers requiring other systems (reservation, recent savage hits, Defiance and party links),
@@ -35,9 +34,9 @@ public static class LeechLimits
     /// leaves ES leech available.
     /// </summary>
     public static List<(string Stat, int Value)> Compute(Func<string, int> get, uint maximumLife, uint maximumMana,
-        uint maximumEnergyShield, Func<string, int?>? replacement = null, bool onLowLife = false)
+        uint maximumEnergyShield, bool onLowLife = false)
     {
-        var limits = Resolve(get, maximumLife, maximumMana, maximumEnergyShield, replacement, onLowLife);
+        var limits = Resolve(get, maximumLife, maximumMana, maximumEnergyShield, onLowLife);
         var rows = new List<(string Stat, int Value)> { ("cannot_leech", limits.CannotLeech ? 1 : 0) };
         foreach (var resource in limits.Resources)
         {
@@ -53,23 +52,19 @@ public static class LeechLimits
     // Combat retains fractions; only Compute projects whole wire values. A small pool must not lose its recovery
     // merely because its per-instance amount displays below one whole resource point.
     public static Snapshot Resolve(Func<string, int> get, uint maximumLife, uint maximumMana,
-        uint maximumEnergyShield, Func<string, int?>? replacement = null, bool onLowLife = false)
+        uint maximumEnergyShield, bool onLowLife = false)
     {
-        decimal Input(string name, int baseline = 0) => replacement?.Invoke(name) is int set ? set : (decimal)baseline + get(name);
+        decimal Input(string name, int baseline = 0) => (decimal)baseline + get(name);
         bool Flag(string name) => Input(name) != 0;
-        bool ReplacedFlag(string name, bool derived) => replacement?.Invoke(name) is int set ? set != 0 : derived;
-        bool all = ReplacedFlag("cannot_leech", Flag("base_cannot_leech") || Flag("cannot_leech")
-            || Flag("map_players_cannot_leech"));
+        bool all = Flag("base_cannot_leech") || Flag("cannot_leech") || Flag("map_players_cannot_leech");
         bool lowLifeLifeMana = onLowLife && Flag("cannot_leech_when_on_low_life");
         var resources = new List<Resource>();
         foreach (var (pool, maximum) in new[] { ("life", maximumLife), ("mana", maximumMana), ("energy_shield", maximumEnergyShield) })
         {
-            bool blocked = ReplacedFlag($"cannot_leech_{pool}", all || Flag($"base_cannot_leech_{pool}")
+            bool blocked = all || Flag($"base_cannot_leech_{pool}")
                 || Flag($"cannot_leech_{pool}") || pool != "energy_shield" && lowLifeLifeMana
-                || pool == "mana" && Flag("cannot_leech_or_regenerate_mana"));
+                || pool == "mana" && Flag("cannot_leech_or_regenerate_mana");
             string maximumName = pool == "energy_shield" ? "energy_shield" : pool;
-            string instanceVirtual = $"virtual_maximum_{pool}_leech_amount_per_leech_permyriad_max_{maximumName}";
-            string rateVirtual = $"virtual_maximum_{pool}_leech_rate_permyriad_per_minute";
             decimal instance = Math.Max(0, Input($"maximum_{pool}_leech_amount_per_leech_%_max_{maximumName}", BaseInstancePercent))
                 * Math.Max(0, 100 + Input($"maximum_{pool}_leech_amount_per_leech_+%"));
             decimal rate = Math.Max(0, Input($"maximum_{pool}_leech_rate_%_per_minute",
@@ -79,8 +74,6 @@ public static class LeechLimits
             if (pool == "energy_shield" && Flag("maximum_energy_shield_leech_amount_per_leech_is_doubled")) instance *= 2;
             if (pool == "life" && Flag("maximum_life_leech_rate_%_per_minute_is_doubled")) rate *= 2;
             if (pool == "energy_shield" && Flag("keystone_ghost_reaver")) rate *= 2;
-            instance = Math.Max(0, replacement?.Invoke(instanceVirtual) ?? instance);
-            rate = Math.Max(0, replacement?.Invoke(rateVirtual) ?? rate);
             if (blocked) (instance, rate) = (0, 0);
             resources.Add(new(pool, maximum, blocked, instance, rate));
         }

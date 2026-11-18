@@ -603,7 +603,7 @@ public static partial class Game
             {
                 foreach (var (stat, value) in SecondaryPanelRows(conn, Get, playerStats, supported, secondaryBase))
                     if (Stats.Key(stat) is uint key)
-                        stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
+                        stats[key] = value;
             }
             else if (SkillsFor(conn).IsAttack(effect) || SkillsFor(conn).IsSpell(effect))
             {
@@ -649,7 +649,7 @@ public static partial class Game
                         ("main_hand_chance_to_hit_evasive_monsters_%", accuracy.Chance(Monsters.BaseEvasiveEvasion(conn.Pools.Level) ?? 0, false, false)),
                     })
                         if (Stats.Key(field) is uint key)
-                            stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
+                            stats[key] = value;
                     // A dual-wielded attack gem swings the off hand too: its own rows, with the same supports, and the
                     // per-use / per-second / attacks-per-second rows average both hands.
                     if (OffHandPanelStats(conn, playerStats, panelSources.MainHand, panelSources.OffHand,
@@ -671,7 +671,7 @@ public static partial class Game
                             OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
-                                stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
+                                stats[key] = value;
                         stats[StatKeys.DisplayHundredTimesDamagePerSkillUse] = perUse;
                         stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
                         stats[StatKeys.HundredTimesAttacksPerSecond] = attacksPerSecond;
@@ -703,7 +703,7 @@ public static partial class Game
                 if (offInputs is not null) ailmentRows.AddRange(SupportedAilmentRowsFrom(offInputs, "off_hand"));
                 foreach (var (stat, value) in ailmentRows)
                     if (Stats.Key(stat) is uint key)
-                        stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
+                        stats[key] = value;
             }
             // Movement and other skills whose base flag asks the panel for Damage per Use rather than per second.
             if (Stats.Key("skill_show_average_damage_instead_of_dps") is uint showAverage)
@@ -724,7 +724,7 @@ public static partial class Game
                 panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
                 panelSources.MainArmed, panelSources.OffArmed, projectileAttack, projectileAttack && panelSources.OffArmed))
                 if (Stats.Key(stat) is uint key)
-                    stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
+                    stats[key] = value;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)
                 stats[aura] = VaalSoulInput(conn, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(conn).VaalBudget(effect, supported.Level) is not null)

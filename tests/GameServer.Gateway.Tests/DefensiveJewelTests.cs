@@ -15,7 +15,7 @@ public class DefensiveJewelTests
         sources[Program.Stats.Key("base_cold_damage_resistance_%")!.Value] = 200;
         sources[Program.Stats.Key(ResistanceOvercap.ColdEvasionFlag)!.Value] = 1;
         var bonus = Game.PassiveBonus(sources, default, default);
-        var result = ResistanceOvercap.Applied(bonus, sources, new Dictionary<uint, int>(), 0, Program.Stats);
+        var result = ResistanceOvercap.Applied(bonus, sources, 0, Program.Stats);
         Assert.Equal(15, result.FireMaxResistance);
         Assert.Equal(15, result.ColdMaxResistance);
         Assert.Equal(15, result.LightningMaxResistance);

@@ -100,10 +100,7 @@ public static partial class Game
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in ChargeEffects.Inherent)
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
-        // A stat /set_stat set keeps its value here too (as in CharacterPlayerStats), so a per-charge stat can be tried out.
-        Dictionary<uint, int> dev;
-        lock (conn.Monsters) dev = new();
-        int Get(string name) => Stats.Key(name) is uint k ? dev.TryGetValue(k, out int set) ? set : stats.GetValueOrDefault(k) : 0;
+        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         var session = ChargesOf(conn);
         var limits = new Dictionary<ChargeType, Charges.Limits>();
         var held = new Dictionary<ChargeType, int>();
@@ -125,19 +122,19 @@ public static partial class Game
         // The special per-charge coefficients (Character.ot's 3% triple damage and 10% stun threshold per Brutal Charge)
         // are PanelStatDefaults, which BaseStats adds to the published sources after this: count them here too.
         int Coefficient(string name) => (int)Math.Clamp((long)Get(name) + PanelStatDefaults.Default(name), int.MinValue, int.MaxValue);
-        // Expand is a pure function of the coefficients (stats and dev), the counts and the conversions: the last
+        // Expand is a pure function of the coefficients (the stats), the counts and the conversions: the last
         // expansion is reused while they are the same (every stat snapshot expands twice, idle or not).
         int[] heldNow = [.. Charges.Types.Select(t => held[t])];
         bool[] convertedNow = [.. Charges.Types.Select(t => converted[t])];
         var slot = ChargeExpansions.GetValue(conn, _ => new());
         Dictionary<string, int> added;
         if (slot.Last is { } last && last.Held.AsSpan().SequenceEqual(heldNow) && last.Converted.AsSpan().SequenceEqual(convertedNow)
-            && SameInOrder(last.Dev, dev) && SameInOrder(last.Stats, stats))
+            && SameInOrder(last.Stats, stats))
             added = VerifyStatSnapshotTail ? Verified(last.Added) : last.Added;
         else
         {
             added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
-            slot.Last = new(new(stats), dev, heldNow, convertedNow, added);
+            slot.Last = new(new(stats), heldNow, convertedNow, added);
         }
         var finalAdded = new Dictionary<string, int>(added, StringComparer.Ordinal);
         foreach (var (stat, value) in ItemChargeDefences.Expand(Coefficient, t => held[t], t => converted[t]))
@@ -168,7 +165,7 @@ public static partial class Game
     }
 
     // One per connection: the last charge expansion and what it was expanded from. Never changed after it is published.
-    sealed record ChargeExpansion(Dictionary<uint, int> Stats, Dictionary<uint, int> Dev, int[] Held, bool[] Converted,
+    sealed record ChargeExpansion(Dictionary<uint, int> Stats, int[] Held, bool[] Converted,
         Dictionary<string, int> Added);
     sealed class ChargeExpansionSlot { public volatile ChargeExpansion? Last; }
     static readonly RuleTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();

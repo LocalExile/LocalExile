@@ -11,12 +11,11 @@ public static partial class Game
     }
 
     static Dictionary<string, bool> RequalifyChargeConditions(ClientState conn,
-        IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources,
-        IReadOnlyDictionary<uint, int> overrides)
+        IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         var flags = new Dictionary<string, bool>(captured);
         int Get(string name) => Stats.Key(name) is uint key
-            ? overrides.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
+            ? sources.GetValueOrDefault(key) : 0;
         var state = ChargesOf(conn).State;
         foreach (var type in Charges.Types)
         {

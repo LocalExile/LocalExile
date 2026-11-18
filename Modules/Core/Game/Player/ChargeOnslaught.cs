@@ -13,11 +13,10 @@ public static partial class Game
     ];
 
     static IReadOnlyDictionary<string, bool> RequalifyChargeOnslaught(ClientState conn,
-        IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources,
-        IReadOnlyDictionary<uint, int> overrides)
+        IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
         int Get(string name) => Stats.Key(name) is uint key
-            ? overrides.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
+            ? sources.GetValueOrDefault(key) : 0;
         bool source = CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
             && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && captured.GetValueOrDefault(row.Condition));
         bool onslaught = source || captured.GetValueOrDefault("independent_onslaught");

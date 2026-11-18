@@ -137,8 +137,8 @@ public static partial class Game
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
-            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, NoOverrides, activeItems);
-        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, NoOverrides, conn.RecentEvents.Snapshot(now),
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, activeItems);
+        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
 

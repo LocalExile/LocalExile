@@ -118,7 +118,7 @@ public partial class ConditionalItemStatsTests
         Assert.False(baseline.Matches(CacheKey(new HashSet<string> { "grace" }, new HashSet<string> { StatConditions.Crit }, 14, 599)));
 
         static global::Game.StatSourcesKey CacheKey(IReadOnlySet<string> auras, IReadOnlySet<string> recent, double? expiry, int strength) =>
-            new([], new Dictionary<ushort, ushort>(), [], new Dictionary<uint, int>(), 1, false, 1, null, [], 0, [],
+            new([], new Dictionary<ushort, ushort>(), [], 1, false, 1, null, [], 0, [],
                 auras, recent, expiry, strength, 0, 0, 1, 1);
     }
 

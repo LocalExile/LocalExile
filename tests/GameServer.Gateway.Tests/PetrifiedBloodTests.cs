@@ -97,7 +97,7 @@ public sealed class PetrifiedBloodTests
         var plain = Player(800, 1000);
         Game.LeechOf(plain).Configure(0,
             LeechLimits.Resolve(InstantOnly, plain.Pools.Life, plain.Pools.Mana, plain.Pools.EnergyShield),
-            InstantOnly, _ => null);
+            InstantOnly);
         var leechSources = new LeechSources(DamagePacket.Of(DamageType.Physical, 1000, 1000),
             DamagePacket.Empty, DamagePacket.Empty) { Attack = true };
         var leechTarget = new SpawnedMonster("leech", new(0, 0, 0), 0, 0, 1000) { Life = 1000 };
@@ -109,7 +109,7 @@ public sealed class PetrifiedBloodTests
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 8, now: 0);
         Game.LeechOf(instant).Configure(0,
             LeechLimits.Resolve(InstantOnly, instant.Pools.Life, instant.Pools.Mana, instant.Pools.EnergyShield),
-            InstantOnly, _ => null);
+            InstantOnly);
         Game.LeechOnHitLocked(instant, leechTarget, DamagePacket.Of(DamageType.Physical, 500, 500), 500, leechSources);
         Assert.Equal(800u, instant.PlayerLife);
 
@@ -121,7 +121,7 @@ public sealed class PetrifiedBloodTests
             manaPercent: 3500, lowLifeThresholdPct: 50, buff: 9, now: 0);
         Game.LeechOf(retained).Configure(0,
             LeechLimits.Resolve(NoInstant, retained.Pools.Life, retained.Pools.Mana, retained.Pools.EnergyShield),
-            NoInstant, _ => null);
+            NoInstant);
         Game.LeechOnHitLocked(retained, new("leech retained", new(0, 0, 0), 0, 0, 1000) { Life = 1000 },
             DamagePacket.Of(DamageType.Physical, 500, 500), 500, leechSources);
         Assert.Equal(800u, retained.PlayerLife);
