@@ -149,6 +149,19 @@ public static class AreaPopulation
 
     public sealed record AdditionalPacks(string Source, IReadOnlyList<PackCatalog.Pack> Packs, int Count, double Size = 1);
 
+    /// <summary>Pack members around explicit encounter centres, using the ordinary member placement and count rules.</summary>
+    public static List<Spawn> AtPacks(IReadOnlyList<(PackCatalog.Pack Pack, int X, int Y, MonsterRarity Rarity)> packs,
+        Func<int, int, bool> walkable, Func<int, bool> spawnable, int seed, double size = 1,
+        IEnumerable<(int X, int Y)>? occupied = null)
+    {
+        var result = new List<Spawn>();
+        var taken = occupied is null ? [] : occupied.ToHashSet();
+        var random = new Random(seed);
+        foreach (var p in packs)
+            AddPack(result, taken, walkable, (p.X, p.Y), p.Pack, p.Rarity, true, random, spawnable, packSize: size);
+        return result;
+    }
+
     /// <summary>A named point of a room the client placed (found by <see cref="LoadPoints"/>).</summary>
     public sealed record RoomPoint(string Name, int X, int Y, float Angle = 0);
 
@@ -282,7 +295,7 @@ public static class AreaPopulation
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
         Func<int, int, bool>? scatterable = null,
         IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards = null,
-        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null)
+        Func<int, bool>? guardSpawnable = null, IReadOnlyList<AdditionalPacks>? additionalPacks = null, bool ordinaryPacks = true)
     {
         var rng = new Random(seed);
         var spawns = new List<Spawn>();
@@ -337,6 +350,7 @@ public static class AreaPopulation
         {
             string name = p.Name["%area%-".Length..];
             if (!area.Named.TryGetValue(name, out var pack)) { notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): no pack {area.AreaId}-{name}"); continue; }
+            if (!ordinaryPacks && name != "bosspack" && !pack.BossVarieties.Any(area.Bosses.Contains)) continue;
             // A named pack's own boss (BossMonster_MonsterVarietiesKeys) comes with it; one of the area's unique bosses is
             // unique, and stands only once.
             int Row(int variety) => Enumerable.Range(0, area.Bosses.Count).FirstOrDefault(i => area.Bosses[i] == variety && !placedRows.Contains(i), -1);
@@ -421,7 +435,7 @@ public static class AreaPopulation
         if (packs.Count == 0 && additionalPacks is not { Count: > 0 }) return spawns;
         // The layout's own pack points stand their packs first, where the room puts them (issue #668).
         int roomPlaced = 0;
-        foreach (var p in packs.Count == 0 ? [] : roomPacks ?? [])
+        foreach (var p in packs.Count == 0 || !ordinaryPacks ? [] : roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
                 var pack = PickPack(packs, rng);
@@ -472,7 +486,7 @@ public static class AreaPopulation
                 }
             notes.Add($"additional packs {request.Source}: placed {placed}/{request.Count}, {spawns.Count - first} monsters");
         }
-        if (packs.Count == 0) return spawns;
+        if (packs.Count == 0 || !ordinaryPacks) return spawns;
         double size = scale.Size > 0 ? scale.Size : 1;
         int wanted = (int)Math.Round(packCells / (double)CellsPerPack
             * SystemSettings.Default.MonsterPackDensityMultiplier * size * area.Density);
@@ -713,7 +727,7 @@ public static class AreaPopulation
 
     /// <summary>Per cell: whether the arrival walks to it (8 neighbours, so a diagonal squeeze counts). Null when the
     /// arrival is not itself a walkable cell, where the walk map cannot say which way the player comes in.</summary>
-    static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
+    public static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
     {
         if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable(arrival.X, arrival.Y))
             return null;

@@ -510,7 +510,8 @@ public static partial class Game
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
-            additionalPacks: MapScarabPacks.Requests(mapMods)), mapMods).ToList();
+            additionalPacks: MapScarabPacks.Requests(mapMods),
+            ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0), mapMods).ToList();
         spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))

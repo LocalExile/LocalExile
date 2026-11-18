@@ -31,13 +31,19 @@ public static class MapScarabPacks
     {
         if (request.Campaign || request.Opening is not { } opening || !Ready) return;
         request.HandledContent.Add(Cloister);
+        RollFragmentCount(request, CountStat, random);
+    }
+
+    public static void RollFragmentCount(MapOpening request, string name, Random random)
+    {
+        if (request.Opening is not { } opening) return;
         int count = 0;
         foreach (var slot in request.Slots.Where(s => !s.IsMap))
             foreach (int row in Fragments.Value.FragmentOf(slot.BaseRow)?.ModRows ?? [])
                 foreach (var stat in Program.Items.Mods.Row(row)?.Stats ?? [])
-                    if (stat.Id == CountStat) count = checked(count + random.Next(stat.Min, checked(stat.Max + 1)));
+                    if (stat.Id == name) count = checked(count + random.Next(stat.Min, checked(stat.Max + 1)));
         if (count > 0)
-            request.Opening = opening with { Mods = opening.Mods.WithFragmentStat(CountStat, count) };
+            request.Opening = opening with { Mods = opening.Mods.WithFragmentStat(name, count) };
     }
 
     public static IReadOnlyList<AreaPopulation.AdditionalPacks> Requests(MapMods? mods) =>

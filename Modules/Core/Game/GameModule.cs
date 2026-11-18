@@ -54,6 +54,12 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.

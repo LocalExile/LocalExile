@@ -108,6 +108,11 @@ public sealed class ScarabEncounterTests
         Assert.All(added, s => Assert.True(layout.Walkable!(s.X, s.Y)));
         Assert.Equal(extra, AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
             (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, [], additionalPacks: [cloisterRequest]));
+        var noOrdinary = AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
+            (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, [], additionalPacks: [cloisterRequest], ordinaryPacks: false);
+        Assert.Contains(noOrdinary, s => packIds.Contains(s.Pack));
+        Assert.DoesNotContain(noOrdinary, s => s.Rarity != GameServer.Core.Protocol.Instance.MonsterRarity.Unique
+            && ordinary.Scattered.Any(p => p.Pack.Id == s.Pack) && !packIds.Contains(s.Pack));
         Assert.Same(kept, instance.AreaStats(() => throw new InvalidOperationException("recomposed the map")));
 
         TestEnvironment.OpenOwnSaves("scarab-shrines");
@@ -141,6 +146,48 @@ public sealed class ScarabEncounterTests
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Conn, []));
+            var ambushSlot = Slot("ScarabStrongboxNew1");
+            var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
+            Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
+            var boxInstance = new InstanceState();
+            boxInstance.OpenedWith(new("StrongboxOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, ambushMods));
+            boxInstance.AreaStats(() => Compose(ambushMods));
+            await using var boxOwner = await Wire.Open(boxInstance, layout, seed);
+            await using var boxPeer = await Wire.Open(boxInstance, layout, seed);
+            await MapStrongboxes.Enter(boxOwner.Conn);
+            MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
+            var boxes = Boxes();
+            Assert.Equal(4, boxes.Length);
+            await MapStrongboxes.Enter(boxPeer.Conn);
+            Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
+            Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
+            var firstBox = boxes[0];
+            boxOwner.Conn.Walk.Teleport(firstBox.X, firstBox.Y, 0);
+            Assert.True(await MapStrongboxes.Use(boxOwner.Conn, new(firstBox.Id, 0, 1, 0), 0));
+            var active = Boxes()[0];
+            Assert.Equal(1, active.Phase);
+            Assert.NotEmpty(active.Guards);
+            Assert.Empty(active.Pending);
+            int guardCount = boxOwner.Conn.Monsters.Count;
+            Assert.True(await MapStrongboxes.Use(boxPeer.Conn, new(firstBox.Id, 0, 1, 0), 0));
+            Assert.Equal(guardCount, boxOwner.Conn.Monsters.Count);
+            lock (boxOwner.Conn.Monsters)
+                foreach (uint guard in active.Guards) { boxOwner.Conn.Monsters[guard].Dead = true; boxOwner.Conn.Monsters[guard].Life = 0; }
+            await MapStrongboxes.Tick(boxOwner.Conn);
+            Assert.Equal(2, Boxes()[0].Phase);
+            int rewardCount = boxInstance.Ground.All().Count();
+            Assert.True(rewardCount > 0);
+            await MapStrongboxes.Tick(boxPeer.Conn);
+            Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
+            MapStrongboxes.Leave(boxOwner.Conn);
+            await MapStrongboxes.Enter(boxOwner.Conn);
+            Assert.Equal(firstBox.Id, Boxes()[0].Id);
+            Assert.Equal(2, Boxes()[0].Phase);
+            Assert.Equal(rewardCount, boxInstance.Ground.All().Count());
+            Assert.True(MapStrongboxes.ClosesAgain(15, new FixedRoll(14)));
+            Assert.False(MapStrongboxes.ClosesAgain(15, new FixedRoll(15)));
+            PlayerInventories.Forget(boxOwner.Conn.Character!);
+            PlayerInventories.Forget(boxPeer.Conn.Character!);
         }
         finally
         {
@@ -190,6 +237,18 @@ public sealed class ScarabEncounterTests
         ShrineMapAdmission.Check(rejected);
         Assert.Null(rejected.Opening);
         Assert.Contains("not been consumed", rejected.Reason);
+        var arcanist = Assert.IsType<StrongboxCatalog.Definition>(StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Arcanist"));
+        Assert.Equal(81, StrongboxCatalog.Weight(arcanist, 70, false, MapMods.None));
+        Assert.Equal(0, StrongboxCatalog.Weight(arcanist, 25, false, MapMods.None));
+        var rareBoxes = new MapMods(new Dictionary<string, int> { ["map_strongbox_rare_boxes_weighting_multiplier"] = 3 });
+        Assert.Equal(243, StrongboxCatalog.Weight(arcanist, 70, false, rareBoxes));
+        var cartographer = StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/CartographerLowMaps")!;
+        Assert.True(StrongboxCatalog.Weight(cartographer, 70, false, MapMods.None) > 0);
+        Assert.Equal(0, StrongboxCatalog.Weight(cartographer, 72, false, MapMods.None));
+        Assert.NotEqual(StrongboxCatalog.Blob(arcanist, 100, 100, false, false),
+            StrongboxCatalog.Blob(arcanist, 100, 100, true, false));
+        Assert.NotEqual(StrongboxCatalog.Blob(arcanist, 100, 100, true, false),
+            StrongboxCatalog.Blob(arcanist, 100, 100, true, true));
     }
 
     sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable
