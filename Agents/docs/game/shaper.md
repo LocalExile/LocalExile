@@ -187,23 +187,22 @@ and draws the skill's art; the server adds what only it knows — where the hit 
 contact keyframes say when and where that is:
 
 - **the Celestial Beam**: the ground it burns is a **wide straight band**, not a line and not a flare (checked
-  against the original by the player): the effect's art covers a strip roughly ten cells wide, and walking out of that
-  width is how you live. The band runs from the Shaper to the point he aimed at and is pinned there (the beam does
-  not follow the player). The burn starts with the cast and runs for the skill's own three seconds, because the
-  ground under the effect (the effect rig's `zone_*` animations) is part of the effect. The data gives the beam no
-  width, so the five-cell half-width is our figure.
-- **the Celestial Beam**: the cast is the rig's `beam_start` (2500 ms, its contact the last frame), so the charge is
-  2.5 s and the beam lands at its end. The burn is the skill's own three seconds
-  (`base_skill_effect_duration` 3000 ms) and its damage is the fire/cold/lightning degen of the stat set
-  (15 884/s). The burn is a **line** from the Shaper to the point he aimed at (the width is a development figure, the
-  data gives none), and the player can walk out of it. The client draws the beam itself, and it stretches the effect's
-  animations over the action's time: the effect's rig
+  against the original by the player): the effect's art covers a strip roughly twenty cells wide, and walking out of
+  that width is how you live. The band runs from the Shaper to the point he aimed at and is pinned there (the beam
+  does not follow the player). The data gives the beam no width, so the twelve-cell half-width is our figure. The
+  skill has no range stat of its own, so the server only casts it when the player is within thirty cells of the
+  Shaper (live 2026-11-14: a beam aimed at somebody who had just walked in at the area's entrance drew a line across
+  the whole map and killed everyone standing on it).
+- **the Celestial Beam**: the cast is **one second** — the skill row's own cast time (1000 ms); the client plays the
+  rig's 2.5 s `beam_start` stretched to it, so the charge is a second and the beam lands at its end. The burn starts
+  when the cast lands and runs the skill's own three seconds (`base_skill_effect_duration` 3000 ms), because the
+  ground under the effect (the effect rig's `zone_*` animations) is part of the effect; its damage is the
+  fire/cold/lightning degen of the stat set (15 884/s). The client draws the beam itself, and its effect has to
+  outlive the cast: the server sends the duration as the virtual `skill_effect_duration` (0x168) with the skill's own
+  numbers, or the client ends the effect with the cast (the same finding as the player's Spark: a skill whose duration
+  the Gateway does not send dies on its first tick, [11](../../docs/protocol/11-skills.md)). The effect's rig
   (`Art/Models/Effects/monster_effects/AtlasofWorldsBoss/TheShaper/beam/rig.amd`) is `beam_start_01` (500 ms, the orb
-  growing) then the looping `beam_idle_01` (the ray) and `beam_end_01` (250 ms), so the action has to run the whole beam
-  — the charge and the three seconds it burns — or the ray is over before the ground stops burning. The server must
-  also send the skill's own numbers in the boss's skill records, or the client ends the effect with the cast (the same
-  finding as the player's Spark: a skill whose duration the Gateway does not send dies on its first tick,
-  [11](../../docs/protocol/11-skills.md)).
+  growing) then the looping `beam_idle_01` (the ray) and `beam_end_01` (250 ms).
 - **the accelerating projectiles**: three orbs, one per contact of the rig's `spellcast2` (433, 966 and 1533 ms of its
   2133 ms), each from the hand that throws it (the contacts' own positions in the rig). The client's tables hold only a
   pool's first contact, so the other two come from the rig.
