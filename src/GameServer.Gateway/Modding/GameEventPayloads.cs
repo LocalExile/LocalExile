@@ -103,8 +103,15 @@ public sealed class DropRoll(ClientState conn, MonsterInfo monster)
     /// <summary>True: nothing of the server's own drops (the <see cref="Items"/> still do).</summary>
     public bool Cancel { get; set; }
 
+    /// <summary>Stackable items to drop as well, each a <c>BaseItemTypes</c> id or name and its count, split at the item's
+    /// stack size (the <see cref="Items"/> still drop besides).</summary>
+    public List<(string Item, int Count)> Stacks { get; } = [];
+
     /// <summary>Items to drop as well, each as /item takes it: a <c>BaseItemTypes</c> id or name, or a unique's name.</summary>
     public List<string> Items { get; } = [];
+
+    /// <summary>Items to drop as well, as they are: already made and rolled.</summary>
+    public List<GameServer.Core.Protocol.Instance.Item> Made { get; } = [];
 }
 
 /// <summary>A kill's experience, before the character and its gems gain it.</summary>

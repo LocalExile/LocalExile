@@ -34,7 +34,7 @@ public sealed class AttackAddedPerAttributeTests : IDisposable
     {
         var stats = Game.CharacterPlayerStats(conn);
         var hit = Game.AttackHitConverted(Game.WeaponFor(conn), stats, Game.MeleeAttack(conn),
-            Game.ConversionFor(conn, -1, 1, attack: true));
+            Game.ConversionFor(conn, -1, 1, attack: true), new(Game.PlayerAccuracy(conn, stats)));
         return (stats, hit);
     }
 

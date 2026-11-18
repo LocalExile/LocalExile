@@ -44,6 +44,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
@@ -70,7 +71,16 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapTorment.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapTorment.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapTorment.Tick);
+        GameEvents.Drops.Add(module.Manifest.Id, MapTorment.Drops);
+        GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
         // (MonsterAlternateAilments).
         module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
@@ -123,6 +133,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Game.VaalImmortalCallTick(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Game.LeavingVaalImmortalCall(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
