@@ -989,17 +989,40 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         }
     }
     ushort nextBuff = 1;
+    /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
+    public int PlayerLifeCap { get; set; } = int.MaxValue;
+    /// <summary>The last qualified item percentage. The qualification stage supplies this neutral value.</summary>
+    public int QualifiedItemLifeReservationPercent { get; set; }
+    LifeReservation.Value PlayerLifeReservation
+    {
+        get
+        {
+            int itemPercent = QualifiedItemLifeReservationPercent;
+            if (Program.Stats.Key(LifeReservation.ItemPercentStat) is uint itemPercentKey
+                && PlayerStats.TryGetValue(itemPercentKey, out int actualItemPercent))
+                itemPercent = actualItemPercent;
+            int additionalSkillReserved = (int)Math.Clamp(
+                (long)global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
+                + PlacedSkills.Reserved(Pools, Placed.All.Values, true),
+                0, int.MaxValue);
+            return LifeReservation.Of(Pools, itemPercent, Auras.Values, additionalSkillReserved);
+        }
+    }
     public uint PlayerMaxLife => Pools.Life;
     public uint PlayerReservedLife
     {
         get
         {
-            lock (Monsters) return (uint)Math.Min(Pools.Life,
-                (long)AuraCatalog.RequiredLife(Pools, Auras.Values) + global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
-                + PlacedSkills.Reserved(Pools, Placed.All.Values, true));
+            lock (Monsters) return (uint)PlayerLifeReservation.Reserved;
         }
     }
-    public uint PlayerUnreservedLife => Pools.Life - PlayerReservedLife;
+    public uint PlayerUnreservedLife
+    {
+        get
+        {
+            lock (Monsters) return (uint)PlayerLifeReservation.Unreserved;
+        }
+    }
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;
     uint playerLife;

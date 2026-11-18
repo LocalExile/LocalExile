@@ -1,6 +1,17 @@
 
 public static partial class Game
 {
+    public static bool CriticalHitsDealNoExtraDamage(IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null) => Stats.Key("no_critical_strike_multiplier") is uint key
+            && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
+
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
+        : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+
+    public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
+            CriticalHitsDealNoExtraDamage(player, own));
+
     public static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
         or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
 
@@ -24,7 +35,7 @@ public static partial class Game
     static bool CriticalOnLowLife(Func<uint> life, Func<uint> maximumLife, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && life() < maximumLife()
+        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && !CountsAsFullLife(life(), maximumLife(), player)
             || Get("you_count_as_low_life_while_affected_by_vulnerability") != 0
                 && (Get("cursed_by_vulnerability") != 0 || Get("you_are_cursed_with_vulnerability") != 0);
         return CriticalStrikePolicy.OnLowLife(life(), maximumLife(),
@@ -118,6 +129,7 @@ public static partial class Game
     {
         uint? key = Stats.Key(CriticalStrikePolicy.UnarmedMeleeMultiplierStat);
         long extra = key is uint k ? (long)player.GetValueOrDefault(k) + (own?.GetValueOrDefault(k) ?? 0) : 0;
-        return CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier, extra, unarmed, melee, spell);
+        return CriticalHitMultiplier(CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier,
+            extra, unarmed, melee, spell), player, own);
     }
 }

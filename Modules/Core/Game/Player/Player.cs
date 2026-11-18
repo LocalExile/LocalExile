@@ -209,9 +209,10 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            EnsureOwnAuraPools(conn);
-            return Math.Min((int)conn.Pools.Mana, AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
-                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood) + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false));
+            long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
+                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
+                + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
+            return (int)Math.Min((long)conn.Pools.Mana, Math.Min(int.MaxValue, reserved));
         }
     }
 
@@ -1468,4 +1469,38 @@ public static partial class Game
         if (conn.PeerTemplate is { WashedUp: true })
             CharacterSaves.ChangeTutorial(CharacterName(conn), tutorial => tutorial with { WakeUpShown = true });
     }
+
+    // Pure preview for proposed or current aura sets. Never changes current Life or the advertised cap.
+    public static LifeReservation.Value LifeReservationFor(ClientState conn, IEnumerable<AuraCatalog.Aura> auras)
+        => LifeReservation.Of(conn.Pools, conn.QualifiedItemLifeReservationPercent, auras,
+            AdditionalLifeReservation(conn));
+
+
+    public static LifeReservation.Value LifeReservationOf(ClientState conn)
+    {
+        if (conn.StatSourcesCache is { } qualified)
+            PublishQualifiedItemLifeReservationPercent(conn, qualified.Key.QualifiedItemLifeReservationPercent);
+        int itemPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int valueOverride)
+            ? valueOverride : conn.QualifiedItemLifeReservationPercent;
+        var value = LifeReservation.Of(conn.Pools, itemPercent,
+            conn.Auras.Values, AdditionalLifeReservation(conn));
+        conn.PlayerLifeCap = value.Unreserved;
+        // The usable cap is an invariant even when a caller only asks for it to build a snapshot.
+        conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, value);
+        return value;
+    }
+
+    public static int ReservedLife(ClientState conn) => LifeReservationOf(conn).Reserved;
+
+    public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
+
+
+    // Every player Life pool update carries the shared owner's reserved amount.
+    public static byte[] PlayerLifeUpdate(ClientState conn)
+    {
+        // Reconcile the owner before sampling current Life: its first query can lower the usable cap.
+        var reservation = LifeReservationOf(conn);
+        return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, (uint)reservation.Reserved);
+    }
+
 }
