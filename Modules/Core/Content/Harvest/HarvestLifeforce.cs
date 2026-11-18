@@ -12,6 +12,10 @@ public static class HarvestLifeforce
 {
     const string FaridunItem = "Metadata/Items/Currency/HarvestSeedFaridun";
 
+    /// <summary>The Sacred Blossom (BaseItemTypes CurrencyHarvestBossKey): in a map device it opens Oshabi's grove
+    /// (MapDeviceRecipes HarvestBoss, WorldAreas HarvestLeagueBoss).</summary>
+    public const string BlossomId = "Metadata/Items/MapFragments/CurrencyHarvestBossKey";
+
     // The drop chance (percent) and the base amount range by seed tier 1–4 (ForgottenArbiter's measurements, 3.19–3.22;
     // the server tables hold no lifeforce amounts).
     static readonly int[] Chance = [0, 2, 10, 100, 100];
@@ -59,10 +63,22 @@ public static class HarvestLifeforce
             drop.Stacks.Add((FaridunItem, 1));
             return;
         }
+        if (tag.Tier >= 4) Blossom(drop, stats);
         if ((uint)tag.Colour >= 4 || Items(drop.Conn)[tag.Colour] is not { } item) return;
         int count = Roll(Random.Shared, stats, tag.Tier, out int second);
         if (count > 0) drop.Stacks.Add((item, count));
         if (second > 0) drop.Stacks.Add((item, second));
+    }
+
+    /// <summary>A Tier 4 seed's boss drops the Sacred Blossom at world.db's chance for its variety (drop_boss_items),
+    /// scaled by the area's item quantity (wiki: the chance scales with quantity). No row, no Blossom.</summary>
+    static void Blossom(DropRoll drop, HarvestStats stats)
+    {
+        if (!DropDataProvider.Default.Current.BossItems.TryGetValue((drop.Monster.VarietyId, BlossomId), out var row)
+            || row.Chance is not { } chance
+            || Random.Shared.NextDouble() >= chance * Math.Max(0, 1 + stats.Quantity / 100.0)) return;
+        drop.Items.Add(BlossomId);
+        Console.WriteLine($"[harvest] {drop.Monster.VarietyId} dropped a Sacred Blossom");
     }
 
     /// <summary>GameEvents.Experience: map_harvest_monster_granted_experience_+% on a grove monster's kill.</summary>
