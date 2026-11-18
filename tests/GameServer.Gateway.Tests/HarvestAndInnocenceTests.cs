@@ -38,6 +38,16 @@ public class HarvestAndInnocenceTests
     }
 
     [Fact]
+    public void Approximate_town_placements_move_to_floor_but_room_placements_keep_their_cell()
+    {
+        var layout = new AreaLayout(1, "test", 100, 100, 50, 50, (x, y) => x >= 50 && y == 50, []);
+        var placement = new NpcCatalog.Placement("TestNpc", 44, 50, 0);
+        Assert.Equal((50, 50), Game.TownNpcCell(layout, placement));
+        Assert.Equal((44, 50), Game.TownNpcCell(layout, placement with { FromRoom = true }));
+        Assert.Equal((44, 50), Game.TownNpcCell(layout with { Walkable = null }, placement));
+    }
+
+    [Fact]
     public void Only_the_Chambers_disabled_shortcut_waits_for_the_current_instances_kill()
     {
         using var registration = Quests.Register("shortcut-test", QuestObjectsModule.Acts());
