@@ -115,7 +115,15 @@ public static class MapStrongboxes
     public static async Task<bool> Use(ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetId) is not { } box) return false;
-        if (box.Phase != 0 || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
+        if (box.Phase != 0)
+        {
+            int current = conn.ActionCount;
+            var wire = conn.Wire;
+            await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
+                still: () => PlayerActionCurrent(conn, current));
+            return true;
+        }
         if (!TryBeginObjectWalk(conn, requestedAt, box.X, box.Y, 1, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         var (remote, stream, ciphers) = conn.Wire;
