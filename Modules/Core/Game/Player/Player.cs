@@ -497,10 +497,9 @@ public static partial class Game
             {
                 conn.PlayerLife -= (uint)life;
                 lifeCost = (uint)life;
-                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
-            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ApplyPaidSupportCostsLocked(conn, skillId, own, cost, life);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
@@ -598,22 +597,22 @@ public static partial class Game
         return projected;
     }
 
-    // The canonical row named by the still-current owner and lease, for profile refreshes that are not output work.
-    private static bool RighteousFireSourceCurrentLocked(ClientState conn, RighteousFireState rf)
+    // Resolve the supported skill once for the physical source that owns the active burn.
+    private static SupportedGem? CurrentRighteousFireSkillLocked(ClientState conn, RighteousFireState rf)
     {
-        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return false;
+        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return null;
         using var scope = new PlayerStatScope(conn, fresh: true);
         var supported = SupportedSkill(conn, rf.Skill);
         var source = CurrentPlayerSkillSourceLocked(conn, rf.Skill);
         return supported.Effect >= 0 && supported.RequirementsMet
             && SkillsFor(conn).EffectId(supported.Effect) == "RighteousFire"
             && source is { Active: true } && source.Effect == supported.Effect
-            && source.Identity == lifetime.Key;
+            && source.Identity == lifetime.Key ? supported : null;
     }
 
     // Output and consumer work additionally retain the accepted outgoing-work guard.
     private static bool RighteousFireCurrentLocked(ClientState conn, RighteousFireState rf) =>
-        CurrentGameWork && RighteousFireSourceCurrentLocked(conn, rf);
+        CurrentGameWork && CurrentRighteousFireSkillLocked(conn, rf) is not null;
 
     private static bool RighteousFireRingCurrentLocked(ClientState conn, PlayerMinions.RighteousFireRingReceipt receipt) =>
         receipt.State.Ring == receipt.Ring && receipt.State.RingArt is not null
@@ -666,7 +665,7 @@ public static partial class Game
         if (conn.RighteousFire is not { } rf) return;
         lock (conn.Monsters)
         {
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "invalid Righteous Fire source at profile recompute");
@@ -674,10 +673,10 @@ public static partial class Game
             }
             using (new PlayerStatScope(conn, fresh: true))
             {
-                var supported = SupportedSkill(conn, rf.Skill);
                 int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
+                SetRighteousFireSupportProfileLocked(conn, rf, supported.Stats);
                 bool changed = rf.SpellDamageMore != more || rf.Radius != radius;
                 if (!changed) return;
                 rf.SpellDamageMore = more;
@@ -815,6 +814,7 @@ public static partial class Game
                     Instance = conn.Instance,
                 };
                 conn.RighteousFire = state;
+                SetRighteousFireSupportProfileLocked(conn, state, supported.Stats);
                 conn.Minions.StatRevision++;
                 // The initial create/wake/receipt are immutable originals captured in the same admission mutation. A
                 // profile writer after this boundary can replace the retained ring but cannot change what this
@@ -1066,7 +1066,7 @@ public static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
-            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
             if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
@@ -1174,7 +1174,7 @@ public static partial class Game
                 now = updates.Schedule.ResourceNow(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) break;
                 rf = conn.RighteousFire;
-                if (rf is not null && !RighteousFireSourceCurrentLocked(conn, rf))
+                if (rf is not null && CurrentRighteousFireSkillLocked(conn, rf) is null)
                 {
                     if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                         QueueRighteousFireCleanupLocked(conn, stale, "Righteous Fire source became invalid at resource commit");
@@ -1409,9 +1409,45 @@ public static partial class Game
         }
     }
 
+    // Each entry grants more or less damage to this fire area DoT once its support is admitted.
+    static readonly string[] RighteousFireSupportMore =
+    [
+        "support_burning_damage_+%_final", "support_gem_elemental_damage_+%_final",
+        "support_area_concentrate_area_damage_+%_final", "support_efficacy_damage_over_time_+%_final",
+        "support_rapid_decay_damage_over_time_+%_final", "support_reduced_duration_damage_+%_final",
+        "cast_on_damage_taken_damage_+%_final",
+    ];
+
+    static double RighteousFireEnemyDps(ClientState conn, RighteousFireState rf,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    {
+        int Own(string name) => own.GetValueOrDefault(Stats.Key(name)!.Value);
+        double Combined(string name)
+        {
+            uint key = Stats.Key(name)!.Value;
+            return (double)player.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        }
+        if (DamageStats.Prohibited(DamageType.Fire, Own)) return 0;
+        double basis = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
+            + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+        double increased = Combined("damage_+%") + Combined("fire_damage_+%") + Combined("elemental_damage_+%")
+            + Combined("damage_over_time_+%") + Combined("fire_damage_over_time_+%") + Combined("burn_damage_+%")
+            + Combined("area_damage_+%") + Combined("righteous_fire_damage_+%");
+        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        foreach (string stat in RighteousFireSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
+        double dotMultiplier = Combined("dot_multiplier_+") + Combined("fire_dot_multiplier_+");
+        dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
+        int deliriumMore = player.GetValueOrDefault(Stats.Key("delirium_aura_damage_over_time_+%_final")!.Value);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(player);
+    }
+
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
-    public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
+    public static Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds) =>
+        BurnAround(remote, stream, ciphers, conn, rf, seconds, null);
+
+    static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        RighteousFireState rf, double seconds, double? tickEnd)
     {
         if (!CurrentGameWork) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
@@ -1420,7 +1456,7 @@ public static partial class Game
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork) return;
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "stale Righteous Fire consumer retired");
@@ -1431,13 +1467,10 @@ public static partial class Game
             Dictionary<uint, int> playerStats;
             using (new PlayerStatScope(conn, fresh: true))
             {
-                perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
-                    + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
                 playerStats = CharacterPlayerStats(conn);
-                if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
-                    perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
-                perSecond *= ChargeDamageMore(playerStats);
+                perSecond = RighteousFireEnemyDps(conn, rf, playerStats, supported.Stats);
             }
+            perSecond *= RighteousFireTimedSupportFactor(rf, tickEnd ?? now, seconds);
             var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
                 .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
             var here = conn.Walk.Position(now);

@@ -31,12 +31,13 @@ public static partial class Game
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
     public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player,
-        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null,
+        int? accuracy = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         var sourceWeapon = weapon ?? WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(conn, player))), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
             Get, additionalIncreased),
             "main_hand", Get, sourceWeapon.LocalSources);
     }

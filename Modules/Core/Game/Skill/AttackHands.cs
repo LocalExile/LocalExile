@@ -163,29 +163,11 @@ public static partial class Game
     public static int? SwingWeaponCritical(ClientState conn, AttackHand hand) =>
         hand == AttackHand.Off && OffhandWeaponFor(conn) is not null ? HandWeaponCritical(conn, hand) : null;
 
-    /// <summary>The off hand's local accuracy less the main hand's: the pools' basis carries the main hand's.</summary>
-    static long OffHandLocalAccuracyDifference(ClientState conn)
-    {
-        var (main, off) = HandLocalStats(conn);
-        return (long)off.GetValueOrDefault("local_accuracy_rating") - main.GetValueOrDefault("local_accuracy_rating");
-    }
-
-    /// <summary>The swinging hand's accuracy rating before Blind, with a gem's own flat/increased accuracy
-    /// (AccuracyRating.Selected for the main hand; the off hand swaps in its local accuracy, as its panel row does).</summary>
-    public static int HandAccuracyRating(ClientState conn, AttackHand hand, Func<string, long> own)
-    {
-        var profile = WeaponProfileFor(conn, activeSet: true);
-        if (hand != AttackHand.Off || OffhandWeaponFor(conn) is null) return AccuracyRating.Selected(conn.Pools, profile, own);
-        long difference = OffHandLocalAccuracyDifference(conn);
-        long flat = AccuracyRating.Flat(profile, own, includeLocal: false), increased = AccuracyRating.Increased(profile, own);
-        return difference == 0 && flat == 0 && increased == 0 ? conn.Pools.Accuracy
-            : AccuracyRating.Calculate(conn.Pools.AccuracyBase + difference + flat, conn.Pools.AccuracyPct + increased);
-    }
-
-    /// <summary>The default attack's accuracy for the swinging hand, Blind included (PlayerAccuracy for the main hand).</summary>
+    /// <summary>The default attack's accuracy for the swinging hand, Blind included (PlayerAccuracy for the main hand);
+    /// the off hand swaps in its local accuracy (WeaponAccuracyFor), as its panel row does.</summary>
     public static int HandAccuracy(ClientState conn, AttackHand hand, IReadOnlyDictionary<uint, int>? player = null) =>
-        hand == AttackHand.Off && OffhandWeaponFor(conn) is not null
-            ? PlayerBlindAccuracy(conn, HandAccuracyRating(conn, hand, _ => 0), player) : PlayerAccuracy(conn, player);
+        hand == AttackHand.Off && OffhandWeaponFor(conn) is { } off
+            ? WeaponAccuracyFor(conn, off, player ?? CharacterPlayerStats(conn)) : PlayerAccuracy(conn, player);
 
     /// <summary>The default attack's critical chance with the swinging hand (Pools.AttackCriticalStrikeChance is the
     /// main hand's): the off-hand weapon's own base and local modifiers with the same increases and override.</summary>
@@ -301,10 +283,9 @@ public static partial class Game
         var accuracy = SupportedAccuracy(conn, skillId);
         if (hand != AttackHand.Off || OffhandWeaponFor(conn) is not { } off) return accuracy;
         var own = SupportedSkill(conn, skillId).Stats;
-        long Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         var player = CharacterPlayerStats(conn);
         return AttackAccuracyProfile.From(conn.Pools, player, Stats, own, off.LocalSources)
-            with { Rating = PlayerBlindAccuracy(conn, HandAccuracyRating(conn, hand, Own), player) };
+            with { Rating = WeaponAccuracyFor(conn, off, player, own) };
     }
 
     /// <summary>The swinging hand's local modifiers (on-hit chances, leech, penetration): the main hand's for both

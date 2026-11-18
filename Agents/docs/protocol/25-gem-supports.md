@@ -208,7 +208,10 @@ the original player cast's first valid release (including Fireball/Spark), share
 Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
 unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;
 area poison uses the same added chaos base. Source identity survives gem experience/level-lock edits, not replacement.
-Proxy/trigger executors must supply their own actual caster and never reuse the player payment; Spellblade adds its share of the one-hand melee weapon as spell damage; Hallow's Hallowing Flame gives
+Proxy/trigger executors must supply their own actual caster and never reuse the player payment.
+Spellblade (Stat 18860) adds the one-hand melee weapons' own damage, not global attack additions. The main hand must
+be one; with two weapons each counts 60%, floored per hand before spell effectiveness (as PoB).
+Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.
 
