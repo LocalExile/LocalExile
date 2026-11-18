@@ -113,7 +113,7 @@ static partial class Sirus
                         lifeDamage += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                             : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
                     }
-                    p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage);
+                    p.PlayerLife = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - lifeDamage), now);
                     shieldChanged = p.EnergyShield.Current != shieldBefore;
                     if (died = lifeBefore > 0 && p.PlayerLife == 0)
                     { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }

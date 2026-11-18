@@ -15,7 +15,9 @@ namespace GameServer.Core.Protocol.Instance;
 /// <item>Chest (0x141e16f10): u8 opened (bit 0), u8, u8; Stats and ObjectMagicProperties as an area transition's;</item>
 /// <item>TriggerableBlockage (0x141e47880): u8 blocked, and only while blocked a u8 count (0 here);</item>
 /// <item>NPC: has dialogue 0, no component that must be alive (0xff), as a boss that speaks;</item>
-/// <item>InteractionAction: flags 0; MinimapIcon: flags 0, or 6 for an explicitly hidden marker; BaseEvents: nothing.</item>
+/// <item>InteractionAction: flags 0; MinimapIcon: flags 0, or 6 for an explicitly hidden marker; BaseEvents: nothing;</item>
+/// <item>HarvestWorldObject (0x141eb0cb0): u8 n, n × {u8 HarvestSeeds row, u8 count}, the seed list a grove object's
+/// label shows ("{count} x MonsterVarieties.Name").</item>
 /// </list>
 /// Types with any other deserialized component are not written (<see cref="CanSerialize"/>).
 /// </summary>
@@ -28,13 +30,17 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public StateMachineData? StateMachine { get; init; }
     public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
     public byte Rarity { get; init; }
+    /// <summary>ObjectMagicProperties' name as Words.dat HASH32 parts (flags bit 8), as a unique item's or monster's. Empty by default.</summary>
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
     public bool Identified { get; init; } = true;
     public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = [];
     /// <summary>Base-data script variables containing one entity reference (141dedf80 / 141dfe5a0, type 1).</summary>
     public IReadOnlyDictionary<uint, uint> EntityVariables { get; init; } = new Dictionary<uint, uint>();
+    /// <summary>HarvestWorldObject's seed list: HarvestSeeds rows and their counts.</summary>
+    public IReadOnlyList<(byte SeedRow, byte Count)> HarvestSeeds { get; init => field = Owned.List(value); } = [];
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
-        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine"];
+        "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine", "HarvestWorldObject"];
 
     /// <summary>Whether <see cref="Blob"/> can write a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components) =>
@@ -83,13 +89,18 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties":
                     if (Mods.Count == 0 && Rarity == 0) w.U16(0).U8(0).U8(0);
-                    else { MagicProperties.Write(w, Rarity, Identified, Mods, []); w.U8(0); }
+                    else { MagicProperties.Write(w, Rarity, Identified, Mods, NameWords); w.U8(0); }
                     break;
                 case "StateMachine": StateMachine!.Write(w); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
                 case "NPC": w.U8(0).U8(0xff); break;
                 case "InteractionAction": w.U8(0); break;
                 case "MinimapIcon": w.U8((byte)(HideMinimapIcon ? 0x06 : 0)); break;
+                case "HarvestWorldObject":
+                    if (HarvestSeeds.Count > byte.MaxValue) throw new ArgumentException("too many harvest seed rows");
+                    w.U8((byte)HarvestSeeds.Count);
+                    foreach (var (row, count) in HarvestSeeds) w.U8(row).U8(count);
+                    break;
                 // BaseEvents: no data.
             }
         }

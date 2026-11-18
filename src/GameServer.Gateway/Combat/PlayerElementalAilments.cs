@@ -14,12 +14,18 @@ public sealed class PlayerElementalAilments
         int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
     {
         public bool NeverFreeze { get; init; }
+        /// <summary>The source skill's own stats, for the rules that read more of them than the fields above.</summary>
+        public Func<string, int>? SourceStats { get; init; }
     }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
     double carry;
     double expiryRate = 1;
+    // Lethe Shade: when an ignite was last applied, the onset of the player's damaging-ailment DoT (with the bleed and
+    // poison starts in IncomingDamagingAilments). NegativeInfinity while none has landed.
+    double latestIgniteStart = double.NegativeInfinity;
+    public double LatestIgniteStart { get { lock (effects) return latestIgniteStart; } }
     public void SetExpiryRate(double now, double rate)
     {
         lock (effects)
@@ -39,7 +45,7 @@ public sealed class PlayerElementalAilments
 
     public bool HasEffects { get { lock (effects) return effects.Count > 0; } }
 
-    public void Clear() { lock (effects) { effects.Clear(); carry = 0; } }
+    public void Clear() { lock (effects) { effects.Clear(); carry = 0; latestIgniteStart = double.NegativeInfinity; } }
     public double Magnitude(Kind kind, double now)
     {
         lock (effects) return effects.Where(e => e.Kind == kind && e.From <= now && now < e.Until)
@@ -101,16 +107,18 @@ public sealed class PlayerElementalAilments
     // Damaging ailments use the pre-critical base, not damage taken. Non-damaging ailments use damage dealt
     // against the ordinary player's maximum-Life threshold. No enemy chance-to-ailment modifiers are invented.
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, uint? source = null) =>
-        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source);
+        Func<string, int> get, Random random, uint? source = null, double durationFactor = 1) =>
+        Apply(baseHit, taken, critical, maxLife, now, get, random, default, source, durationFactor);
 
     public void Apply(DamagePacket baseHit, DamagePacket taken, bool critical, uint maxLife, double now,
-        Func<string, int> get, Random random, HitSettings settings, uint? source = null)
+        Func<string, int> get, Random random, HitSettings settings, uint? source = null, double durationFactor = 1)
     {
         lock (effects)
         {
             Reconcile(get);
-            void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude, seconds, now, get, random, source);
+            // The caller's duration factor scales the ailments a hit puts on you; a reflected one (Inflict) is excluded.
+            void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude,
+                seconds * durationFactor, now, get, random, source);
             if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
                 Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
                     * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
@@ -146,6 +154,7 @@ public sealed class PlayerElementalAilments
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
             || RandomRolls.Chance(get(avoid), 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
+        if (kind == Kind.Ignite) latestIgniteStart = now;
     }
 
     // A chill, freeze or shock reflected back onto the player (a Mirrored monster) with the effect and duration it
@@ -167,7 +176,7 @@ public sealed class PlayerElementalAilments
     // Unaffected by Ignite (PoB SelfIgniteEffect 100% less): the ignite stays on the player and in is_ignited, dealing nothing.
     // takenFrom: the increased damage taken from the strongest ignite's source monster (a Blinded one), with the shock's.
     public int Advance(double from, double until, Func<string, int> get, int fireResistance, int maxFireResistance,
-        bool fireImmune, Func<uint, int>? takenFrom = null)
+        bool fireImmune, Func<uint, int>? takenFrom = null, double dotTakenFactor = 1)
     {
         lock (effects)
         {
@@ -186,6 +195,7 @@ public sealed class PlayerElementalAilments
                     * DamageTakenFactor(at, fromSource) * (boundaries[i] - boundaries[i - 1]);
             }
             effects.RemoveAll(e => e.Until <= until);
+            damage *= dotTakenFactor;
             int whole = (int)Math.Min(int.MaxValue, Math.Floor(damage));
             carry = damage - whole;
             return whole;

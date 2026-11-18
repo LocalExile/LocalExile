@@ -502,7 +502,11 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         long before = ItemModStats.SumsOnThisThread;
         inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Coward's Legacy", new Random(1))!);
         inventory.Add(PlayerInventories.Boots, 0, 0, uniques.Create("Doryani's Delusion", new Random(1))!);
-        void Lookup() => Game("CharacterStatSources", conn, null, null);
+        // The method is found once: Game's GetMethods copy grows with every method the module adds, not with the lookup.
+        var sources = Rules.GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
+            .Single(m => m.Name == "CharacterStatSources" && m.GetParameters().Length == 3);
+        object?[] arguments = [conn, null, null];
+        void Lookup() => sources.Invoke(null, arguments);
         Lookup();
         Assert.True(ItemModStats.SumsOnThisThread > before, "the first lookup of new items sums their mods");
         Lookup();   // The second settles what the first lookup's own result changed (the inactive items, the cache).
@@ -513,11 +517,13 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(0, ItemModStats.SumsOnThisThread - before);
 
         // What such a lookup allocates is exact and repeats to the byte, unlike its time, and every table copied or
-        // list built on its path shows in it: 103 576 bytes for this bare character on 2026-11-17 (103 728 in a Debug
-        // build), where one more copy of its small stat table is 872. The budget is that tight on purpose. A change
+        // list built on its path shows in it: 66 176 bytes for this bare character on 2026-11-18, where one more copy of
+        // its small stat table is 872 (the 103 576 measured on 2026-11-17 also held a copy of Game's method list per
+        // lookup, which grew with every method the module added). The budget is that tight on purpose. A change
         // that needs more says why in its pull request and raises it there; one that needs less lowers it; a new
         // .NET runtime that moves the figure with no code change is measured again.
-        const long Budget = 104_000;
+        // 66 752 for the same commit on .NET 10.0.15 / Windows, measured again on 2026-11-18.
+        const long Budget = 66_800;
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++) Lookup();
         long perLookup = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 50;
@@ -568,7 +574,10 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         var tree = (PassiveTree)Game("PassivesFor", conn)!;
         ushort node = Enumerable.Range(1, ushort.MaxValue - 1).Select(i => (ushort)i)
             .First(i => tree.Find(i) is { Stats.Count: > 0, IsAscendancy: false, IsStart: false, IsKeystone: false, IsMastery: false,
-                IsJewelSocket: false, IsProxy: false, IsExpansion: false });
+                IsJewelSocket: false, IsProxy: false, IsExpansion: false } candidate
+                // A conditional stat may correctly count for nothing here (the character is not dual wielding, say),
+                // so the node has to carry one without a condition for the snapshot to change.
+                && candidate.Stats.Any(s => StatConditions.PlainOf(Program.Stats.Name(s.Key) ?? "") is null));
         lock (conn.Monsters) conn.Passives.Add(node);
         RebuildPools();
         Step("passive allocated");
@@ -631,7 +640,7 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         lock (conn.Monsters)
         {
             object leech = Game("LeechOf", conn)!;
-            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true]);
+            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true, false]);
         }
         Step("leeching");
         lock (conn.Monsters)

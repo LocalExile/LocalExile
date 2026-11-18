@@ -55,20 +55,23 @@ public static partial class Game
         var owner = conn.Walk.Position(AreaTime(conn));
         var skills = SkillsFor(conn);
         var own = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Auras.Values
-            .Where(a => AuraCatalog.Shared(a.EffectId) && Dist(here, owner) <= AuraRadius.Of(a, conn.Pools.AuraAreaPct, skills, Stats))
+            .Where(a => SharedPlayerAura(a.EffectId) && Dist(here, owner) <= AuraRadius.Of(a, conn.Pools.AuraAreaPct, skills, Stats))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = conn.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(conn).Where(a => Dist(here, owner) <= a.Radius).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
                 .SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
-        var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);
+        var raw = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
+        WithTemporaryAuraStats(auras, 0, raw);
+        var values = raw.ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);
         if (MinionIntimidatingCryMovement(conn, minion.Monster) is > 0 and var cryMovement)
             values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
                 + cryMovement);
         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
             if (values.GetValueOrDefault($"base_immune_to_{ailment}") != 0) values[$"immune_to_{ailment}"] = 1;
         var bonus = AuraCatalog.Bonus(auras, 0, skills, Stats);
+        bonus = WithTemporaryAuraBonus(auras, 0, bonus);
         void Add(string name, decimal raw)
         {
             int value = (int)Math.Clamp(raw, int.MinValue, int.MaxValue);

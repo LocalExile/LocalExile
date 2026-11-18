@@ -203,6 +203,19 @@ local attack speed is already in its attack time (`SkillCatalog.Unarmed.OffHandA
 (`axe_` / `sword_` / ... `attack_speed_+%`) apply to both hands alike, as they do to the main hand's value (any equipped
 weapon of that type counts).
 
+**Which hand swings is the client's choice, from the action's sequence; no field carries it** (static RE, 3.29.3d,
+code addresses shared with 3.29.3c). The Melee action's hand selector `0x141b725a0` (vtable slot `+0x488`, the same
+rule as the projectile classes' in [hand selection](../re/projectiles/hand-selection.md) §3) asks availability
+`0x1419e7570` (slot `+0x480`): bit 0 when the main hand's weapon class fits the skill, bit 1 the off hand's
+(`0x141eeec70`, §10a: an empty hand is class 104, and a shield or quiver fits only a skill that lists it).
+Only the off hand → off hand; only the main hand or neither → main hand; both → main hand when
+`~(byte action+0x120 + low byte of the sequence at +0x11a) & 1` is 1, Barrage (`projectiles_barrage`) also comparing
+with the parity of `+0x448`. The sequence is the client's (C→S 0x24 / 0x190, echoed in 0x1ab), one more per new
+action, so held uses alternate. The server's `AttackHands` applies the same
+rule with stage 0 for a new use; skills with `skill_double_hits_when_dual_wielding` (Cleave, Dual Strike, Viper
+Strike, Riposte, Whirling Blades and their variants) swing both at once.
+Open: when `0x141b725a0` is called and what `+0x120` holds then (Multistrike repeats and channel stages may advance it).
+
 `CharacterStats`/`PassiveBonus` compute the final attack speed from the player's passives: generic
 `attack_speed_+%`, `melee_attack_speed_+%`, one-/two-handed melee, all one-handed, `axe_` / `sword_` / `mace_` /
 `claw_` / `dagger_` / `wand_` / `bow_` / `staff_attack_speed_+%`, shield and dual-wield stats. Dual wielding (and
@@ -1560,6 +1573,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   rate change: `0x141ef1573..0x141ef15aa` only checks base/count changes or an existing zero rate.
   Likewise, SkillStats' `0x14219afcb..0x14219b047` checks modifier/count/override changes, not recovery percentage.
   Therefore updated 3398 alone leaves an active native entry at its old positive rate.
+  A 0x2bc cooldown entry is taken as published (`total` and `remaining` both apply: an 11.365 s entry at rate 2.13 ran
+  5.32 s), and a zero rate on it stops the ring with the icon dark and no sweep, as the official client's frozen entry
+  (`3.00 / 3.00 / rate 0`) shows; the press prediction the client makes from 0x1ce keeps its own rate
+  (`1 + 113 %` = 2.13 here), so the server's entry has to follow it. Every repeated entry replays the bar's cooldown
+  animation, so one press must publish one entry.
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
@@ -2452,6 +2470,8 @@ passive or another item changes which weapons qualify. Because the client still 
 `GemDisabled` / `GemSkillInstanceDisabled` refuse it through `WeaponRestricted`: `SkillCatalog.WeaponRestrictions`
 (the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
 inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
+Varunastra also fits any listed one-hand melee class (here and for support restrictions); its ItemClasses row and
+native weapon type stay a sword ([20](20-damage.md) §2b). Support resolution still reads only the main hand.
 
 The rest of `FUN_141eee810` (Frida 2026-11-01, `scripts/re/frida/trace-skill-usable.js` and
 `trace-skill-usable-stats.js`), with ebp the main and esi the off hand's type, every test reading the skill's stats:
@@ -2821,6 +2841,17 @@ Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` 
 `BeThrown` (`0x141c11350`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
 followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
+A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
+With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
+Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
+throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
+A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
+It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
+that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
+One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
+(250) after the one before, at 10% more detonation speed per mine already in the sequence.
+Held cadence was 5/6 of the computed throw time for both kinds (0.39 s against 0.45 s, 0.246 s against 0.275 s).
 
 ## 10i. Warcry release: timing and release effects
 
@@ -3055,6 +3086,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
   consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
   crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
+  Hand-cast guards start that same buff (`SelfBuffSkills.cs`). Phase Run and Blood Rage send their rows
+  (`new_phase_run` 467 and `new_phase_run_damage` 468, not the older `phase_run` 65; `blood_rage` 11) as Flicker
+  Strike's buff is sent, with no additional-data list; whether their backends read one is not known (unchecked live).
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
   Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
@@ -3100,16 +3134,25 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
-  `ri_fire/player.epk`, the burning hands). Every 250 ms the player loses 90% of maximum life per second
-  (`base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute` 5400; nonlethal, it stops at 1) and every hostile
-  monster within its radius plus its size loses 70% of the player's maximum life per second
-  (`base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute` 4200) and carries `righteous_fire_aura` while
-  inside. It ends at death; casting it again does nothing. **The radius** is `active_skill_base_area_of_effect_radius`
+  `ri_fire/player.epk`, the burning hands). The self-burn is 90% of maximum Life plus 70% of maximum Energy Shield per
+  second (nonlethal, stopping at 1 Life); the enemy burn is 70% of maximum Life plus Energy Shield per second
+  (GrantedEffectStatSets 719, in percent per minute). A hostile monster within its radius plus its size carries
+  `righteous_fire_aura`. It ends at death; casting it again does nothing. RF has no
+  `spell_damage_modifiers_apply_to_skill_dot`, so the enemy burn takes increased area, fire, elemental and DoT damage but
+  not spell damage (as PoB); DoT multipliers add together, and linked supports' more factors multiply. Lifetap and
+  Inspiration count only for the part of a tick while their buff or charges are active. Nothing outgoing scales the self-burn.
+  **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+  Every player area site reads `Game.SkillAreaStats`: the player's stats hold `base_skill_area_of_effect_+%` and the
+  panel total `skill_area_of_effect_+%` that already includes it, so only the skill's own base form is kept, and the
+  type-scoped increases (`melee_skills_…`, `attack_…`, `warcry_skill_…`, `vaal_skills_…`, totem, trap and mine) are
+  added to the total for a skill of that type. A support's more area multiplies the modifier, so a radius grows by its
+  square root (Fist of War's 59% is ×1.26). Durations go through `SkillDurationModifiers.Seconds`, whose `Kinds`
+  (warcry, Vaal, buff, secondary) pick the type-scoped increases.
 - **Passive blind aura** (`PassiveBuffAuras.BlindTemplate`, §10e). `SaboteurBlind` (Devout of Solaris, Born in the
   Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
   distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an
@@ -4067,8 +4110,9 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   takes charges away: Replica Fragility, Replica Pacifism and Replica Powerlessness store `-1` ("Lose an
   Endurance Charge each second") and lose one each second, never below the minimum; every other use of
   the stat is positive. Skills: the Frenzy gem's hit gives a Frenzy Charge once per use (ActiveSkills `frenzy`;
-  without a Frenzy projectile row it hits as an area, and only its first target counts), Power Siphon's
-  killing hit a Power Charge, Flicker Strike's and Power Siphon's own on-hit chances count, and Enduring Cry grants an
+  it fires the weapon's projectile, and only the volley's first enemy hit counts), Flicker Strike's and Power
+  Siphon's own on-hit chances count (Power Siphon's ActiveSkills text names a kill grant no 3.29 stat carries;
+  its stats give 20% on hitting a rare or unique enemy), and Enduring Cry grants an
   Endurance Charge per 5 power (`endurance_charge_granted_per_X_monster_power_during_endurance_warcry`) of the hostile
   monsters within 60 cells grown by area (Path of Building's radius; power 1 normal, 2 magic, 10 rare, 20 unique) when
   its cast ends on the game clock, sped up by the player's and the gem's `warcry_speed_+%` and slowed by action speed
@@ -4120,16 +4164,15 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   set with `/set_stat` counts in the charge effects and limits too.
 - **Not modelled.** Held state and gain/expiry for the charge types without a reachable player source here: Spirit
   and Siphoning (their maxima come only from abyss-jewel and Elder/Shaper item counts the server does not model),
-  Blitz and Challenger (no 3.29 player source: their stats appear only in monster/mercenary skill stat sets), Brine
-  and the rest, beyond the three bounded maxima, the converted charges and the Blood Charges above;
-  skills and effects that consume or remove
-  charges (Discharge, Flicker Strike's cooldown bypass, Immortal Call, "lose all … when", expiry triggers); gains that
-  need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
-  utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
-  soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
-  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target or
-  context still has no consumer (weapon-family damage, mana cost, Elusive/cooldown/buff contexts, minion or golem rows,
-  Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  Blitz and Challenger (no 3.29 player source: their stats appear only in monster/mercenary skill stat sets), Brine,
+  Divine, Crab, Fanatic and Celestial, beyond the three bounded maxima, the converted charges and the Blood Charges
+  above; stealing charges (monsters hold none); expiry triggers that use a skill (The Eternal Apple's warcry);
+  gains that need an attack's own freeze or ignite, a taunt, a knockback, close range, totems, mines, Vaal souls,
+  allies or the Charged Traps/Mines supports; Malachai's Loop's self-shock; conditional maxima and minima (while
+  affected by an aura, on low life, devotion, item-set counts); per-charge stats whose target the server does not
+  calculate (damage over time multipliers, wand-only or one skill's damage, damage against low/full-life enemies,
+  attack leech, elemental avoidance, the Flicker Strike enchantment's damage). The
+  other gains, losses, triggers and maxima are `ChargeGains`, `ChargeTriggers`, `ChargeMaxima` and `ChargeScaling`.
 
 **Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
 lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges

@@ -7,6 +7,7 @@ public static partial class Game
 {
     // Inspiration charges cap at five (poedb: maximum_righteous_charges is the buff's own maximum).
     public const int InspirationMaxCharges = 5;
+    const string InspirationElementalMore = "elemental_damage_+%_final_per_righteous_charge";
 
     // BuffDefinitions rows: arcane_surge (895), righteous_charge (1378) and cruelty (1815).
     const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378, CrueltyBuffRow = 1815;
@@ -51,6 +52,23 @@ public static partial class Game
             ArcaneSurgeManaRegenPct);
     }
 
+    // Normal and Vaal admissions have already debited these resources. Vaal Life costs retain the Vaal
+    // resource clock for the buff deadline. RF observes the committed change on the player tick's area clock.
+    static void ApplyPaidSupportCostsLocked(ClientState conn, ushort skill, IReadOnlyDictionary<uint, int> own,
+        uint mana, int life, double? lifePaidAt = null)
+    {
+        if (mana == 0 && life == 0) return;
+        double now = AreaTime(conn);
+        if (life > 0)
+        {
+            double prior = conn.Lifetap.Until;
+            Lifetap.Spend(conn, own, life, lifePaidAt ?? now);
+            if (prior != conn.Lifetap.Until && conn.RighteousFire is { ConditionalSupportMore.Lifetap: not 0 } rf)
+                RecordRighteousFireSupportChangeLocked(conn, rf, now);
+        }
+        SupportManaSpentLocked(conn, skill, own, mana, now);
+    }
+
     /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called under the Monsters lock,
     /// after the skill's cost has been paid and before the cast starts.</summary>
     public static void SupportManaSpentLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
@@ -82,9 +100,10 @@ public static partial class Game
         // most, and refreshes the charges' ten-second lifetime.
         int gain = Get("gain_righteous_charge_on_mana_spent_%");
         if (gain <= 0 && (Get("support_inspiration_mana_cost_+%_final") != 0
-            || Get("elemental_damage_+%_final_per_righteous_charge") != 0)) gain = 100;
+            || Get(InspirationElementalMore) != 0)) gain = 100;
         if (gain > 0)
         {
+            ExpireInspirationLocked(conn.SupportGems, now);
             conn.SupportGems.InspirationSpent += cost;
             int lose = Get("lose_all_righteous_charges_on_mana_use_threshold");
             if (lose > 0 && conn.SupportGems.InspirationSpent >= lose)
@@ -106,6 +125,8 @@ public static partial class Game
                 }
                 if (conn.SupportGems.InspirationCharges != before) conn.SupportGems.PendingStats = true;
             }
+            if (conn.RighteousFire is { ConditionalSupportMore.PerInspiration: not 0 } rf)
+                RecordRighteousFireSupportChangeLocked(conn, rf, now);
         }
     }
 
@@ -119,7 +140,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            stats = WithTriggeredGuard(conn, stats);
+            stats = WithSelfBuffs(conn, WithTriggeredGuard(conn, stats));
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
             void Add(string name, long value)
@@ -168,10 +189,19 @@ public static partial class Game
         if (RandomRolls.Chance(player.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(conn, now);
     }
 
+    static void ExpireInspirationLocked(SupportGemState state, double now)
+    {
+        if (state.InspirationCharges > 0 && now >= state.InspirationUntil)
+        {
+            state.InspirationCharges = 0;
+            state.PendingStats = true;
+        }
+    }
+
     static List<byte[]> PresentationLocked(ClientState conn)
     {
         var state = conn.SupportGems;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var packets = new List<byte[]>();
         bool arcane = state.ArcaneSurgeActiveAt(now);
         if (state.PresentedArcaneSurge != 0 && (!arcane || state.ArcaneSurgeRefresh))
@@ -219,11 +249,7 @@ public static partial class Game
         }
 
         // Inspiration charges last ten seconds (longer with the support's quality) and all of them expire together.
-        if (state.InspirationCharges > 0 && now >= state.InspirationUntil)
-        {
-            state.InspirationCharges = 0;
-            state.PendingStats = true;
-        }
+        ExpireInspirationLocked(state, now);
         int charges = state.InspirationCharges;
         if (state.PresentedInspiration != 0 && charges == 0)
         {

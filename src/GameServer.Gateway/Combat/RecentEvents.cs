@@ -84,6 +84,20 @@ public sealed class RecentEvents
         if (critical) Record(StatConditions.Crit8Seconds, now, EightSecondWindow);
     }
 
+    // Elemental Overload's window is per skill (poewiki /wiki/Elemental_Overload): the skill that dealt the critical
+    // strike, and all its uses including proxies, gain the bonus for eight seconds. Keyed by the skill's effect id, so a
+    // totem's or a trap's critical strike opens the window for the player's skill of the same effect. Minions never call
+    // this. The activating critical strike does not benefit: its damage is built before the crit is recorded here.
+    readonly Dictionary<string, double> skillCrit = new(StringComparer.Ordinal);
+
+    public void RecordSkillCrit(string effect, double now, bool critical)
+    {
+        if (critical && effect.Length > 0) skillCrit[effect] = now;
+    }
+
+    public bool SkillCritRecently(string effect, double now) =>
+        effect.Length > 0 && skillCrit.TryGetValue(effect, out double at) && Recent(at, now, EightSecondWindow);
+
     double Window(string key) => windows.GetValueOrDefault(key, WindowSeconds);
     // Checking both equivalent forms keeps exact deadlines stable whether the caller spelled them as at + window or
     // now - window, without a tolerance that would keep a just-expired count or cache input alive.

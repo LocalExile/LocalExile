@@ -33,12 +33,10 @@ public static partial class Game
         int Own(string name) => Stats.Key(name) is uint key ? own?.GetValueOrDefault(key) ?? 0 : 0;
         var profile = weaponProfile();
         // Accuracy: the pools' unrounded basis carries the main weapon's local accuracy; swap in the off hand's. As
-        // AccuracyRating.Selected does, keep the pools' final rating when nothing differs from the main hand.
+        // the selected main hand does, keep the pools' final rating when no input differs from the main hand.
         long localDifference = (long)offLocal.GetValueOrDefault("local_accuracy_rating") - mainLocal.GetValueOrDefault("local_accuracy_rating");
-        long ownFlat = AccuracyRating.Flat(profile, n => Own(n), includeLocal: false), ownIncreased = AccuracyRating.Increased(profile, n => Own(n));
-        int rating = localDifference == 0 && ownFlat == 0 && ownIncreased == 0 ? pools.Accuracy
-            : AccuracyRating.Calculate(pools.AccuracyBase + localDifference + ownFlat, pools.AccuracyPct + ownIncreased);
-        rating = TimedBlind.Apply(rating, blindLess);
+        int rating = PlayerAccuracyModifiers.Selected(pools, profile, n => Own(n),
+            Player(PlayerAccuracyModifiers.BootsMore), localDifference, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
         int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),

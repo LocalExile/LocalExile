@@ -146,6 +146,16 @@ The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
 
+## 8. S→C 0x1f: add a ruleset
+
+`u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
+the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
+instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
+ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
+when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
+HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
+
 ## Open
 
 - The real player start position for each town (area data, or a real capture).
@@ -183,3 +193,21 @@ Shrine, MinimapIcon, InteractionAction (Render and Targetable are in the type bu
 
 See also: the shrine buff is a normal `0x01c1` on a BuffDefinitions row (the Shrines row's `Player_ShrineBuffsKey` template),
 and the click that claims it is C→S 0x24, answered with 0x01ab `ActionStarted`/`ActionEnded` like any walked-up object.
+
+## Strongbox objects (`Metadata/Chests/StrongBoxes/*`)
+
+A strongbox reads the Rhoa Nest's chest components plus StateMachine: Positioned, BaseEvents, Animated, Chest, Stats,
+ObjectMagicProperties, InteractionAction, MinimapIcon, StateMachine (`read` 9; Render and Targetable are client-only).
+`Strongbox.ot` defines the shared states `opened; started;` and, in its client block,
+`on_or_create_state_opened_1 = { HideMinimapIcon(); }`: a box created with `opened` = 1 has no minimap marker.
+Its `.ot` names no model (Animated `animated_object` is empty); the Chests row's `AOFiles` does, and the server
+writes it in Animated. The HardMode rows (`…HardMode`) have no `.ot`: their Chests `InheritsFrom` is `Strongbox`.
+`CoreLeagues` row 3 "Ambush" has no ExtraTerrainFeatures row, so the client's level generator never rolls it.
+Live (2026-11-17): a box created with ObjectMagicProperties flags `0x08` (identified) shows its name alone; without
+it the nameplate adds a red "Unidentified" line. A box's rarity and mods are written as a monster's (flags: rarity
+bits 0–2, `0x08`, `0x20` for the explicit list; then the list; live: a rare box shows its mod lines in yellow).
+Removed and created again with `opened` = 1 it shows opened with no minimap marker.
+A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
+UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
+and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
+Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
