@@ -3,8 +3,8 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 // The instance's monsters are its own (InstanceWorld): every connection in it reads and hits the same objects, under the
-// instance's lock, on the instance's clock. One connection's loops step them (the runner: AI, collisions, wake zone)
-// until the instance runs them itself; every client is shown them (SyncInstanceMonsters) under the same ids: a client
+// instance's lock, on the instance's clock. The area steps them once a frame (AI, collisions, wake zone) through its view:
+// the first connection of its frames still in it (AreaFrames.View), whose loops run in the area's frame; every client is shown them (SyncInstanceMonsters) under the same ids: a client
 // that comes later gets them where they are, with the life they have, and whoever leaves takes nothing with them.
 public static partial class Game
 {
@@ -19,12 +19,30 @@ public static partial class Game
     // players' minions.
     const uint SharedMonsterIds = 0x08000000;
 
-    // A connection outside any instance (a test's) runs its own monsters; in an instance, the world's runner does.
-    public static bool IsMonsterRunner(ClientState conn) =>
-        conn.Instance is not { } instance || instance.World.Runner is null || ReferenceEquals(instance.World.Runner, conn);
+    // Whether this connection's loops step the area's monsters now: outside any instance (a test's) its own; in an instance,
+    // the area's view (the first connection of its frames still here). The walks are built for the view that steps them
+    // (InstanceWorld.Runner): a new view rebuilds them with its collision. Without frames (before they start, in tests) the
+    // view the walks were last built for steps them.
+    public static bool IsMonsterRunner(ClientState conn)
+    {
+        if (conn.Instance is not { } instance) return true;
+        var world = instance.World;
+        if (conn.Frames.View is { } view)
+        {
+            if (!ReferenceEquals(world.Runner, view))
+                lock (world.Monsters)
+                    if (!ReferenceEquals(world.Runner, view)) StepForViewLocked(view, world);
+            return ReferenceEquals(view, conn);
+        }
+        return world.Runner is null || ReferenceEquals(world.Runner, conn);
+    }
 
-    static bool RunnerLive(InstanceWorld world) =>
-        world.Runner is { } r && !r.Closed && !r.LeavingArea && InGame.ContainsKey(r);
+    // Until the area's frames name a view, a connection that comes while no live one has the walks takes them.
+    static void FirstViewLocked(ClientState conn, InstanceWorld world)
+    {
+        if (conn.Frames.View is null && !(world.Runner is { } r && !r.Closed && !r.LeavingArea && InGame.ContainsKey(r)))
+            StepForViewLocked(conn, world);
+    }
 
     // At PopulateArea: this connection runs the monsters when nobody live does; true when the area's packs are still to
     // be placed (the first connection in, or one after a restart, from the instance's save).
@@ -33,7 +51,7 @@ public static partial class Game
         var world = conn.Instance.World;
         lock (world.Monsters)
         {
-            if (!RunnerLive(world)) BecomeRunnerLocked(remote, conn, world);
+            FirstViewLocked(conn, world);
             if (!world.Populated)
             {
                 world.Populated = true;
@@ -44,10 +62,11 @@ public static partial class Game
         return false;
     }
 
-    // Under the instance's lock: this connection's loops step the monsters from now on (their ailments and collisions).
-    // Their walks get its collision: the last runner's view of the bodies went with it.
-    static void BecomeRunnerLocked(string remote, ClientState conn, InstanceWorld world)
+    // Under the instance's lock: the area's view changed, and this connection's loops step the monsters from now on (their
+    // ailments and collisions). Their walks get its collision: the last view of the bodies went with it.
+    static void StepForViewLocked(ClientState conn, InstanceWorld world)
     {
+        string remote = conn.Wire.Remote;
         var old = world.Runner;
         world.Runner = conn;
         if (old is null || ReferenceEquals(old, conn)) return;
@@ -62,7 +81,7 @@ public static partial class Game
             (m.Aggro, m.Leg, m.LastTarget) = (false, null, null);
             count++;
         }
-        Console.WriteLine($"[gateway] {remote} monsters: {CharacterName(conn)} runs the instance's {count} now ({CharacterName(old)} left)");
+        Console.WriteLine($"[gateway] {remote} monsters: the area steps its {count} through {CharacterName(conn)} now ({CharacterName(old)} left)");
     }
 
     // Under the instance's lock, in this connection's AI pass: whether it acts for the monster now. A monster with no
@@ -703,7 +722,7 @@ public static partial class Game
         bool watch;
         lock (world.Monsters)
         {
-            if (!RunnerLive(world)) BecomeRunnerLocked(remote, conn, world);
+            FirstViewLocked(conn, world);
             watch = IsMonsterRunner(conn) && MonsterEmerge.Unwatched(conn);
         }
         // Monsters still in wait whose watcher left: the runner watches them now.

@@ -554,7 +554,7 @@ public static partial class Game
                     spawned = instance.World.Monsters.Values.Any(m => m.Variety?.Id == id
                         || id == KitavaActFive.First && KitavaActFive.IsActor(m.Variety));
                 if (spawned) continue;
-                var owner = instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : conn;
+                var owner = conn.Frames.View ?? (instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : conn);
                 var point = area == KitavaActFive.Area && id == KitavaActFive.First
                     ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
                     : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
