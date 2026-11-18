@@ -32,34 +32,66 @@ public static partial class Game
     public static IReadOnlyList<AuraCatalog.Aura> RestoreRememberedAuras(ClientState conn, IEnumerable<string> saved)
     {
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
-        var wanted = saved.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
-        conn.Stance = CharacterSaves.Remembered(CharacterName(conn)).Stance == "Sand" ? "Sand" : "Blood";
+        string[] savedList = [.. saved];
+        var wanted = savedList.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
+        var wantedStanceFamilies = savedList.Where(StanceCatalog.IsSource)
+            .Select(StanceCatalog.SourceFamily).ToHashSet(StringComparer.Ordinal);
+        var savedStance = CharacterSaves.Remembered(CharacterName(conn)).Stance;
+        conn.Stance = StanceCatalog.RestoredSelection(savedStance, savedList);
         wanted.ExceptWith(conn.Auras.Values.Select(a => AuraCatalog.Family(a.EffectId)));
         if (wanted.Count == 0) return [];
         var candidates = new List<AuraCatalog.Aura>();
+        var sourceFamilies = new HashSet<string>(StringComparer.Ordinal);
         foreach (var gem in GemSkillEffects(conn))
-            if (SkillsFor(conn).EffectId(gem.Effect) is { } effect && wanted.Contains(AuraCatalog.Family(effect)) && AuraCatalog.Supported(effect)
-                && !conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(effect))
-                && GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is null
-                && !OwnAuraSkillRestricted(conn, gem.Effect, gem.Id)
-                && SupportedReservation(conn, gem.Id) is { } reservation)
+        {
+            if (SkillsFor(conn).EffectId(gem.Effect) is not { } effect) continue;
+            bool stanceSource = StanceCatalog.IsSource(effect);
+            string family = stanceSource ? StanceCatalog.SourceFamily(effect) : AuraCatalog.Family(effect);
+            bool requested = stanceSource ? wantedStanceFamilies.Contains(family)
+                : wanted.Contains(family) && AuraCatalog.Supported(effect);
+            if (!requested) continue;
+            if (AuraCatalog.IsAspect(effect) && conn.Auras.Values.Any(a => AuraCatalog.IsAspect(a.EffectId))) continue;
+            bool owned = stanceSource
+                ? conn.Auras.Values.Any(a => StanceCatalog.SourceFamily(a.EffectId) == family)
+                : conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == family);
+            if (owned || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null
+                || OwnAuraSkillRestricted(conn, gem.Effect, gem.Id)
+                || SupportedReservationCost(conn, gem.Id) is not { } reservation) continue;
+            if (stanceSource && !sourceFamilies.Add(family)) continue;
             {
+                string selected = StanceCatalog.IsSource(effect)
+                    ? conn.Stance : effect;
                 var supported = SupportedSkill(conn, gem.Id);
                 var (supportEffect, affectsSelf) = AuraSupport(conn, gem.Id);
                 var context = ReservationContext(conn, gem.Id);
-                string? stance = AuraCatalog.IsStance(effect) ? conn.Stance : null;
-                candidates.Add(new(gem.Id, gem.Effect, effect, gem.Name, conn.NextBuff++, AuraCatalog.BuffRow(effect, stance),
-                    reservation.Flat, reservation.Percent, supported.Level, supported.Quality,
+                string? stance = StanceCatalog.IsSource(effect) || AuraCatalog.IsStance(effect) ? conn.Stance : null;
+                string effectId = StanceCatalog.IsSource(effect)
+                    ? StanceCatalog.RuntimeEffectId(effect, conn.Stance) : selected;
+                var candidate = new AuraCatalog.Aura(gem.Id, gem.Effect, effectId, gem.Name, conn.NextBuff++,
+                    AuraCatalog.BuffRow(effectId, stance),
+                    reservation.ManaFlat, reservation.ManaPercent,
+                    LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
+                    Level: supported.Level, Quality: supported.Quality,
                     SourceBuff: OwnAuraRestriction.IsAura(supported.Stats) ? conn.NextBuff++ : null,
+                    WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency));
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
+                    IsHerald: IsHeraldAura(effectId));
+                candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
+        }
+        var savedAdmissions = savedList.Select(id => StanceCatalog.IsSource(id)
+            ? StanceCatalog.RuntimeEffectId(id, conn.Stance) : id).ToArray();
+        var admitted = AuraCatalog.Restore(savedAdmissions, candidates, conn.Pools, InTown(conn));
         var restored = new List<AuraCatalog.Aura>();
-        foreach (var aura in AuraCatalog.Restore(saved, candidates, conn.Pools, InTown(conn)))
+        foreach (var aura in admitted)
         {
             conn.Auras[aura.SkillId] = aura;
             if (!ReservationBudgetFits(conn))
+            {
                 conn.Auras.Remove(aura.SkillId);
+                EndReservationRuntimeLocked(conn, aura);
+            }
             else restored.Add(aura);
         }
         if (restored.Count > 0)
@@ -67,9 +99,15 @@ public static partial class Game
             conn.AuraStatsDirty = true;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
-            conn.PlayerMana = Math.Min(conn.PlayerMana,
-                (uint)UnreservedMana(conn));
-            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+            // Restoration is a bulk admission: suspend over-capacity auras while retaining their intent.
+            RepriceOwnAuras(conn, out bool poolsRebuilt);
+            if (poolsRebuilt)
+            {
+                conn.ApplyMovementSpeed();
+            }
+            restored = [.. restored.Where(aura => conn.Auras.ContainsKey(aura.SkillId))];
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved auras: {string.Join(", ", restored.Select(a => a.EffectId))}");
         }
         return restored;
@@ -593,6 +631,8 @@ public static partial class Game
             await GameEvents.RunTick(conn, seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncPhasing(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -1376,9 +1416,7 @@ public static partial class Game
             messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
                 InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));
         }
-        for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
-            messages.Add(($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points)",
-                AtlasSlots(conn, preset)));
+        messages.AddRange(AtlasPresetMessages(conn, "player"));
         if (ExtraPlayerMessages is { } extra)
             foreach (var (log, message) in extra(conn))
                 messages.Add((log, message));

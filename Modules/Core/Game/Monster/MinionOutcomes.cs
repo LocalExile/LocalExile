@@ -324,6 +324,7 @@ public static partial class Game
             { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
+        await SendSentinelOwnership(remote, stream, ciphers, conn, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
         await SynchronizeAccountLevel(conn);
         lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);

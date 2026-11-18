@@ -150,11 +150,8 @@ Handler: bit2/3/4 → `0x14215c540(…, 0/1/2)`, which **creates slot 0/1/2** at
 the computed active index differs from `+0xc2f0`, it switches and notifies (`0x14019a550(+0xb1f0, old, new)`). UI code
 `0x14078a490` reads `slots[+0xc2f0]` without a null check (crash at `0x14078adff` when they are missing). The three
 slots are the **Atlas** passive tree's three presets (their check `0x141ef3860` logs "atlas passive skills allocated
-but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). The server sends one message per
-preset (`flags` 0x04/0x08/0x10), with `u28` = that preset's allocated count and `u2a` = the point budget; the list is
-the preset's PassiveSkillGraphIds. Allocation is **C→S 0x3e** (7 bytes: u8 preset, u32 BE node) and refund **0x3f**
-(8 bytes: u8 preset, u32 BE node, u8 flag). The server saves the three lists and the point budget per character; map
-completion does not award points yet (dev: `/atlas_points <n>`).
+but only allowed"; the character's tree is S→C 0x33, [15](15-progression.md) §2). What the fields mean, the active
+preset and the Atlas tree's C→S messages are in [15](15-progression.md) §2.
 
 ## 5. What the UI did not need (so far)
 
@@ -167,6 +164,5 @@ thrown and caught during the UI build; its backtrace went through `0x1421d2ebe` 
 ## Open
 
 - Items are in [13](13-items.md): the start kit goes into these 0xc0 messages, and S→C 0xbf changes an inventory later.
-- What the 0x3d u16 fields and node list mean.
 - Manager 1 (`+0xca10`) holds NPC shop and trade inventories ([17](17-npcs.md) §5), manager 2 (`+0xcb90`) the guild
   stash's; the personal stash's tabs are inventories of manager 0 on row 26 ([18](18-stash.md) §4).

@@ -19,7 +19,7 @@ public static class AuraCatalog
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
-    public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action)
+    public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action, byte? receivedDisplayState = null)
     {
         // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
         uint[]? behaviourData = aura.EffectId switch
@@ -35,6 +35,7 @@ public static class AuraCatalog
         if (!CurseCatalog.Hex(aura.EffectId))
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
+                displayState: receivedDisplayState,
                 // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
                 // from the first two list entries without checking its length (0x1417a9410).
                 list: behaviourData);

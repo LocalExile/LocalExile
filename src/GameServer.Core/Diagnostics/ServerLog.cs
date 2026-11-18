@@ -86,7 +86,8 @@ public sealed class TimestampedWriter(TextWriter inner, Func<DateTime>? clock = 
 /// Categories: move (movement messages with QPC stamps), latency (per-phase timings), ticks (every 50th 0x1b tick),
 /// ai (monster chase moves), packets (every message in both directions, hex), projectiles (each projectile release,
 /// flight visual, area object and end), sync (the server's position estimates every 50 ms, QPC stamped, for
-/// scripts/re/sync_report.py). The older Game_MOVE_TRACE=1 and Game_LATENCY_METRICS=1 still turn on move and latency.
+/// scripts/re/sync_report.py), combat (each kill explosion and its hits), skills (each gem skill a stat rebuild
+/// resolves). The older Game_MOVE_TRACE=1 and Game_LATENCY_METRICS=1 still turn on move and latency.
 /// </summary>
 public static class ServerTrace
 {
@@ -99,6 +100,8 @@ public static class ServerTrace
     public static readonly bool Packets = Enabled("packets");
     public static readonly bool Sync = Enabled("sync");
     public static readonly bool Projectiles = Enabled("projectiles");
+    public static readonly bool Combat = Enabled("combat");
+    public static readonly bool Skills = Enabled("skills");
 
     public static bool Enabled(string category) => On.Contains("all") || On.Contains(category);
 

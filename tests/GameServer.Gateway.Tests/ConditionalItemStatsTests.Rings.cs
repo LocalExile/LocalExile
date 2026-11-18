@@ -6,6 +6,9 @@ public partial class ConditionalItemStatsTests
 
     void Ring_conditions_rebuild_the_actual_stat_cache_on_same_item_slot_moves()
     {
+        // An event no production commit records stays unmodelled: its "haven't recently" form must not hold forever.
+        Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of("attack_speed_+%_if_havent_cast_dash_recently",
+            new StatConditions.Subject(Recent: new HashSet<string>(), KnownRecent: Game.TrackedItemRecentEvents)));
         string path = Path.Combine(Path.GetTempPath(), $"localexile-ring-conditions-{Guid.NewGuid():N}.db");
         Saves.Open(path);
         string character = "RingConditions" + Guid.NewGuid().ToString("N");

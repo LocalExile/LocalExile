@@ -47,11 +47,11 @@ public sealed class MapMods
 
     public int MonsterLife => Get("map_monsters_life_+%");
     public int MonsterDamage => Get("map_monsters_damage_+%");
-    public int ExtraRarePacks => Math.Max(0, SumWhere(id => id.Contains("additional_rare_pack", StringComparison.OrdinalIgnoreCase)));
-    public int ExtraMagicPacks => Math.Max(0, SumWhere(id => id.Contains("additional_magic_pack", StringComparison.OrdinalIgnoreCase)) + PacksDropCards);
-    public int ExtraNormalPacks => Math.Max(0, SumWhere(id => id.Contains("additional_normal_pack", StringComparison.OrdinalIgnoreCase)));
-    /// <summary>Scarab stats of the form map_X_*_packs_drop_cards*: extra packs whose monsters drop cards.</summary>
-    public int PacksDropCards => SumWhere(id => id.Contains("packs_drop_cards", StringComparison.OrdinalIgnoreCase));
+    public int ExtraRarePacks => Math.Max(0, Get("map_contains_x_additional_rare_packs"));
+    public int ExtraMagicPacks => Math.Max(0, Get("map_contains_x_additional_magic_packs") + PacksDropCards);
+    public int ExtraNormalPacks => Math.Max(0, Get("map_contains_x_additional_normal_packs"));
+    /// <summary>Extra magic packs whose monsters drop cards (the Divination Scarabs').</summary>
+    public int PacksDropCards => Get("map_X_magic_packs_drop_cards_from_area");
     public int CardDropChance => SumWhere(id => id.Contains("divination_card", StringComparison.OrdinalIgnoreCase)
         && id.Contains("chance", StringComparison.OrdinalIgnoreCase));
     public int ScarabDropChance => SumWhere(id => id.Contains("scarab", StringComparison.OrdinalIgnoreCase)
