@@ -44,6 +44,13 @@ public static partial class Game
             {
                 outputs.RebuildPools = false;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                // Smaller pools hold no more than they can; a larger one is not refilled.
+                lock (conn.Monsters)
+                {
+                    conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+                    conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+                }
+                conn.ApplyMovementSpeed();
             }
             EnsureConditionalItemPools(conn);
             EnsureAntiquarianPools(conn);
@@ -108,7 +115,7 @@ public static partial class Game
             lock (conn.Monsters)
                 catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
                     name => Stats.Key(name) is uint key
-                        ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : stats.GetValueOrDefault(key)
+                        ? stats.GetValueOrDefault(key)
                         : 0);
             foreach (var (k, v) in catPhase) AddTo(stats, k, v);
         });
@@ -267,12 +274,15 @@ public static partial class Game
         return steps;
     }
 
+    /// <summary>No /set_stat replacements any more (they are stat buffs that add): for what still takes a set of them.</summary>
+    static readonly Dictionary<uint, int> NoOverrides = [];
+
     static readonly string[] AlwaysHitRows = ["main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
         "main_hand_chance_to_hit_evasive_monsters_%", "off_hand_chance_to_hit_evasive_monsters_%"];
 
     static Dictionary<uint, int> RawOverrides(ClientState conn)
     {
-        lock (conn.Monsters) return new(conn.PlayerStats);
+        lock (conn.Monsters) return new();
     }
 
     // The tail's inputs as a step reads them: the stats before it and the state it reads.

@@ -12,8 +12,7 @@ static partial class Game
         if (GameEvents.Stats.Any)
             foreach (var (name, amount) in GameEvents.RunStats(conn))
                 if (name == ExpandedInventoryStat) value += amount;
-        lock (conn.Monsters)
-            return conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement > 0 : value > 0;
+        return value > 0;
     }
 
     internal static int ExpandedInventoryMode(bool granted, bool occupied) => granted ? 1 : occupied ? 2 : 0;

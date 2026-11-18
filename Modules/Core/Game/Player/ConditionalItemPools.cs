@@ -137,8 +137,8 @@ public static partial class Game
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
-            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
-        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, NoOverrides, activeItems);
+        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, NoOverrides, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
 
@@ -161,8 +161,6 @@ public static partial class Game
         out LifeReservationConditionSnapshot snapshot)
     {
         int? itemPercentOverride = null;
-        if (Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int set))
-            itemPercentOverride = set;
         int itemPercent = itemPercentOverride ?? ItemReservationPercent(conn, activeItems);
         int maximumLife = (int)Math.Min(int.MaxValue, conn.Pools.Life);
         int efficiency = conn.Pools.LifeReservationEfficiencyPct;
@@ -176,9 +174,7 @@ public static partial class Game
     {
         var active = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
-        return Stats.Key(LifeReservation.ItemPercentStat) is uint key
-            && conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-            : WornItemSum(conn, active).GetValueOrDefault(LifeReservation.ItemPercentStat);
+        return WornItemSum(conn, active).GetValueOrDefault(LifeReservation.ItemPercentStat);
     }
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
@@ -227,8 +223,7 @@ public static partial class Game
             var elusive = ElusivePanelState(conn);
             bool sameElusive = state.AppliedElusive == elusive;
             int onslaughtEffect = Stats.Key("onslaught_effect_+%") is uint effectKey
-                ? conn.PlayerStats.TryGetValue(effectKey, out int replacement) ? replacement
-                    : current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
+                ? current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
             bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
             if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
             state.Applied = current;

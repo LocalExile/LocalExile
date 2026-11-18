@@ -65,7 +65,7 @@ public static partial class Game
         {
             state.Clear(); state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.Source = identity;
         }
-        int Input(string n) => Stats.Key(n) is uint key ? conn.PlayerStats.GetValueOrDefault(key, Get(n)) : 0;
+        int Input(string n) => Stats.Key(n) is uint key ? Get(n) : 0;
         state.Grant = new(Input(ElusiveOnCritical), Input(ElusiveOnKill),
             Input("elusive_effect_+%") + Input("elusive_effect_on_self_+%") + Input("buff_effect_on_self_+%"),
             Input("elusive_effect_on_self_+%_per_power_charge"), Input("lose_a_power_charge_when_you_gain_elusive_%_chance"),

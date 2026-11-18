@@ -1067,9 +1067,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public ushort WardBuff, AdrenalineBuff;
     /// <summary>The passive self buffs published on the player: BuffDefinitions row → buff instance (PassiveBuffAuras).</summary>
     public readonly Dictionary<ushort, ushort> PassiveBuffs = [];
-    // The stats the server has set on the player after creating it (/set_stat, /set_speed): what the client computes
-    // with, so the server can follow it (attack time).
-    public readonly Dictionary<uint, int> PlayerStats = [];
     // Transient Rage belongs to this connection until its destination ticket takes ownership; guarded by Monsters.
     public readonly RageState Rage = new();
     public bool RageRetired;
@@ -1256,9 +1253,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         get
         {
             int itemPercent = QualifiedItemLifeReservationPercent;
-            if (Program.Stats.Key(LifeReservation.ItemPercentStat) is uint itemPercentKey
-                && PlayerStats.TryGetValue(itemPercentKey, out int actualItemPercent))
-                itemPercent = actualItemPercent;
             int additionalSkillReserved = (int)Math.Clamp(
                 (long)global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
                 + PlacedSkills.Reserved(Pools, Placed.All.Values, true),

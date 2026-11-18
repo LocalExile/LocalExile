@@ -102,7 +102,7 @@ public static partial class Game
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
         // A stat /set_stat set keeps its value here too (as in CharacterPlayerStats), so a per-charge stat can be tried out.
         Dictionary<uint, int> dev;
-        lock (conn.Monsters) dev = new(conn.PlayerStats);
+        lock (conn.Monsters) dev = new();
         int Get(string name) => Stats.Key(name) is uint k ? dev.TryGetValue(k, out int set) ? set : stats.GetValueOrDefault(k) : 0;
         var session = ChargesOf(conn);
         var limits = new Dictionary<ChargeType, Charges.Limits>();

@@ -36,8 +36,7 @@ public static partial class Game
         && conn.Reservations.Avian != ReservationState.AvianPhase.None;
 
     static int AspectInput(ClientState conn, IReadOnlyDictionary<uint, int> raw, string name) =>
-        Stats.Key(name) is uint key ? conn.PlayerStats.TryGetValue(key, out int value) ? value
-            : raw.GetValueOrDefault(key) : 0;
+        Stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
 
     static void EndAvianAspectLocked(ClientState conn, AuraCatalog.Aura root)
     {

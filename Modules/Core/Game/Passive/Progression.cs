@@ -178,7 +178,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            int Get(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0;
+            int Get(string name) => Stats.Key(name) is uint k ? sources.GetValueOrDefault(k) : 0;
             FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
             conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
             conn.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
@@ -220,7 +220,7 @@ public static partial class Game
         var selectedDefinition = selection is null ? null : Ascendancies.Find(selection);
         var c = SkillsFor(conn).ClassFor(conn.ClassRow);
         Dictionary<uint, int> dev;
-        lock (conn.Monsters) dev = new(conn.PlayerStats);
+        lock (conn.Monsters) dev = new();
         var items = ItemsOf(conn);
         var allocated = nodes.ToHashSet();
         // Jewels in the passive tree count like worn items (their global mods, requirements and inactive state): the
@@ -864,8 +864,7 @@ public static partial class Game
         if (Stats.Key(AttributeRequirementsStat) is not uint key) return 0;
         lock (conn.Monsters)
         {
-            if (conn.PlayerStats.TryGetValue(key, out int set)) return set;
-            var tree = PassivesFor(conn);
+                        var tree = PassivesFor(conn);
             if (AttributeRequirementSources.TryGetValue(conn, out var last)
                 && ReferenceEquals(tree, last.Tree)
                 && conn.Passives.SequenceEqual(last.Ordinary) && conn.MainAscendancy.Allocated.SequenceEqual(last.Ascendancy)
@@ -1017,9 +1016,9 @@ public static partial class Game
         SuspendRestrictedOwnAuras(conn, new(sources));
         var weapons = WeaponProfileFor(conn);
         var activeWeapon = WeaponProfileFor(conn, activeSet: true);
-        var bonus = PassiveBonus(WithDevDefenceInputs(conn, sources), weapons, snapshot.Attributes);
+        var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
         int EquipmentInput(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int value) ? value : sources.GetValueOrDefault(key) : 0;
+            ? sources.GetValueOrDefault(key) : 0;
         var gear = EquippedBaseDefences(conn, EquipmentInput);
         var slots = EquippedArmourDefences(conn, EquipmentInput).ToArray();
         var shieldDefence = slots.FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
@@ -1043,12 +1042,12 @@ public static partial class Game
         lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
         int CatInput(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
+            ? sources.GetValueOrDefault(key) : 0;
         var cat = CatAspectPhaseStatsLocked(conn, bonus.AuraEffectPct, CatInput);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
         Dictionary<uint, int> devStats;
-        lock (conn.Monsters) devStats = new(conn.PlayerStats);
+        lock (conn.Monsters) devStats = new();
         // Raw pool-source overrides replace their whole coefficient, including explicit zero. Final native
         // attributes remain presentation overrides; group terms consume the production-calculated attributes.
         int PoolSource(string name, int sourced) => Stats.Key(name) is uint key && devStats.TryGetValue(key, out int value)
@@ -1287,20 +1286,6 @@ public static partial class Game
     // damage, the base resistances (base_resist_all_elements_% applies to fire, cold and lightning), the shield-specific
     // block nodes when a shield is equipped, critical strike chance and multiplier, and reservation efficiency and aura
     // effect.
-    // A /set_stat value for a block stat, flat armour or Glancing Blows replaces that stat's raw passive and equipment sum,
-    // as in the client's stats (CharacterPlayerStats). Only these: the other raw inputs have their own replacement in
-    // BuildPoolsFor, or a consumer that adds the dev value on top of the pools (attack speed).
-    public static bool IsDevDefenceInput(string? name) => name is not null
-        && (name.Contains("block", StringComparison.Ordinal) || name is "base_physical_damage_reduction_rating" or "keystone_glancing_blows");
-
-    static Dictionary<uint, int> WithDevDefenceInputs(ClientState conn, Dictionary<uint, int> sources)
-    {
-        Dictionary<uint, int>? merged = null;
-        lock (conn.Monsters)
-            foreach (var (key, value) in conn.PlayerStats)
-                if (IsDevDefenceInput(Stats.Name(key))) (merged ??= new(sources))[key] = value;
-        return merged ?? sources;
-    }
 
     public static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProfile weapons, AttributeModifiers attributes)
     {

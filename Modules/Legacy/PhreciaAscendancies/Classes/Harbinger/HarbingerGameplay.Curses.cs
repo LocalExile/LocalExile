@@ -24,7 +24,7 @@ internal sealed partial class HarbingerGameplay
 
     static void WithSelfCurse(ClientState conn, State state, Dictionary<uint, int> raw)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, raw.GetValueOrDefault(k)) : 0;
+        int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var self = state.Curses.SelfStats(Now(conn), conn.PlayerLife > 0, Get);
         if (Stats.Key("temporal_chains_action_speed_+%_final") is uint slow) raw[slow] = raw.GetValueOrDefault(slow) + self.Slow;
         if (Stats.Key("buff_time_passed_+%_other_than_temporal_chains") is uint other) raw[other] = raw.GetValueOrDefault(other) + self.OtherEffects;
@@ -33,7 +33,7 @@ internal sealed partial class HarbingerGameplay
     {
         if (conn.PlayerLife == 0) { state.Curses.Clear(); state.CurseCast = null; }
         var raw = CharacterStatSources(conn).Stats;
-        int Player(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, raw.GetValueOrDefault(k)) : 0;
+        int Player(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var living = conn.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0)
             .Select(p => Target(p.Key, p.Value)).ToArray();
         HarbingerTemporalChains.Source Source(ushort skill, bool self)

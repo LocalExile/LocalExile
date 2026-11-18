@@ -33,7 +33,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             int Get(string name) => Stats.Key(name) is uint key
-                ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
+                ? sources.GetValueOrDefault(key) : 0;
             var session = FortificationOf(conn);
             if (conn.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
             var value = session.Observe(conn.Clock.Elapsed.TotalSeconds, Get);
@@ -97,8 +97,6 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> sources)
     {
         var recovery = new Dictionary<uint, int>(sources);
-        lock (conn.Monsters)
-            foreach (var (key, value) in conn.PlayerStats) recovery[key] = value;
         AddItemUtilityFlaskRawStats(new PlainStatMap(recovery),
             conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         ConfigureFortificationRecovery(conn, maximumLife,
@@ -110,7 +108,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             FortificationOf(conn).ConfigureRecovery(conn.Clock.Elapsed.TotalSeconds, maximumLife,
-                Stats.Key(FortificationSession.Regeneration) is uint key && conn.PlayerStats.ContainsKey(key),
+                false,
                 PanelStats.LifeRegenerationMultiplier(get));
         }
     }

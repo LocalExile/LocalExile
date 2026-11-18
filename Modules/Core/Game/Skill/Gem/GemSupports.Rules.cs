@@ -764,13 +764,13 @@ public static partial class Game
             sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
             var curseSources = CharacterStatSources(conn).Stats;
             if (effectId == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
-                && conn.PlayerStats.GetValueOrDefault(free, curseSources.GetValueOrDefault(free)) != 0) return new(0, 0, 0, 0);
+                && curseSources.GetValueOrDefault(free) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
         var sources = CharacterStatSources(conn).Stats;
         int Own(string name) => GolemStat(gem.Stats, name);
         int Get(string name) => Own(name) + (Stats.Key(name) is uint key
-            ? conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key)) : 0);
+            ? sources.GetValueOrDefault(key) : 0);
         int manaFlat = reservation.ManaFlat, manaPercent = reservation.ManaPercent;
         int lifeFlat = reservation.LifeFlat, lifePercent = reservation.LifePercent;
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));

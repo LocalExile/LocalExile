@@ -41,6 +41,6 @@ public static partial class Game
         var scope = GemSources.Value;
         var sources = scope is not null && ReferenceEquals(scope.Conn, conn)
             ? scope.Sources ??= CharacterStatSources(conn).Stats : CharacterStatSources(conn).Stats;
-        lock (conn.Monsters) return conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key));
+        lock (conn.Monsters) return sources.GetValueOrDefault(key);
     }
 }

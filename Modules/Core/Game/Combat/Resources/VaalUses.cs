@@ -156,7 +156,7 @@ public static partial class Game
         && ReferenceEquals(world.SourceOwner, AscendancyPolicies.SourceOwner(conn))
         && conn.OwnedCombatWorker.Current(CombatLifetime!, world.SourceOwner, world, paid.WorkGeneration)
         && (!paid.RageConverted || Stats.Key("vaal_attack_rage_cost_instead_of_souls_per_use") is uint conversion
-            && conn.PlayerStats.GetValueOrDefault(conversion, CharacterStatSources(conn).Stats.GetValueOrDefault(conversion)) != 0);
+            && CharacterStatSources(conn).Stats.GetValueOrDefault(conversion) != 0);
 
     // All native action acknowledgements share the same accepted-use guard at their send gate.
     public static bool SkillAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)

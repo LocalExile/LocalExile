@@ -269,8 +269,7 @@ public static partial class Game
         {
             if (conn.StatSourcesCache is { } qualified)
                 PublishQualifiedItemLifeReservationPercent(conn, qualified.Key.QualifiedItemLifeReservationPercent);
-            int itemPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int valueOverride)
-                ? valueOverride : conn.QualifiedItemLifeReservationPercent;
+            int itemPercent = conn.QualifiedItemLifeReservationPercent;
             var value = LifeReservation.Of(conn.Pools, itemPercent,
                 conn.Auras.Values, AdditionalLifeReservation(conn));
             conn.PlayerLifeCap = value.Unreserved;
@@ -1561,8 +1560,6 @@ public static partial class Game
         if (prepared is null)
         {
             foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
-            lock (conn.Monsters)
-                foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
             prepared = baseStats;
         }
         var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? prepared.GetValueOrDefault(key) : 0);

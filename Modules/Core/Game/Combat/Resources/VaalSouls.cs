@@ -15,8 +15,7 @@ public static partial class Game
         if (Stats.Key(name) is not uint key) return 0;
         lock (conn.Monsters)
         {
-            if (conn.PlayerStats.TryGetValue(key, out int dev)) return dev;
-            // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
+                        // The selector describes this skill, not the caster. Only an explicit developer replacement is global.
             if (name == VaalSoulCost.Aura) return own.GetValueOrDefault(key);
             return (int)Math.Clamp((long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key), int.MinValue, int.MaxValue);
         }

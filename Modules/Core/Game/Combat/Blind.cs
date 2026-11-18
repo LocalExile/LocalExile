@@ -30,8 +30,7 @@ public static partial class Game
     static bool BlindImmune(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (Stats.Key("cannot_be_blinded") is not uint key) return false;
-        return conn.PlayerStats.TryGetValue(key, out int value) ? value != 0
-            : (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
+        return (player ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key) != 0;
     }
     static (int Less, double Until) PlayerBlindValue(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {

@@ -55,10 +55,6 @@ public static partial class Game
     static (bool Melee, bool Kill) RampageSources(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {
         uint? meleeKey = Stats.Key(RampageSession.Source), killKey = Stats.Key(RampageSession.KillSource);
-        bool Has(uint? key) => key is uint k && conn.PlayerStats.ContainsKey(k);
-        if (Has(meleeKey) || Has(killKey))
-            return (meleeKey is uint m && conn.PlayerStats.GetValueOrDefault(m) != 0,
-                killKey is uint k && conn.PlayerStats.GetValueOrDefault(k) != 0);
         var stats = player ?? CharacterStatSources(conn).Stats;
         return (meleeKey is uint m2 && stats.GetValueOrDefault(m2) != 0,
             killKey is uint k2 && stats.GetValueOrDefault(k2) != 0);
@@ -109,7 +105,7 @@ public static partial class Game
         if (crossed.Length == 0) return;
         var sources = CharacterStatSources(conn).Stats;
         int Get(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int dev) ? dev : sources.GetValueOrDefault(key) : 0;
+            ? sources.GetValueOrDefault(key) : 0;
         int heal = Get("recover_%_maximum_life_on_rampage_threshold");
         if (heal > 0 && conn.PlayerLife > 0)
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,

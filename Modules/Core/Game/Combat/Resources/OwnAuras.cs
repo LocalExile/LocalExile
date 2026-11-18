@@ -22,7 +22,7 @@ public static partial class Game
             var sources = CharacterStatSources(conn).Stats;
             var saved = CharacterSaves.Remembered(CharacterName(conn));
             return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
-                new(conn.PlayerStats), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
+                new(), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
                 [.. saved.Auras], saved.Stance, saved.PetrifiedBlood, conn.Stance,
                 conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
                 PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
@@ -63,7 +63,7 @@ public static partial class Game
             sources ??= CharacterStatSources(conn).Stats;
             AddItemUtilityFlaskRawStats(new PlainStatMap(sources),
                 conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
-            return OwnAuraRestriction.Value(sources, conn.PlayerStats);
+            return OwnAuraRestriction.Value(sources, NoOverrides);
         }
     }
 
@@ -83,7 +83,7 @@ public static partial class Game
         string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
         lock (conn.Monsters)
             return SublimeRestrictions.Any(rule => rule.Family != family &&
-                conn.PlayerStats.GetValueOrDefault(rule.Key, sources.GetValueOrDefault(rule.Key)) != 0);
+                sources.GetValueOrDefault(rule.Key) != 0);
     }
 
     // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
@@ -92,8 +92,7 @@ public static partial class Game
     {
         if (Stats.Key("your_spells_are_disabled") is not uint key) return false;
         lock (conn.Monsters)
-            return (conn.PlayerStats.TryGetValue(key, out int set) ? set
-                : (sources ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key)) != 0;
+            return ((sources ?? CharacterStatSources(conn).Stats).GetValueOrDefault(key)) != 0;
     }
 
     // What the client counts as a spell for that restriction: the casting_spell flag SkillCatalog publishes.
@@ -122,7 +121,7 @@ public static partial class Game
     sealed class ReservationInputCache { public bool Building; public ReservationInputs? Inputs; }
     static readonly RuleTable<ClientState, ReservationInputCache> ReservationInputCaches = new();
     static ReservationInputs CaptureReservationInputs(ClientState conn) => new(conn.StatSourcesCache, conn.Pools,
-        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values], new(conn.PlayerStats));
+        [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values], new());
 
     // Pool readers only check immutable inputs. Skill pricing, source qualification and persistence run on change,
     // while the normal player tick reconciles deadlines. This also handles an equipment edit before publication.
@@ -188,7 +187,7 @@ public static partial class Game
         poolsRebuilt = false;
         if (conn.Auras.Count == 0) return false;
         var input = new AuraPriceInputs(conn.StatSourcesCache, conn.Pools, conn.Stance,
-            [.. conn.Auras.Values], CharacterStatSources(conn).Stats, new(conn.PlayerStats));
+            [.. conn.Auras.Values], CharacterStatSources(conn).Stats, new());
         var cache = AuraPrices.GetOrCreateValue(conn);
         if (cache.Last is { } old && ReferenceEquals(old.Qualified, input.Qualified)
             && old.Pools == input.Pools && old.Stance == input.Stance
@@ -401,8 +400,7 @@ public static partial class Game
         {
             var rawStats = CharacterStatSources(conn).Stats;
             Func<string, int> raw = name => Stats.Key(name) is uint key
-                ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-                    : rawStats.GetValueOrDefault(key)
+                ? rawStats.GetValueOrDefault(key)
                 : 0;
             phaseValues = CatAspectPhaseValues(state.Cat,
                 CatAspectPhaseStatsLocked(conn, conn.Pools.AuraEffectPct, raw));

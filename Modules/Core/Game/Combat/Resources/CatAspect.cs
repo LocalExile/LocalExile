@@ -102,8 +102,7 @@ public static partial class Game
         int Skill(string name) => Stats.Key(name) is uint key
             ? rows.FirstOrDefault(row => row.Key == key).Value : 0;
         int Raw(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-                : rawSources.GetValueOrDefault(key)
+            ? rawSources.GetValueOrDefault(key)
             : 0;
         int durationPct = Skill("skill_effect_duration_+%") + Raw("skill_effect_duration_+%");
         double Scale(int ms) => Math.Max(0, ms) / 1000.0
@@ -317,8 +316,7 @@ public static partial class Game
     static int CatQualifiedEquipmentValue(ClientState conn, StatSourcesResult? sources, string stat)
     {
         if (Stats.Key(stat) is not uint key) return 0;
-        if (conn.PlayerStats.TryGetValue(key, out int replacement)) return replacement;
-        sources ??= conn.StatSourcesCache;
+                sources ??= conn.StatSourcesCache;
         if (sources is null) return 0;
         var active = sources.Worn.Where(w => !sources.Inactive.Contains(w.Id)).Select(w => w.Item);
         return ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(stat);
@@ -329,7 +327,7 @@ public static partial class Game
     {
         var session = ChargesOf(conn);
         int Get(string name) => Stats.Key(name) is uint key
-            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : rawSources.GetValueOrDefault(key)
+            ? rawSources.GetValueOrDefault(key)
             : 0;
         session.Observe(Get);
         var grants = types.Select(type =>

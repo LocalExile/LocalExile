@@ -341,7 +341,7 @@ public static partial class Game
         lock (conn.Monsters)
             catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
                 name => Stats.Key(name) is uint key
-                    ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : extra.GetValueOrDefault(key)
+                    ? extra.GetValueOrDefault(key)
                     : 0);
         foreach (var (k, v) in catPhase)
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
@@ -936,8 +936,7 @@ public static partial class Game
     // else the character's attribute.
     public static int RequirementAttribute(ClientState conn, string attribute, int value)
     {
-        lock (conn.Monsters)
-            return Stats.Key($"virtual_{attribute}_for_requirements") is uint key && conn.PlayerStats.TryGetValue(key, out int set) ? set : value;
+        return value;
     }
 
     // Actor restrictions use the actual caster's current sources, never a skill overlay (which may replace a key).

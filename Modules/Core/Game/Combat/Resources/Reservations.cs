@@ -26,7 +26,7 @@ public static partial class Game
         var player = CharacterStatSources(conn).Stats;
         int Own(string n) => GolemStat(gem.Stats, n);
         int Get(string n) => Own(n) + (Stats.Key(n) is uint key
-            ? conn.PlayerStats.GetValueOrDefault(key, player.GetValueOrDefault(key)) : 0);
+            ? player.GetValueOrDefault(key) : 0);
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
         bool life = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
             || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0

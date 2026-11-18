@@ -47,7 +47,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
         && (effect == "TemporalChains" || Catalog(conn).ForNodes(conn.MainAscendancy.Allocated).Any(s => SkillsFor(conn).EffectId(s.SummonEffect) == effect));
     static HarbingerSession.Frame Frame(ClientState conn, IReadOnlyDictionary<uint, int> raw)
     {
-        int Get(string name) => Stats.Key(name) is uint k ? conn.PlayerStats.GetValueOrDefault(k, raw.GetValueOrDefault(k)) : 0;
+        int Get(string name) => Stats.Key(name) is uint k ? raw.GetValueOrDefault(k) : 0;
         var receipt = conn.PaidChannel;
         return new(conn.ProjectileEpoch, conn.PlayerLife > 0, conn.Paused, conn.Closed || conn.LeavingArea,
             !InTown(conn), conn.MainAscendancy.Allocated.ToArray(), HarbingerRecipientClock.RecipientRate(1, Get),

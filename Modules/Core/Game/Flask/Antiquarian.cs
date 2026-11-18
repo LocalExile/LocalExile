@@ -14,7 +14,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             int Get(string name) => Stats.Key(name) is uint key
-                ? conn.PlayerStats.TryGetValue(key, out int set) ? set : sources.GetValueOrDefault(key) : 0;
+                ? sources.GetValueOrDefault(key) : 0;
             double now = conn.Clock.Elapsed.TotalSeconds;
             conn.Antiquarian.Observe(now, Get(AntiquarianEffects.AdrenalineSource) > 0,
                 Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);

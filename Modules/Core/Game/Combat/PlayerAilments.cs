@@ -227,8 +227,7 @@ public static partial class Game
     public static int ActionSpeedReduction(ClientState conn)
     {
         if (Stats.Key("action_speed_-%") is not uint key) return 0;
-        lock (conn.Monsters) if (conn.PlayerStats.TryGetValue(key, out int dev)) return dev;
-        return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
+                return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 
     public static double PlayerActionFactor(ClientState conn)
@@ -242,7 +241,7 @@ public static partial class Game
         return Math.Max(.01, PlayerActionFactorFrom(conn, name =>
         {
             if (Stats.Key(name) is not uint key) return 0;
-            long value = conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key));
+            long value = sources.GetValueOrDefault(key);
             if (leadership is { } active)
                 foreach (var (stat, amount) in active.Stats)
                     if (stat == key) value += amount;

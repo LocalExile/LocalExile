@@ -53,6 +53,8 @@ public static partial class Game
         frame.Outputs.RebuildPools = true;
         graph.MarkRule((int)PlayerStatStep.Pools);
         graph.MarkRule((int)PlayerStatStep.Sources);
+        // The client's panel and skills follow them, once for the frame.
+        if (frame.ByFrame) lock (frame) frame.Publish ??= "stat buffs changed";
     }
 
     // The step being run and its frame, for StatsChangeIn.
