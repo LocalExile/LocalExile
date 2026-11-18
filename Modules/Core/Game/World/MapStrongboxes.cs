@@ -246,6 +246,7 @@ public static class MapStrongboxes
 
     static async Task Rewards(ClientState conn, Box box)
     {
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(conn)) return;
         int level = Math.Clamp(MapRunOf(conn)!.Area.Level, 1, 100);
         var drops = DropsFor(conn);
         // The replica's ordinary container budget; the official server's quantity distribution is not in client tables.

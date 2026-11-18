@@ -290,6 +290,25 @@ public static class AreaPopulation
     /// packs of that rarity (a Trial of Ascendancy's rooms: the Lower Prison trial's plaque platform).</param>
     /// <param name="scatterable">Where a scattered pack may have its centre, besides the walk map (not among a trial's
     /// traps); null: anywhere.</param>
+    // Keep the earlier CLR signatures for independently compiled modules and mods.
+    public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        PackScale scale, bool unassignedAtArrival, IReadOnlyList<RoomPoint>? roomPacks,
+        Func<int, int, bool>? scatterable,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards,
+        Func<int, bool>? guardSpawnable) =>
+        Plan(area, w, h, walkable, arrival, transitions, points, seed, spawnable, notes, scale, unassignedAtArrival,
+            roomPacks, scatterable, shrineGuards, guardSpawnable, null, true);
+
+    public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
+        PackScale scale, bool unassignedAtArrival, IReadOnlyList<RoomPoint>? roomPacks,
+        Func<int, int, bool>? scatterable,
+        IReadOnlyList<(string Shrine, ShrineGuards.Rule Rule, IReadOnlyList<PackCatalog.Pack> Packs, int X, int Y)>? shrineGuards,
+        Func<int, bool>? guardSpawnable, IReadOnlyList<AdditionalPacks>? additionalPacks) =>
+        Plan(area, w, h, walkable, arrival, transitions, points, seed, spawnable, notes, scale, unassignedAtArrival,
+            roomPacks, scatterable, shrineGuards, guardSpawnable, additionalPacks, true);
+
     public static List<Spawn> Plan(PackCatalog.AreaPacks area, int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<RoomPoint> points, int seed, Func<int, bool> spawnable, List<string> notes,
         PackScale scale = default, bool unassignedAtArrival = false, IReadOnlyList<RoomPoint>? roomPacks = null,
