@@ -316,7 +316,9 @@ public partial class Program
             conn.CloseReason = $"the client's stream no longer decodes ({conn.UnframedRun} reads in a row framed nothing): closed, so the client can connect again";
         if (MoveTrace)
             foreach (var (id, bytes) in messages)
-                if (id is 0x0024 or 0x0025 or 0x0190 or 0x0191)
+                // 0x18e click, 0x192 the held button's newest target, 0x195 release: a lockstep client's whole move
+                // input, beside the predictive 0x24/0x25/0x190/0x191.
+                if (id is 0x0024 or 0x0025 or 0x018e or 0x0190 or 0x0191 or 0x0192 or 0x0195)
                     Console.WriteLine($"[move-trace] qpc={readAt} recv 0x{id:x4} {Convert.ToHexString(bytes)}");
         foreach (var bytes in inbox.Post(messages, unknown, readAt))
         {
@@ -351,6 +353,9 @@ public partial class Program
                 finally { inbox.Handled(); }
                 handling = null;
                 conn.Performance.Elapsed(LatencyPhase.Handler, start);
+                foreach (var (id, _) in batch.Messages)
+                    if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
+                        conn.Performance.AreaLoaded(remote, conn.Layout.Id, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
                 var took = Stopwatch.GetElapsedTime(start);
                 if (took > ClientInbox.SlowAfter)
@@ -442,7 +447,15 @@ public partial class Program
             var hold = Stopwatch.GetElapsedTime(heldAt, held);
             gate.Release();
             performance.Elapsed(LatencyPhase.SendHold, heldAt);
-            if (sentId is ushort id) performance.Send(id, held - heldAt);
+            if (sentId is ushort id)
+            {
+                performance.Send(id, held - heldAt, bytes.Length);
+                // Why a full player stat packet went out (its log label names the cause), per interval.
+                if (ConnectionPerformance.LagProbe && id == 0x01b3)
+                    performance.Count(log is not null && log.IndexOf('(') is >= 0 and var open
+                        ? "stats sent " + log[open..(log.IndexOfAny([':', ')'], open) is >= 0 and var close ? close : log.Length)].TrimEnd() + ")"
+                        : "stats sent (no cause in its label)");
+            }
             else if (ConnectionPerformance.LagProbe) performance.EmptySend(SendCaller(), held - heldAt);
             // Temporary: which send holds the gate while input waits behind it.
             if (ConnectionPerformance.LagProbe && hold > TimeSpan.FromMilliseconds(50))

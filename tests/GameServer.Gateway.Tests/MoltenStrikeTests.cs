@@ -332,6 +332,8 @@ public sealed class MoltenStrikeTests
                 conn.Walk.Teleport(4, 0, walkAt);
                 conn.Walk.Order(20, 0, walkAt);
             }
+            uint blindChance = Program.Stats.Key("global_chance_to_blind_on_hit_%")!.Value;
+            conn.PlayerStats[blindChance] = 100;
             conn.ActionCount = 11;
             await Game.ExecuteMoltenStrikeSwing("test", writer.GetStream(),
                 new GameServer.Core.Protocol.Login.ConnectionCiphers(new byte[64], false),
@@ -340,6 +342,8 @@ public sealed class MoltenStrikeTests
                 repeat: 0, totalRepeats: 0, attackSeconds: 0.645, repeatDelay: 0, ruthless: 1);
             Assert.Equal(4, session.Runtime.Projectiles.Count);
             Assert.True(mob.Life < lifeBeforeReplaced);
+            Assert.Single(Game.ResourceEffectsOf(conn).TargetBlind(100, mob).Capture(conn.Clock.Elapsed.TotalSeconds));
+            conn.PlayerStats.Remove(blindChance);
 
             // Phase 2a: Molten Strike of the Zenith (AltX) 5th-attack counter (0..4) + +5 balls + +600% more damage.
             session.Runtime.Clear();

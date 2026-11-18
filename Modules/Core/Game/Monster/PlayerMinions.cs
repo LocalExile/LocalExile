@@ -61,12 +61,19 @@ public static partial class Game
         {
             if (!Current()) return;
             await tick(remote, stream, ciphers, conn, now);
+            if (!Current()) return;
         }
+        await TickBeastCompanions(remote, stream, ciphers, conn, now, rules);
+        if (!Current()) return;
         lock (conn.Monsters) MinionUtilityTick(conn, now);
         await GolemsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await SummonsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await ReservationSkillsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await PlacedSkillsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;
@@ -265,7 +272,7 @@ public static partial class Game
             foreach (var (id, m) in conn.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false);
+                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {

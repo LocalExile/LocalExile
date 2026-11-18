@@ -84,6 +84,9 @@ public static class ChargeGains
         new("chance_to_gain_frenzy_charge_on_killing_frozen_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         // On hit
         new("add_frenzy_charge_on_skill_hit_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit),
+        new("add_power_charge_on_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+        new("add_power_charge_on_skill_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+        new("gain_frenzy_charge_on_hit_while_bleeding", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
         new("gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new("chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         // On critical strike
@@ -224,7 +227,7 @@ public static class ChargeGains
     /// charges.</summary>
     public sealed record Periodic(string Stat, ChargeType? Type, PeriodicCondition Condition, Func<int, (double Period, int Count)> Rate);
 
-    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving, NotLostRecently }
+    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving, NoMineDetonatedRecently, NotLostRecently }
 
     /// <summary>
     /// The "gain a … Charge every …" stats the server can time (game clock, alive, outside towns): each second, every
@@ -249,6 +252,8 @@ public static class ChargeGains
         // "Gain a Power Charge every Second if you haven't lost Power Charges Recently" (Willclash).
         new("gain_power_charge_per_second_if_have_not_lost_power_charge_recently", ChargeType.Power,
             PeriodicCondition.NotLostRecently, v => (1, v)),
+        new("lose_power_charge_each_second_if_not_detonated_mines_recently", ChargeType.Power,
+            PeriodicCondition.NoMineDetonatedRecently, _ => (1, -1)),
     ];
 
     /// <summary>
@@ -267,8 +272,11 @@ public static class ChargeGains
         /// <summary>Advances every timer by <paramref name="seconds"/> of game time and returns the charges that came due.
         /// A timer whose stat is absent or whose condition does not hold is reset. <paramref name="lostRecently"/>: whether
         /// a charge of the type was lost in the last 4 seconds (null: never).</summary>
+        public List<Gain> Advance(double seconds, Func<string, int> get, bool hitRecently, bool moving, Random rng) =>
+            Advance(seconds, get, hitRecently, moving, rng, mineDetonatedRecently: false);
+
         public List<Gain> Advance(double seconds, Func<string, int> get, bool hitRecently, bool moving, Random rng,
-            Func<ChargeType, bool>? lostRecently = null)
+            bool mineDetonatedRecently, Func<ChargeType, bool>? lostRecently = null)
         {
             var gains = new List<Gain>();
             for (int i = 0; i < Periodics.Count; i++)
@@ -281,6 +289,7 @@ public static class ChargeGains
                     PeriodicCondition.HitRecently => hitRecently,
                     PeriodicCondition.Stationary => !moving,
                     PeriodicCondition.Moving => moving,
+                    PeriodicCondition.NoMineDetonatedRecently => !mineDetonatedRecently,
                     PeriodicCondition.NotLostRecently => p.Type is { } lost && lostRecently?.Invoke(lost) != true,
                     _ => true,
                 };

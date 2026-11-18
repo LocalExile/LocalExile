@@ -21,5 +21,9 @@ public static class ChargeScaling
     /// <summary>"Count as having maximum number of … Charges" (Ralakesh's Impatience): the per-charge effects and the
     /// counts shown use the maximum.</summary>
     public static bool CountsAsMaximum(ChargeType type, Func<string, int> get) =>
-        get($"count_as_having_max_{Charges.Name(type)}_charges") != 0 || get("count_as_having_max_endurance_frenzy_power_charges") != 0;
+        get(CountAsMaximumStats[(int)type]) != 0 || get("count_as_having_max_endurance_frenzy_power_charges") != 0;
+
+    // Built once: the condition flags ask on every item-stat lookup (performance.md, "Hot paths").
+    static readonly string[] CountAsMaximumStats = [.. Enum.GetValues<ChargeType>()
+        .OrderBy(t => (int)t).Select(t => $"count_as_having_max_{Charges.Name(t)}_charges")];
 }
