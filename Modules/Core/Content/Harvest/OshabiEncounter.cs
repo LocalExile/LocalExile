@@ -152,8 +152,12 @@ public static class OshabiEncounter
             return null;
         }
         var random = new Random(unchecked((int)(conn.Seed ^ 0x4f534842u)));
-        List<int> colours = [Orange, Blue, Green, Red];
+        // The fight opens in orange (Sacred): only current_colour 1 reaches the emerge effects (soultree.ot
+        // on_state_current_colour_1 with oshabi_emerge 1 calls DoEmergeEffects, oshabiboss.ot's the same with emerge 1);
+        // 2-4 play only SwapTo*. [G] The other three come in a random order.
+        List<int> colours = [Blue, Green, Red];
         random.Shuffle(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(colours));
+        colours.Insert(0, Orange);
         var roomObjects = conn.Layout.Level?.RoomObjects ?? [];
         var state = new Saved
         {
