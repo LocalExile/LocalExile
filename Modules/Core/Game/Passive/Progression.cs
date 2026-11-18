@@ -199,6 +199,7 @@ public static partial class Game
     {
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
+        long probe = ConnectionPerformance.ProbeStart();   // Game_TRACE=lag: [latency-lookup]
         IReadOnlyDictionary<ushort, ushort> masteries;
         Dictionary<ushort, string> tattoos;
         Dictionary<ushort, ushort> tattooKeystones;
@@ -289,8 +290,10 @@ public static partial class Game
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
         {
             PublishQualifiedItemLifeReservationPercent(conn, cached.Key.QualifiedItemLifeReservationPercent);
+            conn.Performance.LookupHit(probe);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         }
+        string missed = probe == 0 ? "" : conn.StatSourcesCache is { } previous ? previous.Key.Difference(sourcesKey) : "first build";
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
         var tree = PassivesFor(conn);
@@ -823,6 +826,7 @@ public static partial class Game
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
+        conn.Performance.LookupMiss(probe, missed);
         return (sources, attributes, inactive, wornItems);
     }
 
@@ -908,6 +912,29 @@ public static partial class Game
             && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active))
             && (Amounts?.Count ?? 0) == (o.Amounts?.Count ?? 0)
             && (Amounts is null || o.Amounts is not null && Amounts.ReadSame(o.Amounts));
+
+        /// <summary>The first input in which <paramref name="o"/> differs, in Matches' order, for the lag probe's
+        /// [latency-lookup] line: why a lookup built its result again.</summary>
+        public string Difference(StatSourcesKey o) =>
+            ClassRow != o.ClassRow || God != o.God || Level != o.Level ? "class or level"
+            : TattooRevision != o.TattooRevision ? "tattoos"
+            : !ReferenceEquals(Catalog, o.Catalog) ? "item catalogue"
+            : !ReferenceEquals(Masteries, o.Masteries) ? "masteries"
+            : !Nodes.AsSpan().SequenceEqual(o.Nodes) ? "passives"
+            : !ClusterPassives.AsSpan().SequenceEqual(o.ClusterPassives) ? "cluster passives"
+            : Worn.Length != o.Worn.Length || !Worn.Zip(o.Worn).All(p => p.First.Id == p.Second.Id && p.First.X == p.Second.X
+                && (ReferenceEquals(p.First.Item, p.Second.Item) || Catalog is not null && SameSkillItem(p.First.Item, p.Second.Item, Catalog))) ? "worn items"
+            : Dev.Count != o.Dev.Count || !Dev.All(kv => o.Dev.TryGetValue(kv.Key, out int v) && v == kv.Value) ? "dev stats"
+            : !(Before ?? new HashSet<uint>()).SetEquals(o.Before ?? new HashSet<uint>()) ? "inactive items"
+            : !RunItems.AsSpan().SequenceEqual(o.RunItems) ? "exempt items"
+            : !Auras.SetEquals(o.Auras) ? "auras"
+            : !Recent.SetEquals(o.Recent) ? "recent event " + (o.Recent.Except(Recent).FirstOrDefault() is { } began ? "+" + began : "-" + Recent.Except(o.Recent).FirstOrDefault())
+            : Strength != o.Strength || Dexterity != o.Dexterity || Intelligence != o.Intelligence ? "attributes"
+            : Life != o.Life || Mana != o.Mana || EnergyShield != o.EnergyShield ? "pools"
+            : PoisonStacks != o.PoisonStacks ? "poison stacks"
+            : Flags is not null && o.Flags is not null && o.Flags.FirstOrDefault(p => !Flags.TryGetValue(p.Key, out bool was) || was != p.Value) is { Key: { } flag } ? "flag " + flag
+            : Amounts is not null && o.Amounts is not null && !Amounts.ReadSame(o.Amounts) ? "recent amounts"
+            : "other";
     }
 
     /// <summary>The named amounts of one stat-sources build (kills and mana spent recently, living minions and totems),

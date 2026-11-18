@@ -390,6 +390,7 @@ public static partial class Game
         if (await FollowMonsterToSwing(conn, m, weapon, Current, Until, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
         {
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} cancelled before the swing");
+            conn.Performance.Count("use cancelled before the swing");
             LockstepAttackOver(conn, action);
             return;
         }
@@ -709,6 +710,7 @@ public static partial class Game
                 Walked, stop, arrive, atOnce, now, precision, lockstep) is not { } swing)
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x} cancelled before the swing");
+                conn.Performance.Count("use cancelled before the swing");
                 LockstepAttackOver(conn, action);
                 return;
             }
