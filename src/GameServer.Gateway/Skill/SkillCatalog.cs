@@ -477,9 +477,11 @@ public sealed class SkillCatalog
         _tables?.EffectIds.GetValueOrDefault(effectRow);
 
     /// <summary>Whether a GrantedEffects row is a support, from its actual row (not its translated name).</summary>
-    public bool IsSupportEffect(int effectRow) => _supportEffects.Value.Contains(effectRow);
+    public bool IsSupportEffect(int effectRow) => _supportEffects.Contains(effectRow);
 
-    private readonly Lazy<HashSet<int>> _supportEffects = new(() =>
+    private readonly HashSet<int> _supportEffects = LoadSupportEffects();
+
+    static HashSet<int> LoadSupportEffects()
     {
         var result = new HashSet<int>();
         if (ClientTables.TableOrNull("GrantedEffects") is not { } d) return result;
@@ -491,15 +493,17 @@ public sealed class SkillCatalog
             row++;
         }
         return result;
-    });
+    }
 
     /// <summary>
     /// Whether the effect's ActiveSkills row is manually cast. A trigger-only row has no bar use; callers must
     /// not turn one into a manually cast skill merely because it has an active-skill record.
     /// </summary>
-    public bool IsManuallyCasted(int effectRow) => _manuallyCastEffects.Value.Contains(effectRow);
+    public bool IsManuallyCasted(int effectRow) => _manuallyCastEffects.Contains(effectRow);
 
-    private readonly Lazy<HashSet<int>> _manuallyCastEffects = new(() =>
+    private readonly HashSet<int> _manuallyCastEffects = LoadManuallyCastEffects();
+
+    static HashSet<int> LoadManuallyCastEffects()
     {
         var result = new HashSet<int>();
         if (ClientTables.TableOrNull("GrantedEffects") is not { } effects
@@ -512,7 +516,7 @@ public sealed class SkillCatalog
             row++;
         }
         return result;
-    });
+    }
 
     /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
     public (int Effect, int Level)? EffectsPerLevel(int row) =>

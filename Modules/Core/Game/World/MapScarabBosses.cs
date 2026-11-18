@@ -5,8 +5,16 @@ using static Game;
 /// <summary>Atlas boss guards of the generated shrine rooms; ordinary instance population owns their lifetime.</summary>
 public static class MapScarabBosses
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Pool = LoadPool();
+    }
+
     public const string Terrors = "Shrines.Terrors", PackId = "Scarab/ShrineAtlasBoss";
-    static readonly Lazy<IReadOnlyList<MonsterCatalog.Variety>> Pool = new(() =>
+    static IReadOnlyList<MonsterCatalog.Variety> Pool = default!;
+
+    static IReadOnlyList<MonsterCatalog.Variety> LoadPool()
     {
         var result = new List<MonsterCatalog.Variety>();
         foreach (string id in MapBossFights.Current.AtlasBosses.Distinct())
@@ -19,8 +27,8 @@ public static class MapScarabBosses
             if (standalone is not null && result.All(v => v.Row != standalone.Row)) result.Add(standalone);
         }
         return result;
-    });
-    public static IReadOnlyList<MonsterCatalog.Variety> Bosses => Pool.Value;
+    }
+    public static IReadOnlyList<MonsterCatalog.Variety> Bosses => Pool;
     public static bool IsBoss(MonsterCatalog.Variety variety) => Bosses.Any(v => v.Row == variety.Row);
 
     public static void Opening(MapOpening request)

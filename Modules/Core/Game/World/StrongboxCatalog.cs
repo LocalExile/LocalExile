@@ -4,12 +4,19 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Strongbox types, selection weights, level limits and native object data from the client tables.</summary>
 public static class StrongboxCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Data = LoadData();
+    }
+
     public sealed record Definition(int Row, string Id, string Name, int Weight, int HardModeWeight, int MinLevel, int MaxLevel,
         bool RareType, string? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
         IReadOnlyList<ItemMod> Mods);
 
-    static readonly Lazy<IReadOnlyList<Definition>> Data = new(Load);
-    public static IReadOnlyList<Definition> All => Data.Value;
+    static IReadOnlyList<Definition> Data = default!;
+    static IReadOnlyList<Definition> LoadData() => Load();
+    public static IReadOnlyList<Definition> All => Data;
     public static Definition? Find(string id) => All.FirstOrDefault(r => r.Id == id);
 
     static IReadOnlyList<Definition> Load()

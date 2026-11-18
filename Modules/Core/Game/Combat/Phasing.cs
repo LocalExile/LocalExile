@@ -7,23 +7,32 @@ public static partial class Game
 {
     // BuffDefinitions' "phasing_buff" row: the icon and "You have Phasing, allowing you to move through enemies."
     // (raider's row 337 is the same icon without Removable; the general buff is the one the client shows).
-    static readonly Lazy<ushort> PhasingBuffRow = new(() =>
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadPhasingData()
+    {
+        PhasingBuffRow = LoadPhasingBuffRow();
+        PhasingVisualRow = LoadPhasingVisualRow();
+    }
+
+    static ushort PhasingBuffRow, PhasingVisualRow;
+
+    static ushort LoadPhasingBuffRow()
     {
         if (!ClientTables.Has("BuffDefinitions")) return (ushort)336;
         foreach (var row in ClientTables.Table("BuffDefinitions"))
             if (row.Text("Id") == "phasing_buff") return (ushort)row.Index;
         return (ushort)336;
-    });
+    }
 
     // The buff's own BuffVisuals row 340 has only the icon; raider_phasing_buff carries the client's phase.epk
     // (the blue model effect), so the buff is added with that visual override.
-    static readonly Lazy<ushort> PhasingVisualRow = new(() =>
+    static ushort LoadPhasingVisualRow()
     {
         if (!ClientTables.Has("BuffVisuals")) return (ushort)813;
         foreach (var row in ClientTables.Table("BuffVisuals"))
             if (row.Text("Id") == "raider_phasing_buff") return (ushort)row.Index;
         return (ushort)813;
-    });
+    }
 
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
     /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). The player tick publishes the stat the
@@ -61,18 +70,18 @@ public static partial class Game
                 {
                     conn.PhasingBuff = conn.NextBuff++;
                     conn.PhasingSentUntil = until;
-                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow.Value, PlayerId,
+                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow, PlayerId,
                         u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
-                        visual: PhasingVisualRow.Value);
-                    Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} for {(timed ? $"{until - now:0.###} s" : "the flask effect")} (row {PhasingBuffRow.Value})");
+                        visual: PhasingVisualRow);
+                    Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} for {(timed ? $"{until - now:0.###} s" : "the flask effect")} (row {PhasingBuffRow})");
                     statBytes = PhaseStat(conn.IsPhasing);
                 }
                 else if (TimedChanged(conn, timed, until))
                 {
                     conn.PhasingSentUntil = until;
-                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow.Value, PlayerId,
+                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.PhasingBuff, PhasingBuffRow, PlayerId,
                         u68: timed ? BitConverter.SingleToUInt32Bits((float)(until - now)) : null,
-                        visual: PhasingVisualRow.Value);
+                        visual: PhasingVisualRow);
                 }
             }
             else if (conn.PhasingBuff != 0)

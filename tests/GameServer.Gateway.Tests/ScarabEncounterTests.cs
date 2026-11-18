@@ -365,6 +365,9 @@ public sealed class ScarabEncounterTests
             var reader = await accepting;
             var conn = new ClientState(layout, 1, seed)
             {
+                // A predictive client: the test leaves and re-enters on one connection, whose world output (a lockstep
+                // client's) would still hold the shrines published at the first entry.
+                LockstepClient = false,
                 Character = "ScarabMap" + Guid.NewGuid().ToString("N"), Instance = instance,
                 PlayerLife = 1000, PlayerMana = 1000, PlayerSent = true, Pools = new(70, 1000, 1000, 1000, 0),
                 LeagueModule = new(new GameServer.Core.Accounts.League("scarab-test", "Standard", false, false),

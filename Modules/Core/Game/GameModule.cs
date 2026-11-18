@@ -68,6 +68,9 @@ public sealed class GameModule : IModule, IDisposable
         Rules.SummonData = new();
         Rules.RampageData = new();
         Rules.Supports = new();
+        Rules.LoadMinionSupportsData();
+        Rules.LoadWornGrantedSkillsData();
+        Rules.LoadPhasingData();
         Rules.LoadModuleWorldData();
         Rules.LoadMonsterModsData();
         Rules.LoadPassiveGrantedSkillsRulesData();
@@ -98,6 +101,11 @@ public sealed class GameModule : IModule, IDisposable
         global::MapSulphite.LoadMapSulphiteData();
         Rules.LoadQuestEngineData();
         global::TourRecords.LoadTourRecordsData();
+        global::MapEssenceCatalog.LoadGameData();
+        global::MapScarabBosses.LoadGameData();
+        global::MapScarabContent.LoadGameData();
+        global::MapScarabPacks.LoadGameData();
+        global::StrongboxCatalog.LoadGameData();
     }
 
     /// <inheritdoc/>

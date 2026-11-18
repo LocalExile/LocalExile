@@ -28,6 +28,7 @@ public static partial class Game
                 HardModeEssences = new(HardModeItems, HardModeRolls);
                 HardModeCrafting = new(HardModeItems, HardModeRolls);
                 RuthlessGrantedSkills = NewGrantedSkills(ruthless: true);
+                RuthlessWornGrantedSkillCatalog = new(HardModeSkills, HardModeItems.Mods, ruthless: true);
                 VendorPrices.For(HardModeItems, hardMode: true);
                 foreach (bool supports in new[] { true, false })
                     GemVendorStock.For(HardModeItems, Npcs, HardModeSkills, hardMode: true, supportGems: supports);

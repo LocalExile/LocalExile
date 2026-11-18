@@ -4,9 +4,16 @@ using GameServer.Modding;
 /// <summary>Named scarab content requests, distinct from the map's ordinary numeric modifiers.</summary>
 public static class MapScarabContent
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Fragments = LoadFragments();
+    }
+
     public const string StandardShrines = "Shrines.Standard", Sulphite = "Sulphite";
 
-    static readonly Lazy<MapRunCatalog> Fragments = new(() => MapRunCatalog.Load("data"));
+    static MapRunCatalog Fragments = default!;
+    static MapRunCatalog LoadFragments() => MapRunCatalog.Load("data");
     static readonly Regex Family = new(@"^Scarab(?<family>[A-Za-z]+?)\d", RegexOptions.Compiled);
     static readonly IReadOnlyDictionary<string, string> Encounters = new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -51,7 +58,7 @@ public static class MapScarabContent
             if (slot.IsMap || Program.Items.ByHash(slot.TypeHash) is not { } type) continue;
             var family = Family.Match(type.Id.Split('/')[^1]);
             if (!family.Success) continue;
-            var mods = Fragments.Value.Of([slot], Program.Items.Mods);
+            var mods = Fragments.Of([slot], Program.Items.Mods);
             if (Encounter(family.Groups["family"].Value, mods) is not { } content) continue;
             string values = string.Join(", ", mods.Stats.OrderBy(s => s.Key, StringComparer.Ordinal)
                 .Select(s => $"{s.Key}={s.Value}"));

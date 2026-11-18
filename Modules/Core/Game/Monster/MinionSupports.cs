@@ -15,14 +15,17 @@ public static partial class Game
     }
 
     static readonly RuleTable<GolemState.Golem, Dictionary<ushort, int>> MinionRuthlessCounts = new();
-    static readonly Lazy<IReadOnlyDictionary<string, GemSupports.Effect>> MinionSupportRules = new(LoadMinionSupportRules);
+    /// <summary>Fills this type's game data at startup, after the supports (the world loader, before the Gateway listens).</summary>
+    public static void LoadMinionSupportsData() => MinionSupportRules = LoadMinionSupportRules();
+
+    static IReadOnlyDictionary<string, GemSupports.Effect> MinionSupportRules = default!;
     static IReadOnlyDictionary<string, GemSupports.Effect> LoadMinionSupportRules() =>
         Supports.Effects.Where(e => e.Id is "SupportMultistrike" or "SupportMeleeSplash" or "SupportRuthless")
             .ToDictionary(e => e.Id);
 
     static bool MinionSupportMatches(int effectRow, string id)
     {
-        if (Supports.Of(effectRow) is not { } effect || !MinionSupportRules.Value.TryGetValue(id, out var rule)) return false;
+        if (Supports.Of(effectRow) is not { } effect || !MinionSupportRules.TryGetValue(id, out var rule)) return false;
         var types = effect.Types.ToHashSet();
         return GemSupports.Matches(rule.Allowed, types, true) && !GemSupports.Matches(rule.Excluded, types, false);
     }

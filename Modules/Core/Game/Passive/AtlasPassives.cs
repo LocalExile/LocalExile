@@ -30,12 +30,12 @@ public sealed class AtlasPassives
 
     public bool Loaded => _nodes.Count > 0;
 
-    readonly Lazy<Dictionary<ushort, HashSet<ushort>>> _links = new(() =>
-        PassiveGraphs.Available && PassiveGraphs.Graph("atlas") is not null ? PassiveGraphs.Links("atlas") : []);
+    readonly Dictionary<ushort, HashSet<ushort>> _links =
+        PassiveGraphs.Available && PassiveGraphs.Graph("atlas") is not null ? PassiveGraphs.Links("atlas") : [];
 
     /// <summary>The Atlas graph's undirected links by node (client.db passive_graph_nodes, graph "atlas"); empty when the
     /// database has no Atlas graph.</summary>
-    public IReadOnlyDictionary<ushort, HashSet<ushort>> Links => _links.Value;
+    public IReadOnlyDictionary<ushort, HashSet<ushort>> Links => _links;
 
     /// <summary>The graph's one root, the start node.</summary>
     public const ushort StartGraphId = 29045;

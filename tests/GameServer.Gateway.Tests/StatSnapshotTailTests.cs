@@ -502,7 +502,12 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         long before = ItemModStats.SumsOnThisThread;
         inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Coward's Legacy", new Random(1))!);
         inventory.Add(PlayerInventories.Boots, 0, 0, uniques.Create("Doryani's Delusion", new Random(1))!);
-        void Lookup() => Game("CharacterStatSources", conn, null, null);
+        // The method is looked up once: Game() lists every method of the module's Game class on each call, so what it
+        // allocates grows with the module, not with the lookup this measures.
+        var lookup = Rules.GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
+            .Single(m => m.Name == "CharacterStatSources" && m.GetParameters().Length == 3);
+        object?[] lookupArgs = [conn, null, null];
+        void Lookup() => lookup.Invoke(null, lookupArgs);
         Lookup();
         Assert.True(ItemModStats.SumsOnThisThread > before, "the first lookup of new items sums their mods");
         Lookup();   // The second settles what the first lookup's own result changed (the inactive items, the cache).
@@ -513,11 +518,12 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         Assert.Equal(0, ItemModStats.SumsOnThisThread - before);
 
         // What such a lookup allocates is exact and repeats to the byte, unlike its time, and every table copied or
-        // list built on its path shows in it: 103 576 bytes for this bare character on 2026-11-17 (103 728 in a Debug
-        // build), where one more copy of its small stat table is 872. The budget is that tight on purpose. A change
+        // list built on its path shows in it: 66 032 bytes for this bare character in a Debug build on 2026-11-18, the
+        // method looked up once (103 576 on 2026-11-17 counted the lookup's reflection too), where one more copy of its
+        // small stat table is 872. The budget is that tight on purpose. A change
         // that needs more says why in its pull request and raises it there; one that needs less lowers it; a new
         // .NET runtime that moves the figure with no code change is measured again.
-        const long Budget = 104_000;
+        const long Budget = 66_500;
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++) Lookup();
         long perLookup = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 50;

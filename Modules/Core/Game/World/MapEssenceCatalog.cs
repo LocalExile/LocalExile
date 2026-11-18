@@ -4,10 +4,17 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Imprisoned-monster essences, separate from the essences' equipment crafting recipes.</summary>
 public static class MapEssenceCatalog
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Data = LoadData();
+    }
+
     public sealed record Essence(int Row, uint Hash, string Item, int Type, int Tier, bool Corrupted,
         IReadOnlyList<int> DropLevels, IReadOnlyList<int> MonsterMods);
-    static readonly Lazy<IReadOnlyList<Essence>> Data = new(Load);
-    public static IReadOnlyList<Essence> All => Data.Value;
+    static IReadOnlyList<Essence> Data = default!;
+    static IReadOnlyList<Essence> LoadData() => Load();
+    public static IReadOnlyList<Essence> All => Data;
     public static Essence? Find(int row) => All.FirstOrDefault(e => e.Row == row);
 
     static IReadOnlyList<Essence> Load()

@@ -4,12 +4,22 @@ using GameServer.Modding;
 /// <summary>Scarab encounters expressed by the client's additional-pack table.</summary>
 public static class MapScarabPacks
 {
+    /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
+    public static void LoadGameData()
+    {
+        Fragments = LoadFragments();
+        CloisterPacks = LoadCloisterPacks();
+    }
+
     public const string Cloister = "CloisterPacks", CountStat = "map_contains_X_additional_div_card_packs";
     const string DeckChance = "map_putrid_monster_%_chance_to_drop_stack_deck";
     public const string Deck = "Metadata/Items/DivinationCards/DivinationCardDeck";
 
-    static readonly Lazy<MapRunCatalog> Fragments = new(() => MapRunCatalog.Load("data"));
-    static readonly Lazy<IReadOnlyList<PackCatalog.Pack>> CloisterPacks = new(() =>
+    static MapRunCatalog Fragments = default!;
+    static MapRunCatalog LoadFragments() => MapRunCatalog.Load("data");
+    static IReadOnlyList<PackCatalog.Pack> CloisterPacks = default!;
+
+    static IReadOnlyList<PackCatalog.Pack> LoadCloisterPacks()
     {
         if (!ClientTables.Has("AdditionalMonsterPacksFromStats")) return [];
         int stat = (int)(Program.Stats.Key(CountStat) ?? 0) - 1;
@@ -18,9 +28,9 @@ public static class MapScarabPacks
         var names = ClientTables.Table("MonsterPacks").Select(r => r.Text("Id") ?? "").ToList();
         return [.. rows.SelectMany(r => r.Ints("MonsterPacksKeys")).Distinct()
             .Select(i => i >= 0 && i < names.Count ? Game.Packs.Find(names[i]) : null).OfType<PackCatalog.Pack>()];
-    });
+    }
 
-    public static IReadOnlyList<PackCatalog.Pack> Packs => CloisterPacks.Value;
+    public static IReadOnlyList<PackCatalog.Pack> Packs => CloisterPacks;
     static bool Ready => Packs.Count > 0 && Packs.All(p => p.Entries.Count > 0
         && p.Entries.Select(e => e.Variety).Concat(p.BossVarieties).All(v => Game.Monsters.Find(v.ToString()) is { Supported: true }))
         && Program.Items.Find(Deck) is { Supported: true };
@@ -39,7 +49,7 @@ public static class MapScarabPacks
         if (request.Opening is not { } opening) return;
         int count = 0;
         foreach (var slot in request.Slots.Where(s => !s.IsMap))
-            foreach (int row in Fragments.Value.FragmentOf(slot.BaseRow)?.ModRows ?? [])
+            foreach (int row in Fragments.FragmentOf(slot.BaseRow)?.ModRows ?? [])
                 foreach (var stat in Program.Items.Mods.Row(row)?.Stats ?? [])
                     if (stat.Id == name) count = checked(count + random.Next(stat.Min, checked(stat.Max + 1)));
         if (count > 0)
