@@ -1325,6 +1325,11 @@ public static partial class Game
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
+        if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
+        {
+            StartVaalImmortalCall(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, conn.Clock.Elapsed.TotalSeconds);
+            return true;
+        }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
         // A guard skill cast from the skill bar: its buff starts here (a triggered one starts in its trigger's
@@ -1418,7 +1423,10 @@ public static partial class Game
 
     static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
         InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
-        || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
+        || !SkillsFor(conn).IsMovement(effect) && (GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0
+            // Vaal Immortal Call has a 0 cast time but no Instant active-skill type (only InstantShiftAttackForLeftMouse),
+            // so accept the instant request (0x191) for it as well as the ordinary cast.
+            || VaalImmortalCallSpell(conn, effect));
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)

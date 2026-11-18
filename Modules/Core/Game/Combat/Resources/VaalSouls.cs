@@ -78,9 +78,11 @@ public static partial class Game
             if (Dist(monster.Walk.Position(now), conn.Walk.Position(now)) > ExperienceRange) return false;
             RefreshVaalSouls(conn);
             var stats = CharacterPlayerStats(conn);
-            if (RageStat(stats, "has_soul_gain_prevention") != 0)
+            bool held = VaalImmortalCallActive(conn, now);
+            if (RageStat(stats, "has_soul_gain_prevention") != 0 || held)
             {
-                Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(conn):0.000})");
+                Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
+                    $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(conn):0.000})");
                 return false;
             }
             if (!conn.VaalSouls.Gain()) return false;

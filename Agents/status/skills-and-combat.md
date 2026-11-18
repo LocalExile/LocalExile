@@ -150,7 +150,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
-- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
+  opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
+  landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
+  discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) §11, §12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
