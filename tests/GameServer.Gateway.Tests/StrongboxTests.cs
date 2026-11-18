@@ -33,7 +33,12 @@ public sealed class StrongboxTests
         Assert.Empty(scoured.Mods);
 
         var corrupted = Use(rare, CurrencyEffects.VaalOrb).Box!;
-        Assert.True(corrupted.Corrupted && corrupted.VaalOrb);
+        Assert.True(corrupted.Corrupted);
+        Assert.Equal(rare.Mods, corrupted.Mods);
+        var chanced = Use(normal, CurrencyEffects.OrbOfChance).Box!;
+        Assert.InRange(chanced.Rarity, 1, 3);
+        Assert.NotEmpty(chanced.Mods);
+        Assert.Equal(chanced.Rarity == 3, chanced.Unique is not null);
         Assert.Equal("the box is corrupted", Use(corrupted, CurrencyEffects.ChaosOrb).Why);
         Assert.Equal("the box is open", Use(normal with { Phase = 1 }, CurrencyEffects.OrbOfTransmutation).Why);
     }
@@ -51,6 +56,10 @@ public sealed class StrongboxTests
         var plain = StrongboxCatalog.Blob(type, 100, 100, false, false, 3, type.Mods, null, null);
         var named = StrongboxCatalog.Blob(type, 100, 100, false, false, 3, type.Mods, null, kaom);
         Assert.NotEqual(plain, named);
+        // A non-normal box's inherent bonus: the hidden ChestMagic/ChestRare/ChestUnique mods.
+        Assert.Equal(0, StrongboxMods.RarityStat(Program.Items.Mods, 0, "chest_hidden_item_quantity_+%"));
+        Assert.Equal(100, StrongboxMods.RarityStat(Program.Items.Mods, 2, "chest_hidden_item_quantity_+%"));
+        Assert.Equal(150, StrongboxMods.RarityStat(Program.Items.Mods, 3, "chest_hidden_item_rarity_+%"));
         var word = BitConverter.GetBytes(kaom.NameWord);
         Assert.True(named.AsSpan().IndexOf(word) >= 0 || named.AsSpan().IndexOf(word.Reverse().ToArray()) >= 0);
     }

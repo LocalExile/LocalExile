@@ -24,14 +24,14 @@ public static partial class MapStrongboxes
     {
         public List<uint> Guards { get; init; } = [];
         public List<AreaPopulation.Spawn> Pending { get; init; } = [];
+        /// <summary>The daemons' later waves (StrongboxDaemons.cs), released into <see cref="Pending"/> when due.</summary>
+        public List<Wave> Waves { get; init; } = [];
         /// <summary>Normal 0, magic 1 or rare 2 (<see cref="StrongboxMods.RollRarity"/>).</summary>
         public byte Rarity { get; init; }
         /// <summary>The rolled explicit mods; the type's own (implicit) mods are not kept here.</summary>
         public RolledMod[] Mods { get; init; } = [];
         /// <summary>No currency changes it any more (<c>map_strongboxes_are_corrupted</c>, a Vaal Orb).</summary>
         public bool Corrupted { get; init; }
-        /// <summary>Corrupted by a Vaal Orb: its unstackable contents drop corrupted.</summary>
-        public bool VaalOrb { get; init; }
         /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
         public string? Unique { get; init; }
 
@@ -41,6 +41,11 @@ public static partial class MapStrongboxes
 
     /// <summary>A rolled mod as the box keeps it: its Mods.dat HASH16 and its values.</summary>
     public sealed record RolledMod(ushort Hash, int[] Values);
+
+    /// <summary>The hand-over for "Guarded by N Rogue Exiles" (<c>chest_spawn_rogue_exiles</c>): a module that spawns rogue
+    /// exiles (Anarchy) answers with the monster ids of the exiles it created around the point, at the area level; they
+    /// guard the box. With no module answering, the mod has no guard of its own.</summary>
+    public static readonly GameEvent<Func<ClientState, (int X, int Y), int, Task<IReadOnlyList<uint>>>> RogueExiles = new();
 
     /// <summary>A box's chance to be unique, in percent, before <c>map_strongboxes_chance_to_be_unique_+%</c>. From a sample:
     /// poedb's 2016 count of 2218 boxes in tier 13+ maps, 14 unique (0.6%), which poedb notes may be out of date; the
@@ -53,6 +58,8 @@ public static partial class MapStrongboxes
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
+        /// <summary>The daemons' ground effects (StrongboxDaemonSpells.cs).</summary>
+        public readonly List<Zone> Zones = [];
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
@@ -316,17 +323,33 @@ public static partial class MapStrongboxes
     static async Task Open(ClientState conn, Area area, Box box)
     {
         bool first = area.Boxes!.All(b => b.Phase == 0 && b.Cycle == 0);
-        var guards = Guards(conn, box, first);
-        if (guards.Count == 0)
+        var now = DateTime.UtcNow;
+        var waves = StrongboxCatalog.Find(box.Type) is { } type
+            ? SummonWaves(conn, type, box, now, new Random(unchecked((int)conn.Seed ^ box.Index * 7349 ^ box.Cycle * 13)))
+            : [];
+        var guards = Guards(conn, box, first, waves.Count > 0);
+        if (guards.Count == 0 && waves.Count == 0)
         {
             Console.WriteLine($"[map-content] strongbox {box.Type}: no supported guards or free cells; remains closed");
             return;
         }
-        box = box with { Phase = 1, Pending = guards };
+        box = ReleaseWaves(box with { Phase = 1, Pending = guards, Waves = waves }, now);
         area.Boxes![box.Index] = box;
         Keep(conn, area);
         foreach (var member in Members(conn)) await Present(member, box, true);
         await SpawnPending(conn, area, box);
+        if (StrongboxCatalog.Find(box.Type) is { } exiled
+            && StrongboxMods.Stat(ItemsFor(conn).Mods, exiled, box.Explicits, "chest_spawn_rogue_exiles") is int exiles and > 0)
+        {
+            var ids = new List<uint>();
+            foreach (var spawn in RogueExiles.For(conn)) ids.AddRange(await spawn(conn, (box.X, box.Y), exiles));
+            box.Guards.AddRange(ids);
+            Keep(conn, area);
+            Console.WriteLine($"[map-content] strongbox 0x{box.Id:x}: {exiles} rogue exile(s) asked for, {ids.Count} spawned" +
+                (RogueExiles.Any ? "" : " (no module spawns rogue exiles)"));
+        }
+        if (StrongboxCatalog.Find(box.Type) is { } opened)
+            CastDaemons(conn, area, opened, box, new Random(unchecked((int)conn.Seed ^ box.Index * 9973 ^ box.Cycle * 31)));
     }
 
     public static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box) => Guards(conn, box, false);
@@ -336,7 +359,10 @@ public static partial class MapStrongboxes
     /// implicit ChestSummonNormals is 3 normal packs), one more normal pack by <c>map_strongboxes_additional_pack_chance_%</c>,
     /// and on the instance's first opened box <c>map_first_strongbox_contains_x_additional_rare_monsters</c> rares. Packs
     /// are the area's own scattered packs by weight.</summary>
-    public static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box, bool first)
+    public static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box, bool first) => Guards(conn, box, first, false);
+
+    /// <param name="summoned">The box's daemons bring guards of their own: no stand-in packs.</param>
+    static List<AreaPopulation.Spawn> Guards(ClientState conn, Box box, bool first, bool summoned)
     {
         if (Packs.For(conn.Layout.Id) is not { } packs || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
@@ -356,7 +382,7 @@ public static partial class MapStrongboxes
                 if (StrongboxMods.Value(line, stat) > 0) warband.AddRange(Warband(conn, id, box, random));
         // No mod summons anything the server spawns (the stream daemons: a Strange Barrel's spiders, Weylam's pirates,
         // the Renegades' warband, which has no WarbandsPackMonsters row): the implicit three normal packs stand in.
-        if (groups.Sum(g => g.Packs + g.Monsters) == 0 && warband.Count == 0) groups = [(3, 0, MonsterRarity.Normal)];
+        if (groups.Sum(g => g.Packs + g.Monsters) == 0 && warband.Count == 0 && !summoned) groups = [(3, 0, MonsterRarity.Normal)];
         if (mods.Get("map_strongboxes_additional_pack_chance_%") is int extra and > 0 && random.Next(100) < extra)
             groups.Add((1, 0, MonsterRarity.Normal));
         if (first && mods.Get("map_first_strongbox_contains_x_additional_rare_monsters") is int rares and > 0)
@@ -477,15 +503,22 @@ public static partial class MapStrongboxes
 
     public static async Task Tick(ClientState conn)
     {
-        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { } boxes || conn.Closed || conn.LeavingArea
-            || !boxes.Any(b => b.Phase == 1)) return;
+        if (!Areas.TryGetValue(conn.Instance, out var area) || area.Boxes is not { } boxes || conn.Closed || conn.LeavingArea) return;
+        if (area.Zones.Count > 0 || ZoneShare.TryGetValue(conn, out var share) && share.Dps > 0) TickZones(conn, area);
+        if (!boxes.Any(b => b.Phase == 1)) return;
         await area.Gate.WaitAsync();
         try
         {
-            foreach (var prior in area.Boxes!.Where(b => b.Phase == 1).ToArray())
+            foreach (var waiting in area.Boxes!.Where(b => b.Phase == 1).ToArray())
             {
+                var prior = ReleaseWaves(waiting, DateTime.UtcNow);
+                if (!ReferenceEquals(prior, waiting))
+                {
+                    area.Boxes[prior.Index] = prior;
+                    Keep(conn, area);
+                }
                 if (prior.Pending.Count > 0) await SpawnPending(conn, area, prior);
-                if (prior.Pending.Count > 0 || prior.Guards.Count == 0) continue;
+                if (prior.Pending.Count > 0 || prior.Waves.Count > 0 || prior.Guards.Count == 0) continue;
                 lock (conn.Monsters)
                     if (prior.Guards.Any(id => conn.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0)) continue;
                 if (!conn.Instance.SetState($"Ambush/rewards/{prior.Index}/{prior.Cycle}")) continue;
@@ -499,7 +532,7 @@ public static partial class MapStrongboxes
                         ? StrongboxMods.Stat(ItemsFor(conn).Mods, type, opened.Explicits, "strongbox_close_after_opening_chance") : 0);
                 if (ClosesAgain(close, Random.Shared))
                 {
-                    var closed = opened with { Phase = 0, Cycle = opened.Cycle + 1, Guards = [] };
+                    var closed = opened with { Phase = 0, Cycle = opened.Cycle + 1, Guards = [], Waves = [] };
                     area.Boxes[prior.Index] = closed;
                     Keep(conn, area);
                     foreach (var member in Members(conn)) await Present(member, closed, true);
@@ -516,8 +549,9 @@ public static partial class MapStrongboxes
             || StrongboxCatalog.Find(box.Type) is not { } type) return;
         var catalog = ItemsFor(conn).Mods;
         var mods = box.Explicits;
-        var items = ItemDrops.Stacked(StrongboxLoot.Roll(conn, type, id => StrongboxMods.Stat(catalog, type, mods, id),
-            AreaLevel(conn), AreaMods(conn), Random.Shared, box.VaalOrb));
+        var items = ItemDrops.Stacked(StrongboxLoot.Roll(conn, type,
+            id => StrongboxMods.Stat(catalog, type, mods, id) + StrongboxMods.RarityStat(catalog, box.Rarity, id),
+            AreaLevel(conn), AreaMods(conn), Random.Shared, box.Corrupted));
         foreach (var drop in items)
         {
             var at = conn.Layout.Near((box.X + Random.Shared.Next(-5, 6), box.Y + Random.Shared.Next(-5, 6)));
@@ -535,5 +569,9 @@ public static partial class MapStrongboxes
         state["strongboxes"] = JsonSerializer.SerializeToNode(area.Boxes);
     }
 
-    public static void Leave(ClientState conn) => Presented.Remove(conn);
+    public static void Leave(ClientState conn)
+    {
+        Presented.Remove(conn);
+        LeaveZones(conn);
+    }
 }

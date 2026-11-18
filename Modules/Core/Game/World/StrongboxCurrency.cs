@@ -9,6 +9,9 @@ using static Program;
 /// </summary>
 public static partial class MapStrongboxes
 {
+    /// <summary>An Orb of Chance's chance (percent) to make a normal box unique: OUR value, no source gives it.</summary>
+    public const int ChanceUnique = 5;
+
     const string ScrollOfWisdom = "Metadata/Items/Currency/CurrencyIdentification", EngineersOrb = "Metadata/Items/Currency/CurrencyStrongboxQuality";
 
     /// <summary>GameEvents.Packet(0x74): true when the target is one of this instance's boxes (handled, or refused with
@@ -106,10 +109,32 @@ public static partial class MapStrongboxes
             case CurrencyEffects.BlessedOrb: return Fail("the box's implicit has no range");
             case CurrencyEffects.OrbOfScouring:
                 return box.Rarity == 0 ? Fail("already a normal box") : With(0, []);
-            // A Vaal Orb corrupts the box: no currency changes it again (the Vaal Orb's own text), and its contents drop
-            // corrupted (an official-forum account; StrongboxLoot). No outcome table for boxes is in the data.
+            // A Vaal Orb corrupts the box: no currency changes it again, its rarity and mods stay, and its contents drop
+            // corrupted (StrongboxLoot).
             case CurrencyEffects.VaalOrb:
-                return (box with { Corrupted = true, VaalOrb = true }, null);
+                return (box with { Corrupted = true }, null);
+            // Orb of Chance on a normal box, as on an item: a unique strongbox of its base type (poewiki, Strongbox: "it is
+            // possible to craft a unique strongbox using an Orb of Chance on a normal strongbox with the corresponding base
+            // type") at OUR 5% when one exists for the area level, else its affixes as ItemRolls.Chance rolls an item's
+            // (rare at 30%, else magic).
+            case CurrencyEffects.OrbOfChance:
+            {
+                if (box.Rarity != 0) return Fail("not a normal box");
+                var uniques = StrongboxCatalog.Uniques.Where(u => u.ChestRow == type.Row && level >= u.MinLevel).ToArray();
+                if (uniques.Length > 0 && rng.Next(100) < ChanceUnique)
+                {
+                    long pick = rng.NextInt64(uniques.Sum(u => (long)u.Weight));
+                    var unique = uniques.FirstOrDefault(u => (pick -= u.Weight) < 0) ?? uniques[^1];
+                    return (box with
+                    {
+                        Unique = unique.Id, Rarity = 3,
+                        Mods = Kept(unique.ModRows.Select(r => catalog.Row(r)?.Roll(ModSection.Explicit, rng)).OfType<ItemMod>()),
+                    }, null);
+                }
+                if (rng.Next(100) < 30) return With(2, StrongboxMods.Roll(catalog, type, 2, level, stat, rng));
+                var magic = StrongboxMods.Add(catalog, type, [], 1, rng.Next(2, 5), level, stat, rng);
+                return magic.Count > 0 ? With(1, magic) : Fail("no mod can roll on the box");
+            }
             // Boxes are sent identified (the map mod that makes them unidentified is not consumed): nothing to identify.
             case ScrollOfWisdom: return Fail("the box is identified");
             // CurrencyItems: "This item is no longer usable." / "Formerly improved the quality of a Strongbox".

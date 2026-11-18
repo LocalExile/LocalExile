@@ -61,9 +61,10 @@ public static class StrongboxLoot
             .Where(r => Convert.ToInt64(r["enabled"]) != 0)
             .Select(r => new CardReward((string)r["card_id"]!, (string)r["reward_kind"]!, Convert.ToInt64(r["corrupted"]) != 0))];
 
+    /// <param name="corrupted">The box is corrupted (a Vaal Orb, <c>map_strongboxes_are_corrupted</c>): its contents drop
+    /// corrupted where they can be (poewiki, Strongbox: "Corrupted strongboxes (e.g. from using a Vaal Orb) will cause all of the
+    /// strongbox's contents to also be corrupted, if possible"). Only the flag: no corruption outcome is rolled.</param>
     /// <param name="boxStat">A stat of the box's own mods (its implicits and rolled explicits).</param>
-    /// <param name="corrupted">A Vaal Orb corrupted the box: its contents drop corrupted (the items that can be; stackable
-    /// currency, cards and scarabs do not). Only the Corrupted flag is set: no corruption implicit or outcome is rolled.</param>
     public static List<ItemDrops.Drop> Roll(ClientState conn, Definition box, Func<string, int> boxStat, int level,
         MapMods stats, Random rng, bool corrupted = false)
     {
@@ -73,7 +74,7 @@ public static class StrongboxLoot
         var rolls = RollsFor(conn);
         var rules = LeagueFor(conn).Rules;
         level = Math.Clamp(level + Math.Max(0, boxStat("chest_dropped_item_level_+")), 1, 100);
-        double quantity = box.Items * Math.Max(0, 100 + Stat("map_strongbox_item_quantity_+%") + boxStat("chest_item_quantity_+%")) / 100.0
+        double quantity = box.Items * Math.Max(0, 100 + Stat("map_strongbox_item_quantity_+%") + boxStat("chest_item_quantity_+%") + boxStat("chest_hidden_item_quantity_+%")) / 100.0
             * Math.Max(0, rules.ItemDropMultiplier);
         int count = Math.Max(1, (int)Math.Floor(quantity) + (rng.NextDouble() < quantity - Math.Floor(quantity) ? 1 : 0));
         // The box's "more rarity" on top of its hidden rarity: one increased value for the drop table.

@@ -106,15 +106,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
   feeds `azmeri_primalist_wisps_found_+%` into that system.
 
-### Strongbox daemons
-
-- **Known:** strongboxes, their mods, unique boxes and currency work ([status](../status/world.md), "Strongboxes"). A
-  box mod with a `MonsterMetadata` daemon (`Metadata/Monsters/Daemon/ChestDaemon*`, `BarrelOfSpidersDaemon`,
-  `WeylamsWarchest`) is shown but does nothing: the trap and spell daemons, the curse, Summons Skeletons, Revive, the
-  monster streams, Kaom's totems. The shrine daemons in `Modules/Core/World/Shrines/Effects` are the pattern.
-- **Start:** one daemon at a time: its `.ot` and skill, spawned at the box when it opens.
-- **Done when:** every daemon mod of the Strongboxes and UniqueChests rows acts when its box opens.
-
 ### The Labyrinth
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the

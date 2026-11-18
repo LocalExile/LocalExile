@@ -107,6 +107,21 @@ public static class StrongboxMods
         return 0;
     }
 
+    /// <summary>A box's inherent bonus for its rarity: the client's hidden chest mods ChestMagic1/2, ChestRare1/2 and
+    /// ChestUnique1/2 (<c>chest_hidden_item_quantity_+%</c> and <c>chest_hidden_item_rarity_+%</c>: 50, 100 and 150), which
+    /// every non-normal box has whatever its other mods (poewiki, Strongbox: "Non-normal rarity strongboxes inherently have
+    /// increased item quantity and item rarity bonuses based on the strongbox's rarity").</summary>
+    public static int RarityStat(ModCatalog catalog, byte rarity, string id)
+    {
+        string? name = rarity switch { 1 => "ChestMagic", 2 => "ChestRare", 3 => "ChestUnique", _ => null };
+        if (name is null) return 0;
+        int total = 0;
+        foreach (var mod in catalog.All.Where(m => m.Id == name + "1" || m.Id == name + "2"))
+            for (int i = 0; i < mod.Stats.Count; i++)
+                if (mod.Stats[i].Id == id) total += mod.RangeAt(i).Min;
+        return total;
+    }
+
     /// <summary>The sum of a stat over a box's own mods, by stat id.</summary>
     public static int Stat(ModCatalog catalog, StrongboxCatalog.Definition box, IReadOnlyList<ItemMod> mods, string id) =>
         (int)Math.Clamp(Lines(catalog, box, mods).Sum(l => (long)Value(l, id)), int.MinValue, int.MaxValue);
