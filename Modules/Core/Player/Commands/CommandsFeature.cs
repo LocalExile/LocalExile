@@ -5,9 +5,11 @@ using GameServer.Core.Protocol.Login;
 /// (LocalExile-Mods).</summary>
 static class CommandsFeature
 {
-    internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GameServer.Modules.M_commands.CharacterPlaytime played)
     {
         return commands
+        .Add("played", "/played (time spent online with this character)", async _ =>
+            await conn.Commands!.Reply(GameServer.Modules.M_commands.CharacterPlaytime.Describe(played.Seconds(conn))))
         .Add("passives", "/passives (passive skill points and the allocated passives)", async _ =>
         {
             var (points, refundPoints, nodes, _) = PassiveState(conn);

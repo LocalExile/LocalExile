@@ -9,7 +9,7 @@ namespace GameServer.Gateway.Tests;
 // must be the one a connection without a reused tail computes (same stats, same order), a repeated snapshot must reuse
 // the tail, and the verification mode (on in every Gateway test) compares that reuse with a fresh tail. The connection's
 // clock is stopped, so nothing timed changes between the snapshots of a step.
-public class StatSnapshotTailTests
+public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
 {
     [Fact]
     public void Conditional_equipment_cache_rebuilds_when_runtime_condition_inputs_change()
@@ -521,6 +521,8 @@ public class StatSnapshotTailTests
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 50; i++) Lookup();
         long perLookup = (GC.GetAllocatedBytesForCurrentThread() - allocated) / 50;
+        // In the test's output also when it passes (dotnet test --logger "console;verbosity=detailed"), for the trend.
+        output.WriteLine($"an unchanged stat-sources lookup allocates {perLookup} bytes (budget {Budget})");
         Assert.True(perLookup <= Budget, $"an unchanged stat-sources lookup allocated {perLookup} bytes, over the budget of {Budget}");
     }
 
