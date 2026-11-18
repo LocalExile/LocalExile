@@ -549,9 +549,14 @@ public static partial class MapStrongboxes
             || StrongboxCatalog.Find(box.Type) is not { } type) return;
         var catalog = ItemsFor(conn).Mods;
         var mods = box.Explicits;
-        var items = ItemDrops.Stacked(StrongboxLoot.Roll(conn, type,
+        var contents = StrongboxLoot.Roll(conn, type,
             id => StrongboxMods.Stat(catalog, type, mods, id) + StrongboxMods.RarityStat(catalog, box.Rarity, id),
-            AreaLevel(conn), AreaMods(conn), Random.Shared, box.Corrupted));
+            AreaLevel(conn), AreaMods(conn), Random.Shared, box.Corrupted);
+        // The party bonus, as on a kill (Game.PartyCurrency, the client's own constants); poewiki (Strongbox): Diviner's
+        // and Cartographer's Strongboxes "do not drop extra items for additional party members".
+        if (type.Kind is not (StrongboxCatalog.Contents.Card or StrongboxCatalog.Contents.Map))
+            contents.AddRange(PartyCurrency(conn, contents, Random.Shared));
+        var items = ItemDrops.Stacked(contents);
         foreach (var drop in items)
         {
             var at = conn.Layout.Near((box.X + Random.Shared.Next(-5, 6), box.Y + Random.Shared.Next(-5, 6)));

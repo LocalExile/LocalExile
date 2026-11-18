@@ -159,6 +159,23 @@ public static class StrongboxLoot
             result.Add(new(ItemCatalog.Create(orb), orb));
 
         // What the box does to every item.
+        // "Contained Gems have Experience": each gem drops with a random experience, at a level from 1 to its cap
+        // (at most 20), anywhere within that level (the user's account of the retail box; the stat is only a flag).
+        if (boxStat("chest_gems_drop_with_experience") != 0)
+            for (int i = 0; i < result.Count; i++)
+                if (catalog.Gem(result[i].Type) is { Thresholds.Count: > 0 } gem && result[i].Item.GemExperience >= 0)
+                {
+                    int top = Math.Min(20, gem.MaxLevel), gemLevel = rng.Next(1, top + 1);
+                    int low = gem.ExperienceFor(gemLevel), high = gemLevel < top ? gem.ExperienceFor(gemLevel + 1) : low + 1;
+                    result[i] = result[i] with { Item = result[i].Item with { GemExperience = low + rng.Next(Math.Max(1, high - low)) } };
+                }
+        // Deshret's Storm, "Contained Weapons are Animated": its weapons drop identified, ready for Animate Weapon (the
+        // user's account of the retail box: "considered identified and animated upon opening").
+        bool animated = boxStat("weapons_drop_animated") != 0;
+        if (animated)
+            for (int i = 0; i < result.Count; i++)
+                if (result[i].Type.Components.Contains("Weapon") && !result[i].Item.Identified)
+                    result[i] = result[i] with { Item = result[i].Item with { Identified = true } };
         bool identified = boxStat("chest_items_drop_identified") != 0;
         int quality = Math.Clamp(boxStat("chest_dropped_items_have_quality_%"), 0, 20);
         int sockets = boxStat("dropped_items_have_additional_sockets");
