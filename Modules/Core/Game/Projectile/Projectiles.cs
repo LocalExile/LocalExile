@@ -839,6 +839,7 @@ public static partial class Game
                 visual.GlideQueued = false;
                 if (visual.Ended || !visual.Created || visual.PendingGlide is not { } glide)
                 {
+                    Conn.Performance.Count("projectile move dropped");
                     if (ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile glide dropped object={visual.Id} entity={p.Id}"
                             + $" ended={visual.Ended} created={visual.Created} position={p.Position} remaining={p.Remaining}");
