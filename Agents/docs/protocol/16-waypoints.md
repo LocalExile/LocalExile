@@ -145,8 +145,9 @@ row's `__col15` (53 for Deepwater, so the pin is off on The Sovereign).
 The Deepwater pin (`__col5` 59) is enabled only when 0x1d sends league category 59, which the Deepwater module does in
 the Allflame leagues; it also answers `/boat` (C→S 0x16, Commands row 70) and the Deepwater Coast's rowboat. The pin and
 `/boat` are refused before the first visit (QuestFlags 3556), and the u8 is ignored.
-`/goto DeepwaterHub` builds no layout yet: its level generates and matches the client's, but it is not in
-server_level_areas yet ([011](../re/011-level-generation.md) §3c3).
+The Sovereign is a generated layout ([011](../re/011-level-generation.md) §3c3): the player arrives at hub.arm's
+`default` point, its waypoint is the deck tile's `DeepwaterHubBoat_waypoint`, and its two boat gates are in-area
+teleports between the deck and below deck.
 
 **Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
 (`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,

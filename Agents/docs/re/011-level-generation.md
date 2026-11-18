@@ -683,9 +683,11 @@ entries, tile hash 1294234863, all 4 134 draws up to the doodads, every room of 
   the client, not in the port; heights and tiles are equal.
 - **DeepwaterHub** (The Sovereign, `hub.dgr` 2 × 3 units of 12, OuterBufferSize `0 12 0 0`): its "graph" node at
   (0, 0) places `hub_interior.dgr` (below deck, 2 × 1) as record 1 above the deck. Seed 1 matches its trace (tile hash
-  4068164930, all 588 draws, both grids, 128 doodads, heights); only the transitions check differs, by 2, which keeps
-  it out of server_level_areas. Its two boat gates (`Deepwater/Boat_AreaTransition_Animate`) are room lines, which the
-  recorder's tile-object hook (`0x142047e30`) never sees, so they do not explain the 2.
+  4068164930, all 588 draws, both grids, 128 doodads, heights). The transitions check differed by 2: the waypoint
+  record `DeepwaterHubBoat_waypoint` names its own `Deepwater/Waypoint/waypoint.ao`, and the port gave it the virtual
+  `.ao`, which is no file (one missing and one extra object at (347, 485); fixed, [08](../protocol/08-area-transitions.md)
+  §5). Its two boat gates (`Deepwater/Boat_AreaTransition_Animate`) are room lines, which the recorder's tile-object
+  hook (`0x142047e30`) never sees.
 - Not ported: turned subgraphs (orientation ≠ 0), the pool's
   rows in a `.tgr` subgraph's special nodes, sub-area records beside a `.tgr` primary (§3), and the rest of
   `0x14204c040` (oversize-feature / telepad-injector records).

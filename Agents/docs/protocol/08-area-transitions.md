@@ -154,6 +154,8 @@ so after moving an area transition around, clear that cache before judging the m
 
 Other exits: an exit that is a `.tmd` record takes its model, rotation and height this way. The Twilight Strand gate is
 `transition_twilightstrand` (type `AreaTransitionMapMarker`) at tile cell (37.5, 45.5), grid (114.5, 306.5).
+A record whose virtual `.ao` is no file keeps the `.ao` it names (its handle `+0x38`, §7): The Sovereign's waypoint
+`DeepwaterHubBoat_waypoint` is placed with `Deepwater/Waypoint/waypoint.ao`.
 
 ## Open
 
@@ -306,6 +308,9 @@ placed tile's `.tmd` records). For records of AreaTransition, Waypoint or quest 
 | code table `0x142faa4d8` | 8 × 3 bytes T: a = [w·23 − x − 1, x, h·23 − y − 1, y]; gx = a[T1 + 2·T0] + ox, gy = a[(T0 == 0 ? 2 : 0) + T2] + oy |
 | angle | 2π − angle for codes ≥ 4, then + (code & 3) · π/2 (`0x1436ae110`), wrapped to [0, 2π] |
 | z | record z − height offset · 7.8125 |
+
+The `.ao` written is the record's handle `+0x38`: the virtual name, or the record's own `.ao` when the virtual one is
+no file (§5, §8's rule); a generated layout's objects (`AreaObjects`) take the same.
 
 The client spawns only its own doodads from these records; server types (AreaTransition, Waypoint …) fail its type
 filter, which is why nothing in the client ever creates them. The Frida trace `scripts/re/frida/trace-tile-records.js`

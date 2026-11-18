@@ -178,8 +178,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   In the Allflame leagues the Deepwater Coast's rowboat leads to The Sovereign once the character has QuestFlags 3552
   DeepwaterNPCIntroductionSeen, and after that first visit (3556) the Deepwater pin and `/boat` do too; the hub has its
   ruleset and its deck stash and guild stash (verified live 2026-11-18, with 3552 set by hand). No character gets 3552
-  in game yet: only ValerieTutorial's introduction sets it, and she is not created. The hub has no server layout yet
-  (not in server_level_areas), so the player arrives off the ship, and no waypoint, NPC or way back but /hideout is there.
+  in game yet: only ValerieTutorial's introduction sets it, and she is not created. The Gateway generates the hub
+  (server_level_areas): the player arrives on the deck, with its waypoint and the boat gates between the deck and
+  below deck (not checked live yet).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
