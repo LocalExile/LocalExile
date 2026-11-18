@@ -67,5 +67,34 @@ public sealed class SecondarySkillExecutionTests
         Assert.Equal(900u,f.Conn.Monsters[901].Life);
         Assert.Equal(1000u,f.Conn.Monsters[900].Life);Assert.Equal(1000u,f.Conn.Monsters[902].Life);
         Assert.Equal(1000u,f.Conn.Monsters[903].Life);
+        var victim=f.Conn.Monsters[901];
+        Assert.True(victim.Walk.MovementBlocked(2.49));
+        Assert.False(victim.Walk.MovementBlocked(2.5));
+        Assert.Equal(1,Game.MonsterActionFactor(victim,1.1));
+        Assert.False(victim.Invulnerable);
+        victim.Walk.Order(120,100,1.5);
+        Assert.Equal((102,100),victim.Walk.Destination);
+        Assert.Equal(.2,Game.BearTrapWalkFactor(victim,2.5),8);
+        Assert.Equal(.6,Game.BearTrapWalkFactor(victim,4),8);
+        Assert.Equal(1,Game.BearTrapWalkFactor(victim,5.5));
+        Assert.Equal(5,Game.BearTrapRootSeconds(1000,1000));
+        Assert.Equal(.15,Game.BearTrapRootSeconds(10,1000),8);
+        var packet=DamagePacket.Of(DamageType.Fire,100,100);
+        victim.TakenFromPlayer=(20,0,0);
+        Assert.Equal(120,Game.MonsterTakesMitigated(victim,packet,false,2));
+        Assert.Equal(145,Game.MonsterTakesTrapOrMineHit(victim,packet,false,2));
+        Assert.Equal(120,Game.MonsterTakesTrapOrMineHit(victim,packet,false,5.5));
+        var buffs=Game.MonsterAilmentChangesLocked(f.Conn,1.1);
+        Assert.Contains(buffs,p=>p.Log=="Bear Trap debuff");
+        Assert.DoesNotContain(Game.MonsterAilmentChangesLocked(f.Conn,1.2),p=>p.Log=="Bear Trap debuff");
+        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,2.5),p=>p.Log=="Bear Trap debuff changes");
+        Assert.Contains(Game.MonsterAilmentChangesLocked(f.Conn,5.5),p=>p.Log=="Bear Trap debuff changes");
+        Assert.Equal(1,victim.Ailments.WalkFactor);
+        var immune=new SpawnedMonster("movement floor",new(100,100,20),0,0,1000)
+            {EncounterStats=new Dictionary<string,int>{{"movement_speed_cannot_be_reduced_below_base",1}}};
+        Game.BearTrapOnHitLocked(immune,100,1,_=>0,Own);
+        Assert.False(immune.Walk.MovementBlocked(1.1));
+        Assert.Equal(1,Game.BearTrapWalkFactor(immune,1.1));
+        int Own(string name)=>gem.Stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
     }
 }

@@ -11,11 +11,11 @@ public static partial class Game
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
     /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
-        bool chaos = false) =>
+        bool chaos = false, int additionalTakenPct = 0) =>
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
-            + (chaos ? WitheredTaken(m, now) : 0)
+            + (chaos ? WitheredTaken(m, now) : 0) + additionalTakenPct
             + m.Ignites.DamageTaken(now)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
@@ -292,6 +292,7 @@ public static partial class Game
         ProliferateIgnitesLocked(conn, now, packets);
         foreach (var (id, m) in conn.Monsters)
         {
+            BearTrapChangesLocked(conn, id, m, now, packets);
             // A knockback is presented before the ailment-idle skip: an idle monster still moves.
             if (m.KnockbackPending is (int kx, int ky))
             {
@@ -301,8 +302,9 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
+            double trap = BearTrapWalkFactor(m, now);
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
-            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
+            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1 && trap == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;
             if (!elementalIdle)
             {
@@ -318,6 +320,7 @@ public static partial class Game
             double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
                 * movement.Factor;
             if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
+            walk *= trap;
             if (walk != a.WalkFactor)
             {
                 // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
