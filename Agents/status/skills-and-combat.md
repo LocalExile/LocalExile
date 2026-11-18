@@ -64,6 +64,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
+- Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
+  on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).
@@ -80,6 +83,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, main…), with that
+  weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
+  swings, and `skill_double_hits_when_dual_wielding` skills hit with both at once. Not checked live.
+  Docs: [11](../docs/protocol/11-skills.md) §4.
 - Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
   attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
   hit roll and drops them along the swing.

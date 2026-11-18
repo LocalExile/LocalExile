@@ -202,7 +202,11 @@ public sealed class SupportExecutionTests
                     Assert.Equal(repeats, Row("attack_repeat_count"));
                     double Factor(string hand) => CriticalStrikePolicy.DamageFactor(Row(hand + "_critical_strike_chance"),
                         Row(hand + "_critical_strike_multiplier"), 0, Row(hand + "_chance_to_hit_%"));
-                    var mainHit = Game.SupportedHit(conn, id);
+                    // Dual-wielded Cleave hits with both weapons at once, at its data's merged 40% less damage
+                    // (skill_double_hits_when_dual_wielding, active_skill_merged_damage_+%_final_while_dual_wielding).
+                    double dualMore = Game.HandDamageMore(conn, Game.SupportedSkill(conn, id).Stats).DualWielding;
+                    Assert.Equal(hands == 2 ? .6 : 1, dualMore, 9);
+                    var mainHit = Game.SupportedHit(conn, id).Scale(dualMore);
                     foreach (var (stat, value) in PanelStats.HandDamage(mainHit, "main_hand"))
                         Assert.Equal(value, Row(stat));
                     double mainSeconds = Game.SupportedAttackSeconds(conn, id);
@@ -212,13 +216,15 @@ public sealed class SupportExecutionTests
                     {
                         var offWeapon = Game.OffhandWeaponFor(conn)!;
                         var offInputs = Game.SupportedHitInputsFor(conn, id, weapon: offWeapon)!;
-                        var offHit = Game.SupportedHitFrom(offInputs, suppress: true);
+                        var offHit = Game.SupportedHitFrom(offInputs, suppress: true).Scale(dualMore);
                         foreach (var (stat, value) in PanelStats.HandDamage(offHit, "off_hand"))
                             Assert.Equal(value, Row(stat));
-                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal),
-                            1 / Game.SupportedOffHandAttackSeconds(conn, id, offWeapon), Factor("off_hand"));
-                        perUse = (int)Math.Round((main.PerUse + off.PerUse) / 2.0);
-                        perSecond = (int)Math.Round((main.PerSecond + off.PerSecond) / 2.0);
+                        double offSeconds = Game.SupportedOffHandAttackSeconds(conn, id, offWeapon);
+                        var off = SpellDamage.Display((offHit.MinTotal, offHit.MaxTotal), 1 / offSeconds, Factor("off_hand"));
+                        // Both hits per use, at the average of the two weapons' attack times.
+                        Assert.Equal(AttackHand.Both, Game.PanelHands(conn, id));
+                        perUse = main.PerUse + off.PerUse;
+                        perSecond = (int)Math.Round(perUse / ((mainSeconds + offSeconds) / 2));
                     }
                     Assert.Equal(perUse, Row("display_hundred_times_damage_per_skill_use"));
                     Assert.Equal(perSecond, Row("hundred_times_damage_per_second"));

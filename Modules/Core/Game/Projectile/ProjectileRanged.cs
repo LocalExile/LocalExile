@@ -58,18 +58,21 @@ public static partial class Game
         int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
         int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
         var weapon = WeaponProfileFor(conn, activeSet: true);
-        var sourceWeapon = WeaponFor(conn);
+        // Two wands alternate: this use's hand (AttackHands) fires its own bolt.
+        var hand = DefaultAttackHand(conn, sequence);
+        var sourceWeapon = HandWeapon(conn, hand);
+        int handAccuracy = HandAccuracy(conn, hand, character);
         int criticalChance = CriticalProhibited(conn, attack: true)
-            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
-            : conn.Pools.AttackCriticalStrikeChance;
+            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(conn, hand), conn.Pools.CriticalStrikeChancePct, RawCritical)
+            : HandAttackCriticalChance(conn, hand, character);
         var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
-            PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
+            handAccuracy, criticalChance, conn.Pools.CriticalStrikeMultiplier);
         bool wand = projectileId == OrdinaryRangedAttack.Wand;
         long additionalBlindedIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint blindedDamageKey
             ? character.GetValueOrDefault(blindedDamageKey) : 0;
         var blindedCapture = additionalBlindedIncreased == 0 ? null
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
-                PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier,
+                handAccuracy, criticalChance, conn.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get);
         var conversion = DamageStats.Conversion(character, Stats, attack: true);
@@ -85,8 +88,8 @@ public static partial class Game
                 Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<string, int>(sourceWeapon.LocalSources),
                 Bow: !wand),
             SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
-            VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
-            VsGroundCriticalChance = AttackCriticalChanceVsGround(conn, character, release: true),
+            VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true, hand: hand),
+            VsGroundCriticalChance = AttackCriticalChanceVsGround(conn, character, release: true, hand: hand),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),

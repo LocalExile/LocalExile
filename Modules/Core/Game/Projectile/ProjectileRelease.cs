@@ -93,10 +93,10 @@ public static partial class Game
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
                 ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject, WeaponProfileFor(conn, activeSet: true),
-                SupportedAttackSeconds(conn, skillId))
+                SupportedAttackSeconds(conn, skillId, sequence))
             : null;
         double delay = thrown is { } swing ? swing
-            : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
+            : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId, sequence), false))
             : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
@@ -354,11 +354,16 @@ public static partial class Game
         if (!spell) profile = NativeVolley(profile, Get);
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
-        var local = spell ? null : WeaponFor(conn).LocalSources;
+        // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
+        // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
+        var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(conn, skillId, sequence);
+        var handWeapon = OffHandSwing(conn, swingHand);
+        int? handCritical = SwingWeaponCritical(conn, swingHand);
+        var local = spell ? null : HandLocalSources(conn, swingHand);
         int addedChaos = sacrifice?.AddedChaos(() => session.Packet(sacrifice.LifePacket)) ?? 0;
         string hand = spell ? "spell" : "main_hand";
-        var hitInputs = SupportedHitInputsFor(conn, skillId, area: false, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
-        var areaHitInputs = SupportedHitInputsFor(conn, skillId, area: true, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
+        var hitInputs = SupportedHitInputsFor(conn, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
+        var areaHitInputs = SupportedHitInputsFor(conn, skillId, area: true, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
         var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand);
         long additionalBlindedIncreased = (long)Player(PlayerHitDamage.VsBlindedDamageStat)
             + Own(PlayerHitDamage.VsBlindedDamageStat);
@@ -366,14 +371,15 @@ public static partial class Game
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
-            spell, PlayerAccuracy(conn, player),
-            SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
+            spell, handWeapon is null ? PlayerAccuracy(conn, player) : HandAccuracy(conn, swingHand, player),
+            SupportedCriticalChanceFor(conn, skillId, release: true, weaponCritical: handCritical),
+            SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
-            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
-            VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
+            VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true, handCritical),
+            VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true, handCritical),
             ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
@@ -388,7 +394,7 @@ public static partial class Game
             Penetration = Penetration.Of(player, Stats, !spell, own, local), ResistanceMods = HitResistMods(player, own),
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
-            AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
+            AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId, swingHand), CriticalRoll = criticalRoll,
             Leech = HitLeechSources(player, !spell, own, local), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
