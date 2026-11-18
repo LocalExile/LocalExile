@@ -36,6 +36,6 @@ public sealed class HarvestHeartOfTheGroveModule : IModule
         },
         // A reload places it again: the encounter's own saved state keeps its progress.
         Place: (conn, site) => OshabiEncounter.Place(conn, site.Centre, site.Level,
-            new(Altar: false, Rewards: true, Log: "Heart of the Grove")))));
+            new(Altar: false, Log: "Heart of the Grove")))));
     }
 }

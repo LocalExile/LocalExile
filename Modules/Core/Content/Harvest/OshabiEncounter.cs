@@ -19,7 +19,6 @@ public static class OshabiEncounter
     public const string AreaId = "HarvestLeagueBoss";
     public const string TreeType = "Metadata/Terrain/Leagues/Harvest/Objects/SoulTree";
     public const string AltarType = "Metadata/MiscellaneousObjects/Descendancy/OshabiDescensionObject";
-    public const string RootCreatorType = "Metadata/Terrain/Leagues/Harvest/Objects/OshabiRootCreator";
     public const string BossId = "Metadata/Monsters/LeagueHarvest/Oshabi/OshabiBoss";
     public const string DefeatedFlag = "HarvestOshabiDefeated";
     const string SpawnerType = "Metadata/Terrain/Leagues/Harvest/Objects/OshabiEncounterSpawner";
@@ -36,10 +35,10 @@ public static class OshabiEncounter
     static readonly string[] Energy = ["", "energy_orange_stage", "energy_blue_stage", "energy_green_stage", "energy_red_stage"];
 
     /// <summary>The object types the Harvest tables load for the encounter (HarvestTables.Objects).</summary>
-    internal static readonly HashSet<string> Types = new(StringComparer.Ordinal) { TreeType, AltarType, RootCreatorType };
+    internal static readonly HashSet<string> Types = new(StringComparer.Ordinal) { TreeType, AltarType };
 
-    /// <summary>What a placement gives: the Groveseed Altar after the kill, the world.db rewards, and its log name.</summary>
-    public sealed record Options(bool Altar, bool Rewards, string Log);
+    /// <summary>What a placement gives: the Groveseed Altar after the kill, and its log name.</summary>
+    public sealed record Options(bool Altar, string Log);
 
     /// <summary>The encounter's saved state (the instance's content state).</summary>
     public sealed class Saved
@@ -49,7 +48,6 @@ public static class OshabiEncounter
         public List<(int X, int Y)> VineEnds { get; set; } = [];
         public int Level { get; set; }
         public bool AltarOn { get; set; }
-        public bool Rewards { get; set; }
         public string Log { get; set; } = "Oshabi";
         /// <summary>The four colours in this fight's order; <see cref="Stage"/> is the current one.</summary>
         public List<int> Colours { get; set; } = [];
@@ -102,7 +100,7 @@ public static class OshabiEncounter
         if (conn.Layout.Id != AreaId || MapRunOf(conn) is not { } run) return;
         var spawner = conn.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == SpawnerType);
         var at = spawner is null ? conn.Layout.Near((conn.Layout.GridW / 2, conn.Layout.GridH / 2)) : (spawner.X, spawner.Y);
-        await Place(conn, at, run.Area.Level, new(Altar: true, Rewards: true, Log: "Oshabi"));
+        await Place(conn, at, run.Area.Level, new(Altar: true, Log: "Oshabi"));
     }
 
     /// <summary>Creates the instance's encounter once, with the soul tree at <paramref name="tree"/> and its monsters at
@@ -168,7 +166,7 @@ public static class OshabiEncounter
                 States = { ["progression"] = 9, ["interactable"] = 1, ["unlocked"] = 1 },
             },
             VineEnds = [.. roomObjects.Where(o => o.Type == VineEndType).Select(o => (o.X, o.Y))],
-            Level = Math.Clamp(level, 1, 100), AltarOn = options.Altar, Rewards = options.Rewards, Log = options.Log, Colours = colours,
+            Level = Math.Clamp(level, 1, 100), AltarOn = options.Altar, Log = options.Log, Colours = colours,
         };
         if (options.Altar && objects.ContainsKey(AltarType))
         {
@@ -562,7 +560,7 @@ public static class OshabiEncounter
     public static void Drops(DropRoll drop)
     {
         if (drop.Conn.Instance is not { } instance || !Encounters.TryGetValue(instance, out var e) || e.State is not { Boss: not 0 } state
-            || drop.Monster.ObjectId != state.Boss || !state.Rewards) return;
+            || drop.Monster.ObjectId != state.Boss) return;
         var table = Rewards(DropDataProvider.Default.Current);
         var random = Random.Shared;
         double total = 0;

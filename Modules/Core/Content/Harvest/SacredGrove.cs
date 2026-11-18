@@ -386,7 +386,12 @@ public static class SacredGrove
         }
         GroveObject[] objects;
         await area.Gate.WaitAsync();
-        try { objects = [.. grove.Objects.Values]; }
+        // Copies with their states taken under the gate: a crop starting meanwhile adds state keys (SetStates).
+        try
+        {
+            objects = [.. grove.Objects.Values.Select(o => new GroveObject
+                { Id = o.Id, Type = o.Type, X = o.X, Y = o.Y, Rotation = o.Rotation, Model = o.Model, States = new(o.States), Seeds = o.Seeds })];
+        }
         finally { area.Gate.Release(); }
         foreach (var o in objects) await Present(conn, o);
     }
@@ -533,7 +538,7 @@ public static class SacredGrove
     }
 
     /// <summary>Completes a running crop whose monsters are all dead (GameEvents.Tick): its Extractor is done, the other
-    /// crops can be targeted again, and with Crop Rotation the other colours' unstarted seeds may rise a tier.</summary>
+    /// crops can be targeted again. Crop Rotation (the other colours' unstarted seeds rising a tier) is not applied.</summary>
     public static async Task Tick(ClientState conn)
     {
         if (conn.Instance is null) return;

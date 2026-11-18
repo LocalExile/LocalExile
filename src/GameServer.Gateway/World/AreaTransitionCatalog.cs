@@ -401,13 +401,13 @@ public static class AreaTransitionCatalog
         return placed;
     }
 
-    /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
-    /// an unknown key or without the table.</summary>
     // The HASH16 of a WorldAreas row, or null for -1 or an unknown row.
     static ushort? SubAreaHash(int row) => row < 0 ? null
         : ClientTables.TableOrEmpty("WorldAreas").FirstOrDefault(r => r.Index == row) is { } area && area.Int("HASH16") is var h and > 0
             ? (ushort)h : null;
 
+    /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
+    /// an unknown key or without the table.</summary>
     static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings.Value?.GetValueOrDefault(key);
 
     static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
