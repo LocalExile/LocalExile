@@ -464,11 +464,17 @@ public static class AreaPopulation
                 centres.Add((p.X, p.Y));
                 notes.Add($"room point {p.Name} at ({p.X}, {p.Y}): {pack.Id}");
             }
-        var depth = Depth(w, h, walkable);
+        // One pass over the grid serves the depth flood, the reach flood and every member's cell: the delegate was asked
+        // up to eight times per cell, over 3.2 million cells on a generated map.
+        var cells = new bool[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                cells[y * w + x] = walkable(x, y);
+        var depth = Depth(w, h, cells);
         // A pack in a pocket the arrival cannot walk to is a monster the area's count keeps and nobody can kill: the
         // map reads "more than 50 monsters remaining" long after it was cleared. The walk map of a generated map has
         // such pockets (cells walled off from the entrance), so the packs stand only where the player can reach them.
-        var reach = Reachable(w, h, walkable, arrival);
+        var reach = Reachable(w, h, cells, arrival);
         var candidates = new List<(int X, int Y)>();
         int pocket = 0;
         for (int y = 0; y < h; y += 3)
@@ -485,7 +491,7 @@ public static class AreaPopulation
                 $"({walkableCells - packCells} of {walkableCells} walkable cell(s) cut off)");
         Shuffle(candidates, rng);
         bool ReachableMember(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h
-            && (reach is null || reach[y * w + x]) && walkable(x, y);
+            && (reach is null || reach[y * w + x]) && cells[y * w + x];
         foreach (var request in additionalPacks ?? [])
         {
             int placed = 0, first = spawns.Count;
@@ -723,22 +729,36 @@ public static class AreaPopulation
     }
 
     /// <summary>Per cell: 0 when blocked, else the 4-neighbour distance to the nearest blocked cell.</summary>
-    static int[] Depth(int w, int h, Func<int, int, bool> walkable)
+    static int[] Depth(int w, int h, bool[] walkable)
     {
         var dist = new int[w * h];
         var q = new Queue<int>();
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                if (walkable(x, y)) dist[y * w + x] = int.MaxValue; else q.Enqueue(y * w + x);
+        for (int i = 0; i < dist.Length; i++)
+            if (walkable[i]) dist[i] = int.MaxValue; else q.Enqueue(i);
+        // The four neighbours written out: a per-cell array here allocated once per cell of the grid (3.2 million of
+        // them on a generated map) and was most of the pack plan's 368 ms (live 2026-11-17).
         while (q.Count > 0)
         {
-            int i = q.Dequeue(), x = i % w, y = i / w;
-            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+            int i = q.Dequeue(), x = i % w, y = i / w, next = dist[i] + 1;
+            if (x > 0)
             {
-                int nx = x + dx, ny = y + dy;
-                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-                int j = ny * w + nx;
-                if (dist[j] > dist[i] + 1) { dist[j] = dist[i] + 1; q.Enqueue(j); }
+                int j = i - 1;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (x + 1 < w)
+            {
+                int j = i + 1;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (y > 0)
+            {
+                int j = i - w;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
+            }
+            if (y + 1 < h)
+            {
+                int j = i + w;
+                if (dist[j] > next) { dist[j] = next; q.Enqueue(j); }
             }
         }
         return dist;
@@ -748,7 +768,16 @@ public static class AreaPopulation
     /// arrival is not itself a walkable cell, where the walk map cannot say which way the player comes in.</summary>
     public static bool[]? Reachable(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival)
     {
-        if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable(arrival.X, arrival.Y))
+        if (w <= 0 || h <= 0) return null;
+        var cells = new bool[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) cells[y * w + x] = walkable(x, y);
+        return Reachable(w, h, cells, arrival);
+    }
+
+    static bool[]? Reachable(int w, int h, bool[] walkable, (int X, int Y) arrival)
+    {
+        if (w <= 0 || h <= 0 || (uint)arrival.X >= (uint)w || (uint)arrival.Y >= (uint)h || !walkable[arrival.Y * w + arrival.X])
             return null;
         var seen = new bool[w * h];
         var q = new Queue<int>();
@@ -758,15 +787,19 @@ public static class AreaPopulation
         {
             int i = q.Dequeue(), x = i % w, y = i / w;
             for (int dy = -1; dy <= 1; dy++)
+            {
+                int ny = y + dy;
+                if ((uint)ny >= (uint)h) continue;
                 for (int dx = -1; dx <= 1; dx++)
                 {
-                    int nx = x + dx, ny = y + dy;
-                    if ((uint)nx >= (uint)w || (uint)ny >= (uint)h) continue;
+                    int nx = x + dx;
+                    if ((uint)nx >= (uint)w) continue;
                     int j = ny * w + nx;
-                    if (seen[j] || !walkable(nx, ny)) continue;
+                    if (seen[j] || !walkable[j]) continue;
                     seen[j] = true;
                     q.Enqueue(j);
                 }
+            }
         }
         return seen;
     }

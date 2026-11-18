@@ -41,11 +41,6 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
 
     public sealed record Variant(string Name, string? BaseTypeId, string[] Mods, int Weight = 0);
 
-    /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
-    /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
-    /// rows: poedb's item cards give each unique's own requirement, which can be lower than the base type's level
-    /// (Seven-League Step on Rawhide Boots, drop level 3, is "Requires Level 1, 11 Dex"). The table is the place for
-    /// other hidden mods PoB omits as they are identified.</summary>
     static readonly Dictionary<string, string[]> HiddenMods = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Araku Tiki|Metadata/Items/Amulets/Amulet2"] = ["LevelRequirementOverrideUnique__1"],

@@ -198,7 +198,7 @@ public static partial class Game
         Item flask, IReadOnlyDictionary<string, int> local, UtilityFlasks.Utility utility, Func<string, int> character)
     {
         if (flask.Rarity == ItemRarity.Unique || character("flasks_apply_to_your_linked_targets") == 0) return;
-        var (stats, seconds) = UtilityFlasks.For(utility, flask, local,
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local,
             name => name is "flask_effect_+%" or "magic_utility_flask_effect_+%" ? 0 : character(name));
         uint duration = BitConverter.SingleToUInt32Bits((float)seconds);
         var bytes = new List<byte>();
