@@ -6,8 +6,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest, what is left: Oshabi, Sacred Blossom and her area `HarvestLeagueBoss`; a check that the memory-line room's
-sites group as the normal grove's do; Faridun seeds, Refiner's Bargain's crops and the Harvest-scarab drop weighting;
+Harvest, what is left: Oshabi, Sacred Blossom and her area `HarvestLeagueBoss`; the memory-line grove
+(`memory_line_num_harvest_plots`, the larger plot with premium seeds) and a check that its room's sites group as the
+normal grove's do; Faridun seeds, Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab
+weighting;
 the client questions (the gate label, which crop object carries the seed list, the Extractor/Irrigator state sequence
 and where seeds sit); the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and enchants.
 

@@ -105,11 +105,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
-  and `.tgr` maps; its `link` rooms are a gate each way inside the map instance, and map packs stay out of the grove.
+  and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
+  packs stay out of the grove.
   The Harvest module fills 3-4 pairs of crops (Extractor, Irrigator, Pole, Storage Tank, 23 seeds by colour and tier);
   one click hatches the seed monsters and withers the other crop of the pair; they drop Wild/Vivid/Primal lifeforce.
-  The 39 `atlas_harvest_*` passives, the three Harvest scarabs and the Idols' same stats apply, all read from
-  `Game.MapModsOf`.
+  The `atlas_harvest_*` passives, the three Harvest scarabs and the Idols' same stats apply, all read from
+  `Game.MapModsOf`, except Nature's Favour (lucky Horticrafting outcomes), the Harvest-scarab weighting
+  (`map_harvest_scarab_more_likely_%`), Refiner's Bargain's crops (its monsters drop no lifeforce and nothing else) and
+  the memory-line grove's larger plot (it is an ordinary grove).
   Not yet verified in the client: the gates, the grove objects and their states, seeds, monsters and drops.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
