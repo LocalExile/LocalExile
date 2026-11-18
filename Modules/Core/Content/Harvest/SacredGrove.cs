@@ -125,6 +125,9 @@ public static class SacredGrove
 
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    // Rulesets "HarvestRules" (row 105): the client's Harvest ruleset, created by S→C 0x1f.
+    static readonly Lazy<byte?> HarvestRules = new(() => ClientTables.TableOrEmpty("Rulesets")
+        .FirstOrDefault(r => r.Text("Id") == "HarvestRules") is { } r ? (byte)r.Index : null);
     static readonly Lazy<string> Refusal = new(() => ClientTables.TableOrEmpty("ClientStrings")
         .FirstOrDefault(r => r.Text("Id") == "HarvestDisabledDuringCombat") is { Table: not null } row && row.Text("Text") is { } text
         ? text : "You cannot perform that action while a Harvest encounter is in progress.");
@@ -368,6 +371,13 @@ public static class SacredGrove
     public static async Task Enter(ClientState conn)
     {
         if (await Load(conn) is not { Grove: { } grove } area) return;
+        // The client's HarvestRules ruleset must exist before an Extractor turns targetable: its label looks the ruleset up
+        // once and the client crashes without it (live 2026-11-18).
+        if (HarvestRules.Value is byte rules)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await Send(remote, stream, ciphers, InstanceProtocol.AddRuleset(rules), $"0x001f ruleset HarvestRules (row {rules})");
+        }
         if (grove.ReplacedBy is { } key)
         {
             if (Replacements.FirstOrDefault(r => r.Key == key) is { } replacement) await replacement.Place(conn, SiteOf(conn, grove));

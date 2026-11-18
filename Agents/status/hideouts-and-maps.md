@@ -117,8 +117,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Tier 4 bosses drop the Sacred Blossom, which opens `HarvestLeagueBoss`: the soul tree starts Oshabi's four colour
   phases (Sacred first) and their adds, the Root Wall cage held by the walls' bodies (sent unblocked); her death sets
   `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The opt-in Legacy module `HarvestHeartOfTheGrove` (3.13) rarely puts her in a map's grove.
-  Not yet verified in the client: the gates, the grove objects and their states, seeds, monsters and drops, and
-  Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
+  Live 2026-11-18 (tier 16 Cage): the gate labelled "The Sacred Grove" leads in and back; the grove needs the client's
+  HarvestRules ruleset (S→C 0x1f), without which an Extractor crashes the client once targetable; a Collector shows its
+  seed list, one click hatched 23 Vivid monsters and withered the pair, and their lifeforce reached the Horticrafting
+  Station. Not yet verified in the client: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
