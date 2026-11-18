@@ -3114,8 +3114,11 @@ failed I/O, allocation limits, actual official values and every skill's successf
   a reference model rather than native execution evidence. Generic and fire DoT multipliers add to each other,
   separately from increased damage ([PoB's DoT calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L5872-L5879));
   ailment, ignite and critical-only multipliers do not apply. Outgoing damage modifiers do not scale self-burn.
-  Supported-skill modifiers, conditional DoT multipliers and remaining more scopes are still incomplete;
-  native parity is unverified.
+  Admitted supports add their applicable quality increases to the player's increases.
+  Their area, elemental and DoT more factors multiply separately.
+  A linked elemental damage prohibition stops the burn on enemies.
+  Elemental Focus's ailment prohibition allows the skill's burning area.
+  Buff- and charge-dependent support damage and native comparison remain open.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +

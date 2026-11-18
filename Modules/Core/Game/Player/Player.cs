@@ -1405,6 +1405,38 @@ public static partial class Game
         }
     }
 
+    // Each entry grants more or less damage to this fire area DoT once its support is admitted.
+    static readonly string[] RighteousFireSupportMore =
+    [
+        "support_burning_damage_+%_final", "support_gem_elemental_damage_+%_final",
+        "support_area_concentrate_area_damage_+%_final", "support_efficacy_damage_over_time_+%_final",
+        "support_rapid_decay_damage_over_time_+%_final", "support_reduced_duration_damage_+%_final",
+        "cast_on_damage_taken_damage_+%_final",
+    ];
+
+    static double RighteousFireEnemyDps(ClientState conn, RighteousFireState rf,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    {
+        int Own(string name) => own.GetValueOrDefault(Stats.Key(name)!.Value);
+        double Combined(string name)
+        {
+            uint key = Stats.Key(name)!.Value;
+            return (double)player.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        }
+        if (DamageStats.Prohibited(DamageType.Fire, Own)) return 0;
+        double basis = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
+            + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+        double increased = Combined("damage_+%") + Combined("fire_damage_+%") + Combined("elemental_damage_+%")
+            + Combined("damage_over_time_+%") + Combined("fire_damage_over_time_+%") + Combined("burn_damage_+%")
+            + Combined("area_damage_+%") + Combined("righteous_fire_damage_+%");
+        double dps = basis * Math.Max(0, 100 + increased) / 100;
+        foreach (string stat in RighteousFireSupportMore) dps *= Math.Max(0, 1 + Own(stat) / 100d);
+        double dotMultiplier = Combined("dot_multiplier_+") + Combined("fire_dot_multiplier_+");
+        dps = dps * Math.Max(0, 100 + dotMultiplier) / 100;
+        int deliriumMore = player.GetValueOrDefault(Stats.Key("delirium_aura_damage_over_time_+%_final")!.Value);
+        return dps * Math.Max(0, 1 + deliriumMore / 100d) * ChargeDamageMore(player);
+    }
+
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
     public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
@@ -1427,24 +1459,8 @@ public static partial class Game
             Dictionary<uint, int> playerStats;
             using (new PlayerStatScope(conn, fresh: true))
             {
-                perSecond = (conn.PlayerMaxLife * (double)rf.DamagePctPerMinute
-                    + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
                 playerStats = CharacterPlayerStats(conn);
-                int Get(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
-                uint burningIncrease = Stats.Key("burn_damage_+%")!.Value;
-                // Burning Damage Support quality adds to the player's increases. Its level grants a separate more multiplier.
-                double increased = (double)Get("damage_+%") + Get("fire_damage_+%") + Get("elemental_damage_+%")
-                    + Get("damage_over_time_+%") + Get("fire_damage_over_time_+%")
-                    + playerStats.GetValueOrDefault(burningIncrease) + supported.Stats.GetValueOrDefault(burningIncrease)
-                    + Get("area_damage_+%") + Get("righteous_fire_damage_+%");
-                perSecond = perSecond * Math.Max(0, 100 + increased) / 100;
-                int burningMore = supported.Stats.GetValueOrDefault(Stats.Key("support_burning_damage_+%_final")!.Value);
-                perSecond *= Math.Max(0, 1 + burningMore / 100d);
-                double dotMultiplier = (double)Get("dot_multiplier_+") + Get("fire_dot_multiplier_+");
-                perSecond = perSecond * Math.Max(0, 100 + dotMultiplier) / 100;
-                if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
-                    perSecond *= Math.Max(0, 1 + playerStats.GetValueOrDefault(moreDot) / 100.0);
-                perSecond *= ChargeDamageMore(playerStats);
+                perSecond = RighteousFireEnemyDps(conn, rf, playerStats, supported.Stats);
             }
             var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
                 .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));

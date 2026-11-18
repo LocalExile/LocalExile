@@ -422,6 +422,7 @@ public class ArrowRainAndMirageTests
         Monster_elemental_modifiers_reach_damage_over_time();
         Righteous_fire_uses_player_damage_modifiers();
         await Righteous_fire_uses_its_current_burning_damage_support();
+        await Righteous_fire_combines_its_admitted_supports();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
     }
 
@@ -693,6 +694,105 @@ public class ArrowRainAndMirageTests
         Assert.Equal(80, m.Ignites.Advance(7, Game.MonsterDotTaken(m, DamageType.Fire, 7)));
     }
 
+    static async Task AssertRighteousFireTick(Battle b, RighteousFireState rf, double factor)
+    {
+        var c = b.Conn;
+        double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
+            + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+        b.Enemy.Burn = 0;
+        uint before = b.Enemy.Life, playerLife = c.PlayerLife;
+        await Game.BurnAround("rf-link", b.Stream, b.Ciphers, c, rf, .5);
+        Assert.Equal((int)Math.Floor(basis * factor * .5), (int)(before - b.Enemy.Life));
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+        Assert.Equal(playerLife, c.PlayerLife);
+    }
+
+    static async Task Righteous_fire_combines_its_admitted_supports()
+    {
+        static uint Key(string stat) => Program.Stats.Key(stat)!.Value;
+        using var b = new Battle("Righteous Fire", "Swift Affliction Support", "Elemental Focus Support",
+            "Concentrated Effect Support", "Efficacy Support", "Less Duration Support");
+        var c = b.Conn;
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+        {
+            ItemLevel = 80,
+            Sockets = item.Sockets.Select((socket, i) => i == 0 ? socket
+                : socket with { Gem = socket.Gem! with { Quality = 20 } }).ToArray(),
+        });
+        c.Pools = Game.PoolsFor(c, 100);
+        c.PlayerStats[Key("fire_damage_+%")] = 25;
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        b.Ally.Walk.Teleport(105, 100, 0);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        Game.SupportedGem Current() => Game.SupportedSkill(c, gem.Id);
+        var start = Current();
+        Assert.Equal(new[] { "SupportElementalFocus", "SupportConcentratedEffect", "SupportEfficacy" },
+            start.Supports.Select(s => s.Effect.Id));
+        Assert.Equal((20, 25, 15), (start.Stats[Key("support_gem_elemental_damage_+%_final")],
+            start.Stats[Key("support_area_concentrate_area_damage_+%_final")],
+            start.Stats[Key("support_efficacy_damage_over_time_+%_final")]));
+        Assert.Equal((10, 10, 10), (start.Stats[Key("elemental_damage_+%")],
+            start.Stats[Key("area_damage_+%")], start.Stats[Key("damage_over_time_+%")]));
+        Assert.NotEqual(0, start.Stats[Key("cannot_inflict_status_ailments")]);
+        c.Clock.Start(); // A paused instance refuses skill use.
+        await Game.OnUseObject("rf-links", b.Stream, b.Ciphers, c, new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
+        c.Clock.Stop();
+        var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
+        async Task Replace(int index, string name, byte quality = 0)
+        {
+            var replacement = Program.Items.FindGem(name)!.Value;
+            items.Add(PlayerInventories.Cursor, 0, 0,
+                ItemCatalog.Create(replacement.Type) with { GemVariant = replacement.Variant.Index, Quality = quality });
+            await Game.SocketGem("rf-links", b.Stream, b.Ciphers, c,
+                new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, (uint)index));
+            items.Remove(PlayerInventories.Cursor, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+            Assert.Same(rf, c.RighteousFire);
+        }
+        await Tick(1.55 * 1.2 * 1.25 * 1.15);
+        await Replace(2, "Lifetap Support");
+        var duration = Current();
+        Assert.Contains(duration.Supports, s => s.Effect.Id == "SupportSwiftAffliction");
+        Assert.Contains(duration.Supports, s => s.Effect.Id == "SupportLessDuration");
+        Assert.Equal((25, 10), (duration.Stats[Key("support_rapid_decay_damage_over_time_+%_final")],
+            duration.Stats[Key("support_reduced_duration_damage_+%_final")]));
+        Assert.Equal(20, duration.Stats[Key("damage_over_time_+%")]);
+        Assert.False(Lifetap.ActiveAt(c, Game.ProjectileWorldTime(c)));
+        await Tick(1.55 * 1.25 * 1.15 * 1.25 * 1.1);
+
+        foreach (var prohibition in new[] { "Brutality Support", "Void Manipulation Support" })
+        {
+            await Replace(2, prohibition);
+            var forbidden = Current();
+            Assert.NotEqual(0, forbidden.Stats[Key("deal_no_elemental_damage")]);
+            Assert.DoesNotContain(forbidden.Supports, s => s.Effect.Id is "SupportSwiftAffliction" or "SupportLessDuration");
+            await Tick(0);
+        }
+        await Replace(2, "Arcane Surge Support", 20);
+        Assert.Equal(10, Current().Stats[Key("spell_damage_+%")]);
+        Game.GainArcaneSurgeLocked(c, Game.ProjectileWorldTime(c), 4000, 20, 30);
+        Assert.True(Game.ArcaneSurgeActive(c, Game.ProjectileWorldTime(c)));
+        await Tick(1.55 * 1.25 * 1.15 * 1.25 * 1.1);
+
+        // A trigger support can be attached after activation, while the same physical RF is still burning.
+        foreach (var (name, stat, value, factor) in new[]
+        {
+            ("Cast when Damage Taken Support", "cast_on_damage_taken_damage_+%_final", -65, .35),
+            ("Cast on Ward Break Support", "cast_on_ward_break_damage_+%_final", -30, 1d), // Spell damage only.
+        })
+        {
+            await Replace(2, name);
+            Assert.Equal(value, Current().Stats[Key(stat)]);
+            Assert.NotNull(Game.TriggerOnlyReason(Current()));
+            await Tick(1.45 * 1.25 * 1.15 * factor);
+        }
+        await Replace(2, "Elemental Focus Support", 20);
+        await Tick(1.55 * 1.2 * 1.25 * 1.15);
+        Assert.Equal((5400, 4200), (rf.BurnPctPerMinute, rf.EnergyShieldBurnPctPerMinute));
+    }
+
     static async Task Righteous_fire_uses_its_current_burning_damage_support()
     {
         using var b = new Battle("Righteous Fire", "Burning Damage Support");
@@ -712,17 +812,7 @@ public class ArrowRainAndMirageTests
             gem.Effect, gem.Level, gem.Quality, gem.Gem);
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
         var owner = Assert.IsType<GemSourceLifetimes.SourceLifetime>(rf.SourceLifetime);
-        async Task Tick(double factor)
-        {
-            double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
-                + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
-            b.Enemy.Burn = 0;
-            uint before = b.Enemy.Life, playerLife = c.PlayerLife;
-            await Game.BurnAround("rf-link", b.Stream, b.Ciphers, c, rf, .5);
-            Assert.Equal((int)Math.Floor(basis * factor * .5), (int)(before - b.Enemy.Life));
-            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
-            Assert.Equal(playerLife, c.PlayerLife);
-        }
+        Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         await Tick(1.2);
         var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 1);
         await Game.UnsocketGem("rf-link", b.Stream, b.Ciphers, c, socket);

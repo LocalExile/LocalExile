@@ -81,8 +81,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     sources. Do not add overlapping displayed scopes, substitute regeneration for leech, broaden the attack-only item
     scope, infer Vaal Pact from legacy raw flag names, or multiply one boolean doubling per item copy.
   - Damage: alternative quality, off-hand alternation, endpoint-only modifiers and official rounding.
-    Righteous Fire's other supports, conditional DoT multipliers, remaining more scopes and native checks are open.
-    Its enemy burn uses player increases, generic/fire DoT multipliers and linked Burning Damage Support.
+    Righteous Fire uses its linked area, elemental and DoT damage modifiers and fire prohibitions on enemies.
+    Buff- and charge-dependent support damage, other conditional DoT multipliers and native checks remain open.
     Physical/per-element target increases and Maim now add with general DoT damage taken; hit target composition,
     other target scopes and native comparison remain open. A damage-qualified Maim settles pending bleeding before
     its target damage increase takes effect. Ordinary Maim has an independent movement timer.
