@@ -104,7 +104,7 @@ public static partial class Game
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
             MaimChance = Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
-            CriticalRoll = criticalRoll, Leech = captured.Leech,
+            CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
             PointBlank = Get("keystone_point_blank") != 0,

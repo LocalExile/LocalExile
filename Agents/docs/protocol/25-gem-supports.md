@@ -307,6 +307,8 @@ Guard cooldown recovery begins when the buff ends; guard damage absorption prece
 CoC alternates linked executable spells after an accepted attack critical hit, with native per-effect cooldown
 and separate spell payment; attacks retain manual use. CwC uses its native interval on the projectile pump,
 independently of the channel's hit/payment cadence, and drops future work when the paid channel becomes invalid.
+Cast on Melee Kill shares CoC's release (rotation, cooldown, payment) after a linked melee attack's own hit kills a
+hostile monster; kills by its ailments, by other skills or by minions do not count.
 Other generic triggers remain unavailable.
 Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
 actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.

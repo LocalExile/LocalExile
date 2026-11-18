@@ -55,8 +55,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - Yriel and Beacon creation variants use world-data modifier bundles; their gameplay remains partial.
-- Unique items, Mageblood, Headhunter, Bino's Kitchen Knife, The Squire, Kalandra's Touch and abyss jewels; most uniques'
-  own mechanics are missing.
+- Unique items, Mageblood, Headhunter and Replica Headhunter, Bino's Kitchen Knife, The Squire, abyss jewels,
+  Paradoxica's double damage (main hand only), Yoke of Suffering's damage taken per ailment type its wearer inflicted
+  (no scorch, brittle or sap) and Forbidden Shako's random supports; most uniques' own mechanics are missing.
   Bino's spreads the strongest poison and regenerates nearby players and allied monsters; fresh client checks are pending.
   Every client unique has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps,
   Impossible Escape, watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.

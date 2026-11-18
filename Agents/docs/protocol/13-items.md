@@ -497,7 +497,41 @@ time without counting twice. One `stolen_mods_buff` (BuffDefinitions 269) shows 
 time left, replaced at each change by the same ticker. Death and an area change end them. A stat with no consumer on the
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
-the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter's
+`gain_magic_monster_mods_on_kill_%_chance` (20) steals a magic monster's affixes on that chance into 60 s stacks of their
+own, shown with `stolen_mods_buff_experimented` (BuffDefinitions 1653, "Replica Headhunter"), and its
+`damage_+%_vs_magic_monsters` scales hits on magic monsters as the rare one does. Both steal on the wearer's own kills
+and on their minions', totems', traps' and mines' (`Game.KilledByPlayerOrOwned`), never on a party member's: the wiki's
+Headhunter mechanics count those as an exception to "you"; Replica Headhunter is taken to follow it. Such kills reach
+`GameEvents.Kill` with `PlayerKill` false, so their kill sites (minion hits, traps and mines, Fire Trap's ground, Arc
+totems, totem projectiles) mark the monster first; a Mirage Archer's kills and an ownerless damage-over-time death are
+not marked.
+
+**Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
+its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack
+made with that weapon doubles, before the triple-damage roll can override it. The server's attack hits are the main
+hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not
+alternate hands on the server yet.
+
+**Yoke of Suffering** (`ailment_types_apply_damage_taken_+%`, "for each type of Ailment you have inflicted on them"): the
+result is a debuff on the enemy, so every source of damage to it gains it (hits and damage over time, a party member's,
+minions', unowned). A party shares its monsters, so each wearer's enemy-debuff step keeps the wearer's own value on each
+living hostile monster, keyed by its PeerId (`SpawnedMonster.SetSourceValue`); a non-wearer, unequipping or death clears
+only that wearer's entry, and leaving the instance (`Left`) removes the leaver's. Each player's ignite, chill, freeze,
+shock, bleed and poison applications (their hits, their totems', traps' and mines', Arctic Armour, Brine Bound,
+Within the Tempest, Berek's Respite, Bino's spread) mark the type as theirs on the monster until that ailment of theirs
+would end (`InflictedLocked`, `SpawnedMonster.MarkSource`), and proliferation passes the marks on; minions' ailments are
+not their owner's. A wearer counts the types they marked that are still on the monster (`AilmentTypesInflicted`), and
+the enemy takes the sum over the wearers. A mark lasts the ailment's duration when applied, so a later change of its
+expiry rate is not followed. Scorch, brittle and sap count in the game, but the server does not model them.
+
+**Forbidden Shako and its Replica** (`GemSupports.ItemCandidates`): each RandomSupportUnique mod rolls
+`local_random_support_gem_index[_1]` (1-172) and `local_random_support_gem_level[_1]`; the description shows the index
+through `display_indexable_support`, which is IndexableSupportGems' `Index` column (row + 1), whose `SupportGem` is a
+SkillGems row. Its first GemVariants entry's GrantedEffect supports every gem socketed in the helmet, as other "Socketed
+Gems are Supported by" mods do, at the rolled level (every listed support has GrantedEffectsPerLevel rows to 40). The table
+is the pool: Empower, Enhance, Enlighten and the other gems that cannot roll are not in it. Two rolls of one gem keep the
+higher level (`GemSupports.Resolve`, one per family).
 
 **Kalandra's Touch** (`RingReflections`, Progression's equipment sum): a ring with `local_ring_duplicate_other_ring`
 ("Reflects opposite Ring") in the left or right ring slot (rows 6/7) adds a copy of the other slot's ring to the

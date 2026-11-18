@@ -2834,6 +2834,17 @@ Use object stats `is_trap_object` / `is_remote_mine`, not the skill's `is_trap` 
 `BeThrown` (`0x141c11350`) selects the native throw animation; a 0x1ba glide supplies horizontal travel in seconds,
 followed by `Arm` at landing. Actor update flag0 bit7 publishes detonation availability (Actor +0x219 bit3);
 `DetonateMines` admission (`0x141d26730`) reads this bit, not the active-mine stat. Every Actor refresh must retain it.
+A throw takes the trap or mine throwing time (0.6 s and 0.3 s over throwing speed), not the spell's cast time.
+With the button held, the 3.29.3c client sent its next use about 0.39 s after the last (live 2026-11-17, Fireball with
+Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
+throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
+A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
+It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
+that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
+One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
+(250) after the one before, at 10% more detonation speed per mine already in the sequence.
+Held cadence was 5/6 of the computed throw time for both kinds (0.39 s against 0.45 s, 0.246 s against 0.275 s).
 
 ## 10i. Warcry release: timing and release effects
 
@@ -3123,6 +3134,12 @@ failed I/O, allocation limits, actual official values and every skill's successf
   `skill_area_of_effect_+%` + `spell_area_of_effect_+%`) × each `…area_of_effect_+%_final`, then
   × (1 + `active_skill_area_of_effect_radius_+%_final`), from the player's stats under the skill's (`SkillArea`).
   Conditional area stats (per charge, per attribute, "recently") are not modelled.
+  Every player area site reads `Game.SkillAreaStats`: the player's stats hold `base_skill_area_of_effect_+%` and the
+  panel total `skill_area_of_effect_+%` that already includes it, so only the skill's own base form is kept, and the
+  type-scoped increases (`melee_skills_…`, `attack_…`, `warcry_skill_…`, `vaal_skills_…`, totem, trap and mine) are
+  added to the total for a skill of that type. A support's more area multiplies the modifier, so a radius grows by its
+  square root (Fist of War's 59% is ×1.26). Durations go through `SkillDurationModifiers.Seconds`, whose `Kinds`
+  (warcry, Vaal, buff, secondary) pick the type-scoped increases.
 - **Passive blind aura** (`PassiveBuffAuras.BlindTemplate`, §10e). `SaboteurBlind` (Devout of Solaris, Born in the
   Shadows) is `generic_buff_aura` (1521: invisible, no stats, CancelOnDeath) with radius 35 (3.5 m in the wiki's
   distance table). Its effect is not in the definition: unnamed column `__col5` of the generic templates starts with an

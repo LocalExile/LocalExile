@@ -57,6 +57,16 @@ public static partial class Game
         return extra;
     }
 
+    public static IReadOnlyDictionary<string, int> MapBossEffects(MapMods mods) => new Dictionary<string, int>
+    {
+        ["maximum_life_+%"] = mods.Get("map_boss_maximum_life_+%"),
+        ["damage_+%"] = mods.Get("map_boss_damage_+%"),
+        ["attack_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_cast_speed_+%"] = mods.Get("map_boss_attack_and_cast_speed_+%"),
+        ["base_item_found_quantity_+%"] = mods.Get("map_boss_dropped_item_quantity_+%"),
+        ["base_item_found_rarity_+%"] = mods.Get("map_boss_item_rarity_+%"),
+    };
+
     static IEnumerable<AreaPopulation.Spawn> WithTwinBosses(IEnumerable<AreaPopulation.Spawn> spawns, MapMods? mods)
     {
         if ((mods?.Get("map_spawn_two_bosses") ?? 0) == 0) return spawns;
