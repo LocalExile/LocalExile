@@ -252,7 +252,7 @@ public static partial class Game
         int strength, dexterity, intelligence, life, mana, energyShield, poisonStacks;
         IReadOnlyDictionary<string, bool> conditionFlags;
         LifeReservationConditionSnapshot lifeReservationConditions;
-        IReadOnlyDictionary<string, long> recentAmounts;
+        ReadAmounts recentAmounts;
         lock (conn.Monsters)
         {
             auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
@@ -276,7 +276,7 @@ public static partial class Game
             measured[StatConditions.ActiveNonVaalSkillMinionCount] =
                 ActiveNonVaalSkillMinionCountLocked(conn, conditionNow);
             OwnedCountItemStats.Capture(conn, conditionNow, AreaTime(conn), measured);
-            recentAmounts = measured;
+            recentAmounts = new(measured);
         }
         // A deterministic test can interleave another owner update here, after this call has captured its condition view.
         afterConditionCapture?.Invoke();
@@ -884,7 +884,7 @@ public static partial class Game
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
-        IReadOnlyDictionary<string, bool>? Flags = null, IReadOnlyDictionary<string, long>? Amounts = null,
+        IReadOnlyDictionary<string, bool>? Flags = null, ReadAmounts? Amounts = null,
         int PoisonStacks = 0, ItemCatalog? Catalog = null, int QualifiedItemLifeReservationPercent = 0)
     {
         public bool Matches(StatSourcesKey o) =>
@@ -907,7 +907,31 @@ public static partial class Game
             && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
             && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active))
             && (Amounts?.Count ?? 0) == (o.Amounts?.Count ?? 0)
-            && (Amounts is null || Amounts.All(p => o.Amounts is not null && o.Amounts.TryGetValue(p.Key, out long total) && p.Value == total));
+            && (Amounts is null || o.Amounts is not null && Amounts.ReadSame(o.Amounts));
+    }
+
+    /// <summary>The named amounts of one stat-sources build (kills and mana spent recently, living minions and totems),
+    /// remembering which of them the build read. Its result depends on those alone, so a kill or a paid cost does not
+    /// discard the cached sum of a character none of whose stats count them (live 2026-11-17: every kill and every cast
+    /// rebuilt it, three to four times the stat builds' CPU in a fight).</summary>
+    public sealed class ReadAmounts(Dictionary<string, long> values) : IReadOnlyDictionary<string, long>
+    {
+        readonly Dictionary<string, long> values = values;
+        // A resolver kept by a later consumer may read on another thread.
+        readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> read = new();
+        public bool TryGetValue(string key, out long value) { read[key] = true; return values.TryGetValue(key, out value); }
+        public long this[string key] { get { read[key] = true; return values[key]; } }
+        // Every amount is always present (zero when nothing happened), so asking whether one is reads no value.
+        public bool ContainsKey(string key) => values.ContainsKey(key);
+        public int Count => values.Count;
+        public IEnumerable<string> Keys => values.Keys;
+        public IEnumerable<long> Values => All().Select(p => p.Value);
+        public IEnumerator<KeyValuePair<string, long>> GetEnumerator() => All().GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+        Dictionary<string, long> All() { foreach (string key in values.Keys) read[key] = true; return values; }
+        /// <summary>Whether every amount this build read has the same value in <paramref name="other"/>.</summary>
+        public bool ReadSame(ReadAmounts other) => read.Keys.All(key =>
+            values.TryGetValue(key, out long mine) == other.values.TryGetValue(key, out long theirs) && mine == theirs);
     }
 
     public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,

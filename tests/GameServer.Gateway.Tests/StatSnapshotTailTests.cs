@@ -403,6 +403,47 @@ public class StatSnapshotTailTests
         Assert.Equal(rarityWithNormal - rarity, global::Game.IncreasedItemRarity(conn));
     }
 
+    // Kills and mana spent recently are inputs of the item-stat sum only for a character one of whose stats counts
+    // them: for any other, a kill or a paid cost must leave the cached sum in place (it is asked for on every hit).
+    [Fact]
+    public void Item_stat_cache_survives_kills_and_mana_spent_unless_a_worn_stat_counts_them()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("RecentAmountCache" + Guid.NewGuid().ToString("N"));
+        var inventory = (PlayerInventories)Game("ItemsOf", conn)!;
+        var items = (ItemCatalog)Game("ItemsFor", conn)!;
+        foreach (var (row, item) in inventory.EquipmentSnapshot()) inventory.Remove(row, item.Id);
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        void Happen()
+        {
+            lock (conn.Monsters)
+            {
+                conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+                conn.RecentEvents.RecordAmount(StatConditions.SpentMana, now, 500);
+            }
+        }
+        Happen();   // The events themselves ("killed recently") are inputs for everyone: have them from the start.
+        Snapshot(conn);
+        var cached = conn.StatSourcesCache;
+        Happen();
+        Snapshot(conn);
+        Assert.Same(cached, conn.StatSourcesCache);
+
+        var counting = items.Mods.All.First(m => m.Stats.Count == 1
+            && StatConditions.TryRecentAmount(m.Stats[0].Id, out string counted, out _, out _) && counted == StatConditions.KilledEnemy);
+        inventory.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(items.Find("Exquisite Leather")!, random: new Random(1)) with
+        {
+            Mods = [counting.Roll(ModSection.Explicit, new Random(1))],
+        });
+        Snapshot(conn);
+        cached = conn.StatSourcesCache;
+        Snapshot(conn);
+        Assert.Same(cached, conn.StatSourcesCache);
+        Happen();
+        Snapshot(conn);
+        Assert.NotSame(cached, conn.StatSourcesCache);
+    }
+
     [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
