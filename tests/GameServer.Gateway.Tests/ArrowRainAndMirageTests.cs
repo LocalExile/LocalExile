@@ -322,7 +322,7 @@ public class ArrowRainAndMirageTests
     [InlineData("Blast Rain", 3030, 3000, 4530)]
     [InlineData("Toxic Rain", 5120, 5100, 7670)]
     [InlineData("Split Arrow", 12120, 12120, 18180)]
-    public void Attack_coefficients_separate_weapon_base_from_added_damage(string skill, int basis, int added, double expected)
+    public async Task Attack_coefficients_separate_weapon_base_from_added_damage(string skill, int basis, int added, double expected)
     {
         using var b = new Battle(skill);
         var items = Game.ItemsOf(b.Conn);
@@ -421,6 +421,7 @@ public class ArrowRainAndMirageTests
         Maim_settles_elapsed_bleeding_before_changing_target_damage();
         Monster_elemental_modifiers_reach_damage_over_time();
         Righteous_fire_uses_player_damage_modifiers();
+        await Righteous_fire_uses_its_current_burning_damage_support();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
     }
 
@@ -690,6 +691,79 @@ public class ArrowRainAndMirageTests
         Assert.Equal(100, m.Ignites.Advance(6, Game.MonsterDotTaken(m, DamageType.Fire, 6)));
         m.EncounterStats = IzaroEffects.Sum([fire]);
         Assert.Equal(80, m.Ignites.Advance(7, Game.MonsterDotTaken(m, DamageType.Fire, 7)));
+    }
+
+    static async Task Righteous_fire_uses_its_current_burning_damage_support()
+    {
+        using var b = new Battle("Righteous Fire", "Burning Damage Support");
+        var c = b.Conn;
+        c.Pools = Game.PoolsFor(c, 100);
+        b.Enemy.Walk.Teleport(110, 100, 0);
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        var supported = Game.SupportedSkill(c, gem.Id);
+        Assert.Contains(supported.Supports, s => s.Effect.Id == "SupportBurningDamage");
+        uint burning = Program.Stats.Key("support_burning_damage_+%_final")!.Value;
+        uint increased = Program.Stats.Key("burn_damage_+%")!.Value;
+        b.Ally.Walk.Teleport(110, 100, 0);
+        Assert.Equal(20, supported.Stats[burning]);
+        await Game.ActivateRighteousFire("rf-link", b.Stream, b.Ciphers, c, gem.Id,
+            gem.Effect, gem.Level, gem.Quality, gem.Gem);
+        var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        var owner = Assert.IsType<GemSourceLifetimes.SourceLifetime>(rf.SourceLifetime);
+        async Task Tick(double factor)
+        {
+            double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
+                + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+            b.Enemy.Burn = 0;
+            uint before = b.Enemy.Life, playerLife = c.PlayerLife;
+            await Game.BurnAround("rf-link", b.Stream, b.Ciphers, c, rf, .5);
+            Assert.Equal((int)Math.Floor(basis * factor * .5), (int)(before - b.Enemy.Life));
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(playerLife, c.PlayerLife);
+        }
+        await Tick(1.2);
+        var socket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 1);
+        await Game.UnsocketGem("rf-link", b.Stream, b.Ciphers, c, socket);
+        Assert.Same(rf, c.RighteousFire);
+        Assert.True(c.GemSourceLifetimes.IsCurrent(owner));
+        Assert.DoesNotContain(burning, Game.SupportedSkill(c, gem.Id).Stats.Keys);
+        await Tick(1);
+        c.PlayerStats[Program.Stats.Key("fire_damage_+%")!.Value] = 25;
+        c.PlayerStats[burning] = 80; // Only a support attached to this skill supplies the more multiplier.
+        await Tick(1.25);
+        var held = Assert.Single(items.Items(PlayerInventories.Cursor));
+        items.Change(PlayerInventories.Cursor, held.Id, item => item with { Quality = 20 });
+        await Game.SocketGem("rf-link", b.Stream, b.Ciphers, c, socket);
+        Assert.Same(rf, c.RighteousFire);
+        var quality = Game.SupportedSkill(c, gem.Id).Stats;
+        Assert.Equal((20, 10), (quality[burning], quality[increased]));
+        await Tick(1.35 * 1.2);
+        var highLevel = Program.Items.FindGem("Burning Damage Support")!.Value;
+        items.Add(PlayerInventories.Cursor, 0, 0,
+            ItemCatalog.Create(highLevel.Type) with { GemVariant = highLevel.Variant.Index, Quality = 20,
+                GemExperience = Program.Items.Gem(highLevel.Type)!.ExperienceFor(20) });
+        await Game.SocketGem("rf-link", b.Stream, b.Ciphers, c, socket);
+        Assert.Same(rf, c.RighteousFire);
+        Assert.True(c.GemSourceLifetimes.IsCurrent(owner));
+        var swapped = Game.SupportedSkill(c, gem.Id).Stats;
+        Assert.Equal((34, 10), (swapped[burning], swapped[increased]));
+        await Tick(1.35 * 1.34);
+        c.PlayerStats[Program.Stats.Key("base_deal_no_fire_damage")!.Value] = 1;
+        await Tick(0);
+        c.PlayerStats.Remove(Program.Stats.Key("base_deal_no_fire_damage")!.Value);
+        items.Remove(PlayerInventories.Cursor, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+        Assert.Equal((5400, 4200), (rf.BurnPctPerMinute, rf.EnergyShieldBurnPctPerMinute));
+
+        var replacement = Program.Items.FindGem("Righteous Fire")!.Value;
+        items.Add(PlayerInventories.Cursor, 0, 0,
+            ItemCatalog.Create(replacement.Type) with { GemVariant = replacement.Variant.Index });
+        await Game.SocketGem("rf-link", b.Stream, b.Ciphers, c, socket with { Socket = 0 });
+        Assert.True(owner.Retired);
+        Assert.Null(c.RighteousFire);
+        Assert.Equal(gem.Id, Assert.Single(Game.GemSkillEffects(c)).Id);
+        await Tick(0);
     }
 
     static void Righteous_fire_uses_player_damage_modifiers()

@@ -64,7 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Righteous Fire: enemy-burn increases and DoT multipliers (server-tested). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Righteous Fire enemy burn and Burning Damage Support (server-tested). [Skills §12](../docs/protocol/11-skills.md)
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).

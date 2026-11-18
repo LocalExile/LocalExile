@@ -598,22 +598,22 @@ public static partial class Game
         return projected;
     }
 
-    // The canonical row named by the still-current owner and lease, for profile refreshes that are not output work.
-    private static bool RighteousFireSourceCurrentLocked(ClientState conn, RighteousFireState rf)
+    // Resolve the supported skill once for the physical source that owns the active burn.
+    private static SupportedGem? CurrentRighteousFireSkillLocked(ClientState conn, RighteousFireState rf)
     {
-        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return false;
+        if (!RighteousFireOwnerCurrentLocked(conn, rf) || rf.SourceLifetime is not { } lifetime) return null;
         using var scope = new PlayerStatScope(conn, fresh: true);
         var supported = SupportedSkill(conn, rf.Skill);
         var source = CurrentPlayerSkillSourceLocked(conn, rf.Skill);
         return supported.Effect >= 0 && supported.RequirementsMet
             && SkillsFor(conn).EffectId(supported.Effect) == "RighteousFire"
             && source is { Active: true } && source.Effect == supported.Effect
-            && source.Identity == lifetime.Key;
+            && source.Identity == lifetime.Key ? supported : null;
     }
 
     // Output and consumer work additionally retain the accepted outgoing-work guard.
     private static bool RighteousFireCurrentLocked(ClientState conn, RighteousFireState rf) =>
-        CurrentGameWork && RighteousFireSourceCurrentLocked(conn, rf);
+        CurrentGameWork && CurrentRighteousFireSkillLocked(conn, rf) is not null;
 
     private static bool RighteousFireRingCurrentLocked(ClientState conn, PlayerMinions.RighteousFireRingReceipt receipt) =>
         receipt.State.Ring == receipt.Ring && receipt.State.RingArt is not null
@@ -666,7 +666,7 @@ public static partial class Game
         if (conn.RighteousFire is not { } rf) return;
         lock (conn.Monsters)
         {
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "invalid Righteous Fire source at profile recompute");
@@ -674,7 +674,6 @@ public static partial class Game
             }
             using (new PlayerStatScope(conn, fresh: true))
             {
-                var supported = SupportedSkill(conn, rf.Skill);
                 int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
@@ -1171,7 +1170,7 @@ public static partial class Game
                 now = updates.Schedule.ResourceNow(conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) break;
                 rf = conn.RighteousFire;
-                if (rf is not null && !RighteousFireSourceCurrentLocked(conn, rf))
+                if (rf is not null && CurrentRighteousFireSkillLocked(conn, rf) is null)
                 {
                     if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                         QueueRighteousFireCleanupLocked(conn, stale, "Righteous Fire source became invalid at resource commit");
@@ -1417,7 +1416,7 @@ public static partial class Game
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork) return;
-            if (!RighteousFireSourceCurrentLocked(conn, rf))
+            if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
                     QueueRighteousFireCleanupLocked(conn, stale, "stale Righteous Fire consumer retired");
@@ -1432,11 +1431,15 @@ public static partial class Game
                     + conn.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000.0;
                 playerStats = CharacterPlayerStats(conn);
                 int Get(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
-                // RF is area burning damage, not spell damage or an ignite. Its outgoing increases do not scale self-burn.
+                uint burningIncrease = Stats.Key("burn_damage_+%")!.Value;
+                // Burning Damage Support quality adds to the player's increases. Its level grants a separate more multiplier.
                 double increased = (double)Get("damage_+%") + Get("fire_damage_+%") + Get("elemental_damage_+%")
-                    + Get("damage_over_time_+%") + Get("fire_damage_over_time_+%") + Get("burn_damage_+%")
+                    + Get("damage_over_time_+%") + Get("fire_damage_over_time_+%")
+                    + playerStats.GetValueOrDefault(burningIncrease) + supported.Stats.GetValueOrDefault(burningIncrease)
                     + Get("area_damage_+%") + Get("righteous_fire_damage_+%");
                 perSecond = perSecond * Math.Max(0, 100 + increased) / 100;
+                int burningMore = supported.Stats.GetValueOrDefault(Stats.Key("support_burning_damage_+%_final")!.Value);
+                perSecond *= Math.Max(0, 1 + burningMore / 100d);
                 double dotMultiplier = (double)Get("dot_multiplier_+") + Get("fire_dot_multiplier_+");
                 perSecond = perSecond * Math.Max(0, 100 + dotMultiplier) / 100;
                 if (Stats.Key("delirium_aura_damage_over_time_+%_final") is uint moreDot)
