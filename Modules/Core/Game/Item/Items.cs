@@ -685,7 +685,7 @@ public static partial class Game
             conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         // 0x1b3 carries the new maximum; the current life needs its own 0x1b1, or the client keeps it above a maximum
         // that a refund lowered (a "5000 of 4997" overfill).
         var timeless = ItemsOf(conn).Items(PlayerInventories.PassiveJewels)

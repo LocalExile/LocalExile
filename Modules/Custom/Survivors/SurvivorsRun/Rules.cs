@@ -189,7 +189,7 @@ static partial class SurvivorsRunRules
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "survivors restored equipment");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         if (!ownership.Current) return;
         Console.WriteLine($"[gateway] {remote} survivors run resumes in {conn.Layout.Id} (level {carry.Stage + 1}, " +
             $"{carry.Run.Kills} kills, run level {carry.Run.Level})");

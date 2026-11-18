@@ -62,7 +62,7 @@ static class UniqueBeltsFeature
             }
             foreach (var packet in packets)
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, packet, "stolen modifier buff");
-            await SendCharacterStats(remote, stream, ciphers, conn, "stolen modifiers");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
 
             void Update(ref ushort instance, ushort row, StolenMods.Buff state)
             {

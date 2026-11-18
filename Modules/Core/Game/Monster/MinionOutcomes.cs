@@ -319,7 +319,7 @@ public static partial class Game
         }
         if (revision != state.PresentedStatRevision)
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, "accepted minion outcomes");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Minions);
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "player life after minion outcomes", atGate: () =>

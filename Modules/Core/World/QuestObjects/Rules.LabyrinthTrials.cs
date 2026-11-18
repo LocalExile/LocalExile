@@ -1916,7 +1916,7 @@ static partial class QuestobjectsRules
                 Console.WriteLine($"[gateway] {remote} {where}: degeneration {conn.TrapDegenPerSecond:0}/s (life {conn.PlayerMaxLife}, " +
                     $"energy shield {conn.EnergyShield.Maximum}), life regeneration {lifeRegen:0.#}/s, life {conn.PlayerLife}, " +
                     $"energy shield {conn.EnergyShield.Current}");
-            if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, degen ? where : "out of the trial's traps");
+            if (degen != was) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
         }
     }
 

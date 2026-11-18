@@ -1179,7 +1179,7 @@ public static partial class Game
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: level {before} â†’ {level} (life {conn.Pools.Life}, mana {conn.Pools.Mana}, {Progression.PassivePoints(level)} passive point(s))");
-        await SendCharacterStats(remote, stream, ciphers, conn, $"level {level}");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         int mana = UnreservedMana(conn);
         lock (conn.Monsters)
         {
@@ -1198,7 +1198,7 @@ public static partial class Game
     sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
     static readonly RuleTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
 
-    public static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;   // a build change: the skill list is built again
         if (QuestKillCommitOutput is not null)
@@ -1212,7 +1212,7 @@ public static partial class Game
     }
 
     // The character panel, the skills and the Energy Shield as they are now.
-    static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerStatChange why)
     {
         conn.PlayerSkillsCache = null;
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
@@ -1363,7 +1363,8 @@ public static partial class Game
             string why = ending.EndedAuras.Count > 0
                 ? $"aura {string.Join(", ", ending.EndedAuras.Select(a => a.Name))} off (gem left)"
                 : "Petrified Blood off (gem left)";
-            await SendCharacterStats(remote, stream, ciphers, conn, why);
+            Console.WriteLine($"[gateway] {remote} {why}");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
         if (expectedRf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left", expectedRf);

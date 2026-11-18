@@ -85,7 +85,7 @@ static partial class SurvivorsRewards
         if (!ownership.Current) return false;
         if (PlayerInventories.ShowsOnModel(equipped)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (!ownership.Current) return false;
-        await SendCharacterStats(remote, stream, ciphers, conn, $"survivors unique {type.Name}");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         if (!ownership.Current) return false;
         // The item's mods must reach the character: the stat packet above is checked against the same build.
         var after = StatsNow(conn);

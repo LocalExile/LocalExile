@@ -117,7 +117,7 @@ public static class Hierophant
         }
         if (!changed) return;
         var (remote, stream, ciphers) = conn.Wire;
-        await SendCharacterStats(remote, stream, ciphers, conn, "Hierophant totems or mana area changed");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
     }
 
     /// <summary>A new area is a new connection: the leaving one forgets its state.</summary>

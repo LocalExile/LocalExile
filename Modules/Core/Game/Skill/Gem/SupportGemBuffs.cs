@@ -263,6 +263,6 @@ public static partial class Game
             conn.SupportGems.PendingStats = false;
         }
         foreach (var packet in packets) await Send(remote, stream, ciphers, packet, null);
-        if (stats) await SendCharacterStats(remote, stream, ciphers, conn, "support gem buffs changed");
+        if (stats) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
     }
 }

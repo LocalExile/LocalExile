@@ -204,7 +204,7 @@ public static class Slayer
         }
         var (remote, stream, ciphers) = conn.Wire;
         foreach (var packet in packets) await Send(remote, stream, ciphers, packet, null);
-        if (changed) await SendCharacterStats(remote, stream, ciphers, conn, "Slayer counts or Headsman changed");
+        if (changed) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
     }
 
     // A Headsman buff: shown for its time left while on, shown again when a kill moved its deadline, taken off when it

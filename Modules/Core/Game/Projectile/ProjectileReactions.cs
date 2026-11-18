@@ -168,7 +168,7 @@ public static partial class Game
                 conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
-                session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
+                session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Build));
                 session.World(PlayerId, PlayerLifeUpdate(conn));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);

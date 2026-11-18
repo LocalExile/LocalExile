@@ -303,7 +303,7 @@ public sealed partial class DelveModule : IModule
         else if (id == InstanceDelve.PurchaseId && bytes[2] <= 1)
             changed = ChangeEquipment(world.AccountData, p => DelveEquipment.Purchase(p, bytes[2] != 0, bytes[3]));
         await player.Send(DelveData(world), "Delve equipment state");
-        if (changed) await world.RefreshStats("Delve equipment upgrade");
+        if (changed) await world.RefreshStats();
     }
 
     // The Delve Crawler in the Azurite Mine Encampment. A click on it opens the Subterranean Chart, as Niko's option does.

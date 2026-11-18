@@ -54,7 +54,7 @@ public static partial class Game
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
             }
-            await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, "bot allocates earned passive points");
+            await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, PlayerStatChange.Build);
         }
         if (await ExecuteControlledIntent(conn, leader, now, following)) return;
         // Reactive reservation hits do not make their toggles usable as automatic attacks.

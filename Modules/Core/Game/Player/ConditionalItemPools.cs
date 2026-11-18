@@ -266,7 +266,7 @@ public static partial class Game
             revision = state.Revision;
             if (revision == state.Presented) return;
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "conditional item stats changed");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
         await SendPlayerMana(remote, stream, ciphers, conn);
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {

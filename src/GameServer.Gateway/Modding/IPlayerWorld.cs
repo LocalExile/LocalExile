@@ -47,7 +47,7 @@ public interface IPlayerWorld
     string? OpenWindowOwner { get; }
 
     /// <summary>Rebuilds the character's stats and sends them.</summary>
-    Task RefreshStats(string reason);
+    Task RefreshStats();
 
     /// <summary>Moves the player to an area by its <c>WorldAreas</c> id; false when it has no known way in.</summary>
     Task<bool> TravelTo(string areaId, string reason);

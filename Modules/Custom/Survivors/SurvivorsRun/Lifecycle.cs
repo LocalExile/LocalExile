@@ -192,7 +192,7 @@ static partial class SurvivorsRunRules
                         still: () => StateOf(conn).Survivors is null);
                 if (conn.PlayerObjectCreated && StateOf(conn).Survivors is null)
                 {
-                    await SendCharacterStats(remote, stream, ciphers, conn, "survivors retired equipment exemptions");
+                    await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
                     await SendSkills(remote, stream, ciphers, conn);
                     await SendSkillBar(remote, stream, ciphers, conn);
                 }

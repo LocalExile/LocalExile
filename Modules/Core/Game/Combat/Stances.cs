@@ -185,8 +185,7 @@ public static partial class Game
         if (!receipt.Current(conn)) return false;
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
         if (!receipt.Current(conn)) return false;
-        await SendCharacterStats(remote, stream, ciphers, conn,
-            receipt.Changed ? $"stance {receipt.Selected}" : $"stance owner {name} on (default {receipt.Selected})");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
         if (!receipt.Current(conn)) return false;
         await SendPlayerMana(remote, stream, ciphers, conn,
             $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");

@@ -1599,7 +1599,7 @@ public static partial class Game
         }
 
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
-        await SendCharacterStats(remote, stream, ciphers, conn, started is not null ? $"aura {name} on" : $"aura {ended!.Name} off");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
         await SendPlayerMana(remote, stream, ciphers, conn,
             $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         return true;
@@ -1652,7 +1652,7 @@ public static partial class Game
             conn.ApplyMovementSpeed();
         }
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
-        await SendCharacterStats(remote, stream, ciphers, conn, "reservation disabled");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
         await SendPlayerMana(remote, stream, ciphers, conn);
     }
 

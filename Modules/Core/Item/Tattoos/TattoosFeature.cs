@@ -86,7 +86,7 @@ static class TattoosFeature
                 usedStack.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: tattoo used" + (usedStack.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "tattoo");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         await SendPassives(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} tattoo {entry.Name} on {node} {passive.Name} ({conn.Tattoos.Count} applied" +
             (chosen is { } chosenEntry ? $", keystone {chosenEntry.Name})"
@@ -173,7 +173,7 @@ static class TattoosFeature
                 usedStack.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: tattoo removed" + (usedStack.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "tattoo removed");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         await SendPassives(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} tattoo removed from {node} {passive.Name} ({conn.Tattoos.Count} applied)");
         return null;

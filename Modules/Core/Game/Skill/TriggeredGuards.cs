@@ -72,7 +72,7 @@ public static partial class Game
         }
         guard.Armour = 0;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard ended"));
+        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Sources));
     }
 
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
@@ -129,7 +129,7 @@ public static partial class Game
             guard.Remaining = (int)Math.Min(Math.Max(0, Own("molten_shell_max_damage_absorbed")),
                 (long)conn.Pools.Armour * Math.Max(0, Own("molten_shell_damage_absorb_limit_%_of_armour")) / 100);
         guard.Buff = conn.NextBuff++;
-        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard started"));
+        session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, PlayerStatChange.Sources));
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
     }
 

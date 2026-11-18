@@ -101,7 +101,7 @@ public static partial class Game
         else
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x02bc player quest flags (current)", atGate: () => QuestFlagPresentation(conn));
         if (ChangesResistancePenalty(change.Changed) || ChangesQuestStats(change.Changed))
-            await SendCharacterStats(remote, stream, ciphers, conn, "quest static reward stats changed");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
         // Quest passive and refund points (QuestStaticRewards) are in the tree's numbers.
         if (ChangesStaticRewards(change.Changed))
             await SendPassives(remote, stream, ciphers, conn);

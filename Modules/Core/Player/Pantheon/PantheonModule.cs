@@ -88,7 +88,7 @@ static class PantheonRules
         }
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: {(god.Major ? "major" : "minor")} Pantheon god {god.Name} ({god.Id})");
         await SendGods(remote, stream, ciphers, conn, god.Name);
-        await SendCharacterStats(remote, stream, ciphers, conn, $"Pantheon {god.Name}");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
     }
 
     static async Task SendGods(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)

@@ -70,7 +70,7 @@ public static partial class Game
             LinksChangedLocked(conn);
         }
         await Send(remote, stream, ciphers, [.. bytes], $"0x01c1 {effectId} links 0x{link.Target:x} for {seconds:0.##} s at level {gem.Level}, {link.ManaPerMinute / 60.0:0.#} mana per second");
-        await SendCharacterStats(remote, stream, ciphers, conn, $"{effectId} linked");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
         return true;
     }
 
@@ -186,7 +186,7 @@ public static partial class Game
         if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], $"0x01c2 links end: {string.Join("; ", ended)}");
         if (died) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league, a linked target died)");
         else if (paid) await SendPlayerMana(remote, stream, ciphers, conn, null);
-        if (ended.Count > 0) await SendCharacterStats(remote, stream, ciphers, conn, "links ended");
+        if (ended.Count > 0) await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
     }
 
     // Field Medicine (flasks_apply_to_your_linked_targets): a non-unique utility flask the player uses puts its effect on

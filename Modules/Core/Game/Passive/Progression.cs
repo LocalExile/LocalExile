@@ -2015,7 +2015,7 @@ public static partial class Game
             {
                 await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (respec, {cost} paid)");
             }
-            await SendCharacterStats(remote, stream, ciphers, conn, "passives");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Build);
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),

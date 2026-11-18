@@ -422,7 +422,7 @@ public static partial class Game
         var skills = PlayerSkills(conn);
         if (!conn.ClientSkillIds.SetEquals(skills.Select(s => s.Id)))
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, $"charges {why}");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Sources);
             return;
         }
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,

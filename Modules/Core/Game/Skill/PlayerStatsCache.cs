@@ -30,10 +30,10 @@ public static partial class Game
     // the last step. The character panel is published there too, once a frame however many changes asked for it.
     sealed class FrameStats
     {
-        public bool Dirty = true, ByFrame;
+        public bool ByFrame;
         public StatGraph? Graph;
         public readonly PlayerStepOutputs Outputs = new();
-        public string? Publish;
+        public PlayerStatChange? Publish;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
         // The steps whose timed effect changes by itself, and when (connection clock): StatsChangeIn.
@@ -54,7 +54,7 @@ public static partial class Game
         graph.MarkRule((int)PlayerStatStep.Pools);
         graph.MarkRule((int)PlayerStatStep.Sources);
         // The client's panel and skills follow them, once for the frame.
-        if (frame.ByFrame) lock (frame) frame.Publish ??= "stat buffs changed";
+        if (frame.ByFrame) lock (frame) frame.Publish ??= PlayerStatChange.Sources;
     }
 
     // The step being run and its frame, for StatsChangeIn.
@@ -72,17 +72,40 @@ public static partial class Game
     }
     static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
 
-    /// <summary>A change of the player's stats: they are built again in the next Stats phase.</summary>
-    public static void MarkPlayerStatsDirty(ClientState conn)
+    // The steps each change marks (PlayerStatChange).
+    static readonly PlayerStatStep[][] PlayerStatChangeReaders = BuildPlayerStatChangeReaders();
+
+    static PlayerStatStep[][] BuildPlayerStatChangeReaders()
     {
-        if (FrameStatsOf.TryGetValue(conn, out var frame)) lock (frame) frame.Dirty = true;
+        var readers = new PlayerStatStep[Enum.GetValues<PlayerStatChange>().Length][];
+        readers[(int)PlayerStatChange.Build] = Enum.GetValues<PlayerStatStep>();
+        readers[(int)PlayerStatChange.Sources] = [PlayerStatStep.Sources];
+        readers[(int)PlayerStatChange.Auras] =
+        [
+            PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.Auras, PlayerStatStep.AuraPenetration,
+            PlayerStatStep.CatAspect, PlayerStatStep.AvianCrab, PlayerStatStep.SelfVulnerability, PlayerStatStep.VaalAura,
+            PlayerStatStep.SpiritLeadership, PlayerStatStep.TotemAura, PlayerStatStep.AuraRestriction,
+        ];
+        readers[(int)PlayerStatChange.Flasks] =
+            [PlayerStatStep.Sources, PlayerStatStep.UtilityFlasks, PlayerStatStep.UsingFlask, PlayerStatStep.AuraRestriction];
+        readers[(int)PlayerStatChange.Minions] = [PlayerStatStep.Sources, PlayerStatStep.Golems, PlayerStatStep.Offerings];
+        readers[(int)PlayerStatChange.Leech] =
+            [PlayerStatStep.Sources, PlayerStatStep.AttackSpeed, PlayerStatStep.Recovery, PlayerStatStep.LeechingDefences];
+        readers[(int)PlayerStatChange.ElementalAilments] =
+            [PlayerStatStep.Sources, PlayerStatStep.ElementalAilments, PlayerStatStep.TailCritical];
+        readers[(int)PlayerStatChange.IncomingAilments] = [PlayerStatStep.Sources, PlayerStatStep.IncomingAilments];
+        readers[(int)PlayerStatChange.God] = [PlayerStatStep.Sources, PlayerStatStep.God];
+        readers[(int)PlayerStatChange.Panel] = [];
+        return readers;
     }
 
-    // Asks the Stats phase to publish the panel (SendCharacterStats); false off the frames, which publish at once.
-    static bool PublishByFrame(ClientState conn, string why)
+    // In an area's frames: marks the steps that read the change and asks the Stats phase to publish the panel
+    // (SendCharacterStats); false off the frames, which publish at once.
+    static bool PublishByFrame(ClientState conn, PlayerStatChange change)
     {
-        if (!FrameStatsOf.TryGetValue(conn, out var frame) || !frame.ByFrame) return false;
-        lock (frame) { frame.Dirty = true; frame.Publish ??= why; }
+        if (!FrameStatsOf.TryGetValue(conn, out var frame) || !frame.ByFrame || frame.Graph is not { } graph) return false;
+        foreach (var step in PlayerStatChangeReaders[(int)change]) graph.MarkRule((int)step);
+        lock (frame) frame.Publish ??= change;
         return true;
     }
 
@@ -169,10 +192,6 @@ public static partial class Game
             if (frame.Area is not null) PlayerStatBuffsChanged(conn);
             frame.Area = conn.Frames.Area;
         }
-        bool dirty;
-        lock (frame) (dirty, frame.Dirty) = (frame.Dirty, false);
-        if (dirty)
-            for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);
         lock (frame.Timed)
             foreach (var (step, at) in frame.Timed.ToList())
                 if (clock >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
@@ -192,11 +211,11 @@ public static partial class Game
                 Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames");
             frame.Steps = frame.Builds = frame.Published = 0;
         }
-        string? why;
+        PlayerStatChange why;
         lock (frame)
         {
-            if (frame.Publish is null || !frame.Publishing.IsCompleted) return;
-            (why, frame.Publish) = (frame.Publish, null);
+            if (frame.Publish is not { } asked || !frame.Publishing.IsCompleted) return;
+            (why, frame.Publish) = (asked, null);
             frame.Published++;
         }
         var (remote, stream, ciphers) = conn.Wire;
@@ -216,6 +235,8 @@ public static partial class Game
                 try { RunPlayerStep(step, conn, view, frame.Outputs); }
                 finally { runningStep = outer; }
             });
+        // The first step builds them all.
+        for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);
         return graph;
     }
 

@@ -18,6 +18,38 @@ public enum PlayerStatStep : byte
     TailCritical, LeechingDefences, AuraRestriction, AlwaysHit, RecentHits, Ward,
 }
 
+/// <summary>
+/// What changed, as a caller of <c>SendCharacterStats</c> names it: the steps that read it run again in the next Stats
+/// phase (<c>PlayerStatChangeReaders</c>), and the character panel is published once for the frame. What reaches the
+/// stats only through CharacterStatSources is <see cref="Sources"/>; the pools are the caller's (a new Pools marks their
+/// readers itself).
+/// </summary>
+public enum PlayerStatChange : byte
+{
+    /// <summary>Equipment, passives, jewels, level, tattoos, Pantheon, quest rewards: what nearly every step reads.</summary>
+    Build,
+    /// <summary>A source CharacterStatSources folds in: charges, support gem buffs, links, guards, Hierophant, Slayer,
+    /// conditional item stats.</summary>
+    Sources,
+    /// <summary>An aura, a stance or Petrified Blood on or off, or their reservation.</summary>
+    Auras,
+    /// <summary>A utility or recovery flask's effect.</summary>
+    Flasks,
+    /// <summary>The player's minions (golems, offerings, summon counts).</summary>
+    Minions,
+    /// <summary>Leech started or stopped.</summary>
+    Leech,
+    /// <summary>The player's elemental ailments.</summary>
+    ElementalAilments,
+    /// <summary>The damaging ailments on the player.</summary>
+    IncomingAilments,
+    /// <summary>/god.</summary>
+    God,
+    /// <summary>Only the panel: what changed is read when it is published (conditions the graph already tracks, a
+    /// trap's degeneration, a revive).</summary>
+    Panel,
+}
+
 public static partial class Game
 {
     /// <summary>What a step hands on that is not a stat: the recovery baseline (the Recovery step's).</summary>
@@ -187,7 +219,7 @@ public static partial class Game
             if (reconciled)
             {
                 EnsureConditionalItemPools(conn);
-                MarkPlayerStatsDirty(conn);
+                MarkPlayerStats(conn, PlayerStatStep.Sources);
             }
         });
         // Devout of Garukhan: the while-moving evasion rating, and the while-moving regeneration in the recovery below; the

@@ -235,7 +235,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || state.StatRevision == state.PresentedStatRevision) return;
             revision = state.StatRevision;
         }
-        await SendCharacterStats(remote, stream, ciphers, conn, "flask effects changed");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Flasks);
         lock (conn.Monsters)
             if (CurrentGameWork && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
     }

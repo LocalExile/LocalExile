@@ -68,7 +68,7 @@ public static partial class Game
 
         public string? OpenWindowOwner => conn.ModuleWindow;
 
-        public Task RefreshStats(string reason) => SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, reason);
+        public Task RefreshStats() => SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, PlayerStatChange.Build);
 
         public async Task<bool> TravelTo(string areaId, string reason)
         {

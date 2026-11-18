@@ -176,7 +176,7 @@ public static partial class Game
         await SendOwnAuraChanges(remote, stream, ciphers, conn);
         if (ended.Count > 0 || petrifiedEnded)
         {
-            await SendCharacterStats(remote, stream, ciphers, conn, "auras cleared on death");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Auras);
             await SendPlayerMana(remote, stream, ciphers, conn, "aura reservation cleared on death");
         }
     }
@@ -955,7 +955,7 @@ public static partial class Game
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
             {
                 leechContext = currentLeech;
-                await SendCharacterStats(remote, stream, ciphers, conn, "leech or full Energy Shield conditions changed");
+                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Leech);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             // Keep the selected skill's conditional luck virtuals current across live Life/Focus boundaries too.
@@ -963,14 +963,14 @@ public static partial class Game
             if (CriticalContext(conn) is var currentCritical && currentCritical != criticalContext)
             {
                 criticalContext = currentCritical;
-                await SendCharacterStats(remote, stream, ciphers, conn, "critical strike conditions changed");
+                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             if (conn.ElementalAilments.Snapshot(tickNow) is var nextAilments && nextAilments != ailments)
             {
                 await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
                 ailments = nextAilments;
-                await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
+                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.ElementalAilments);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             IncomingDamagingAilments.State nextIncoming;
@@ -1003,7 +1003,7 @@ public static partial class Game
                         conn.PresentedIncomingAilments = nextIncoming;
                         conn.PresentedIncomingAilmentEpoch = incomingEpoch;
                     }
-                await SendCharacterStats(remote, stream, ciphers, conn, "incoming damaging ailments changed");
+                await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.IncomingAilments);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
@@ -1404,7 +1404,7 @@ public static partial class Game
         if (changed)
         {
             Console.WriteLine($"[gateway] {remote} recovery flask during effect ends ({why})");
-            await SendCharacterStats(remote, stream, ciphers, conn, "recovery flask effect ended");
+            await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Flasks);
         }
     }
 
@@ -1659,7 +1659,7 @@ public static partial class Game
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // Death may have published false full-pool conditions while the player ticker kept its pre-death chance.
         // Publish the restored life/ES conditions explicitly even when that cached chance is unchanged.
-        await SendCharacterStats(remote, stream, ciphers, conn, "resurrected");
+        await SendCharacterStats(remote, stream, ciphers, conn, PlayerStatChange.Panel);
         // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
         // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
         bool activated;
