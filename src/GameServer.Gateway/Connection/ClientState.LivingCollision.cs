@@ -139,6 +139,7 @@ public sealed partial class ClientState
     {
         lock (Monsters)
         {
+            if (Instance?.World.AreaBodies is { } area) return area(self);
             if (monsterFrame is { } frame) return frame.For(self);
             long startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
             double now = Clock.Elapsed.TotalSeconds;

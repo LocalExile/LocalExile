@@ -21,8 +21,11 @@ public static class ClientEntityGrid
     static readonly RuleTable<ClientState, Grid> Grids = new();
 
     // An area change (ClientState.ProjectileEpoch) starts a new grid.
+    // An instance's walkers are stepped by the area (AreaMovement), so its grid is the area's, one for every client in it.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InstanceWorld, Grid> AreaGrids = new();
     static Grid For(ClientState conn)
     {
+        if (conn.Instance is { } instance) return AreaGrids.GetValue(instance.World, _ => new());
         var grid = Grids.GetOrCreateValue(conn);
         if (grid.Epoch != conn.ProjectileEpoch)
         {

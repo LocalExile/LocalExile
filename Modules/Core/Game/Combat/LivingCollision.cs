@@ -290,6 +290,12 @@ public static partial class Game
     // (StepFrames). Called under conn.Monsters.
     public static void StepWalkers(ClientState conn, double now)
     {
+        // In an instance whose frames run, the area steps its walkers itself, once for everyone (AreaMovement).
+        if (AreaSteps(conn))
+        {
+            StepAreaWalkers(conn, now);
+            return;
+        }
         double from = conn.WalkersSteppedTo;
         // A lockstep client's walkers move only in its frames, so whole frames are replayed, up to the start of the frame
         // being sent (its 0x2b7 is on the wire: the frame advances in that send's gate under this lock); the frame's own

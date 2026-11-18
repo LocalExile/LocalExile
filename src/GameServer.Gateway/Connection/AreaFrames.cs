@@ -122,6 +122,12 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     public int MemberCount { get { lock (gate) return members.Count; } }
 
+    /// <summary>The area's players, in the order they joined: its members still in it.</summary>
+    public ClientState[] Players()
+    {
+        lock (gate) return [.. members.Select(m => m.Conn).Where(c => !c.Closed && !c.LeavingArea && !c.WorldOutput.Closed)];
+    }
+
     /// <summary>The area's view: its first member (in join order) still in it, whose loops step what the area steps once
     /// (its monsters); null while the frames do not run.</summary>
     public ClientState? View

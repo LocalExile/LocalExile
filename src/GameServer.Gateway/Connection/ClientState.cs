@@ -1377,6 +1377,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // instance's roster entry. Connections without an instance retain their local body contract.
     // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Monsters, DormantMonsters);
+    /// <summary>The monsters that stand in paths, the dormant ones too (the area's movement reads them). Under Monsters.</summary>
+    public IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonstersView => CollisionMonsters;
 
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> Merged(SortedDictionary<uint, SpawnedMonster> awake, SortedDictionary<uint, SpawnedMonster> dormant)
     {

@@ -22,6 +22,16 @@ public static class AreaSetup
         // A reload reaches an area that already has this module's systems from an earlier start.
         if (area.Systems.All.Any(s => ReferenceEquals(s.Source, source))) return;
         MonsterRegeneration.Start(area, conn, source);
+        // The area's walkers, once a frame for everyone (AreaMovement); whoever needs them current between frames steps
+        // them to its time first, and this pass then has nothing left to do.
+        var frames = conn.Frames;
+        var monsters = conn.Monsters;
+        area.Systems.Add("movement", AreaPhase.Movement, a =>
+        {
+            var players = frames.Players();
+            if (players.Length == 0 || !Game.AreaSteps(players[0])) return;
+            lock (monsters) Game.StepAreaWalkers(players[0], a.Time);
+        }, source: source);
         Console.WriteLine($"[area] {conn.Layout.Id}: {area.Systems.All.Count(s => ReferenceEquals(s.Source, source))} game system(s) in the area's world");
     }
 

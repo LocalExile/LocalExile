@@ -33,6 +33,10 @@ public sealed class InstanceWorld
     public AreaFrames Frames => LazyInitializer.EnsureInitialized(ref frames, () => new AreaFrames(() => Clock));
     AreaFrames? frames;
 
+    /// <summary>While the area steps its walkers (one pass of the area's movement, under the Monsters lock): what stands in
+    /// each walker's way in that pass, so a walk that searches again mid-pass sees the same bodies. Null between passes.</summary>
+    public Func<uint, IReadOnlyList<GameServer.Core.World.ClientPathfinder.Blocker>>? AreaBodies;
+
     /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
     /// Monsters lock.</summary>
     public ClientState? PausedBy;
