@@ -156,24 +156,15 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
-- **Keystone indication (3.29.3c client tables, poewiki).** Most keystones have no `BuffDefinitions` row at all
-  (Resolute Technique, Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact,
-  Lethe Shade, Perfect Agony): pure stat modifiers with nothing to show. Elemental Overload's window **is** indicated —
-  a diamond below the affected skill's icon on the skill bar (poewiki /wiki/Elemental_Overload) — but the client draws
-  it itself from the skill's critical hits: the wiki states the effect "is not a buff or a skill effect", and the
-  `elemental_overload` buff (row 606) is `Invisible = 1` with an icon but no EPK, its only granted flag the stat
-  `has_elemental_overload_buff`. The diamond is drawn from that buff bound to the skill (AddBuff bit3, `activeSkill`),
-  so the server sends it on the skill's critical strike (`ElementalOverloadBuffPacket`, row 606) and removes it in the
-  player tick when the eight-second window ends — the client does not expire this invisible buff itself. There is no
-  buff-bar icon. Its
-  damage rides on `keystone_elemental_overload_damage_+%_final` (a non-public stat, like `in_blood_stance`) and the
-  8-second window on `have_crit_in_past_8_seconds`; `elemental_overload_rotation_active` belongs to the unique item's
-  "every 16 seconds" variant. The window is per skill (the skill that crit, and all its uses including proxies; the
-  activating critical strike does not benefit): the server tracks it per effect (`RecentEvents.RecordSkillCrit`) and
-  adds the carrier stat to that skill's damage snapshot (`WithElementalOverload`, `SupportedHitInputsFor`). PoB models
-  it as a global `Condition:HaveElementalOverload` flag because it cannot track per-skill crits — that is a calculator
-  limitation, not the game's behaviour. Ghost Dance's shrouds are a separate visible buff (`ghost_dance_stacks`,
-  ShowCount), Call to Arms' is `call_to_arms` ("Autoexertion").
+- **Keystone indication (3.29.3c client tables).** Most keystones have no `BuffDefinitions` row (Resolute Technique,
+  Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact, Lethe Shade, Perfect
+  Agony): nothing to show. Elemental Overload's diamond below a skill's icon is the Invisible `elemental_overload` buff
+  (row 606, no buff-bar icon) bound to that skill (AddBuff bit3, `activeSkill`): the server sends it on the skill's
+  critical strike and removes it in the player tick when the eight-second window ends, as the client does not expire
+  it. The damage rides on the non-public `keystone_elemental_overload_damage_+%_final`;
+  `elemental_overload_rotation_active` is the unique's "every 16 seconds" variant. The window is per skill, as the 3.29
+  tree text says ("Skills that have dealt a Critical Strike in the past 8 seconds"); PoB's global flag is a calculator
+  limitation.
 
 ### Passive tree jewel sockets
 

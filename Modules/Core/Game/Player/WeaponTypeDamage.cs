@@ -42,10 +42,11 @@ public static class WeaponTypeDamage
         _ => null,
     };
 
+    // A bow is two-handed (PoB weaponTypeInfo) but not a melee weapon, and has no family row here.
     static bool TwoHanded(string? itemClass) => itemClass is "Two Hand Mace" or "Two Hand Axe" or "Two Hand Sword"
-        or "Staff" or "Warstaff";
+        or "Staff" or "Warstaff" or "Bow";
 
-    static bool TwoHanded(int weaponType) => weaponType is 2 or 4 or 8 or 11 or 17;
+    static bool TwoHanded(int weaponType) => weaponType is 2 or 4 or 8 or 11 or 17 or WeaponTypeStats.Bow;
 
     /// <summary>The rows that apply to every damage type of this hand's hits ("increased Damage with Maces",
     /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
@@ -83,7 +84,8 @@ public static class WeaponTypeDamage
 
     static int Any(IReadOnlyList<string> families, bool twoHanded, Func<string, int> get, bool ailment)
     {
-        if (families.Count == 0) return 0;
+        if (families.Count == 0 && !twoHanded) return 0;
+        bool melee = families.Count > 0 && !families.Contains("wand");
         int value = 0;
         foreach (string family in families)
         {
@@ -94,7 +96,7 @@ public static class WeaponTypeDamage
         if (twoHanded)
         {
             value += get("damage_+%_with_two_handed_weapons") + get("two_handed_weapon_hit_and_ailment_damage_+%")
-                + get("two_handed_melee_weapon_hit_and_ailment_damage_+%");
+                + (melee ? get("two_handed_melee_weapon_hit_and_ailment_damage_+%") : 0);
             if (ailment) value += get("two_handed_weapon_ailment_damage_+%")
                 + get("attack_ailment_damage_+%_while_wielding_two_handed_weapon")
                 + get("damage_over_time_+%_while_wielding_two_handed_weapon");
@@ -122,6 +124,7 @@ public static class WeaponTypeDamage
 
     static HitIncreases Extra(IReadOnlyList<string> families, bool twoHanded, Func<string, int> get, bool ailment)
     {
+        // Every physical and elemental row here belongs to a melee family or a two-handed melee weapon.
         if (families.Count == 0) return default;
         int physical = 0, elemental = 0;
         List<(DamageTypeHistory, int)>? typed = null;

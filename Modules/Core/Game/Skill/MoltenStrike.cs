@@ -400,8 +400,7 @@ public static partial class Game
                 if (hit.Life == 0) ReleaseMeleeKillTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                     meleeKillTrigger, true, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
-                conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, skillId) ?? "", conn.Clock.Elapsed.TotalSeconds, critical);
-                if (critical && ElementalOverloadBuffPacket(conn, skillId) is { } eoBuff)
+                if (ElementalOverloadCritLocked(conn, skillId, null, player, critical) is { } eoBuff)
                     ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);

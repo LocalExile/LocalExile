@@ -277,10 +277,7 @@ public static partial class Game
             int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
             var merged = MergeSkillStats(player, own);
             // Elemental Overload's per-skill window for this granted spell (see WithElementalOverload).
-            if (Stats.Key("keystone_elemental_overload") is uint eoKeystone && merged.GetValueOrDefault(eoKeystone) != 0
-                && Stats.Key("keystone_elemental_overload_damage_+%_final") is uint eoBonus
-                && conn.RecentEvents.SkillCritRecently(skill.EffectId, conn.Clock.Elapsed.TotalSeconds))
-                merged[eoBonus] = 40;
+            AddElementalOverload(conn, skill.EffectId, merged);
             int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
             var plan = SkillHitPlan.ForSkill(SkillsFor(conn), skill.Effect, skill.Level);
             if (!plan.CanHit) return;
@@ -361,7 +358,8 @@ public static partial class Game
 
                 if (applied is not { } landed) continue;
                 conn.RecentEvents.RecordCriticalOutcome(hitAt, critical);
-                conn.RecentEvents.RecordSkillCrit(skill.EffectId, conn.Clock.Elapsed.TotalSeconds, critical);
+                if (critical && HasElementalOverload(player))
+                    conn.RecentEvents.RecordSkillCrit(skill.EffectId, conn.Clock.Elapsed.TotalSeconds, true);
                 if (critical)
                 {
                     CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);

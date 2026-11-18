@@ -427,15 +427,21 @@ public static partial class Game
     /// <summary>Elemental Overload's skill-icon diamond: the client draws it from the <c>elemental_overload</c> buff
     /// bound to the skill (AddBuff bit3, <c>activeSkill</c>). The buff is Invisible — no buff-bar icon — but its presence
     /// drives the indicator below the skill's icon (poewiki). Sent on the skill's critical strike and refreshed for the
-    /// eight-second window; the client expires it. One instance, bound to the skill that last crit.</summary>
+    /// eight-second window; the player tick removes it when the window ends. One instance, bound to the skill that last
+    /// crit.</summary>
     public const ushort ElementalOverloadBuffRow = 606;   // BuffDefinitions.elemental_overload
 
-    public static byte[]? ElementalOverloadBuffPacket(ClientState conn, ushort skillId)
+    public static bool HasElementalOverload(IReadOnlyDictionary<uint, int> stats) =>
+        Stats.Key("keystone_elemental_overload") is uint keystone && stats.GetValueOrDefault(keystone) != 0;
+
+    /// <summary>A landed hit of this skill: a critical strike with the keystone opens the skill's window and returns the
+    /// indicator packet. Everything else returns null before any lookup, as this runs on every hit.</summary>
+    public static byte[]? ElementalOverloadCritLocked(ClientState conn, ushort skillId, string? effect,
+        IReadOnlyDictionary<uint, int> player, bool critical)
     {
-        var gem = SupportedSkill(conn, skillId);
-        if (Stats.Key("keystone_elemental_overload") is not uint keystone
-            || CharacterPlayerStats(conn).GetValueOrDefault(keystone) == 0
-            || SkillsFor(conn).ActionHash(gem.Effect) is not ushort action) return null;
+        if (!critical || !HasElementalOverload(player)) return null;
+        conn.RecentEvents.RecordSkillCrit(effect ?? SkillEffectId(conn, skillId) ?? "", conn.Clock.Elapsed.TotalSeconds, true);
+        if (SkillsFor(conn).ActionHash(SupportedSkill(conn, skillId).Effect) is not ushort action) return null;
         ushort buff = conn.ElementalOverloadBuff;
         if (buff == 0) buff = conn.ElementalOverloadBuff = conn.NextBuff++;
         conn.ElementalOverloadBuffUntil = conn.Clock.Elapsed.TotalSeconds + RecentEvents.EightSecondWindow;
@@ -447,16 +453,24 @@ public static partial class Game
     /// skill dealt a critical strike in the past eight seconds, its hits and ailments deal 40% more Elemental Damage
     /// (the client's carrier stat, <c>keystone_elemental_overload_damage_+%_final</c>). The window is per skill, not per
     /// character (poewiki); PoB models it as a global flag because it cannot track per-skill crits. The activating
-    /// critical strike does not benefit — its damage is built before the crit is recorded. The skill-icon diamond is
-    /// drawn by the client itself, so nothing is sent for it.</summary>
-    public static IReadOnlyDictionary<uint, int> WithElementalOverload(ClientState conn, string effect,
+    /// critical strike does not benefit — its damage is built before the crit is recorded.</summary>
+    public static IReadOnlyDictionary<uint, int> WithElementalOverload(ClientState conn, ushort skillId,
         IReadOnlyDictionary<uint, int> stats)
     {
-        if (Stats.Key("keystone_elemental_overload") is uint keystone && stats.GetValueOrDefault(keystone) != 0
-            && Stats.Key("keystone_elemental_overload_damage_+%_final") is uint bonus
-            && conn.RecentEvents.SkillCritRecently(effect, conn.Clock.Elapsed.TotalSeconds))
-            return new Dictionary<uint, int>(stats) { [bonus] = 40 };
-        return stats;
+        if (!HasElementalOverload(stats)) return stats;
+        var result = new Dictionary<uint, int>(stats);
+        return AddElementalOverload(conn, SkillEffectId(conn, skillId), result) ? result : stats;
+    }
+
+    /// <summary>Adds the window's 40% more to <paramref name="stats"/> when the keystone is in them and the skill's
+    /// window is open; true when it did.</summary>
+    public static bool AddElementalOverload(ClientState conn, string? effect, Dictionary<uint, int> stats)
+    {
+        if (!HasElementalOverload(stats) || effect is not { Length: > 0 }
+            || Stats.Key("keystone_elemental_overload_damage_+%_final") is not uint bonus
+            || !conn.RecentEvents.SkillCritRecently(effect, conn.Clock.Elapsed.TotalSeconds)) return false;
+        stats[bonus] = 40;
+        return true;
     }
 
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.

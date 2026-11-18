@@ -75,6 +75,11 @@ public sealed class PassiveConditionTests
         // A different family reads its own row and the one-handed rows, not the mace's or the two-handed ones.
         Assert.Equal(124, SupportedAttackDamage.WeaponIncrease(
             new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "One Hand Sword" }, Get));
+        // A bow is a two-handed weapon (PoB Data.lua weaponTypeInfo): it takes the Two Hand Mastery's row, but not the
+        // two-handed melee physical row.
+        var bow = new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "Bow" };
+        Assert.Equal(60, SupportedAttackDamage.WeaponIncrease(bow, Get));
+        Assert.Equal(0, WeaponTypeDamage.Of(bow, Get).Physical);
 
         // The same rows reach a damaging ailment: the family's ailment row and the two-handed melee ailment row join
         // the common bucket, its physical row the physical one. 100 physical * 70% bleed * 60 s * 1.75.
@@ -176,8 +181,16 @@ public sealed class PassiveConditionTests
         double now = f.Conn.Clock.Elapsed.TotalSeconds;
         f.Conn.RecentEvents.RecordSkillCrit("ImmortalCall", now, true);
         var bonusKey = Program.Stats.Key("keystone_elemental_overload_damage_+%_final")!.Value;
-        Assert.Equal(40, Game.WithElementalOverload(f.Conn, "ImmortalCall", withKeystone).GetValueOrDefault(bonusKey));
-        Assert.Equal(0, Game.WithElementalOverload(f.Conn, "Fireball", withKeystone).GetValueOrDefault(bonusKey));
+        var opened = new Dictionary<uint, int>(withKeystone);
+        Assert.True(Game.AddElementalOverload(f.Conn, "ImmortalCall", opened));
+        Assert.Equal(40, opened.GetValueOrDefault(bonusKey));
+        var closed = new Dictionary<uint, int>(withKeystone);
+        Assert.False(Game.AddElementalOverload(f.Conn, "Fireball", closed));
+        Assert.Equal(0, closed.GetValueOrDefault(bonusKey));
+        // A critical strike without the keystone records nothing and sends nothing (this runs on every hit).
+        Assert.Null(Game.ElementalOverloadCritLocked(f.Conn, SkillCatalog.FirstSkillId, "Fireball",
+            new Dictionary<uint, int>(), critical: true));
+        Assert.False(f.Conn.RecentEvents.SkillCritRecently("Fireball", now));
 
         // Perfect Agony: the ailment DoT multiplier becomes the critical strike multiplier (150 + 150 = 300%), other DoT
         // multiplier sources ignored; only critical strikes inflict ailments, and with Elemental Overload none do.

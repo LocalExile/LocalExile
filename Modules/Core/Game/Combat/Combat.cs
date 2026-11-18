@@ -578,9 +578,7 @@ public static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
-                conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, SkillCatalog.FirstSkillId) ?? "",
-                    conn.Clock.Elapsed.TotalSeconds, critical);
-                if (critical && ElementalOverloadBuffPacket(conn, SkillCatalog.FirstSkillId) is { } eoBuff)
+                if (ElementalOverloadCritLocked(conn, SkillCatalog.FirstSkillId, null, player, critical) is { } eoBuff)
                     ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
@@ -654,7 +652,7 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
-        player = WithElementalOverload(conn, SkillEffectId(conn, SkillCatalog.FirstSkillId) ?? "", player);
+        player = WithElementalOverload(conn, SkillCatalog.FirstSkillId, player);
         // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
         return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(accuracy), additionalIncreased),
             DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion, accuracy),
@@ -2519,9 +2517,8 @@ public static partial class Game
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(conn,
                             ProjectilesFor(remote, stream, ciphers, conn), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
-                        conn.RecentEvents.RecordSkillCrit(SkillsFor(conn).EffectId(gem.Effect) ?? "",
-                            conn.Clock.Elapsed.TotalSeconds, critical);
-                        if (critical && ElementalOverloadBuffPacket(conn, skillId) is { } eoBuff)
+                        if (ElementalOverloadCritLocked(conn, skillId, SkillsFor(conn).EffectId(gem.Effect), player, critical)
+                            is { } eoBuff)
                             ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
