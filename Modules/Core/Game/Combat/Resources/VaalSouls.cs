@@ -76,17 +76,22 @@ public static partial class Game
                 || conn.PlayerLife == 0 || InTown(conn)) return false;
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (Dist(monster.Walk.Position(now), conn.Walk.Position(now)) > ExperienceRange) return false;
-            RefreshVaalSouls(conn);
-            var stats = CharacterPlayerStats(conn);
-            if (RageStat(stats, "has_soul_gain_prevention") != 0)
+            // The sources are reconciled by the equipment and skill seams (RefreshVaalSouls there); a kill only adds one
+            // soul to what they set. Reading the whole player stat snapshot and every supported Vaal gem here cost 2-3 ms
+            // per corpse in a pack (measured 2026-11-18), and the prevention it read is this connection's own deadline
+            // (WithVaalPrevention publishes has_soul_gain_prevention from it).
+            bool prevented = conn.VaalPreventionUntil > VaalResourceTime(conn)
+                || Stats.Key("has_soul_gain_prevention") is uint prevention
+                    && conn.PlayerStats.GetValueOrDefault(prevention) != 0;
+            if (prevented)
             {
                 Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(conn):0.000})");
                 return false;
             }
             if (!conn.VaalSouls.Gain()) return false;
-            // "Kills grant an additional Vaal Soul if you have Rampaged Recently".
-            if (RageStat(stats, "gain_an_additional_vaal_soul_on_kill_if_have_rampaged_recently") != 0
-                && conn.Rampage.Current.Active)
+            // "Kills grant an additional Vaal Soul if you have Rampaged Recently": only a streak needs the stat read.
+            if (conn.Rampage.Current.Active && Stats.Key("gain_an_additional_vaal_soul_on_kill_if_have_rampaged_recently")
+                    is uint extra && CharacterPlayerStats(conn).GetValueOrDefault(extra) != 0)
                 conn.VaalSouls.Gain();
             return true;
         }
@@ -94,9 +99,9 @@ public static partial class Game
 
     // Native UPDATE clamps against OLD capacity. Unknown rows and increases must seed first, then restore current.
     // Empty lists preserve native entries, so every removed row needs an explicit zero update.
-    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(ClientState conn)
+    public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(ClientState conn, bool reconcile = true)
     {
-        RefreshVaalSouls(conn);
+        if (reconcile) RefreshVaalSouls(conn);
         var current = conn.VaalSouls.Read().ToDictionary(b => b.ActiveSkillsRow);
         var seeds = new List<VaalSoulSeed>();
         var updates = new List<VaalSoulUpdate>();
@@ -125,14 +130,29 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.VaalSoulsRetired) return null;
-            var changes = VaalSoulChanges(conn);
+            // Nothing a client can see has changed: no source walk, no stat snapshot, no packet. This runs after every
+            // kill (MonsterKilledBy, a projectile's commit), and a soul only moves on some of them.
+            if (!conn.VaalSouls.Unpresented) return null;
+            // A gained or spent soul does not change the sources, so the presentation does not reconcile them.
+            var changes = VaalSoulChanges(conn, reconcile: false);
+            conn.VaalSouls.Presented();
             return changes.Seeds.Length == 0 && changes.Updates.Length == 0 ? null
                 : InstanceEntities.PlayerSkillsChange(PlayerId, [], [], changes.Seeds, changes.Updates, CanDetonateMines(conn));
         }
     }
 
+    /// <summary>Whether a presentation would send anything. A cheap pre-check for the per-kill callers: an unchanged
+    /// balance must not take the send gate.</summary>
+    public static bool VaalSoulsUnpresented(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return !conn.Closed && !conn.LeavingArea && !conn.VaalSoulsRetired && conn.VaalSouls.Unpresented;
+    }
+
     public static Task SendVaalSouls(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], null, atGate: () => VaalSoulPresentation(conn));
+        VaalSoulsUnpresented(conn)
+            ? SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], null, atGate: () => VaalSoulPresentation(conn))
+            : Task.CompletedTask;
 
     // Same transfer policy as Rage: one successful ticket owns the balance; loading time is frozen, no save schema.
     public static void CarryVaalSouls(ClientState conn, uint ticket)
