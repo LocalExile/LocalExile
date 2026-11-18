@@ -32,7 +32,7 @@ public static partial class Game
     static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
     {
         var gem = SupportedSkill(conn, id);
-        if (!gem.RequirementsMet || WeaponRestricted(conn, gem.Effect) is not null
+        if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
             || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
         var player = CharacterPlayerStats(conn);
         int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);
@@ -120,6 +120,19 @@ public static partial class Game
             CriticalRoll = CaptureSkillCriticalRoll(conn, plan.Skill), RecoveryGeneration = conn.ActionInterruptionGeneration };
     }
 
+    public const string MaximumPowerOnVaalUse = "gain_maximum_power_charges_on_vaal_skill_use";
+    public static void GrantVaalUseChargesLocked(ClientState conn, double at)
+    {
+        if (conn.Paused || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameWork) return;
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get(MaximumPowerOnVaalUse) <= 0) return;
+        var session = ChargesOf(conn); session.Observe(Get);
+        var step = session.Admit(at, [new ChargeEvent.Grant(ChargeType.Power, session.Limits(ChargeType.Power).Maximum,
+            MaximumPowerOnVaalUse)], Get, () => WeaponProfileFor(conn), true, Random.Shared);
+        if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
+    }
+
     static VaalUseReservation? ExecuteVaalUse(ClientState conn, ushort id, int effect)
     {
         lock (conn.Monsters)
@@ -128,6 +141,8 @@ public static partial class Game
                 || paid.Effect != effect || paid.Action != conn.ActionCount || paid.Epoch != conn.ProjectileEpoch
                 || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action)) return null;
             paid.Executed = true;
+            conn.RecentEvents.Record(StatConditions.UsedVaalSkill, VaalResourceTime(conn));
+            GrantVaalUseChargesLocked(conn, VaalResourceTime(conn));
             return paid;
         }
     }
@@ -175,6 +190,8 @@ public static partial class Game
             await SendRage(remote, stream, ciphers, conn);
             if (!Current()) return;
             await SendVaalSouls(remote, stream, ciphers, conn);
+            if (!Current()) return;
+            await SendChargeStats(remote, stream, ciphers, conn, "accepted Vaal use");
             if (!Current()) return;
             await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
         }

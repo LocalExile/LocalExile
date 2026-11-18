@@ -3,7 +3,11 @@ using GameServer.Modding;
 // What some GameEvents hand their subscribers (GameEvents.cs). `Player` is the same connection as GameServer.Modding sees it.
 
 /// <summary>A monster: its <c>MonsterVarieties.dat</c> id, name, level, rarity and where it is (cells).</summary>
-public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y);
+public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y)
+{
+    /// <summary>Retained world identity; zero for callers without a registered object.</summary>
+    public uint ObjectId { get; init; }
+}
 
 /// <summary>A monster the player killed, after its kill was committed (<see cref="GameEvents.MonsterKilled"/>).</summary>
 public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)
@@ -47,6 +51,12 @@ public sealed class MapOpening(ClientState conn, IReadOnlyList<MapDevice.Slot> s
     public MapDevice.Opening? Opening { get; set; } = opening;
     public string Reason { get; set; } = reason;
     public bool ReturnToSource { get; set; }
+    /// <summary>Module-defined content keys handled by this opening's enabled providers.</summary>
+    public HashSet<string> HandledContent { get; } = new(StringComparer.Ordinal);
+    /// <summary>Content diagnostics, reported after every provider has checked the opening.</summary>
+    public List<(string Content, string Message)> ContentWarnings { get; } = [];
+    public IEnumerable<string> UnhandledContent => ContentWarnings
+        .Where(w => !HandledContent.Contains(w.Content)).Select(w => w.Message);
 }
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>

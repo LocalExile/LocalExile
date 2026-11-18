@@ -28,7 +28,9 @@ public sealed class GameHost(AccountService accounts, InstanceManager instances,
         {
             TcpClient c;
             try { c = await _listener.AcceptTcpClientAsync(_cts.Token); }
-            catch (OperationCanceledException) { break; }
+            // DisposeAsync cancels and then stops the listener. An accept that starts between the two, or is cut off
+            // by the stop, fails with the socket's own exception instead of the cancellation: either way, shutting down.
+            catch (Exception) when (_cts.IsCancellationRequested) { break; }
             _ = Serve(c);
         }
     }

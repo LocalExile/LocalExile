@@ -107,6 +107,7 @@ public static class InstanceProtocol
         InstanceItems.LevelUpGemId => 14, InstanceItems.LevelUpAllGemsId => InstanceItems.LevelUpAllGemsLength, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
+        InstanceEntities.AtlasTreeTabId or InstanceEntities.AtlasRefundAllId or InstanceEntities.AtlasTreeWidgetId => InstanceEntities.AtlasTreeTabLength,
         SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
@@ -354,10 +355,10 @@ public static class InstanceProtocol
     /// animation and consumes a use of the skill: that starts its cooldown on the skill bar (live 2026-10-21).
     /// </summary>
     public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, uint? targetObjectId = null,
-        ushort sequence = 0xffff, ushort flags = 0)
+        ushort sequence = 0xffff, ushort flags = 0, bool triggered = false)
     {
         var w = new LoginWriter().U16(InstantActionId).U32(objectId).U32(0).U16(0)
-            .U16(skillId).U16(sequence).U16((ushort)(flags | (targetObjectId is null ? 0 : 0x20)));
+            .U16(skillId).U16(sequence).U16((ushort)(flags | (triggered ? 0x80 : 0) | (targetObjectId is null ? 0 : 0x20)));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, targetX); CompactInt(w, targetY);
         return w.ToArray();

@@ -37,6 +37,11 @@ This is a local seed derivation; the official server population RNG and placemen
 
 ## 2. Spawning
 
+For `MonsterVarieties` with main-hand class `Bow`, `Weapon1_ItemVisualIdentityKeys` contains the arrow visual;
+`Weapon2_ItemVisualIdentityKeys` contains the held bow, despite the column names. Brittle Archer uses
+`SkeletonArrow1` / `Bow4`, Kraityn's Scout `DefaultArrow` / `Bow3`. The held bow uses the main-hand inventory slot
+and class; a null off-hand class must not discard it. The arrow visual is not a bow equipment replacement.
+
 `SpawnMonster` is `/spawn_mob`'s path ([10](10-chat-and-commands.md) §5): 0x20 type at the area level, 0x2bb with the
 rarity in ObjectMagicProperties, 0x1a9 wake zone, and the monster joins the AI (chase, first granted effect as its
 attack). Its mods (§5) set its life, hit, speed and defences.
@@ -47,6 +52,14 @@ invisible and cancel on death. No Mods.dat row grants them, and the rarity in Ob
 glow. The ObjectMagicProperties `.ot` keys `enable_rarity` / `disable_rarity` (parser 0x1421e4390) set a
 per-rarity mask at type +0xc9 (bits normal 1, magic 2, rare 4, unique 8); what reads it was not traced. Monsters are created after the player (0x7d →
 `SendPlayer` → skill bar → `PopulateArea`); towns and areas without a walk map get none.
+
+GGG's server has every monster of the area from the entry and sends each client only the ones near its player (retail
+3.29.3b and 3.30.0b captures: a monster first sent a minute in has an id below the player's, one that left and came
+back has the id it had, and "monsters remain" arrives before any create; creates lie in a box of about 250 cells
+around the player, awake within about 170). Ours places them all too: one placed more than 120 cells from the player
+is held back in the instance (`InstanceWorld.HeldBackMonsters`), counted and saved but not created, and is created
+when a player comes within 120 cells, or the nearest few per pass out to 163. Differs from GGG: no sleeping copy
+between 170 and 250 cells, a held-back monster cannot be hit, and it gets its id and its mods when it is created.
 
 **The map overlay's "X monsters remain"** is S→C 0x1a0, one byte, and the client never counts monsters itself. The
 instance constructor (0x14214b4a0, at 0x14214e686) starts `instance+0xd7cd` at 0xff, and 0x1a0 is its only writer in
@@ -397,3 +410,14 @@ as for any area (Beach: Glace). 21-hideouts.md §5.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
 the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.
+
+## Essence monolith
+
+`Metadata/MiscellaneousObjects/Monolith` reads Positioned, Animated, MinimapIcon, InteractionAction,
+Transitionable, Monolith, StateMachine and BaseEvents, in that order.
+The Monolith reader `0x1415df360` takes little-endian `u8`, MonsterVarieties `HASH16`, `u8` count,
+then count × Essences `HASH32`, then `u32` (component +0x104; meaning unverified, currently sent as zero).
+The first byte is stored at component +0xf0; the essence references occupy +0xc8/+0xd0.
+The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
+Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
+Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.

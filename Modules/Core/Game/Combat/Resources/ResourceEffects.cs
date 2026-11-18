@@ -11,7 +11,11 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public readonly TimedBlind PlayerBlind = new();
     public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
-    public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind);
+    public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
+        PhysicalAegisState.Carried? Aegis, Game.CarriedSiphoning? Siphoning, Game.CarriedAvatar? Avatar = null,
+        Game.CarriedHerEmbrace? HerEmbrace = null, Game.CarriedElusive? Elusive = null,
+        Game.CarriedChargeDegeneration? ChargeDegeneration = null,
+        Game.CarriedRecentHitLifeLoss? RecentHitLifeLoss = null, ReservationState.PausedCatCycle? Cat = null);
     public Snapshot? TransferCheckpoint;
     public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -22,7 +26,14 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         if (old.Blind is { Buff: > 0 } blind) retired.Add((id, blind.Buff));
         var value = new TimedBlind(); Targets[id] = (target, value); return value;
     }
-    public Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at));
+    public Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
+        connection?.PhysicalAegis.Capture(at), connection is null ? null : Game.CaptureSiphoning(connection, at),
+        connection is null ? null : Game.CaptureAvatarOfFire(connection, at),
+        connection is null ? null : Game.CaptureHerEmbrace(connection, at),
+        connection is null ? null : Game.CaptureElusive(connection, at),
+        connection is null ? null : Game.CaptureChargeDegeneration(connection, at),
+        connection is null ? null : Game.CaptureRecentHitLifeLoss(connection, at),
+        connection is null ? null : Game.CaptureCatCycle(connection, at));
     public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -33,16 +44,53 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
             }
         conn.RetiredResourceBuffs.UnionWith(retired); retired.Clear();
     }
-    public void Freeze(double at) => TransferCheckpoint = Capture(at);
+    public void Freeze(double at)
+    {
+        TransferCheckpoint = Capture(at);
+        if (connection is not null) Game.PauseRecentHitLifeLoss(connection, at);
+    }
     public void Resume(double at)
     {
         // A refused transfer resumes the live draft, discarding loading earnings rather than paying catch-up.
+        if (connection is not null && TransferCheckpoint?.Siphoning is { } siphoning)
+            Game.RestoreSiphoning(connection, siphoning, at);
+        if (connection is not null && TransferCheckpoint?.Avatar is { } avatar)
+            Game.RestoreAvatarOfFire(connection, avatar, at);
+        if (connection is not null && TransferCheckpoint?.HerEmbrace is { } embrace)
+            Game.RestoreHerEmbrace(connection, embrace, at);
+        if (connection is not null && TransferCheckpoint?.Elusive is { } elusive)
+            Game.RestoreElusive(connection, elusive, at);
+        if (connection is not null && TransferCheckpoint?.ChargeDegeneration is { } degeneration)
+            Game.RestoreChargeDegeneration(connection, degeneration, at);
+        if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, TransferCheckpoint?.RecentHitLifeLoss, at);
+        if (connection is not null) Game.RestoreCatCycle(connection, TransferCheckpoint?.Cat);
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     public void Restore(Snapshot value, double at)
-    { Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at); }
+    {
+        Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at);
+        if (connection is not null && value.Aegis is { } aegis) connection.PhysicalAegis.Restore(aegis, this, at);
+        if (connection is not null && value.Siphoning is { } siphoning) Game.RestoreSiphoning(connection, siphoning, at);
+        if (connection is not null && value.Avatar is { } avatar) Game.RestoreAvatarOfFire(connection, avatar, at);
+        if (connection is not null && value.HerEmbrace is { } embrace) Game.RestoreHerEmbrace(connection, embrace, at);
+        if (connection is not null && value.Elusive is { } elusive) Game.RestoreElusive(connection, elusive, at);
+        if (connection is not null && value.ChargeDegeneration is { } degeneration) Game.RestoreChargeDegeneration(connection, degeneration, at);
+        if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, value.RecentHitLifeLoss, at);
+        if (connection is not null) Game.RestoreCatCycle(connection, value.Cat);
+    }
     public void Clear()
     {
+        if (connection is not null)
+        {
+            Game.RetireAvatarOfFire(connection);
+            Game.RetireHerEmbrace(connection);
+            Game.RetireRecentHitLifeLoss(connection);
+            Game.RetireElusive(connection);
+            if (Game.ChargeSessions.TryGetValue(connection, out var charges)) charges.Degeneration.Clear(Game.ResourceEffectsTime(connection));
+            connection.RetiredPhysicalAegisBuffs.UnionWith(connection.PhysicalAegis.Retire());
+            if (connection.Unhinged.Retire() is ushort unhingedBuff and not 0)
+                connection.RetiredUnhingedBuffs.Add(unhingedBuff);
+        }
         if (PlayerBlind.Buff != 0) retired.Add((Program.PlayerId, PlayerBlind.Buff));
         foreach (var (id, value) in Targets)
             if (value.Blind.Buff != 0) retired.Add((id, value.Blind.Buff));
@@ -90,6 +138,7 @@ public static partial class Game
     public static void ManaSpentLocked(ClientState conn, uint amount, IReadOnlyDictionary<uint, int> player)
     {
         if (amount == 0 || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameRules) return;
+        conn.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(conn), amount);
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state)) return;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -111,6 +160,10 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
         AdvancePlayerAilmentsLocked(conn, from, now, stats);
+        if (conn.PlayerLife > 0) AdvanceSiphoningDamageLocked(conn, now, stats);
+        if (conn.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(conn, now, stats);
+        if (conn.PlayerLife > 0) AdvanceChargeDegenerationLocked(conn, now, stats);
+        if (conn.PlayerLife > 0) AdvanceRecentHitLifeLossLocked(conn, now);
         if (conn.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(conn).Clear(now); FortificationOf(conn).Clear();
@@ -155,10 +208,26 @@ public static partial class Game
             state.Restore(entry.State, 0); state.Loading = true;
         }
     }
+    static void PrimeCatTransfer(ClientState conn)
+    {
+        if (!CarriedResourceEffects.TryGetValue(conn.Ticket, out var entry)
+            || entry.Character != CharacterName(conn) || entry.State.Cat is not { } cat
+            || !ReferenceEquals(entry.Rules, CombatLifetime) || !entry.Rules.IsActive
+            || !ReferenceEquals(entry.Source, AscendancyPolicies.SourceOwner(conn))
+            || entry.Source is { IsActive: false } || DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) return;
+        // Saved aura restoration can build pools before SpawnPlayer restores the full resource snapshot.
+        conn.Reservations.PausedCat = cat;
+        conn.Reservations.CatTransferLoading = true;
+    }
+
     public static void ActivateResourceEffects(ClientState conn, double at)
     {
         lock (conn.Monsters)
             if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true } state && ResourceEffectsCurrent(conn, state))
-            { state.Restore(state.Capture(0), at); state.Loading = false; }
+            {
+                state.Restore(state.Capture(0), at);
+                state.Loading = false;
+                conn.Reservations.CatTransferLoading = false;
+            }
     }
 }

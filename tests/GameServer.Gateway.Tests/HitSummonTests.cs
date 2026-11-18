@@ -30,6 +30,7 @@ public sealed class HitSummonTests
     {
         await DominanceRegression();
         await VaalRegression();
+        await VaalSentinelRegression();
         using var f = new MinionUtilityTests.Fixture();
         var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
@@ -215,7 +216,7 @@ public sealed class HitSummonTests
                 ghost.Monster.Walk.Teleport(100, 100, 1);
                 var ability = ghost.Abilities.First(a => a.Effect is 9427 or 9428);
                 Assert.NotNull(ability.Projectile);
-                typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Static | BindingFlags.NonPublic)!
+                typeof(Game).GetMethod("GolemAbilityContactLocked", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!
                     .Invoke(null, ["test", f.Stream, f.Ciphers, f.Conn, ghost,
                         new GolemState.Action(ability, 940, target, (140, 100), 1, ghost.Monster.ActionGeneration), 1d]);
                 var session = Game.ProjectilesFor("test", f.Stream, f.Ciphers, f.Conn);
@@ -271,7 +272,7 @@ public sealed class HitSummonTests
                 vaal = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="VaalSummonSkeletons");
                 var supported = Game.SupportedSkill(f.Conn,vaal.Id);
                 Assert.True(Game.IsTotemSkill(f.Conn,vaal.Id) || Game.PlacedKind(supported) is not (false,false));
-                Assert.Equal("Vaal Summon Skeletons through totems, traps or mines is not implemented",
+                Assert.Equal("Vaal minion skills through totems, traps or mines are not implemented",
                     Game.GemSkillInstanceDisabled(f.Conn,vaal.Effect,vaal.Id));
                 var ordinary = Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)=="SummonSkeletons");
                 Assert.Null(Game.ActorSkillInstanceDisabled(f.Conn,ordinary.Effect,ordinary.Id));
@@ -296,6 +297,90 @@ public sealed class HitSummonTests
                 Assert.Empty(f.Conn.Placed.All);
             }
 
+        }
+        finally { Game.AreaUpdateContext.Value=outer; }
+    }
+
+    static async Task VaalSentinelRegression()
+    {
+        Assert.Equal("02BC00001000000000000000001509000102000200000404C132000300000404C13200",
+            Convert.ToHexString(InstanceEntities.PlayerMinionsChange(0x1000,
+                [new(0x4000002,0xc104,50), new(0x4000003,0xc104,50)])));
+        using var f = new MinionUtilityTests.Fixture();
+        var clock = new Clock { Time = 1 }; var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            foreach (bool absolution in new[] { true, false })
+            {
+                f.Equip((absolution ? "Vaal Absolution" : "Vaal Domination",20));
+                string vaalId = absolution ? "VaalAbsolution" : "VaalDomination";
+                var vaal = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect) == vaalId);
+                ushort source = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect)
+                    == (absolution ? "Absolution" : "DominatingBlow")).Id;
+                Game.RefreshVaalSouls(f.Conn); for (int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                bool Admit() => Game.TryBeginSkillCooldownUse(f.Conn, vaal.Id, vaal.Effect, null, false,
+                    () => f.Conn.ActionCount++, out _);
+                Assert.False(Admit());
+                var victim = Target(f,940,MonsterRarity.Rare); Mark(f,victim,source,clock.Time); Kill(f,940,victim,clock.Time);
+                await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                var normal = Assert.Single(f.Conn.Summons.Fighters).Value;
+                Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                var owned = Assert.Single(f.Conn.Summons.PresentedOwnership).Value;
+                Assert.Equal((ushort)(0xc000 | vaal.Id), owned.Source);
+                var proxy=Game.PlayerSkills(f.Conn).Single(s=>s.Id==owned.Source);
+                var active=Game.PlayerSkills(f.Conn).Single(s=>s.Id==vaal.Id);
+                Assert.Equal(absolution?0:1, active.Stats!.Single(s=>s.Key==Program.Stats.Key("skill_behaviour_variation")).Value);
+                Assert.Equal(((uint)0x1000, source), proxy.Parent!.Value);
+                Assert.Equal(absolution ? 50 : 3, owned.Type);
+                Assert.Null(Game.SentinelOwnershipPresentation(f.Conn));
+                normal.Monster.Life = normal.Monster.MaxLife / 2;
+                Assert.True(Admit());
+                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),normal.Id));
+                var ascended = Assert.Single(f.Conn.Summons.Fighters).Value;
+                Assert.NotEqual(normal.Id,ascended.Id); Assert.Equal(vaalId,ascended.Definition.Kind);
+                Assert.Equal(normal.Monster.Level,ascended.Monster.Level);
+                Assert.Equal(source,ascended.Source); Assert.Same(normal.InheritedMods,ascended.InheritedMods);
+                Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                Assert.Equal(absolution ? 51 : 4,Assert.Single(f.Conn.Summons.PresentedOwnership).Value.Type);
+                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                Assert.Equal(-70,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_taken_+%_final")!.Value]);
+                clock.Time++; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                Assert.Equal(300,ascended.Own[Program.Stats.Key("vaal_upgrade_minion_damage_+%_final")!.Value]);
+                if (!absolution)
+                    for (uint extra=941;extra<=942;extra++)
+                    {
+                        var next=Target(f,extra,MonsterRarity.Rare); Mark(f,next,source,clock.Time); Kill(f,extra,next,clock.Time);
+                        await Game.HitSummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                        var body=f.Conn.Summons.Fighters.Values.Single(g=>g.Definition.Kind=="DominatingRare");
+                        for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                        Assert.True(Admit());
+                        Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),body.Id));
+                    }
+                int count=f.Conn.Summons.Fighters.Count;
+                Assert.Equal(absolution?1:3,count);
+                uint life=ascended.Monster.Life; double oldUntil=f.Conn.Summons.Until[ascended.Id]; clock.Time++;
+                for(int j=0;j<90;j++) f.Conn.VaalSouls.Gain();
+                Assert.True(Admit());
+                Assert.True(await Game.CastGemSkill("test",f.Stream,f.Ciphers,f.Conn,vaal.Id,(100,100),(120,100),ascended.Id));
+                Assert.Equal(count,f.Conn.Summons.Fighters.Count); Assert.Same(ascended,f.Conn.Summons.Fighters[ascended.Id]);
+                Assert.Equal(life,ascended.Monster.Life); Assert.True(f.Conn.Summons.Until[ascended.Id]>oldUntil);
+                _ = Game.SentinelOwnershipPresentation(f.Conn);
+                clock.Time+=35; await Game.SummonsTick("test",f.Stream,f.Ciphers,f.Conn,clock.Time);
+                Assert.Empty(f.Conn.Summons.Fighters); Assert.NotNull(Game.SentinelOwnershipPresentation(f.Conn));
+                Assert.Empty(f.Conn.Summons.PresentedOwnership); f.Conn.NextAttackAt=0;
+                foreach (string support in new[] { "Spell Totem Support", "Trap Support", "Blastchain Mine Support" })
+                {
+                    f.Equip((absolution ? "Vaal Absolution" : "Vaal Domination",20),(support,1));
+                    var host=Game.ItemsOf(f.Conn).Items(PlayerInventories.Weapon1).Single();
+                    Game.ItemsOf(f.Conn).Change(PlayerInventories.Weapon1,host.Id,item=>item with { Links=[2] });
+                    var candidate=Game.GemSkillEffects(f.Conn).Single(g=>Game.SkillsFor(f.Conn).EffectId(g.Effect)==vaalId);
+                    var applied=Game.SupportedSkill(f.Conn,candidate.Id);
+                    if (Game.IsTotemSkill(f.Conn,candidate.Id) || Game.PlacedKind(applied) is not (false,false))
+                        Assert.Equal("Vaal minion skills through totems, traps or mines are not implemented",
+                            Game.GemSkillInstanceDisabled(f.Conn,candidate.Effect,candidate.Id));
+                }
+            }
         }
         finally { Game.AreaUpdateContext.Value=outer; }
     }

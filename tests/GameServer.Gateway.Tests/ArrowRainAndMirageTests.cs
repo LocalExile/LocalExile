@@ -31,13 +31,12 @@ public class ArrowRainAndMirageTests
             {
                 var rain = Assert.Single(clone.Abilities);
                 Assert.Equal(9511, rain.Effect); Assert.Null(rain.Projectile);
-                typeof(Game).GetMethod("GolemAbilityContactLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                typeof(Game).GetMethod("GolemAbilityContactLocked", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
                     .Invoke(null, ["test", b.Stream, b.Ciphers, c, clone,
                         new GolemState.Action(rain, 200, b.Enemy, (120, 100), 0, clone.Monster.ActionGeneration), 1d]);
                 Assert.Equal(11, clone.Pulses.Count);
                 Assert.All(clone.Pulses, p => Assert.True(p.Next >= 1.35));
-                clone.Monster.Mods = MonsterModSet.None with
-                    { Effects = new(new Dictionary<string, int> { ["accuracy_rating"] = 1000000 }) };
+                clone.Gear["accuracy_rating"] = 1000000;
                 uint life = b.Enemy.Life;
                 Game.GolemStepLocked("test", b.Stream, b.Ciphers, c, clone, 1.36);
                 Assert.True(b.Enemy.Life < life);
@@ -56,7 +55,7 @@ public class ArrowRainAndMirageTests
                     Assert.True(attack.Attack.Damage.MaxTotal > 0);
                     Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
                     var ailmentTarget = new SpawnedMonster("ailment target", new(120, 100, 0), 100, 3, 100000) { Hostile = true };
-                    typeof(Game).GetMethod("MinionAilmentsLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    typeof(Game).GetMethod("MinionAilmentsLocked", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
                         .Invoke(null, [c, clone, attack, 999u, ailmentTarget, true, 1d]);
                     Assert.False(ailmentTarget.Poisons.Poisoned);
                     Assert.Equal(element == DamageType.Fire, ailmentTarget.Ignites.Burning);
@@ -577,16 +576,15 @@ public class ArrowRainAndMirageTests
         Factor(10, .5); // Clamp the combined bucket, not the typed contribution first.
         Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", -150));
         Factor(10, 0);
-        m.MaimedUntil = 12;
-        m.MaimedPhysicalTakenPct = 25;
+        Assert.True(Game.TryMaimOnHitLocked(m, 100, 25, 10, new Random(17)));
         Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", 15));
         Factor(10, 1.6);
-        Factor(12, 1.35);
+        Factor(14, 1.35);
         Taken(("base_damage_taken_+%", 20), ("physical_damage_taken_+%", 15),
             ("map_monster_damage_taken_+%_final_from_atlas_keystone", -40));
-        Factor(12, .81);
+        Factor(14, .81);
         Taken(("physical_damage_taken_+%", 500), ("base_cannot_be_damaged", 1));
-        Factor(12, 0);
+        Factor(14, 0);
     }
 
     static void Monster_elemental_modifiers_reach_damage_over_time()

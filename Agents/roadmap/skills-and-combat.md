@@ -84,8 +84,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     Righteous Fire's supported-skill modifiers, conditional DoT multipliers, remaining more scopes and native checks
     remain open; the player's increases and generic/fire DoT multipliers now reach its enemy burn.
     Physical/per-element target increases and Maim now add with general DoT damage taken; hit target composition,
-    ordinary-Maim qualification, overlapping source expiry, other target scopes and native comparison remain open.
-    Hit Maim application now settles pending bleeding before changing target damage taken.
+    other target scopes and native comparison remain open. A damage-qualified Maim settles pending bleeding before
+    its target damage increase takes effect. Ordinary Maim has an independent movement timer.
   - Continue auditing the remaining rows against the current implementation before adding formulas.
 - **Done when:** life, mana, attributes, resistances and their derived values come from the server's own calculation
   (Characters.dat base values, level, items, passives) and are sent in the Stats component.
@@ -163,9 +163,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   costs, death/resurrection and slow destination loading ([27](../docs/protocol/27-vaal-souls.md)).
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) natively; other Vaal executors and official
   distribution/capacity parity remain open.
-  Vaal Absolution/Domination need native activation verification.
-  Vaal Skeleton totem, trap and mine execution remains open; these casts are refused before souls or actions are spent.
-  Vaal Animate Weapon and minion stance targeting remain open.
+  Vaal minion totem, trap and mine execution remains open; these casts are refused before souls or actions are spent.
+  Vaal Animate Weapon, full ascended special attacks and minion stance targeting remain open.
 
 ### Death screen variants
 

@@ -7,7 +7,8 @@ using GameServer.Core;
 public sealed class GemSupports(string folder = "data")
 {
     public sealed record Effect(int Row, string Id, bool Support, int[] Allowed, int[] Excluded, int[] Added,
-        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions)
+        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions,
+        bool SupportsGemsOnly)
     {
         public int[] AddedMinionTypes { get; init; } = [];
     }
@@ -77,15 +78,20 @@ public sealed class GemSupports(string folder = "data")
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass = null, int activeLevel = 1) => Resolve(active, candidates, skills, weaponClass, activeLevel, false);
+        int? weaponClass, int activeLevel) => Resolve(active, candidates, skills, weaponClass, activeLevel, sourceIsGem: true);
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass, int activeLevel, bool allOneHandMelee)
+        int? weaponClass = null, int activeLevel = 1, bool sourceIsGem = true) =>
+        Resolve(active, candidates, skills, weaponClass, activeLevel, sourceIsGem, allOneHandMelee: false);
+
+    internal IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
+        int? weaponClass, int activeLevel, bool sourceIsGem, bool allOneHandMelee)
     {
         if (Of(active) is not { Support: false, CannotBeSupported: false } target) return [];
         var types = target.Types.ToHashSet();
         var minionTypes = target.MinionTypes.ToHashSet();
-        var all = candidates.Where(c => Of(c.Effect) is { Support: true })
+        var all = candidates.Where(c => Of(c.Effect) is { Support: true } support
+                && (sourceIsGem || !support.SupportsGemsOnly))
             .Where(c => Of(c.Effect)?.Id != "SupportCastWhenDamageTaken"
                 || skills.PlayerLevelReq(active, activeLevel) <= skills.PlayerLevelReq(c.Effect, c.Level))
             .Select(c => (Gem: c, Effect: Of(c.Effect)!))
@@ -164,7 +170,7 @@ public sealed class GemSupports(string folder = "data")
                 Ints(r, "AllowedActiveSkillTypes"), Ints(r, "ExcludedActiveSkillTypes"), Ints(r, "AddedActiveSkillTypes"),
                 Ints(skill, "ActiveSkillTypes"), Ints(skill, "MinionActiveSkillTypes"), Ints(r, "SupportWeaponRestrictions"),
                 r.IntOrNull("RegularVariant"),
-                r.Bool("CannotBeSupported"), r.Bool("IgnoreMinionTypes")) { AddedMinionTypes = Ints(r, "AddedMinionActiveSkillTypes") };
+                r.Bool("CannotBeSupported"), r.Bool("IgnoreMinionTypes"), r.Bool("SupportsGemsOnly")) { AddedMinionTypes = Ints(r, "AddedMinionActiveSkillTypes") };
         }).ToArray();
     }
 

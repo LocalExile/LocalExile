@@ -201,14 +201,19 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
-    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng) =>
+        Container(level, count, increasedRarity, rng, null);
+
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng,
+        Func<ItemCatalog.BaseType, bool>? accepts)
     {
         if (count < 0 || count > 2000) throw new ArgumentOutOfRangeException(nameof(count));
         var chances = WithIncreasedRarity(RarityChances(MonsterRarity.Rare), increasedRarity,
             SystemSettings.Default.DropMultiplier("unique_rarity"));
         var result = new List<Drop>();
-        for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
-            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+        for (int attempt = 0; result.Count < count && attempt < count * (accepts is null ? 8 : 256); attempt++)
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop
+                && (accepts is null || accepts(drop.Type))) result.Add(drop);
         return result;
     }
 

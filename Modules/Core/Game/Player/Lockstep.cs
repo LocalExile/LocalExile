@@ -247,6 +247,7 @@ public static partial class Game
         var (here, aim) = PlaceLockstepAttack(conn, attack, at);
         string walkUp = attack.Open ? $"walks up to ({conn.Walk.Destination.X}, {conn.Walk.Destination.Y})"
             : attack.Decided.Result is null ? "no path" : "swings at once";
+        conn.Performance.Count(attack.Open ? "lockstep use walks up" : attack.Decided.Result is null ? "lockstep use no path" : "lockstep use swings at once");
         Console.WriteLine($"[gateway] {remote} lockstep skill 0x{use.SkillId:x4} seq 0x{use.Sequence:x4} on 0x{use.TargetId:x} at {at:0.000}: " +
             $"player ({here.X}, {here.Y}), monster ({aim.X}, {aim.Y}), distance {Dist(here, aim):0.0}; {walkUp}");
         return InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags,

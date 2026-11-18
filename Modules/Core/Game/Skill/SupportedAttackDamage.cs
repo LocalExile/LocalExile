@@ -20,18 +20,24 @@ public static class SupportedAttackDamage
     public static IReadOnlyDictionary<string, int> WeaponSources(Item item, ModCatalog mods)
     {
         var sources = ItemModStats.Local(item, mods);
-        var other = ItemModStats.Sum([item], mods);
+        var other = Game.PlainItemSum(item, mods);
         foreach (string name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
             if (other.TryGetValue(name, out int value)) sources[name] = value;
         return sources.ToFrozenDictionary();
     }
 
+    // ModParser's "with Claws" is Claw + Hit, not an ailment increase. This belongs to the attacking hand.
+    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
+        WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw") ? get("claw_damage_+%") : 0;
+
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types,
         AttackAccuracyProfile accuracy)
     {
+        get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
         return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy), HitModifiers(weapon, get), new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
-            wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120));
+            wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
+            additionalIncreased: WeaponIncrease(weapon, get));
     }
 
     // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
