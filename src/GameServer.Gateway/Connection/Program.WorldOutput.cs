@@ -101,7 +101,8 @@ public partial class Program
         finally { gate.Release(); }
     }
 
-    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
+    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next,
+        IReadOnlyList<AreaOutput.Record>? area = null)
     {
         var wire = conn.Wire;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
@@ -126,9 +127,15 @@ public partial class Program
                 bytes += packet.Bytes.Length;
                 await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
             }
+            // The area's own records for this player (GameArea.Output), after the connection's.
+            foreach (var record in area ?? [])
+            {
+                bytes += record.Bytes.Length;
+                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, record.Bytes, record.Log);
+            }
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
-            conn.Frames.Wrote(frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
+            conn.Frames.Wrote(frame.Packets.Count + (area?.Count ?? 0), bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
             return true;
         }
         catch { if (committed) FailWorldOutput(conn); throw; }
