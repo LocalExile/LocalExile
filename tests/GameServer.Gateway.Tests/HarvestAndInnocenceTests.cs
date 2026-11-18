@@ -25,6 +25,8 @@ public class HarvestAndInnocenceTests
         Assert.True(rules.Exists(core, flag => flag == "a4q5-QuestComplete"));
         var form = Assert.Single(rules.FormsAfter(Act4Areas.Harvest, Act4Monsters.Malachai));
         Assert.Equal(Act4Monsters.Malachai2, form.Next);
+        Assert.Equal(70, rules.ThresholdOf(Act4Areas.Harvest, Act4Monsters.Malachai)?.LifePct);
+        Assert.Null(rules.ThresholdOf(Act4Areas.Harvest, Act4Monsters.Malachai2));
         Assert.Null(rules.SecondForm(Act4Areas.Harvest, Act4Monsters.Malachai));
         var layout = new AreaLayout(1, Act4Areas.Harvest, 100, 100, 5, 5, null, []);
         var instance = new InstanceState();

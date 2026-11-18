@@ -2937,7 +2937,8 @@ public static partial class Game
         // A quest threshold (Kitava): the hit that reaches it leaves the monster alive; it never dies.
         if (m.Threshold is { } threshold)
         {
-            long left = Math.Max(1, (long)m.Life - damage);
+            long floor = Math.Min(m.Life, Math.Max(1, (long)m.MaxLife * threshold.LifePct / 100));
+            long left = Math.Max(floor, (long)m.Life - damage);
             if (left * 100 <= (long)m.MaxLife * threshold.LifePct) m.ThresholdReached = true;
             return ((uint)left, false);
         }
