@@ -353,16 +353,24 @@ public static class SacredGrove
         return QuestObject.CanSerialize(type.Components, true) ? (quest, type) : null;
     }
 
+    /// <summary>The object's footprint as the client's object type gives it (positioned_blocking; the soul tree has none).</summary>
+    internal static void Block(ClientState conn, GroveObject o)
+    {
+        var (size, hull) = StationaryCollision.Resolve(o.Type);
+        if (size >= 0) conn.SetBlocker(o.Id, o.X, o.Y, size, hull);
+        else conn.RemoveBlocker(o.Id);
+    }
+
     static bool Blocks(GroveObject o) => o.Type != SeedType || o.States.GetValueOrDefault("hatched") == 0 && o.States.GetValueOrDefault("withered") == 0;
 
     static async Task Present(ClientState conn, GroveObject o)
     {
         var shown = Presented.GetOrCreateValue(conn);
-        if (shown.Contains(o.Id) || Describe(o) is not var (quest, type)) return;
+        if (shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
         await SendWorldCreate(conn, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
             wake: true, awaitBirth: false);
-        if (Blocks(o)) conn.SetBlocker(o.Id, o.X, o.Y, type.Size);
+        if (Blocks(o)) Block(conn, o);
         else conn.RemoveBlocker(o.Id);
         shown.Add(o.Id);
     }
@@ -544,7 +552,9 @@ public static class SacredGrove
         if (conn.Instance is null) return;
         if (!Areas.TryGetValue(conn.Instance, out var area))
         {
-            if (!conn.Instance.ContentState.ContainsKey(SaveKey) || await Load(conn) is not { } loaded) return;
+            // After a module reload: the saved grove comes back, and the players already in the area have its objects.
+            if (!conn.Instance.ContentState.ContainsKey(SaveKey) || await Load(conn) is not { Grove: { } restored } loaded) return;
+            foreach (var member in Members(conn)) Presented.GetOrCreateValue(member).UnionWith(restored.Objects.Keys);
             area = loaded;
         }
         if (!area.Running || area.Grove is not { } grove || conn.Closed || conn.LeavingArea || !area.Gate.Wait(0)) return;

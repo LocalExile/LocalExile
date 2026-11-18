@@ -202,6 +202,7 @@ public static class OshabiEncounter
             byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
             await SendWorldCreate(conn, o.Id, () => blob, $"{log} {o.Type[(o.Type.LastIndexOf('/') + 1)..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
                 wake: true, awaitBirth: false);
+            SacredGrove.Block(conn, o);
             shown.Add(o.Id);
         }
     }
@@ -442,7 +443,6 @@ public static class OshabiEncounter
     {
         var random = e.Random;
         var tables = HarvestTables.Current;
-        var (remote, stream, ciphers) = conn.Wire;
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) centre;
         lock (conn.Monsters)
@@ -453,13 +453,15 @@ public static class OshabiEncounter
         {
             [SacredGrove.LevelMoreLife] = tables.MoreLife(state.Level),
         }.Where(kv => kv.Value != 0).ToDictionary()));
-        int spawned = 0;
+        int spawned = 0, lost = 0;
         var skipped = new HashSet<string>();
         async Task Spawn(int row, (int X, int Y) at, MonsterRarity rarity = MonsterRarity.Normal, bool established = false)
         {
-            if (conn.Closed || conn.LeavingArea) return;
+            // The ticking player may take a portal mid-colour: the rest come through another player still here.
+            if (SacredGrove.Members(conn).FirstOrDefault() is not { } by) { lost++; return; }
             if (Monsters.Find(row.ToString()) is not { Supported: true } variety) { skipped.Add(row.ToString()); return; }
-            uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, (byte)state.Level, rarity, at.X, at.Y,
+            var (remote, stream, ciphers) = by.Wire;
+            uint id = await SpawnMonster(remote, stream, ciphers, by, variety, (byte)state.Level, rarity, at.X, at.Y,
                 alone: false, extraMods: life, placement: established ? MonsterPlacement.Established : MonsterPlacement.Proposed);
             if (id == 0) return;
             lock (state.Adds) state.Adds.Add(id);
@@ -493,6 +495,7 @@ public static class OshabiEncounter
             await Spawn(seed.Monster, Around(centre, 20 + random.Next(12), random.NextDouble() * Math.Tau));
         }
         Console.WriteLine($"[harvest] {state.Log} colour {colour}: {spawned} adds"
+            + (lost > 0 ? $", {lost} not spawned (no player left in the area)" : "")
             + (skipped.Count > 0 ? $", skipped unsupported varieties {string.Join(",", skipped)}" : ""));
     }
 
