@@ -468,7 +468,8 @@ public static partial class Game
                     return ProjectileHitResult.Miss;
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
-                bool crit = random.Next(10000) < shot.CriticalChance;
+                bool crit = random.Next(10000) < shot.CriticalChance
+                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));

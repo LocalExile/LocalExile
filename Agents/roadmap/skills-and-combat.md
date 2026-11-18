@@ -114,8 +114,14 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Known:** [20](../docs/protocol/20-damage.md) has the damage model; both sides still have flat damage ranges
   ([11](../docs/protocol/11-skills.md) §5, §6). Monster armour is not modelled.
 - **Start:**
-  - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging and alternative ailments on
-    monsters beyond ignites and bleeds, and further added-damage/support effects.
+  - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging ailments on monsters beyond
+    ignites and bleeds, and further added-damage/support effects.
+  - Scorch, Brittle and Sap sources not read yet: Oath of Summer (Warden: ignite becomes scorch, a second scorch),
+    the confluxes (Leadership's Price), Scorched/Brittle/Sapped Ground, "while affected by" auras, skill-named
+    and Prismatic sources, chilling areas, proliferation and "recently" conditions. Sap on the player needs its less
+    damage on the player's hits first (then Simulacrum's "Monsters inflict Sapped" can roll). Scorch and Brittle do not
+    reach the hits that read a monster's resistances or roll crits without a time: Rampage weapons, boss hazards
+    (Doedre, Sirus, Kitava, arenas, Vaal Oversoul) and shrine novas.
   - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.

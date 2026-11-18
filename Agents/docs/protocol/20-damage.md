@@ -1274,8 +1274,8 @@ mitigation are composed as described in the [projectile module](../game/projecti
   supported incoming shock path are implemented. The monsters' base resistances are in §4, with penetration.
 - Remaining skill-specific increased/more/effectiveness mechanics beyond the documented packet and support paths.
   Weapon-local and character flat ranges retain conversion history and their separate scopes.
-- Outgoing ailments beyond ignite, bleed, poison (§3), chill, freeze and shock: alternative ailments (scorch, brittle,
-  sap); the shatter visual and the on-death effects Shatter suppresses.
+- The alternative ailments' remaining sources (see "Scorch, Brittle and Sap"); the shatter visual and the on-death
+  effects Shatter suppresses.
   Supported incoming elemental ailments are bounded by [Gambler](../game/gambler.md#incoming-elemental-ailments).
 - Per-monster damage conversion and monster-specific mitigation.
 - Damage reflection, specialized leech conversions/conditions, conditional gain on hit, and Mana and Energy Shield
@@ -1683,6 +1683,24 @@ freeze is not sent there (−100 would divide the native clip by zero); the serv
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's
 variety (.ot), Glacial Wave's chill reflected onto the player by Mirrored (wiki: it then acts on the player too), and the
 client's frozen animation (not checked live).
+
+## Scorch, Brittle and Sap
+
+The rules are the ReminderText rows (`ReminderTextScorch`, `ReminderTextBrittle`, `ReminderTextSapped` and their
+`NonHit` forms: up to 30% lower elemental resistances, +6% critical strike chance against, 20% less damage dealt, 4 s;
+10%, +2% and 6% from a source that is no hit) and PoB's `data.nonDamagingAilment` and `CalcOffence` effect functions:
+`50`, `10` and `100/3` × (damage / threshold)^0.4, floored (Brittle to 0.01%), with no minimum. The stats call
+Brittle `frostburn` (`chance_to_inflict_frostburn_%`, `immune_to_frostburn`, `virtual_frostburn_effect_+%`).
+The Gateway keeps them in `RuleAilments`, a store of timed instances by a kind the rules number (one per monster,
+shared by its instance, and one per player); `MonsterAlternateAilments.cs` holds every rule.
+
+They are shown as chill and shock are: 0x1c1 with BuffDefinitions 1243 `scorched`, 1244 `frostburn` (Name "Brittle")
+and 1245 `sapped` (BuffVisuals 1005-1007). Every column but the stat, visual and `CancelOnDeath` equals the chilled
+and shocked rows' (`IsRecovery`, one GrantedStats value, `__col44` set so +0x82 is read), so they carry the
+magnitude in their GrantedStats: `base_resist_all_elements_%` negative for Scorch, `sapped_damage_+%_final`
+negative for Sap, `enemy_additional_critical_strike_chance_against_self` in hundredths for Brittle (its description
+divides by 100). Their fixed instances are 0xfff8, 0xfff9 and 0xfffa, below the player's bleeding and poison buffs'
+0xfffb and 0xfffc; `NextBuff` wraps below `ClientState.FixedBuffInstances` (0xfff8). Not checked live.
 
 ## 2i. Petrified Blood
 

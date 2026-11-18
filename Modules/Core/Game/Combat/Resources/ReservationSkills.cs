@@ -208,7 +208,7 @@ public static partial class Game
                     : Player("global_cannot_crit") != 0 || Own("global_cannot_crit") != 0 ? 0
                     : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
                         (long)Player("critical_strike_chance_+%") + Own("critical_strike_chance_+%"), Player, Own);
-                bool critical = RandomRolls.Chance(criticalChance, 10000, Random.Shared);
+                bool critical = RandomRolls.Chance(criticalChance + BrittleCriticalChance(m, now), 10000, Random.Shared);
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
                     : CriticalHitMultiplier(150L + Player("base_critical_strike_multiplier_+")
                         + Own("base_critical_strike_multiplier_+"), player, skill.Stats);

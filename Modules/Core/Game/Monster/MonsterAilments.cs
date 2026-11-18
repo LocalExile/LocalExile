@@ -129,6 +129,7 @@ public static partial class Game
         if (player("chill_enemy_when_hit_duration_ms") is > 0 and int ms)
             InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, player, Target, area, stated: 30));
         if (!blocked) return;
+        AlternateAilmentsOnBlockLocked(m, player, now);
         if (RandomRolls.Chance(player("chill_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
             InflictedLocked(conn, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, player, Target, area));
         if (RandomRolls.Chance(player("shock_attackers_for_4_seconds_on_block_%_chance"), 100, Random.Shared))
@@ -282,8 +283,11 @@ public static partial class Game
             * (type == DamageType.Physical
                 ? Math.Max(0, 1 - (m.Effects.PhysicalReduction - CrushReduction(m, now)) / 100.0)
                     * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1)));
-        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
-            name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
+        int Attacker(string name) => Player(name) + PanelStats.Of(name, Skill);
+        var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, Attacker, name => m.Effects[name], random,
+            AilmentArea(Player, Skill, spell));
+        // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
+        var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)
         {
             InflictedLocked(conn, m, effect);
@@ -302,6 +306,7 @@ public static partial class Game
             if (m.Rarity != MonsterRarity.Unique && m.Ailments.Magnitude(Kind.Freeze, now) > 0)
             {
                 m.Ailments.Shatter();
+                m.RuleAilments.Clear();
                 conn.RecentEvents.Record(StatConditions.ShatteredEnemy, now);
             }
             else ShockOnKillLocked(conn, m, player, now);
@@ -332,8 +337,11 @@ public static partial class Game
                 (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), Random.Shared);
             m.Fleeing = m.FleeTo is not null;
         }
-        if (added.Count == 0 || conn.PlayerLife == 0
+        if (added.Count + alternate.Count == 0 || conn.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects["reflect_non_damaging_ailments_%_chance"], 100, random)) return;
+        // Scorch and Brittle stop no action, so they act on the player at once, even inside a sweep.
+        ReflectAlternateAilmentsLocked(conn, alternate, now, Player, random);
+        if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(conn, added, now, player, random);
     }
@@ -387,6 +395,7 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
+            if (!m.RuleAilments.Idle) packets.AddRange(AlternateAilmentBuffs(id, $"monster 0x{id:x} ({m.Label})", m.RuleAilments, now));
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
             if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;
