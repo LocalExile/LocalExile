@@ -26,6 +26,10 @@ public static class MapEssences
     }
     static readonly RuleTable<InstanceState, Area> Areas = new();
     static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
+    sealed record Snapshot(string Text, List<Monolith> List);
+    sealed class Parse { public volatile Snapshot? Last; }
+    static readonly RuleTable<InstanceState, Parse> Parsed = new();
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Area, int Level), AreaInfo> AreaInfos = new();
 
     public static void Opening(MapOpening request)
     {
@@ -47,7 +51,8 @@ public static class MapEssences
     public static int Count(ClientState conn)
     {
         if (MapRunOf(conn) is not { } map || conn.Instance.KeptAreaStats is not { } stats) return 0;
-        var area = AreaInfo.Load(GamePack.Default.TryRead, map.Area.Id, map.Area.Level) with
+        // Loading the WorldAreas row costs ~3 ms on every new map instance; the row does not change.
+        var area = AreaInfos.GetOrAdd((map.Area.Id, map.Area.Level), k => AreaInfo.Load(GamePack.Default.TryRead, k.Area, k.Level)) with
         { Stats = stats.ToDictionary(s => (int)s.Key, s => s.Value) };
         return ExtraTerrainFeatures.LeagueCount(area, new LevelRandom(conn.Seed ^ 0x45535345, false), 6);
     }
@@ -211,7 +216,11 @@ public static class MapEssences
     public static void Drops(DropRoll roll)
     {
         if (roll.Monster.ObjectId == 0 || !roll.Conn.Instance.ContentState.TryGetValue(SaveKey, out string? saved)) return;
-        var monolith = JsonSerializer.Deserialize<List<Monolith>>(saved)?.FirstOrDefault(m => m.Monster == roll.Monster.ObjectId && m.Stage == 4);
+        // Per kill: parse the snapshot only when Keep wrote a new one.
+        var cache = Parsed.GetOrCreateValue(roll.Conn.Instance);
+        if (cache.Last is not { } last || last.Text != saved)
+            cache.Last = last = new(saved, JsonSerializer.Deserialize<List<Monolith>>(saved) ?? []);
+        var monolith = last.List.FirstOrDefault(m => m.Monster == roll.Monster.ObjectId && m.Stage == 4);
         if (monolith is null || !roll.Conn.Instance.SetState($"Essence/rewards/{monolith.Index}")) return;
         foreach (int row in monolith.Essences)
             if (MapEssenceCatalog.Find(row) is { } essence) roll.Items.Add(essence.Item);

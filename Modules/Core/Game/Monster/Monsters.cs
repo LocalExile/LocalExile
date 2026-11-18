@@ -635,10 +635,11 @@ public static partial class Game
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
-        var shrinePoints = ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms
-            ? ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y)).ToArray() : [];
-        spawns.AddRange(MapScarabBosses.Guards(conn, shrinePoints, spawns));
+        // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        if (mapMods?.Get("map_shrines_have_standalone_map_boss") > 0 && ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms)
+            spawns.AddRange(MapScarabBosses.Guards(conn,
+                [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y))], spawns));
         Phase("pack plan");
         spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
