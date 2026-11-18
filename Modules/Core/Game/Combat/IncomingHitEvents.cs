@@ -6,6 +6,7 @@ public static partial class Game
         long lifeDamage)
     {
         conn.RecentEnemyHits.Record(now);
+        MarkPlayerStats(conn, PlayerStatStep.RecentHits);
         conn.RecentEvents.Record(StatConditions.BeenHit, now);
         if (blocked)
         {

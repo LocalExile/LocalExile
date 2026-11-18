@@ -26,17 +26,17 @@ public static partial class Game
         state.Held = value.Held; state.Sources = [.. value.Sources];
         state.Until = at + value.Seconds; state.UsedUntil = at + value.UsedSeconds; state.At = at;
         state.Pending = value.Pending; state.TakenCarry = value.TakenCarry; state.BypassCarry = value.BypassCarry;
-        state.Revision++;
+        state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
     }
 
-    static void SettleSiphoning(SiphoningState state, double now)
+    static void SettleSiphoning(ClientState conn, SiphoningState state, double now)
     {
         double end = Math.Min(now, Math.Min(state.Until, state.UsedUntil));
         if (end > state.At) state.Pending += (end - state.At) * state.Held * state.PerMinute / 60d;
         state.At = Math.Max(state.At, now);
-        if (now >= state.Until && state.Held != 0) { state.Held = 0; state.Revision++; }
+        if (now >= state.Until && state.Held != 0) { state.Held = 0; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning); }
         bool active = state.Held > 0 && now < state.Until && now < state.UsedUntil && state.PerMinute > 0;
-        if (state.Degenerating != active) { state.Degenerating = active; state.Revision++; }
+        if (state.Degenerating != active) { state.Degenerating = active; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning); }
     }
 
     static SiphoningState SiphoningAt(ClientState conn, double now, IReadOnlyDictionary<uint, int>? raw = null)
@@ -48,12 +48,12 @@ public static partial class Game
             state.Rules = CombatLifetime; state.Epoch = conn.ProjectileEpoch; state.At = now;
             state.Held = state.Maximum = state.Gain = 0; state.Until = state.UsedUntil = 0;
             state.Pending = state.TakenCarry = state.BypassCarry = 0; state.Sources.Clear();
-            state.Degenerating = false; state.Revision++;
+            state.Degenerating = false; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
         }
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired
             || (conn.PlayerLife == 0 && conn.PlayerObjectCreated))
         {
-            if (state.Held != 0 || state.Degenerating) state.Revision++;
+            if (state.Held != 0 || state.Degenerating) { state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning); }
             state.Held = state.Maximum = state.Gain = 0; state.Sources.Clear();
             state.Pending = state.TakenCarry = state.BypassCarry = 0; state.At = now; state.Degenerating = false;
             return state;
@@ -74,9 +74,9 @@ public static partial class Game
         if (!state.Sources.SetEquals(hosts))
         {
             state.Sources = hosts; state.Held = 0; state.Until = state.UsedUntil = 0;
-            state.Pending = state.TakenCarry = state.BypassCarry = 0; state.At = now; state.Revision++;
+            state.Pending = state.TakenCarry = state.BypassCarry = 0; state.At = now; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
         }
-        SettleSiphoning(state, now);
+        SettleSiphoning(conn, state, now);
         int count = active.Count(w => (w.Item.Influences & (ItemInfluence.Elder | ItemInfluence.Shaper)) != 0);
         state.Maximum = (int)Math.Clamp((long)Math.Max(0, Get(SiphoningMaximum)) * count, 0, ushort.MaxValue);
         state.Gain = Math.Max(0, Get(SiphoningGain));
@@ -84,8 +84,8 @@ public static partial class Game
         // Read its coefficient before generic recent filtering, from the same qualified physical equipment.
         state.PerMinute = Math.Max(0, ItemModStats.Sum(active.Select(w => w.Item), ItemsFor(conn).Mods)
             .GetValueOrDefault(SiphoningDegen));
-        if (state.Held > state.Maximum) { state.Held = state.Maximum; state.Revision++; }
-        SettleSiphoning(state, now);
+        if (state.Held > state.Maximum) { state.Held = state.Maximum; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning); }
+        SettleSiphoning(conn, state, now);
         return state;
     }
 
@@ -97,7 +97,7 @@ public static partial class Game
         // Install the existing transfer hook before any accepted charge can leave this area.
         ResourceEffectsOf(conn);
         state.UsedUntil = Math.Max(state.At, at) + RecentEvents.WindowSeconds;
-        SettleSiphoning(state, state.At);
+        SettleSiphoning(conn, state, state.At);
         if (!RandomRolls.Chance(state.Gain, 100, random ?? Random.Shared)) return;
         int Get(string n) => Stats.Key(n) is uint key ? raw.GetValueOrDefault(key) : 0;
         double duration = Charges.BaseDurationMs / 1000d
@@ -105,8 +105,8 @@ public static partial class Game
         if (duration <= 0) return;
         state.Held = Math.Min(state.Maximum, state.Held + 1);
         state.Until = state.At + duration;
-        state.Revision++;
-        SettleSiphoning(state, state.At);
+        state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
+        SettleSiphoning(conn, state, state.At);
         Console.WriteLine($"[gateway] Siphoning charge {state.Held}/{state.Maximum} until={state.Until:0.000} t={at:0.000}");
     }
 
@@ -124,7 +124,7 @@ public static partial class Game
     {
         var state = conn.Siphoning;
         state.Held = 0; state.Until = state.UsedUntil = 0;
-        state.Pending = state.TakenCarry = state.BypassCarry = 0; state.Degenerating = false; state.Revision++;
+        state.Pending = state.TakenCarry = state.BypassCarry = 0; state.Degenerating = false; state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Siphoning);
     }
 
     public static IReadOnlyList<(uint Key, int Value)> SiphoningRawStatsLocked(ClientState conn,

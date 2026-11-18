@@ -211,7 +211,7 @@ static partial class Game
         if (next.Count == state.PlayerOfferingStats.Count
             && next.All(p => state.PlayerOfferingStats.GetValueOrDefault(p.Key) == p.Value)) return;
         state.PlayerOfferingStats = next;
-        state.OfferingRevision++;
+        state.OfferingRevision++; MarkPlayerStats(conn, PlayerStatStep.Offerings);
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
         conn.ApplyMovementSpeed();
         conn.Minions.StatRevision++;

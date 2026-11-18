@@ -110,7 +110,7 @@ public static class Hierophant
             (state.Totems, state.ManaArea) = (totems, area);
             if (changed)
             {
-                state.Revision++;
+                state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
                 RecomputePoolsAndSpeed(conn);
                 Console.WriteLine($"[gateway] Hierophant: {totems} summoned totems, unreserved-mana area +{area}%");
             }

@@ -43,7 +43,7 @@ public static partial class Game
                 state.TouchBuffs[i] = conn.NextBuff++;
             }
         state.ExpiryRate = rate;
-        state.Revision++;
+        state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
         conn.AuraStatsDirty = true;
     }
 
@@ -70,7 +70,7 @@ public static partial class Game
             state.Until[kind] = at + duration;
             state.TouchBuffs[kind] = conn.NextBuff++;
             state.NextTouch = at + interval;
-            state.Revision++;
+            state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
         }
         Expire(now);
         bool changed = before != state.Revision;
@@ -84,7 +84,7 @@ public static partial class Game
                 {
                     state.Touches[i] = 0;
                     state.TouchBuffs[i] = 0;
-                    state.Revision++;
+                    state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
                 }
         }
     }
@@ -172,7 +172,7 @@ public static partial class Game
                     state.Skill = skill;
                     state.Buff = conn.NextBuff++;
                     state.NextTouch = now + MadnessSkillValue(conn, "glorious_madness_timer_ms") / 1000d;
-                    state.Revision++;
+                    state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
                 }
                 state.ReadyAt = now + delay;
                 conn.AuraStatsDirty = true;

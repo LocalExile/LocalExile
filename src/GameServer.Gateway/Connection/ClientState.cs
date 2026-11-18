@@ -710,12 +710,15 @@ public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, 
 // The last instance list shown (0xae); 0xaf picks a row of it.
 public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false, int? ArrivalEntrance = null);
 
+/// <summary>An input of the player's stats the framework holds; its change is handed to the game (ClientState.StatsChanged).</summary>
+public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents }
+
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
-    /// <summary>The hand-over for a change of what the player's stats are built from: the game sets it (it builds them
-    /// again in its next Stats phase). An input the framework holds marks itself from its setter.</summary>
-    public static Action<ClientState>? StatsChanged;
-    public void MarkStatsDirty() => StatsChanged?.Invoke(this);
+    /// <summary>The hand-over for a change of what the player's stats are built from: the game sets it and marks what reads
+    /// the input. An input the framework holds marks itself when it changes (its setter).</summary>
+    public static Action<ClientState, StatInput>? StatsChanged;
+    public void MarkStatsDirty(StatInput input) => StatsChanged?.Invoke(this, input);
 
     public readonly CharacterBuildImports.Session BuildImport = new();
     public bool BuildFinalized;
@@ -774,7 +777,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public bool TransferAccepted;
     public readonly RecentEnemyHits RecentEnemyHits = new();
     // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
-    public readonly RecentEvents RecentEvents = new();
+    public RecentEvents RecentEvents => recentEvents ??= new() { Changed = () => MarkStatsDirty(StatInput.RecentEvents) };
+    RecentEvents? recentEvents;
     public readonly PlayerElementalAilments ElementalAilments = new();
     // Incoming bleeding and poison from monster contacts, reflected outgoing ailments and traps. This
     // is the sole state/damage owner and is advanced by the player recovery writer.
@@ -882,14 +886,15 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         return Math.Max(at, ProjectileRuntimeState?.NowTicks / 120000d ?? 0);
     }
     // The server's copy of the client-predicted walk (reported in each 0x1ab): the client's own pathfinder and stepping.
-    public PlayerWalk Walk => _walk ??= NewPlayerWalk();
+    public PlayerWalk Walk => _walk ??= WithMarks(NewPlayerWalk());
+    PlayerWalk WithMarks(PlayerWalk walk) { walk.Changed = () => MarkStatsDirty(StatInput.Walk); return walk; }
     PlayerWalk? _walk;
 
     /// <summary>Switches to a layout with a walk map (before the player exists).</summary>
     public void Use(AreaLayout better)
     {
         Layout = better;
-        _walk = NewPlayerWalk();
+        _walk = WithMarks(NewPlayerWalk());
         ApplyMovementSpeed();
     }
 
@@ -1100,9 +1105,20 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public IReadOnlyList<GrantedSkill>? PlayerSkillsCache;
     public double PlayerSkillsAt;
     // The character's level and the pools that follow from it and the class (CharacterStats).
-    public EnergyShield EnergyShield { get; } = new();
+    public EnergyShield EnergyShield => energyShield ??= new() { ConditionsChanged = () => MarkStatsDirty(StatInput.EnergyShield) };
+    EnergyShield? energyShield;
     CharacterStats.Pools pools = new(1, 50, 40, 2, 0);
-    public CharacterStats.Pools Pools { get => pools; set { pools = value; EnergyShield.SetMaximum(value.EnergyShield); } }
+    public CharacterStats.Pools Pools
+    {
+        get => pools;
+        set
+        {
+            bool changed = !Equals(pools, value);
+            pools = value;
+            EnergyShield.SetMaximum(value.EnergyShield);
+            if (changed) MarkStatsDirty(StatInput.Pools);
+        }
+    }
     // The player stat keys the client holds (PlayerStatsWithCleared). Guarded by the Monsters lock.
     public HashSet<uint> SentStatKeys = [];
     // Dev-only forced lucky block, on top of the stats (Svalinn's "Chance to Block is Lucky").
@@ -1267,7 +1283,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                     MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                     Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
+                bool changed = playerLife != value;
                 playerLife = value;
+                if (changed) MarkStatsDirty(StatInput.Life);
             }
         }
     }
@@ -1275,7 +1293,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public Random CriticalRandom { get; init; } = Random.Shared;
     public Random AttackAccuracyRandom { get; set; } = Random.Shared;
     // The player's mana as the server keeps it: spent by gem skills (mana_cost), regenerated by RunPlayerTick.
-    public uint PlayerMana;
+    public uint PlayerMana { get => playerMana; set { if (playerMana == value) return; playerMana = value; MarkStatsDirty(StatInput.Mana); } }
+    uint playerMana;
     // When the server last sent the pool back after an attack-move, whose use the client pays for but the server only walks.
     public double LastManaResyncAt = double.NegativeInfinity;
     public uint? SentEnergyShield;

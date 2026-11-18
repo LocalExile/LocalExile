@@ -48,6 +48,9 @@ public static partial class Game
             List<ushort> nodes;
             lock (conn.Monsters) nodes = [.. conn.Passives];
             foreach (var (k, v) in CharacterStatSources(conn, nodes).Stats) stats[k] = v;
+            // Their "recently" conditions change by themselves when an event ages out of its window.
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
         });
         Step(PlayerStatStep.Siphoning, (conn, stats, _) =>
         {

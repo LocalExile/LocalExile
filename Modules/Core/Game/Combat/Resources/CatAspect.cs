@@ -63,7 +63,7 @@ public static partial class Game
         state.CatPhasing = false;
         state.CatPhaseBuff = 0;
         state.CatOnslaughtBuff = 0;
-        state.CatRevision++;
+        state.CatRevision++; MarkPlayerStats(conn, PlayerStatStep.CatAspect);
         conn.AuraStatsDirty = true;
     }
 
@@ -308,7 +308,7 @@ public static partial class Game
         if (changed)
         {
             state.CatPhaseBuff = conn.NextBuff++;
-            state.CatRevision++;
+            state.CatRevision++; MarkPlayerStats(conn, PlayerStatStep.CatAspect);
             conn.AuraStatsDirty = true;
         }
         return changed;

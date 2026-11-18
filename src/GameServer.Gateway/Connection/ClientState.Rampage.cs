@@ -38,7 +38,7 @@ public sealed partial class ClientState
     public double VaalPreventionUntil
     {
         get => vaalPreventionUntil;
-        set { if (value != vaalPreventionUntil) { vaalPreventionUntil = value; MarkStatsDirty(); } }
+        set { if (value != vaalPreventionUntil) { vaalPreventionUntil = value; MarkStatsDirty(StatInput.VaalPrevention); } }
     }
     double vaalPreventionUntil;
     public bool SentVaalPrevention;

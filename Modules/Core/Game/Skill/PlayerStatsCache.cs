@@ -1,163 +1,26 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 
-// The player's full stat snapshot is rebuilt by every hit, cast, leech, aura and flask check: within one skill use (C→S 0x24,
-// 0x25) it was built several times over with the same inputs (live 2026-11-05: up to 1.3 s per message in the Upper
-// Sceptre of God, the input queue 16 s behind, and the move echoes put the player back where they had been). Inside such a
-// message's scope (PlayerStatsScope) a snapshot is reused while its inputs are the same: the pools, the buffs added, life,
-// the mana's conditions (ManaState), the auras, moving and the /set_stat overrides, for at most Lifetime (a task the message started outlives it).
-// Everything else (equipment, item and passive messages, ticks) builds its own.
+// The player's stats. In an area's frames they are the player's stat graph, stepped once a frame in the Stats phase (below):
+// a read between two steps sees the last one. Off the frames (tests, tools) a read builds them in full.
 public static partial class Game
 {
-    sealed class PlayerStatsEntry
-    {
-        public double At;
-        public object? Pools;
-        public long NextBuff, Life, Mana;
-        public long Golems;
-        public long AspectRevision;
-        public long MadnessRevision;
-        public long SiphoningRevision;
-        public (int Endurance, int Frenzy, int Power) HeldCharges;
-        public int IntimidatingCryMovement;
-        public long Slayer, Offerings, Hierophant;
-        public bool ArcaneSurge;
-        public int Overrides, Auras, ResistancePenalty;
-        public bool Moving, GolemSummonedRecently;
-        // The Energy Shield's conditions (full, recharging) and the enemy hits taken recently (RecentEnemyHits.Counter):
-        // found missing by rebuilding on every reuse and comparing (2026-11-18): stale up to a throttle window before.
-        public bool EnergyShieldFull, EnergyShieldRecharging;
-        public int HitsTakenRecently;
-        public StatSourcesResult? StatSources;
-        public Dictionary<uint, int>? Stats;
-        public double Baseline;
-    }
-
-    const double PlayerStatsLifetime = .05;
-
-    sealed class PlayerStatsCacheScope(ClientState conn) : IDisposable
-    {
-        public readonly ClientState Conn = conn;
-        public PlayerStatsEntry? Entry;
-        public void Dispose() { if (ReferenceEquals(CurrentPlayerStatsScope.Value, this)) CurrentPlayerStatsScope.Value = null; }
-    }
-    static readonly AsyncLocal<PlayerStatsCacheScope?> CurrentPlayerStatsScope = new();
-
-    /// <summary>Reuse the player's stat snapshot within this message (see above).</summary>
-    public static IDisposable PlayerStatsScope(ClientState conn) => CurrentPlayerStatsScope.Value = new(conn);
-
-    static PlayerStatsEntry PlayerStatsKey(ClientState conn, double now)
-    {
-        int overrides;
-        StatSourcesResult? statSources;
-        long siphoningRevision;
-        (int Endurance, int Frenzy, int Power) heldCharges;
-        int hitsTaken;
-        lock (conn.Monsters)
-        {
-            hitsTaken = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
-            overrides = conn.PlayerStats.Count;
-            // Reconcile source-owned charges before capturing the source identity or held standard charges.
-            siphoningRevision = Game.SiphoningRevision(conn);
-            statSources = conn.StatSourcesCache;
-            var charges = ChargesOf(conn).State;
-            heldCharges = (charges.Held(ChargeType.Endurance), charges.Held(ChargeType.Frenzy), charges.Held(ChargeType.Power));
-        }
-        return new()
-        {
-            At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = ManaState(conn),
-            Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
-            GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
-            AspectRevision = conn.Reservations.AspectRevision,
-            MadnessRevision = conn.Madness.Revision,
-            SiphoningRevision = siphoningRevision,
-            HeldCharges = heldCharges,
-            IntimidatingCryMovement = Game.IntimidatingCryMovement(conn),
-            Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
-            ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
-            ResistancePenalty = Game.ResistancePenalty(conn),
-            EnergyShieldFull = conn.EnergyShield.Full, EnergyShieldRecharging = conn.EnergyShield.Recharging,
-            HitsTakenRecently = hitsTaken,
-        };
-    }
-
-    // The snapshot reads the current mana only as its conditions (ItemConditionFlags: full, half or less) and empty;
-    // the amount itself was the key, so every point of regeneration after a cast missed the cache and each of its
-    // readers (charges, recovery, the pose, crit context) built the whole snapshot again under the lock until the pool
-    // was full (CPU sample 2026-11-18: 5.5k of 52k samples in a Fireball fight, second only to the monster AI).
+    // What the stats read of mana is its conditions (ItemConditionFlags: full, half or less) and empty: a change of the
+    // amount alone marks nothing (CheckConditions).
     static long ManaState(ClientState conn)
     {
         long mana = conn.PlayerMana, pool = conn.Pools.Mana;
         return (mana >= pool ? 1 : 0) | (mana * 2 <= pool ? 2 : 0) | (mana == 0 ? 4 : 0);
     }
 
-    static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
-        b.At - a.At is >= 0 and < PlayerStatsLifetime && SameSources(a, b);
-
-    static bool SameSources(PlayerStatsEntry a, PlayerStatsEntry b) => Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
-        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
-        && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
-        && a.AspectRevision == b.AspectRevision
-        && a.MadnessRevision == b.MadnessRevision
-        && a.SiphoningRevision == b.SiphoningRevision
-        && a.HeldCharges == b.HeldCharges
-        && a.IntimidatingCryMovement == b.IntimidatingCryMovement
-        && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
-        && a.ResistancePenalty == b.ResistancePenalty
-        && a.EnergyShieldFull == b.EnergyShieldFull && a.EnergyShieldRecharging == b.EnergyShieldRecharging
-        && a.HitsTakenRecently == b.HitsTakenRecently
-        && ReferenceEquals(a.StatSources, b.StatSources);
-
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
-        // In an area's frames: the build of the last Stats phase (StatsSystem.cs), until the next.
         if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame && frame.Graph is { } graph)
         {
             baselineLifePerSecond = frame.Outputs.BaselineLifePerSecond;
             return new(graph.Values);
         }
-        if (CurrentPlayerStatsScope.Value is not { } scope || !ReferenceEquals(scope.Conn, conn))
-            return ThrottledPlayerStats(conn, out baselineLifePerSecond);
-        var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
-        lock (scope)
-            if (scope.Entry is { Stats: { } hit } last && SameInputs(last, key))
-            {
-                baselineLifePerSecond = last.Baseline;
-                return new(hit);
-            }
-        var stats = CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
-        key.Stats = new(stats);
-        key.Baseline = baselineLifePerSecond;
-        lock (scope) scope.Entry = key;
-        return stats;
-    }
-
-    // A live connection (its player update loops run) rebuilds its snapshot at most once a frame of 60 Hz while the inputs
-    // above are the same: a fight asked for 157 full builds a second (live 2026-11-05, 56% of a core), most of them for the
-    // same state. Anything slower than a frame (regeneration, Rage decay, Fortification expiry, "recently" windows) is at
-    // most that late; a change of the pools, a buff added, life, a mana condition, the auras, moving or an override rebuilds at once.
-    // Off a live connection (tests, the build scopes) every read builds.
-    const double PlayerStatsFrame = 1.0 / 60;
-    sealed class ThrottledStats { public PlayerStatsEntry? Entry; }
-    static readonly RuleTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
-
-    static Dictionary<uint, int> ThrottledPlayerStats(ClientState conn, out double baselineLifePerSecond)
-    {
-        if (conn.PlayerUpdatesState is null || conn.Closed)
-            return CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
-        var holder = ThrottledPlayerStatsEntries.GetOrCreateValue(conn);
-        var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
-        lock (holder)
-            if (holder.Entry is { Stats: { } hit } last && key.At - last.At is >= 0 and < PlayerStatsFrame && SameInputs(last, key))
-            {
-                baselineLifePerSecond = last.Baseline;
-                return new(hit);
-            }
-        var stats = CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
-        key.Stats = new(stats);
-        key.Baseline = baselineLifePerSecond;
-        lock (holder) holder.Entry = key;
-        return stats;
+        return CharacterPlayerStatsSnapshot(conn, out baselineLifePerSecond, out _);
     }
 
     // ---- stats by frame ----
@@ -170,23 +33,29 @@ public static partial class Game
         public bool Dirty = true, ByFrame;
         public StatGraph? Graph;
         public readonly PlayerStepOutputs Outputs = new();
-        public PlayerStatsEntry? Key;
         public string? Publish;
         public Task Publishing = Task.CompletedTask;
         public int Steps, Builds, Published;
-        // When (connection clock) a timed effect the last build read next changes (StatsChangeIn).
-        public double NextChange = double.PositiveInfinity;
+        // The steps whose timed effect changes by itself, and when (connection clock): StatsChangeIn.
+        public readonly Dictionary<PlayerStatStep, double> Timed = [];
+        // The conditions of life, mana and moving the steps read, as last marked; when moving next changes by itself.
+        public long Conditions = -1;
+        public double MovingCheckAt = double.PositiveInfinity;
+        public double Clock;
     }
 
-    // The earliest change the Stats phase's build being made heard of (StatsChangeIn), in seconds from now.
-    [ThreadStatic] static bool collectingChanges;
-    [ThreadStatic] static double buildNextChange;
+    // The step being run and its frame, for StatsChangeIn.
+    [ThreadStatic] static FrameStats? runningFrame;
+    [ThreadStatic] static PlayerStatStep runningStep;
 
-    /// <summary>For what a stat build reads that runs out or changes by itself (a buff's end, a "recently" window): it
-    /// changes in <paramref name="seconds"/>, and the player's stats are built again in the Stats phase then.</summary>
+    /// <summary>For what a stat step reads that runs out or changes by itself (a buff's end, a "recently" window): it
+    /// changes in <paramref name="seconds"/>, and the step runs again in the Stats phase then.</summary>
     public static void StatsChangeIn(double seconds)
     {
-        if (collectingChanges && seconds < buildNextChange) buildNextChange = Math.Max(0, seconds);
+        if (runningFrame is not { } frame) return;
+        double at = frame.Clock + Math.Max(0, seconds);
+        lock (frame.Timed)
+            if (!frame.Timed.TryGetValue(runningStep, out double was) || at < was) frame.Timed[runningStep] = at;
     }
     static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
 
@@ -204,6 +73,72 @@ public static partial class Game
         return true;
     }
 
+    // What reads the pools, and what reads the conditions of life, mana, Energy Shield and moving (the sources' "while"
+    // conditions, the conditional pools, recovery and leech, the tail's low life and recharge rows).
+    static readonly PlayerStatStep[] PoolsReaders =
+    [
+        PlayerStatStep.Sources, PlayerStatStep.God, PlayerStatStep.Auras, PlayerStatStep.CatAspect, PlayerStatStep.ClassAttributes,
+        PlayerStatStep.OvercapCrit, PlayerStatStep.AttackSpeed, PlayerStatStep.MaximumPoolItems, PlayerStatStep.Recovery,
+        PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
+    ];
+    static readonly PlayerStatStep[] ConditionReaders =
+    [
+        PlayerStatStep.Pools, PlayerStatStep.Sources, PlayerStatStep.Recovery,
+        PlayerStatStep.TailPanels, PlayerStatStep.TailOffence, PlayerStatStep.TailCritical,
+    ];
+
+    /// <summary>The framework's hand-over (ClientState.StatsChanged): marks the steps that read the input.</summary>
+    internal static void PlayerStatInputChanged(ClientState conn, StatInput input)
+    {
+        if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
+        switch (input)
+        {
+            case StatInput.Pools:
+                foreach (var step in PoolsReaders) graph.MarkRule((int)step);
+                break;
+            case StatInput.EnergyShield:
+                foreach (var step in ConditionReaders) graph.MarkRule((int)step);
+                break;
+            case StatInput.VaalPrevention:
+                graph.MarkRule((int)PlayerStatStep.VaalPrevention);
+                break;
+            case StatInput.RecentEvents:
+                graph.MarkRule((int)PlayerStatStep.Sources);
+                break;
+            case StatInput.Walk:
+                double clock = conn.Clock.Elapsed.TotalSeconds;
+                frame.MovingCheckAt = conn.Walk.MovingChangesIn(clock) is double next ? clock + next : double.PositiveInfinity;
+                CheckConditions(conn, frame, graph);
+                break;
+            default:
+                CheckConditions(conn, frame, graph);
+                break;
+        }
+    }
+
+    // Life, mana and moving change often (regeneration, every step of a walk); what the steps read of them is a few
+    // conditions, and only a change of one marks them.
+    static void CheckConditions(ClientState conn, FrameStats frame, StatGraph graph)
+    {
+        var stats = graph.Values;
+        long conditions = ManaState(conn)
+            | (conn.PlayerLife == 0 ? 8L : 0) | (CriticalOnLowLife(conn, stats) ? 16L : 0)
+            | (CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, stats) ? 32L : 0)
+            | (PetrifiedBloodCapped(conn, stats) ? 64L : 0)
+            | (conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds) ? 128L : 0);
+        if (Interlocked.Exchange(ref frame.Conditions, conditions) == conditions) return;
+        foreach (var step in ConditionReaders) graph.MarkRule((int)step);
+    }
+
+    static bool PetrifiedBloodCapped(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (!conn.PetrifiedBlood.Active || conn.PlayerLife == 0) return false;
+        var (lifeRegenPerMinute, _) = PanelStats.LifeRegeneration(
+            name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
+        uint margin = PetrifiedBlood.RecoveryMargin(lifeRegenPerMinute / 60);
+        return (long)conn.PlayerLife + margin >= (uint)((long)conn.PlayerMaxLife * LowLifeThresholdPct(stats) / 100);
+    }
+
     static readonly bool VerifyFrameStats = Environment.GetEnvironmentVariable("Game_STATS_FRAME_VERIFY") == "1";
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> FrameStatsMisses = new();
 
@@ -214,31 +149,29 @@ public static partial class Game
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         var frame = FrameStatsOf.GetValue(conn, _ => new());
         double clock = conn.Clock.Elapsed.TotalSeconds;
-        var key = PlayerStatsKey(conn, clock);
+        frame.Clock = clock;
+        var graph = frame.Graph ??= PlayerStatGraph(conn, frame);
         bool dirty;
-        lock (frame) dirty = frame.Dirty || frame.Graph is null || frame.Key is null || !SameSources(frame.Key, key)
-            || clock >= frame.NextChange;
-        var graph = frame.Graph ??= PlayerStatGraph(conn, frame.Outputs);
+        lock (frame) (dirty, frame.Dirty) = (frame.Dirty, false);
         if (dirty)
-        {
-            lock (frame) { frame.Dirty = false; frame.Key = key; }
             for (int i = 0; i < PlayerSteps.Length; i++) graph.MarkRule(i);
-        }
-        (collectingChanges, buildNextChange) = (true, double.PositiveInfinity);
-        try { graph.Step(); }
-        finally
-        {
-            collectingChanges = false;
-            if (dirty) frame.NextChange = clock + buildNextChange;
-        }
+        lock (frame.Timed)
+            foreach (var (step, at) in frame.Timed.ToList())
+                if (clock >= at) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
+        if (clock >= frame.MovingCheckAt) PlayerStatInputChanged(conn, StatInput.Walk);
+        runningFrame = frame;
+        bool built;
+        try { built = graph.Step(); }
+        finally { runningFrame = null; }
+        if (frame.Conditions < 0 || built) CheckConditions(conn, frame, graph);
         if (VerifyFrameStats) VerifyFrame(conn, frame);
         frame.ByFrame = true;
-        if (dirty) frame.Builds++;
+        if (built) frame.Builds++;
         if (++frame.Steps == 300)
         {
-            // Game_TRACE=budget: how often the phase built and published them (300 frames, about 10 s).
+            // Game_TRACE=budget: how often the phase changed them and published them (300 frames, about 10 s).
             if (GameServer.Core.Diagnostics.ServerTrace.Budget)
-                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} build(s), {frame.Published} panel(s) in {frame.Steps} frames");
+                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} change(s), {graph.RuleRuns} step run(s) so far, {frame.Published} panel(s) in {frame.Steps} frames");
             frame.Steps = frame.Builds = frame.Published = 0;
         }
         string? why;
@@ -252,10 +185,19 @@ public static partial class Game
         frame.Publishing = AsPlayer(conn, updates, () => PublishCharacterStats(remote, stream, ciphers, conn, why));
     }
 
-    static StatGraph PlayerStatGraph(ClientState conn, PlayerStepOutputs outputs)
+    static StatGraph PlayerStatGraph(ClientState conn, FrameStats frame)
     {
         var graph = new StatGraph();
-        foreach (var step in Enum.GetValues<PlayerStatStep>()) graph.AddRule(view => RunPlayerStep(step, conn, view, outputs));
+        foreach (var step in Enum.GetValues<PlayerStatStep>())
+            graph.AddRule(view =>
+            {
+                // A run reports its timed effects again (StatsChangeIn), so the last run's go.
+                lock (frame.Timed) frame.Timed.Remove(step);
+                var outer = runningStep;
+                runningStep = step;
+                try { RunPlayerStep(step, conn, view, frame.Outputs); }
+                finally { runningStep = outer; }
+            });
         return graph;
     }
 

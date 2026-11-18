@@ -194,7 +194,7 @@ public static class Slayer
             if (changed) (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
             if (changed)
             {
-                state.Revision++;
+                state.Revision++; MarkPlayerStats(conn, PlayerStatStep.Sources);
                 RecomputePoolsAndSpeed(conn);
                 int Stat(string name) => Stats.Key(name) is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
                 Console.WriteLine($"[gateway] Slayer: {nearby} nearby enemies, {killed} killed recently, Headsman +{movement}% "

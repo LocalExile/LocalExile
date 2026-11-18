@@ -663,7 +663,7 @@ public static partial class Game
         if (changed)
         {
             conn.Golems.OwnerStats.Clear(); foreach (var entry in totals) conn.Golems.OwnerStats.Add(entry.Key, entry.Value);
-            conn.Golems.Version++; conn.Minions.StatRevision++;
+            conn.Golems.Version++; MarkPlayerStats(conn, PlayerStatStep.Golems); conn.Minions.StatRevision++;
             conn.Pools = BuildPoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
         }
         return ([.. bytes], changed);

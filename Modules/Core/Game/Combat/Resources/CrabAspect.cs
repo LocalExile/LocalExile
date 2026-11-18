@@ -18,7 +18,7 @@ public static partial class Game
         state.NextCrabBarrier = 0;
         state.CrabLastLoss = double.NegativeInfinity;
         state.CrabBuff = 0;
-        state.AspectRevision++;
+        state.AspectRevision++; MarkPlayerStats(conn, PlayerStatStep.AvianCrab);
         conn.AuraStatsDirty = true;
     }
 
@@ -63,7 +63,7 @@ public static partial class Game
         }
         changed |= state.CrabBarriers != stacks;
         state.CrabBarriers = stacks;
-        if (changed) { conn.AuraStatsDirty = true; state.AspectRevision++; }
+        if (changed) { conn.AuraStatsDirty = true; state.AspectRevision++; MarkPlayerStats(conn, PlayerStatStep.AvianCrab); }
         return changed;
     }
 
@@ -81,7 +81,7 @@ public static partial class Game
         int loss = Get("number_of_crab_charges_lost_when_hit");
         state.CrabBarriers = loss > 0 ? Math.Max(0, state.CrabBarriers - loss) : 0;
         state.CrabLastLoss = now;
-        state.AspectRevision++;
+        state.AspectRevision++; MarkPlayerStats(conn, PlayerStatStep.AvianCrab);
         state.CrabPoolsDirty = true;
         conn.AuraStatsDirty = true;
     }

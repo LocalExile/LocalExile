@@ -20,7 +20,20 @@ public sealed class PlayerWalk
     private readonly int _w, _h, _size;
     private readonly ClientPathfinder.SearchLimit _limit;
     private double _speed;
-    private List<Segment> _segments = [];
+    private List<Segment> _segments_ = [];
+    // Every new walk or change of one goes through here: Changed tells the owner (whether it moves can change).
+    private List<Segment> _segments { get => _segments_; set { _segments_ = value; Changed?.Invoke(); } }
+
+    /// <summary>The walk changed (a new path, a stop, a hold, a teleport, a speed).</summary>
+    public Action? Changed;
+
+    /// <summary>Seconds until <see cref="Moving"/> next changes by itself (the walk starting or arriving); null when it will not.</summary>
+    public double? MovingChangesIn(double now)
+    {
+        var walk = _segments_;
+        if (walk.Count == 0 || now >= walk[^1].End) return null;
+        return walk[0].T0 > now ? walk[0].T0 - now : walk[^1].End - now;
+    }
     private (int X, int Y) _rest;
     private double _restSince;
     private (int X, int Y) _target;

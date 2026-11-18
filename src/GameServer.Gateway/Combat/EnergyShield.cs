@@ -4,10 +4,14 @@ public sealed class EnergyShield
 {
     public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
 
-    public uint Current { get; private set; }
-    public uint Maximum { get; private set; }
+    public uint Current { get => current; private set { bool was = Full; current = value; if (Full != was) ConditionsChanged?.Invoke(); } }
+    public uint Maximum { get => maximum; private set { bool was = Full; maximum = value; if (Full != was) ConditionsChanged?.Invoke(); } }
     public bool Full => Maximum > 0 && Current >= Maximum;
-    public bool Recharging { get; private set; }
+    public bool Recharging { get => recharging; private set { if (recharging == value) return; recharging = value; ConditionsChanged?.Invoke(); } }
+    uint current, maximum;
+    bool recharging;
+    /// <summary>Full or Recharging changed (what stat conditions read).</summary>
+    public Action? ConditionsChanged;
     double interruptedAt = double.NegativeInfinity, fraction;
     public void SetMaximum(uint maximum, bool refill = false)
     {
