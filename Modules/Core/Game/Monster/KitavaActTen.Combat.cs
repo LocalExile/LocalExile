@@ -232,9 +232,11 @@ static partial class KitavaActTen
                         }));
                         double raw = rate * seconds + carry.GetValueOrDefault((p, g.Id));
                         int damage = (int)Math.Min(int.MaxValue, Math.Floor(raw)); carry[(p, g.Id)] = raw - damage;
-                        int shield = Math.Min((int)g.Shield, damage); g.Shield -= shield; damage -= shield;
+                        int incoming = damage;
+                        damage = g.ShieldPool.Damage(damage, bypass: false, now);
+                        PublishEnergyShieldLocked(p, g);
                         g.Monster.Life = (uint)Math.Max(0, (long)g.Monster.Life - damage);
-                        if (damage > 0 || shield > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+                        if (incoming > 0) p.Minions.OutputQueue.Add(new([], "Kitava ground damages minion", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
                         if (g.Monster.Life == 0) GolemDieLocked(p, g, now);
                     }
                 }

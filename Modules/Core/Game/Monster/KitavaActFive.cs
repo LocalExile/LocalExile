@@ -526,7 +526,8 @@ static class KitavaActFive
                         rate *= Math.Max(0, 1 + Stat(c, ground.Effect, body.Level, "monster_penalty_against_minions_damage_+%_final_vs_player_minions") / 100d);
                         double value = rate * seconds * Math.Max(0, 1 + (m.Effects["base_damage_taken_+%"] + m.Effects["physical_damage_taken_+%"]) / 100d) + carry.GetValueOrDefault((p, g.Id));
                         int amount = (int)Math.Floor(value); carry[(p, g.Id)] = value - amount;
-                        double absorbed = Math.Min(g.Shield, amount); g.Shield -= absorbed; amount -= (int)absorbed;
+                        amount = g.ShieldPool.Damage(amount, bypass: false, now);
+                        PublishEnergyShieldLocked(p, g);
                         m.Life = (uint)Math.Max(0, (long)m.Life - amount);
                         p.Minions.OutputQueue.Add(new([], "Kitava devouring darkness damages minion", g.Id, m, PlayerMinions.OutputKind.Life));
                         if (m.Life == 0) GolemDieLocked(p, g, now);

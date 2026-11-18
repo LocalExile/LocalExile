@@ -19,6 +19,10 @@ public sealed class GolemCatalog
     readonly IReadOnlyDictionary<string, Definition> definitions;
     readonly Scaling scaling;
     public IReadOnlyCollection<Definition> All => definitions.Values.ToArray();
+
+    /// <summary>Nothing left to build: the constructor reads the definitions and the level scaling. Kept for the game
+    /// module's startup warm-up.</summary>
+    public void Warm() { }
     public Definition? Find(string? id) => id is not null ? definitions.GetValueOrDefault(id) : null;
 
     public (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)

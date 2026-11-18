@@ -518,7 +518,7 @@ public static partial class Game
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
-                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsProfane(conn, player)), ownPenetration, skillRoll: criticalRoll)
+                        AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsGround(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
@@ -609,6 +609,7 @@ public static partial class Game
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, use.SkillId) is not null) return;
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
+        if (gem.Name is not null && !VaalMinionTargetAvailable(conn, use.SkillId, use.TargetId)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
         if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
@@ -994,9 +995,12 @@ public static partial class Game
                 () => !conn.Closed && PlayerActionCurrent(conn, action) && Current()) is { } taken) return taken;
         if (gem.Name is not null && CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await CastCurse(remote, stream, ciphers, conn, skillId, to, targetId, recoveryGeneration, Current);
+        if (gem.Name is not null && IsVaalMinion(SkillsFor(conn).EffectId(gem.Effect)))
+            return await RepeatSummonCast(conn, skillId, recoveryGeneration, Current, false,
+                () => ReleaseVaalMinions(remote, stream, ciphers, conn, skillId, to, Current, targetId));
         if (gem.Name is not null && MinionUtility(SkillsFor(conn).EffectId(gem.Effect)))
             return await CastMinionUtility(conn, skillId, to, targetId, recoveryGeneration, Current);
-        if (gem.Name is not null && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
+        if (gem.Name is not null && !IsTotemSkill(conn, skillId) && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).EffectId(gem.Effect) == "LightningWarp")
             return ScheduleLightningWarp(remote, stream, ciphers, conn, gem, to, Current, criticalRoll);
@@ -1251,7 +1255,8 @@ public static partial class Game
     }
 
     public static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
-        AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect));
+        AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect),
+            aura.AffectsSelf ? null : (byte?)0);
 
     public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string name)
@@ -1982,7 +1987,7 @@ public static partial class Game
                 // The shared roll meets each target's current chance: a source can change between targets.
                 int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
                     SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsProfane(conn, skillId, release: false));
+                    SupportedCriticalChanceVsGround(conn, skillId, release: false));
                 critical = RollCriticalStrike(conn, criticalChance, skillStats,
                         attack: !spell, skillRoll: criticalRoll, player: player)
                     && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
@@ -2005,8 +2010,8 @@ public static partial class Game
                 var rampagePlayer = freshPlayer ? player : null;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
                 uint lifeBefore = m.Life;
-                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
-                    cull: Cull.Of(player, skillStats, critical, spell));
+                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer, allyAt: null,
+                    cull: Cull.Of(player, skillStats, critical, spell), cullPlayer: player);
                 if (applied is not null)
                 {
                     // Cruelty: a hit of a Cruelty-supported skill grants its buff, scaled by the damage the hit dealt
@@ -2327,7 +2332,15 @@ public static partial class Game
     // it hits from) is not the player's hit for his hit-recently.
     public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null,
-        Cull cull = default)
+        Cull cull = default) =>
+        ApplyMonsterHitLocked(conn, m, damage, rampageSource, player, allyAt, cull, null);
+
+    // The area-hit caller passes the attack's cached snapshot as `cullPlayer` for every victim: Rampage's `player` is
+    // rebuilt only for the first target, so the two contexts must stay separate. This is an overload rather than an
+    // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.
+    public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
+        bool? rampageSource, IReadOnlyDictionary<uint, int>? player, (int X, int Y)? allyAt,
+        Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
@@ -2335,7 +2348,7 @@ public static partial class Game
         // path through this funnel leaves its life alone.
         if (m.Effects["base_cannot_be_damaged"] > 0) return null;
         uint before = m.Life;
-        (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
+        (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player, cullPlayer);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         if (allyAt is null)
@@ -2719,6 +2732,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
+            GainPhasingOnKill(conn);
             // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
             // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
             // ids stay NotModelled rather than being answered wrongly.

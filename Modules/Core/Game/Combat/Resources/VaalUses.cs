@@ -15,7 +15,7 @@ public static partial class Game
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
     public static bool VaalExecutor(ClientState conn, int effect) =>
         SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
-            || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
+            || IsVaalMinion(SkillsFor(conn).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
@@ -32,7 +32,7 @@ public static partial class Game
     static VaalUseReservation? PlanVaalUse(ClientState conn, ushort id)
     {
         var gem = SupportedSkill(conn, id);
-        if (!gem.RequirementsMet || WeaponRestricted(conn, gem.Effect) is not null
+        if (!gem.RequirementsMet || !VaalMinionAvailable(conn, id) || WeaponRestricted(conn, gem.Effect) is not null
             || SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not { } definition) return null;
         var player = CharacterPlayerStats(conn);
         int Get(string name) => VaalSoulInput(conn, player, gem.Stats, name);

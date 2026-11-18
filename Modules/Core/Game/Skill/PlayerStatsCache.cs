@@ -14,10 +14,13 @@ public static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems, Slayer, Offerings, Hierophant;
+        public long Golems;
+        public (int Endurance, int Frenzy, int Power) HeldCharges;
+        public long Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
-        public bool Moving;
+        public bool Moving, GolemSummonedRecently;
+        public StatSourcesResult? StatSources;
         public Dictionary<uint, int>? Stats;
         public double Baseline;
     }
@@ -38,11 +41,21 @@ public static partial class Game
     static PlayerStatsEntry PlayerStatsKey(ClientState conn, double now)
     {
         int overrides;
-        lock (conn.Monsters) overrides = conn.PlayerStats.Count;
+        StatSourcesResult? statSources;
+        (int Endurance, int Frenzy, int Power) heldCharges;
+        lock (conn.Monsters)
+        {
+            overrides = conn.PlayerStats.Count;
+            statSources = conn.StatSourcesCache;
+            var charges = ChargesOf(conn).State;
+            heldCharges = (charges.Held(ChargeType.Endurance), charges.Held(ChargeType.Frenzy), charges.Held(ChargeType.Power));
+        }
         return new()
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = ManaState(conn),
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
+            GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
+            HeldCharges = heldCharges,
             Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
@@ -61,9 +74,12 @@ public static partial class Game
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
-        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer && a.Offerings == b.Offerings && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
-        && a.ResistancePenalty == b.ResistancePenalty;
+        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
+        && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
+        && a.HeldCharges == b.HeldCharges
+        && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.ResistancePenalty == b.ResistancePenalty
+        && ReferenceEquals(a.StatSources, b.StatSources);
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {

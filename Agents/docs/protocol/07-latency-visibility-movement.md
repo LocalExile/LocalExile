@@ -52,7 +52,8 @@ to 0.5–4 s. Measured afterwards: no 0x1c later than 50 ms in a crowded Coast s
 Tick latency includes the input queue (above) but not the sends queued at the send gate.
 Set `$env:Game_TRACE = 'lag'` for the lag probe (`ConnectionPerformance.LagProbe`, off by default for its own cost):
 `[latency-totals]` (cumulative since the connection opened), `[latency-sends]` by message id, `[latency-empty]` by
-calling method, `[slow-use]` and `[slow-send]`.
+calling method, `[slow-use]`, `[slow-send]` and `[slow-lock]` (a wait for or a hold of the combat lock of 50 ms or more,
+with the phase's name).
 `ConnectionPerformance` separately records socket-read-to-handler queue age, handler duration, send-gate wait/hold,
 wire-gate wait/hold, socket writes, hot combat-lock wait/hold, channel lateness, surround time, blocker-index builds and
 each client message's handling (`Message`, the message id as the operation, such as `0x0025`).

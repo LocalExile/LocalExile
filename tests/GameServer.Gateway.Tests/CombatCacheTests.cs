@@ -75,6 +75,78 @@ public sealed class CombatCacheTests
         finally { PlayerInventories.Forget(conn.Character!); TestEnvironment.ReleaseSaves(path); }
     }
 
+    [Fact]
+    public void An_adorned_jewel_is_scaled_once_so_the_stat_sources_cache_still_matches()
+    {
+        // The Adorned scales a corrupted magic jewel at every stat build; a new copy each time made every lookup miss.
+        var jewel = new Item(1, [], 0) { Rarity = ItemRarity.Magic, Corrupted = true, Mods = [new(ModSection.Explicit, 1, [10])] };
+        var catalog = Program.Items;
+        var masteries = new Dictionary<ushort, ushort>();   // the key compares these by reference
+        Game.StatSourcesKey Key(Item item) => new([], masteries, [new(1, 0, 0, item)], [], 0, false, 1,
+            null, [], 0, [], new HashSet<string>(), new HashSet<string>(), null, 0, 0, 0, 100, 100, Catalog: catalog);
+
+        var scaled = Game.AdornedJewel(jewel, 100);
+        Assert.Equal([20], scaled.Mods[0].Values);
+        Assert.Same(scaled, Game.AdornedJewel(jewel, 100));
+        Assert.True(Key(scaled).Matches(Key(Game.AdornedJewel(jewel, 100))));
+        // Another percentage, or another jewel, is scaled from its own values.
+        var half = Game.AdornedJewel(jewel, 50);
+        Assert.Equal([15], half.Mods[0].Values);
+        Assert.False(Key(half).Matches(Key(scaled)));
+        Assert.Equal([20], Game.AdornedJewel(jewel, 100).Mods[0].Values);
+        Assert.Equal([60], Game.AdornedJewel(jewel with { Mods = [new(ModSection.Explicit, 1, [30])] }, 100).Mods[0].Values);
+        Assert.Same(jewel, Game.AdornedJewel(jewel, 0));
+        var uncorrupted = jewel with { Corrupted = false };
+        Assert.Same(uncorrupted, Game.AdornedJewel(uncorrupted, 100));
+    }
+
+    [Fact]
+    public void A_session_lists_its_actors_in_contact_order()
+    {
+        // The runtime decides contacts by id, then generation, and sorts a list that comes otherwise at every step.
+        var conn = new ClientState(new(1, "order", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        foreach (uint id in new[] { 0x3005u, 0x3001u, 0x3003u })
+            conn.Monsters[id] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        conn.Totems.Place(new TotemState.Totem(0x3004, 1, (100, 100), 100, 100, null), 2, 0);
+        conn.Totems.Place(new TotemState.Totem(0x3002, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession("order", null!, new(new byte[64], false), conn);
+        Assert.Equal([Program.PlayerId, 0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
+        conn.PlayerLife = 0;
+        Assert.Equal([0x3001u, 0x3002u, 0x3003u, 0x3004u, 0x3005u], session.Actors(0, 0).Select(a => a.Key.Id));
+    }
+
+    [Fact]
+    public void A_session_keeps_its_actor_records_and_allocates_only_the_list_at_each_step()
+    {
+        // The runtime asks for the actors at every simulation step, thousands of times a second in a crowd.
+        const int monsters = 400;
+        var conn = new ClientState(new(1, "records", 1000, 1000, 100, 100, null, []), 1, 1) { PlayerLife = 100 };
+        for (uint i = 0; i < monsters; i++)
+            conn.Monsters[0x3000 + 2 * i] = new("target", new(110, 100, 0), 0, 0, 100) { Hostile = true };
+        conn.Totems.Place(new TotemState.Totem(0x3001, 1, (100, 100), 100, 100, null), 2, 0);
+        conn.Totems.Place(new TotemState.Totem(0x3003, 1, (100, 100), 100, 100, null), 2, 0);
+        var session = new Game.ProjectileSession("records", null!, new(new byte[64], false), conn);
+
+        var first = session.Actors(0, 0);
+        var second = session.Actors(0, 0);
+        Assert.Equal(monsters + 3, first.Count);
+        Assert.NotSame(first, second);   // the runtime holds one list while a hit changes the next
+        for (int i = 0; i < first.Count; i++) Assert.Same(first[i], second[i]);
+        // A monster whose walk was replaced gets a new record, and only that one.
+        conn.Monsters[0x3000].Walk = new(120, 100, 0);
+        var third = session.Actors(0, 0);
+        Assert.Equal(1, Enumerable.Range(0, first.Count).Count(i => !ReferenceEquals(first[i], third[i])));
+
+        // The list is a reference per actor. A closure per monster at every call was 24 bytes more each (49 KB a step
+        // with 1000 monsters, 2026-11-16): allow twice the list, far below that.
+        for (int i = 0; i < 50; i++) session.Actors(0, 0);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        const int calls = 100;
+        for (int i = 0; i < calls; i++) session.Actors(0, 0);
+        long each = (GC.GetAllocatedBytesForCurrentThread() - before) / calls;
+        Assert.InRange(each, 8 * monsters, 16 * monsters + 1024);
+    }
+
     sealed class Arena : IProjectileWorld
     {
         public readonly List<ProjectileActor> Targets = [];

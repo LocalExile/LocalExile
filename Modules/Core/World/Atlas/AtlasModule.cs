@@ -18,14 +18,19 @@ public sealed class AtlasModule : IModule
     /// sends the three presets again so the tree's counter follows (S→C 0x3d, the message a click in the tree gets).</summary>
     static async Task AwardMapPoints(ClientState conn, IPlayer player, int maps, string label)
     {
-        if (maps <= 0 || conn.AtlasPassivePoints >= MapCompletionPoints) return;
-        int before = conn.AtlasPassivePoints;
-        conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
-        if (CharacterName(conn) is { } character)
-            CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
-        await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
-        await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
-            $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
+        if (maps <= 0) return;
+        if (conn.AtlasPassivePoints < MapCompletionPoints)
+        {
+            int before = conn.AtlasPassivePoints;
+            conn.AtlasPassivePoints = (ushort)Math.Min(MapCompletionPoints, before + maps);
+            if (CharacterName(conn) is { } character)
+                CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
+            await global::Game.SendAtlasSlots(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, label);
+            await player.Tell($"Atlas: {conn.AtlasPassivePoints - before} passive point(s) for the maps completed " +
+                $"({conn.AtlasPassivePoints}/{MapCompletionPoints}).");
+        }
+        // Trees II and III unlock at 50 and 100 completed maps.
+        await AtlasFeature.SyncTreeFlags(conn);
     }
 
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
@@ -85,6 +90,7 @@ public sealed class AtlasModule : IModule
         GameEvents.Command(module.Manifest.Id, "atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async (conn, args) =>
         {
             AtlasProgress.Reset(WorldOf(conn).CharacterData);
+            await AtlasFeature.SyncTreeFlags(conn);
             var slots = AtlasFeature.SlotsOf(PlayerOf(conn));
             await PlayerOf(conn).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
                 "0x01a3 /atlas_reset");
@@ -100,6 +106,11 @@ public sealed class AtlasModule : IModule
         {
             var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
+            return true;
+        });
+        GameEvents.Packet(InstanceEntities.AtlasTreeTabId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            await AtlasFeature.SelectPreset(conn, bytes[2]);
             return true;
         });
         GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (conn, bytes) =>
@@ -211,6 +222,7 @@ static class AtlasFeature
     internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
     {
         ApplyLeagueFlags(conn);
+        ApplyTreeFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
         var completed = AtlasProgress.Completed(data);
@@ -231,9 +243,48 @@ static class AtlasFeature
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
-            for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
-                yield return ($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points) after the map points",
-                    global::Game.AtlasSlots(conn, preset));
+            foreach (var message in global::Game.AtlasPresetMessages(conn, "after the map points"))
+                yield return message;
+    }
+
+    /// <summary>Completed maps needed for Atlas trees I, II and III. The client's text says "bonus Atlas objectives"; the
+    /// server has no bonus-objective count (S→C 0x1a3 carries only the completed-map masks), so completed maps stand in.</summary>
+    internal static readonly int[] TreeUnlockMaps = [0, 50, 100];
+
+    /// <summary>AtlasTrees' flag columns for trees II and III: Unlocked (329, 331) and Active (330, 332).</summary>
+    static readonly (int Unlocked, int Active)[] TreeFlags = [(0, 0), (329, 330), (331, 332)];
+
+    /// <summary>A tree is unlocked by the character's completed maps, or by holding nodes (an old save's nodes in a tree that
+    /// is now locked stay reachable).</summary>
+    internal static bool TreeUnlocked(ClientState conn, int tree) =>
+        tree == 0 || (tree < TreeUnlockMaps.Length && tree < conn.AtlasPassives.Length
+            && (conn.AtlasPassives[tree].Count > 0
+                || AtlasProgress.Completed(WorldOf(PlayerOf(conn)).CharacterData).Count >= TreeUnlockMaps[tree]));
+
+    /// <summary>Sets trees II and III's league flags on the connection (never saved to the account: they follow each
+    /// character's own maps and active preset, so a shared save would leak one character's trees to another). The client
+    /// shows the tree selector when more than one tree is unlocked and starts on the last tree with Unlocked and Active.</summary>
+    internal static bool ApplyTreeFlags(ClientState conn)
+    {
+        bool changed = false;
+        int active = AtlasActivePreset(conn);
+        for (int tree = 1; tree < TreeFlags.Length; tree++)
+        {
+            bool unlocked = TreeUnlocked(conn, tree);
+            changed |= unlocked ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Unlocked) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Unlocked);
+            bool on = unlocked && active == tree;
+            changed |= on ? conn.LeagueQuestFlags.Add(TreeFlags[tree].Active) : conn.LeagueQuestFlags.Remove(TreeFlags[tree].Active);
+        }
+        return changed;
+    }
+
+    /// <summary>Re-evaluates the tree flags and sends the league flags again (S→C 0x2bc) when they changed.</summary>
+    internal static async Task SyncTreeFlags(ClientState conn)
+    {
+        if (!ApplyTreeFlags(conn) || !conn.PlayerSent) return;
+        var (remote, stream, ciphers) = conn.Wire;
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+            InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)), "0x02bc Atlas tree flags");
     }
 
     static bool ApplyLeagueFlags(ClientState conn)
@@ -266,9 +317,32 @@ static class AtlasFeature
         await PlayerOf(conn).Tell($"Atlas: {type.Name}.");
     }
 
-    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node and budget, save the preset and send all three
-    // presets back so the client and the save agree. The client presents the tree's own connectivity; the server does
-    // not yet have the Atlas graph, so it does not re-check pathing.
+    // C→S 0x2a8: a tab of the Atlas tree picked. The client switches only on a 0x3d with that preset alone.
+    internal static async Task SelectPreset(ClientState conn, byte preset)
+    {
+        var (remote, stream, ciphers) = conn.Wire;
+        if (preset >= conn.AtlasPassives.Length)
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: no such preset");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab refused");
+            return;
+        }
+        if (!TreeUnlocked(conn, preset))
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas tree tab {preset} refused: locked (needs {TreeUnlockMaps[preset]} completed maps)");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas tab locked");
+            return;
+        }
+        SetAtlasActivePreset(conn, preset);
+        await SyncTreeFlags(conn);
+        await Send(remote, stream, ciphers, AtlasSlots(conn, preset),
+            $"0x003d Atlas tree tab: preset {preset} active, {conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points");
+    }
+
+    // C→S 0x3e/0x3f: a click in the Atlas passive tree. Validate the node, the budget and the respec points, save the
+    // preset and send all three presets back so the client and the save agree. The server holds the Atlas graph
+    // (client.db) and refuses a node that is off it, an icon-only node, an allocation not touching the start or an
+    // allocated node, and a refund that would cut allocated nodes off from the start.
     internal static async Task ChangeAtlasPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         byte preset, uint node, bool allocate)
     {
@@ -283,6 +357,19 @@ static class AtlasFeature
         conn.AtlasPreset = preset;
         var nodes = conn.AtlasPassives[preset];
         var character = CharacterName(conn);
+        var links = AtlasPassiveNodes.Links;
+        bool hardMode = LeagueFor(conn).HardMode;
+        ushort respec = AtlasRespecPoints(conn);
+        if (links.Count > 0 && (allocate
+                ? !nodes.Contains((ushort)node) && (passive.IsJustIcon
+                    || !AtlasPassives.CanAllocate(nodes, (ushort)node, links, AtlasPassives.StartGraphId))
+                : nodes.Contains((ushort)node) && !AtlasPassives.CanRefund(nodes, (ushort)node, links, AtlasPassives.StartGraphId)))
+        {
+            Console.WriteLine($"[gateway] {remote} <= Atlas passive {(allocate ? "allocate" : "refund")} {passive.Name} ({node}) " +
+                "refused: an icon, off the graph or not connected to the start, or it would disconnect the tree");
+            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refused");
+            return;
+        }
         if (allocate)
         {
             if (nodes.Contains((ushort)node))
@@ -290,23 +377,43 @@ static class AtlasFeature
                 await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas already allocated");
                 return;
             }
-            if (nodes.Count >= conn.AtlasPassivePoints)
+            if (nodes.Count >= AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode))
             {
                 Console.WriteLine($"[gateway] {remote} <= Atlas allocate {passive.Name} ({node}) refused: no points left");
                 await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas no points");
                 return;
             }
             nodes.Add((ushort)node);
+            nodes.Sort();
         }
-        else if (!nodes.Remove((ushort)node))
+        else
         {
-            await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas not allocated");
-            return;
+            if (!nodes.Contains((ushort)node))
+            {
+                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas not allocated");
+                return;
+            }
+            // A refund spends one respec point (the client's check 0x141ef3710), and may not take away the points
+            // that the remaining nodes use (a node granting points, such as Unwavering Vision).
+            // A stale node (icon-only, off the graph or cut off from the start) is refunded free.
+            var rest = nodes.Where(n => n != node).ToList();
+            bool stale = links.Count > 0 && (passive.IsJustIcon || !links.ContainsKey((ushort)node)
+                || !AtlasPassives.IsReached(nodes, (ushort)node, links, AtlasPassives.StartGraphId));
+            if ((respec == 0 && !stale) || rest.Count > AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, rest, hardMode))
+            {
+                Console.WriteLine($"[gateway] {remote} <= Atlas refund {passive.Name} ({node}) refused: " +
+                    (respec == 0 && !stale ? "no respec points" : "the remaining nodes need its points"));
+                await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas refund refused");
+                return;
+            }
+            nodes.Remove((ushort)node);
+            if (!stale) SetAtlasRespecPoints(conn, --respec);
         }
         if (character is not null)
             CharacterSaves.SetAtlasPassives(character, conn.AtlasPassives, conn.AtlasPassivePoints);
         Console.WriteLine($"[gateway] {remote} <= Atlas preset {preset} {(allocate ? "allocate" : "refund")} " +
-            $"{passive.Name} ({node}), {nodes.Count}/{conn.AtlasPassivePoints} points");
+            $"{passive.Name} ({node}), {nodes.Count}/{AtlasPassiveNodes.Budget(conn.AtlasPassivePoints, nodes, hardMode)} " +
+            $"points, {respec} respec");
         await SendAtlasSlots(remote, stream, ciphers, conn, "Atlas changed");
     }
 

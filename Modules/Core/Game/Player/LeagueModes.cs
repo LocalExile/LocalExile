@@ -22,6 +22,7 @@ public static partial class Game
                 HardModeItems = new("data", hardMode: true);
                 HardModeSkills = new("data", hardMode: true);
                 HardModePassives = new("data", hardMode: true);
+                HardModeAtlasPassives = new("data", hardMode: true);
                 HardModeRolls = new(HardModeItems);
                 HardModeUniques = new(HardModeItems);
                 HardModeEssences = new(HardModeItems, HardModeRolls);
@@ -43,6 +44,7 @@ public static partial class Game
     public static ItemCatalog HardModeItems = default!;
     public static SkillCatalog HardModeSkills = default!;
     public static PassiveTree HardModePassives = default!;
+    public static AtlasPassives HardModeAtlasPassives = default!;
     public static ItemRolls HardModeRolls = default!;
     public static UniqueCatalog HardModeUniques = default!;
     public static EssenceCrafting HardModeEssences = default!;

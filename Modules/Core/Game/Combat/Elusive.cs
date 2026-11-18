@@ -38,15 +38,15 @@ public static partial class Game
     /// <summary>The effect's movement speed, 30% at 100% effect: the pools add it while the buff runs.</summary>
     public static int ElusiveMovementPct(ClientState conn) => (int)Math.Floor(30 * ElusiveFactor(conn));
 
-    /// <summary>The percentage the buff icon shows: the opening effect less one 20-point step per whole second,
-    /// as the game's buff display ticks it. The server's avoidance and movement use the continuous
-    /// <see cref="ElusiveFactor"/> instead.</summary>
+    /// <summary>The percentage the buff icon shows: the opening effect less one 5-point step every quarter
+    /// second (the game's buff display ticks 20 points a second in 5-point steps). The server's avoidance and
+    /// movement use the continuous <see cref="ElusiveFactor"/> instead.</summary>
     public static int ElusiveDisplayPercent(ClientState conn)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (conn.ElusiveUntil <= now) return 0;
         int peak = (int)Math.Round(conn.ElusiveEffectMultiplier * 100);
-        return Math.Max(0, peak - 20 * (int)Math.Floor(now - conn.ElusiveStart));
+        return Math.Max(0, peak - 5 * (int)Math.Floor((now - conn.ElusiveStart) * 4));
     }
 
     /// <summary>"X% chance to gain Elusive on Critical Strike": a player critical hit rolls it unless Elusive is

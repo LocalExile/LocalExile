@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
@@ -332,9 +333,15 @@ public static partial class Game
                         return predictedLeap ? LeapSlamAcknowledgement(ciphers, reply) : reply;
                     });
                     if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                    else if (ServerTrace.Latency)
+                        Console.WriteLine($"[gateway] {remote} action echo refused 0x{use.SkillId:x4}:"
+                            + $" ActionCount={conn.ActionCount} action={action} life={conn.PlayerLife} closed={conn.Closed}");
                 };
-                if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
-                else await echo();
+                // The action acknowledgement is sent here and not queued behind the projectile presentation: it is a
+                // state reply that the client needs within this use, and the queue's own records (creates, moves, bursts)
+                // took long enough that the next click had already started a new action, so the echo was refused as stale
+                // and the client never ran the action (live 2026-11-17: 51 of 59 Kinetic Blast casts, no casting animation).
+                await echo();
                 Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
                 if (cooldownUse?.Current(conn) == false) continue;
@@ -772,6 +779,11 @@ public static partial class Game
                     // (S→C 0x2b8 first), so they start before the monsters are placed, which may take a moment, and the
                     // monsters come in while the player already stands there, as a summon or a pack spawned in a fight.
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
+                    // Nobody walked while the client was on its loading screen, so the walk history starts here: without this
+                    // the first collision pass replayed the whole entry (1.2 s of frames) under the combat lock, 258 ms, and
+                    // the player's first movement waited for it (live 2026-11-17).
+                    lock (conn.Monsters)
+                        conn.WalkersSteppedTo = ProjectileWorldTime(conn);
                     StartWorldFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     await PopulateArea(remote, stream, ciphers, conn);

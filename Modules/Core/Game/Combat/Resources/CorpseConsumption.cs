@@ -9,6 +9,14 @@ static partial class Game
     internal const string CorpseKillChance = "killing_blow_consumes_corpse_restore_10%_life_chance_%";
     internal const int CorpseKillLifePct = 10;
 
+    /// <summary>A corpse the player consumed (a warcry, Devour, a raise or offering): an ignited one counts for
+    /// Cinderswallow Urn's "Recharges X Charges when you Consume an Ignited corpse", which the flask-charge loop pays
+    /// (RunFlaskChargeRegen). Only ignites still present at consumption count. Under the Monsters lock.</summary>
+    internal static void NoteCorpseConsumedLocked(ClientState conn, SpawnedMonster corpse)
+    {
+        if (corpse.Ignites.IgnitedAt(ProjectileWorldTime(conn))) Interlocked.Increment(ref conn.IgnitedCorpsesConsumed);
+    }
+
     /// <summary>The killing blow's corpse consumption: true when the corpse was consumed (the caller removes the corpse
     /// object). A corpse the engine cannot use (Warcries.IsCorpse: a shattered, already consumed or corpse-unusable
     /// monster) is not consumed, and the roll happens before the corpse is taken. Call under the Monsters lock: the
@@ -20,6 +28,7 @@ static partial class Game
         int chance = Stats.Key(CorpseKillChance) is uint key ? player.GetValueOrDefault(key) : 0;
         if (!RandomRolls.Chance(chance, 100, Random.Shared)) return false;
         m.CorpseConsumed = true;
+        NoteCorpseConsumedLocked(conn, m);
         conn.Monsters.Remove(id);
         conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
         if (Stats.Key("cannot_recover_life") is uint cannot && player.GetValueOrDefault(cannot) != 0) return true;
@@ -41,6 +50,7 @@ static partial class Game
         m.DevourCorpse = false;
         if (m.Ailments.Shattered || !IsCorpse(m)) return false;
         m.CorpseConsumed = true;
+        NoteCorpseConsumedLocked(conn, m);
         conn.Monsters.Remove(id);
         conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
         return true;

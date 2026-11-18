@@ -15,6 +15,7 @@ public static partial class Game
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + (chaos ? WitheredTaken(m, now) : 0)
+            + m.Ignites.DamageTaken(now)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
     /// <summary>The shocks a kill of a monster by the player (its life reached 0 from a hit or Righteous Fire) inflicts.
@@ -152,6 +153,8 @@ public static partial class Game
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, (int X, int Y)? hitOrigin = null)
     {
+        HitSummonsOnHitLocked(conn, m, skill, sourceSkill, now, random);
+        PhantasmsOnHitLocked(conn, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, skill, now, random, hitOrigin);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
@@ -269,6 +272,7 @@ public static partial class Game
             int speed = (int)Math.Round(100 * (action - 1));
             if (speed != a.SentActionSpeed && Stats.Key("virtual_action_speed_+%") is uint key)
             {
+                RetimeMonsterMeleeClockLocked(m, now, speed);
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }
@@ -289,4 +293,23 @@ public static partial class Game
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
+
+    /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
+    /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    {
+        int basePct = m.Effects.MovementPct;
+        int maimPct = now < m.MaimedUntil ? -30 : 0;
+        int hinderPct = m.HinderedUntil > now ? 30 : 0;
+        int totalPct = basePct + maimPct - hinderPct;
+        if ((maimPct != 0 || hinderPct != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+            totalPct = Math.Max(0, totalPct);
+        double Movement(double pct) => m.Variety is { } variety
+            ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
+            : Math.Max(.01, 1 + pct / 100.0);
+        double before = Movement(basePct);
+        double after = Movement(totalPct);
+        return (after / before, totalPct);
+    }
+
 }

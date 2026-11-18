@@ -346,9 +346,23 @@ public static class CharacterSaves
         uint before = 0, after = 0;
         // The last run of either function is the one stored (ConcurrentDictionary retries a lost race).
         UnsavedExperience.AddOrUpdate(character,
-            name => after = add(before = Saves.LoadCharacter(name)?.Experience ?? start),
+            name => after = add(before = Saves.CharacterExperience(name).Experience ?? start),
             (_, total) => after = add(before = total));
         return (before, after);
+    }
+
+    /// <summary>
+    /// The character's experience as <see cref="Load"/> gives it (the unsaved total, else the saved one; null when it has no
+    /// save), without reading the whole save: every kill asks, and a whole save is its items and their mods too
+    /// (2026-11-16: about 0.8 ms and 300 KB a read for a 55-item save).
+    /// </summary>
+    public static uint? Experience(string character)
+    {
+        // The unsaved total first: it is dropped only after a save holding it is written, so when it is missing the row is
+        // current. (Reading the row first could miss both when a save is written between the two reads.)
+        bool unsaved = UnsavedExperience.TryGetValue(character, out uint xp);
+        var (saved, experience) = Saves.CharacterExperience(character);
+        return !saved ? null : unsaved ? xp : experience;
     }
 
     /// <summary>Saves the character's unsaved experience, if any. A character with no save any more (deleted) only drops it.</summary>

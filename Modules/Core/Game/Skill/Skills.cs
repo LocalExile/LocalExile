@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.World;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
@@ -41,6 +42,7 @@ public static partial class Game
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
             var skills = new List<GrantedSkill>([.. PlayerDefaultSkills(conn, player, character),
                 .. GemSkills(conn, player, character, panelSources!), .. GameEvents.ExtraSkills(conn)]);
+            skills.AddRange(SentinelSourceSkills(conn, skills).ToArray());
             conn.PlayerSkillsCache = skills;
             conn.PlayerSkillsAt = now;
             PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
@@ -690,7 +692,6 @@ public static partial class Game
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
             if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0
-                && !SkillHitPlan.ForSkill(SkillsFor(conn), effect, supported.Level, supported.Quality).CanHit
                 && SkillsFor(conn).SecondaryHitDamage(effect, supported.Level, supported.Quality) is { IsZero: false } secondaryBase)
             {
                 foreach (var (stat, value) in SecondaryPanelRows(conn, Get, playerStats, supported, secondaryBase))
@@ -835,6 +836,25 @@ public static partial class Game
                     Get("bladefall_volley_frequency_+%_per_100_maximum_mana"), conn.Pools.Mana));
             if (SummonData.Find(SkillsFor(conn).EffectId(effect)) is { LimitStat.Length: > 0 } summon)
                 Publish(summon.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, summon, supported));
+            if (SkillsFor(conn).EffectId(effect) is "DominatingBlow" or "DominatingBlowAltX")
+                foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
+                    if (HitSummonDefinition(SkillsFor(conn).EffectId(effect), rarity) is { } sentinel)
+                        Publish(sentinel.LimitStat.Replace("base_", "", StringComparison.Ordinal), SummonLimit(conn, sentinel, supported));
+            if (SkillsFor(conn).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
+                or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
+            {
+                Publish("skill_behaviour_variation", SkillsFor(conn).BehaviourVariation(effect));
+                bool absolution = SkillsFor(conn).EffectId(effect)!.Contains("Absolution", StringComparison.Ordinal);
+                string family = absolution ? "absolution_sentinels" : "dominated_monsters";
+                string display = absolution ? "display_max_upgraded_sentinels_of_absolution" : "display_max_upgraded_sentinels_of_dominance";
+                int basis = GolemStat(own, "base_max_number_of_vaal_" + family);
+                if (basis == 0) basis = GolemStat(own, display);
+                Publish("max_number_of_vaal_" + family, Math.Clamp(basis
+                    + GolemStat(playerStats, "base_max_number_of_vaal_" + family)
+                    + GolemStat(playerStats, "max_number_of_vaal_" + family), 0, 200));
+                foreach (string count in new[] { "number_of_active_absolution_sentinels", "number_of_active_vaal_absolution_sentinels",
+                    "number_of_dominated_monsters", "number_of_dominated_vaal_monsters" }) Publish(count, GolemStat(playerStats, count));
+            }
             if (GolemData.Find(SkillsFor(conn).EffectId(effect)) is { IsGolem: true })
                 Publish("number_of_golems_allowed", GolemCatalog.Limit(OwnPanel("base_number_of_golems_allowed"),
                     n => GolemStat(playerStats, n)));
@@ -858,8 +878,11 @@ public static partial class Game
             }
             if (SkillsFor(conn).FindByRow(id, effect, supported.Level, [.. stats.Select(kv => (kv.Key, kv.Value))]) is { } skill)
             {
-                Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
-                    $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
+                // Per gem, every time a stat rebuild walks the bar: 1264 lines (up to 64 in one second) in a 3-minute
+                // fight, ~45 KB/s of log, which the rebuild then waited on. Only under Game_TRACE=skills.
+                if (ServerTrace.Skills)
+                    Console.WriteLine($"[gateway] gem skill 0x{skill.Id:x4} {name} level {level} quality {quality} (effect {effect}): GEPL {skill.EffectsPerLevelRow}, " +
+                        $"GESSPL {skill.StatSetsPerLevelRow}, " + string.Join(", ", own.Select(kv => $"{Stats.Name(kv.Key)} {kv.Value}")));
                 yield return skill with { Supports = [.. supported.Supports.Select(s => SkillsFor(conn).FindByRow(0, s.Effect.Row, s.Gem.Level))
                     .OfType<GrantedSkill>().Select(s => new GrantedSupport(s.EffectsPerLevelRow, s.StatSetsPerLevelRow)
                     { ExtraStatSets = [.. s.ExtraStatSets.Select(e => e.Row)] })] };
@@ -1034,6 +1057,7 @@ public static partial class Game
 
     public static string? ActorSkillDisabledCore(ClientState conn, int effect, ushort? skillId)
     {
+        if (VaalMinionProxyDisabled(conn, effect, skillId) is { } proxy) return proxy;
         if (OwnAuraSkillRestricted(conn, effect, skillId)) return "own aura skills are disabled";
         // Devout of Gruthkul: every spell, auras and triggered spells too (wiki: they cannot be cast or triggered).
         if (CastingSpell(conn, effect) && SpellsDisabled(conn)) return "spells are disabled";
@@ -1063,7 +1087,8 @@ public static partial class Game
     public static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId, bool triggered = false)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
+        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null) return "skill is unavailable";
+        if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
         if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
@@ -1101,30 +1126,9 @@ public static partial class Game
     public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffects(ClientState conn)
     {
         string name = CharacterName(conn);
-        return GemSkillEffectsAt(name, ItemsOf(conn).SocketedGemPlaces(),
-            InactiveItems.GetValueOrDefault(name), LeagueFor(conn), GrantedSkillsOf(conn));
-    }
-
-    // The passives' granted skills (GrantedSkillsOf) follow the gems, with Gem 0 and their fixed level.
-    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
-        string? character, IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> places, IReadOnlySet<uint>? inactive,
-        LeagueRuntime league, IReadOnlyList<PassiveGrantedSkills.Grant> granted)
-    {
-        var catalog = league.HardMode ? HardModeItems : Items;
-        string name = string.IsNullOrEmpty(character) ? "Exile" : character;
-        var gems = places
-            .Where(g => catalog.ByHash(g.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
-            .SelectMany(g => catalog.GemEffects(g.Gem).Select(effect => (g.ItemId, g.Socket, g.Gem, Effect: effect))).ToList();
-        var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds())
-            .Assign([.. gems.Select(g => new GemSkillIds.Gem(g.ItemId, g.Socket, g.Effect)),
-                .. granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect))], GemSkillIdPool);
-        // Gems in an inactive item grant nothing, but keep their id.
-        for (int i = 0; i < gems.Count; i++)
-            if (ids[i] is ushort id && inactive?.Contains(gems[i].ItemId) != true)
-                yield return (id, gems[i].Effect, catalog.GemName(gems[i].Gem), catalog.GemLevel(gems[i].Gem), gems[i].Gem.Quality, gems[i].Gem.TypeHash);
-        for (int i = 0; i < granted.Count; i++)
-            if (ids[gems.Count + i] is ushort id)
-                yield return (id, granted[i].Effect, granted[i].EffectId, granted[i].Level, 0, 0);
+        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        return GemSkillEffectsAt(name, equipment, InactiveItems.GetValueOrDefault(name), LeagueFor(conn),
+            GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment));
     }
 
     public static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
@@ -1272,7 +1276,9 @@ public static partial class Game
     {
         if (!CurrentGameRules) return;
         RefreshVaalSouls(conn);
-        lock (conn.Monsters)
+        // Named, because it is a large block (auras, pools, cooldowns) that runs on every skill refresh, and a waiter that
+        // found the combat lock busy here had no name to show for it.
+        using (conn.Performance.Lock(conn.Monsters, "skills"))
         {
             if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
             RefreshVaalSouls(conn);
@@ -1316,6 +1322,9 @@ public static partial class Game
             }
         }
         List<ushort> gone = [], added = [];
+        // Built at the send gate, as every full stat and Actor refresh is (SendPlayerStatSnapshot): the packet that is
+        // written last is then the one built last, the own-aura records it depends on go with it, and a lockstep client
+        // gets it as a world record of the player.
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () =>
         {
             var skills = PlayerSkills(conn);
@@ -1414,5 +1423,18 @@ public static partial class Game
         }
         if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");
     }
+    // Worn-item grants follow socketed gems; passive grants (GrantedSkillsOf) follow those. Gem 0 marks both virtual
+    // source kinds, while PlayerSkillSourcesAt carries their explicit host identities for admission and supports.
+    public static IEnumerable<(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem)> GemSkillEffectsAt(
+        string? character, IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlySet<uint>? inactive,
+        LeagueRuntime league, IReadOnlyList<PassiveGrantedSkills.Grant> granted,
+        IReadOnlyList<WornGrantedSkills.Grant> worn)
+    {
+        // An inactive source keeps its assigned id while present, but grants no published skill.
+        return PlayerSkillSourcesAt(character, equipment, inactive, league, granted, worn)
+            .Where(s => s.Active)
+            .Select(s => (s.Id, s.Effect, s.Name, s.Level, s.Quality, s.Gem));
+    }
+
 }
 

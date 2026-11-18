@@ -209,9 +209,10 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            EnsureOwnAuraPools(conn);
-            return Math.Min((int)conn.Pools.Mana, AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
-                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood) + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false));
+            long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values)
+                + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
+                + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
+            return (int)Math.Min((long)conn.Pools.Mana, Math.Min(int.MaxValue, reserved));
         }
     }
 
@@ -304,7 +305,7 @@ public static partial class Game
                 // stayed below full after a cast, the server's last update being full with no rate).
                 bool active = conn.EnergyShield.Recharging || Get("keystone_eldritch_battery") != 0
                     && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
-                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 ? 0 : (int)Math.Round(
+                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 || conn.IncomingAilments.Bleeding(conn.Clock.Elapsed.TotalSeconds) ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
                     return null;
@@ -594,6 +595,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncPhasing(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
@@ -617,6 +620,39 @@ public static partial class Game
                 await SendPlayerAilmentBuffs(remote, stream, ciphers, ailments, nextAilments);
                 ailments = nextAilments;
                 await SendCharacterStats(remote, stream, ciphers, conn, "elemental ailments changed");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
+            IncomingDamagingAilments.State nextIncoming;
+            IncomingDamagingAilments.State presented;
+            int incomingEpoch;
+            lock (conn.Monsters)
+            {
+                nextIncoming = conn.IncomingAilments.Snapshot(tickNow);
+                presented = conn.PresentedIncomingAilments ??
+                    new(false, double.NegativeInfinity, 0, double.NegativeInfinity, 0, 0);
+                incomingEpoch = conn.IncomingHitEpoch;
+            }
+            if (nextIncoming != presented)
+            {
+                foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, tickNow))
+                    await Send(remote, stream, ciphers, [], log, atGate: () =>
+                    {
+                        lock (conn.Monsters)
+                        {
+                            if (conn.Closed || conn.LeavingArea || conn.IncomingHitEpoch != incomingEpoch
+                                || conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != nextIncoming)
+                                return null;
+                            return packet;
+                        }
+                    });
+                lock (conn.Monsters)
+                    if (!conn.Closed && !conn.LeavingArea && conn.IncomingHitEpoch == incomingEpoch
+                        && conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) == nextIncoming)
+                    {
+                        conn.PresentedIncomingAilments = nextIncoming;
+                        conn.PresentedIncomingAilmentEpoch = incomingEpoch;
+                    }
+                await SendCharacterStats(remote, stream, ciphers, conn, "incoming damaging ailments changed");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
             // The tick's state publications take the send gate once together (Program.SendBatched) instead of once each:
@@ -833,7 +869,7 @@ public static partial class Game
                 if (dead)
                 {
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
-                    conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
+                    conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.LifeRecoup.Clear();
@@ -989,6 +1025,18 @@ public static partial class Game
         foreach (var e in ended)
             if (FlaskBuffs && e.Buff != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buff), $"0x01c2 player buff {e.Buff}: flask {e.Slot} effect ends ({why})");
             else Console.WriteLine($"[gateway] {remote} flask {e.Slot} effect ends ({why})");
+        // A life, mana or hybrid flask's "during effect" mods end with its recovery.
+        bool changed;
+        lock (conn.Monsters)
+        {
+            changed = conn.RecoveryFlaskStats.Prune(conn.FlaskEffects);
+            if (changed) RecomputePoolsAndSpeed(conn);
+        }
+        if (changed)
+        {
+            Console.WriteLine($"[gateway] {remote} recovery flask during effect ends ({why})");
+            await SendCharacterStats(remote, stream, ciphers, conn, "recovery flask effect ended");
+        }
     }
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
@@ -1103,14 +1151,20 @@ public static partial class Game
     };
 
     // Damage immunities as the damage model sees them, from the same sources the panel's "Immune to X" rows use.
-    public static HashSet<DamageType> PlayerImmunities(ClientState conn)
+    public static HashSet<DamageType> PlayerImmunities(ClientState conn) => PlayerImmunities(conn, null);
+
+    public static HashSet<DamageType> PlayerImmunities(ClientState conn, IReadOnlyDictionary<uint, int>? prepared)
     {
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         var baseStats = new Dictionary<uint, int>();
-        foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
-        lock (conn.Monsters)
-            foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
-        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? baseStats.GetValueOrDefault(key) : 0);
+        if (prepared is null)
+        {
+            foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
+            lock (conn.Monsters)
+                foreach (var (key, value) in conn.PlayerStats) baseStats[key] = baseStats.GetValueOrDefault(key) + value;
+            prepared = baseStats;
+        }
+        var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? prepared.GetValueOrDefault(key) : 0);
         if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;
     }
@@ -1326,9 +1380,7 @@ public static partial class Game
             messages.Add(($"0x00c0 inventory {PlayerInventories.InventoryId(slot.Row)} row {slot.Row}" + (inside.Count > 0 ? $" items {inside.Count}" : ""),
                 InstanceInventories.AddInventory(PlayerInventories.InventoryId(slot.Row), slot, items: inside)));
         }
-        for (int preset = 0; preset < conn.AtlasPassives.Length; preset++)
-            messages.Add(($"0x003d atlas passive preset {preset} ({conn.AtlasPassives[preset].Count}/{conn.AtlasPassivePoints} points)",
-                AtlasSlots(conn, preset)));
+        messages.AddRange(AtlasPresetMessages(conn, "player"));
         if (ExtraPlayerMessages is { } extra)
             foreach (var (log, message) in extra(conn))
                 messages.Add((log, message));
@@ -1419,4 +1471,38 @@ public static partial class Game
         if (conn.PeerTemplate is { WashedUp: true })
             CharacterSaves.ChangeTutorial(CharacterName(conn), tutorial => tutorial with { WakeUpShown = true });
     }
+
+    // Pure preview for proposed or current aura sets. Never changes current Life or the advertised cap.
+    public static LifeReservation.Value LifeReservationFor(ClientState conn, IEnumerable<AuraCatalog.Aura> auras)
+        => LifeReservation.Of(conn.Pools, conn.QualifiedItemLifeReservationPercent, auras,
+            AdditionalLifeReservation(conn));
+
+
+    public static LifeReservation.Value LifeReservationOf(ClientState conn)
+    {
+        if (conn.StatSourcesCache is { } qualified)
+            PublishQualifiedItemLifeReservationPercent(conn, qualified.Key.QualifiedItemLifeReservationPercent);
+        int itemPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint key && conn.PlayerStats.TryGetValue(key, out int valueOverride)
+            ? valueOverride : conn.QualifiedItemLifeReservationPercent;
+        var value = LifeReservation.Of(conn.Pools, itemPercent,
+            conn.Auras.Values, AdditionalLifeReservation(conn));
+        conn.PlayerLifeCap = value.Unreserved;
+        // The usable cap is an invariant even when a caller only asks for it to build a snapshot.
+        conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, value);
+        return value;
+    }
+
+    public static int ReservedLife(ClientState conn) => LifeReservationOf(conn).Reserved;
+
+    public static uint LifeCap(ClientState conn) => (uint)LifeReservationOf(conn).Unreserved;
+
+
+    // Every player Life pool update carries the shared owner's reserved amount.
+    public static byte[] PlayerLifeUpdate(ClientState conn)
+    {
+        // Reconcile the owner before sampling current Life: its first query can lower the usable cap.
+        var reservation = LifeReservationOf(conn);
+        return InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, (uint)reservation.Reserved);
+    }
+
 }

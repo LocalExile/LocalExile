@@ -17,7 +17,11 @@ public sealed class GemSupports
     }
 
     public sealed record Effect(int Row, string Id, bool Support, int[] Allowed, int[] Excluded, int[] Added,
-        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions);
+        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions,
+        bool SupportsGemsOnly)
+    {
+        public int[] AddedMinionTypes { get; init; } = [];
+    }
     public sealed record Candidate(int Effect, int Level, int Quality, int Socket);
     public sealed record Applied(Candidate Gem, Effect Effect, uint PerLevel, int CostMultiplier,
         IReadOnlyList<(uint Key, int Value)> Stats);
@@ -88,11 +92,13 @@ public sealed class GemSupports
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass = null, int activeLevel = 1)
+        int? weaponClass = null, int activeLevel = 1, bool sourceIsGem = true)
     {
         if (Of(active) is not { Support: false, CannotBeSupported: false } target) return [];
         var types = target.Types.ToHashSet();
-        var all = candidates.Where(c => Of(c.Effect) is { Support: true })
+        var minionTypes = target.MinionTypes.ToHashSet();
+        var all = candidates.Where(c => Of(c.Effect) is { Support: true } support
+                && (sourceIsGem || !support.SupportsGemsOnly))
             .Where(c => Of(c.Effect)?.Id != "SupportCastWhenDamageTaken"
                 || skills.PlayerLevelReq(active, activeLevel) <= skills.PlayerLevelReq(c.Effect, c.Level))
             .Select(c => (Gem: c, Effect: Of(c.Effect)!))
@@ -105,12 +111,15 @@ public sealed class GemSupports
         {
             changed = false;
             foreach (var c in all)
-                if (Compatible(c.Effect, types, target.MinionTypes, weaponClass))
+                if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass))
+                {
                     foreach (int t in c.Effect.Added) changed |= types.Add(t);
+                    foreach (int t in c.Effect.AddedMinionTypes) changed |= minionTypes.Add(t);
+                }
         } while (changed);
         var result = new List<Applied>();
         foreach (var c in all.OrderBy(c => c.Gem.Socket))
-            if (Compatible(c.Effect, types, target.MinionTypes, weaponClass)
+            if (CompatibleTypes(c.Effect, types, minionTypes, weaponClass)
                 && Level(c.Gem.Effect, c.Gem.Level) is { } level)
                 result.Add(new(c.Gem, c.Effect, level.Row, level.Cost,
                     skills.EffectStats(c.Gem.Effect, c.Gem.Level, c.Gem.Quality)));
@@ -127,8 +136,11 @@ public sealed class GemSupports
     /// <summary>The game's support eligibility: the skill types (or its minions') must satisfy the support's allowed
     /// expression, must not match its excluded one, and the weapon restriction must fit.</summary>
     public static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
-        (Matches(support.Allowed, types, true) || !support.IgnoreMinions && minionTypes.Length > 0
-            && Matches(support.Allowed, minionTypes.ToHashSet(), false))
+        CompatibleTypes(support, types, minionTypes.ToHashSet(), weapon);
+
+    static bool CompatibleTypes(Effect support, IReadOnlySet<int> types, IReadOnlySet<int> minionTypes, int? weapon) =>
+        (Matches(support.Allowed, types, true) || !support.IgnoreMinions && minionTypes.Count > 0
+            && Matches(support.Allowed, minionTypes, false))
         && !Matches(support.Excluded, types, false)
         && (support.Weapons.Length == 0 || weapon is int row && support.Weapons.Contains(row));
 
@@ -164,7 +176,7 @@ public sealed class GemSupports
                 Ints(r, "AllowedActiveSkillTypes"), Ints(r, "ExcludedActiveSkillTypes"), Ints(r, "AddedActiveSkillTypes"),
                 Ints(skill, "ActiveSkillTypes"), Ints(skill, "MinionActiveSkillTypes"), Ints(r, "SupportWeaponRestrictions"),
                 r.IntOrNull("RegularVariant"),
-                r.Bool("CannotBeSupported"), r.Bool("IgnoreMinionTypes"));
+                r.Bool("CannotBeSupported"), r.Bool("IgnoreMinionTypes"), r.Bool("SupportsGemsOnly")) { AddedMinionTypes = Ints(r, "AddedMinionActiveSkillTypes") };
         }).ToArray();
     }
 

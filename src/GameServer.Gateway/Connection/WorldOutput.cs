@@ -22,12 +22,14 @@ public sealed class WorldObject
     public readonly TaskCompletionSource<bool> Invalidated = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public readonly TaskCompletionSource<bool> Removal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public readonly TaskCompletionSource<bool> Birth = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    public WorldObject(WorldOutput owner, uint id, bool ready)
+    public WorldObject(WorldOutput owner, uint id, bool ready, bool placeholder = false)
     {
-        Owner = owner; Id = id; State = ready ? BirthState.Ready : BirthState.Reserved;
+        Owner = owner; Id = id; State = ready ? BirthState.Ready : BirthState.Reserved; Placeholder = placeholder;
         if (ready) Birth.SetResult(true);
     }
     public uint Id { get; }
+    /// <summary>Inserted by a record that named an ID before this connection saw its create; the real create retires it.</summary>
+    public bool Placeholder { get; }
     public long? CreationFrame { get; set; }
     public bool IsReady => Owner.IsReady(this);
     /// <summary>Cancel an unadmitted reservation. Published/admitted objects require an explicit Remove record.</summary>
@@ -149,7 +151,14 @@ public sealed class WorldOutput
         lock (sync)
         {
             ObjectDisposedException.ThrowIf(closed, this);
-            if (objects.ContainsKey(id)) throw new InvalidOperationException("World object ID is still reserved or published; await its removal before replacement.");
+            if (objects.TryGetValue(id, out var existing))
+            {
+                // A record for an unseen ID may have inserted a placeholder before this create was queued. It never
+                // reached the client, so the create replaces it instead of failing the connection.
+                if (!existing.Placeholder)
+                    throw new InvalidOperationException("World object ID is still reserved or published; await its removal before replacement.");
+                Retire(existing);
+            }
             var birth = new WorldObject(this, id, false); objects.Add(id, birth); return birth;
         }
     }
@@ -176,8 +185,12 @@ public sealed class WorldOutput
     {
         lock (sync)
         {
+            ObjectDisposedException.ThrowIf(closed, this);
             if (objects.TryGetValue(id, out var value)) return value;
-            return ExistingObject(id);
+            // A record may name an ID whose create is still queued behind it (a pickup racing a drop). Keep a
+            // placeholder that the real create retires, so the record can still be admitted without blocking that create.
+            var placeholder = new WorldObject(this, id, true, placeholder: true);
+            objects.Add(id, placeholder); return placeholder;
         }
     }
 
@@ -225,7 +238,7 @@ public sealed class WorldOutput
         lock (sync)
         {
             CheckOwner(target);
-            if (target.State is WorldObject.BirthState.Admitted or WorldObject.BirthState.Ready)
+            if (!target.Placeholder && target.State is WorldObject.BirthState.Admitted or WorldObject.BirthState.Ready)
                 throw new InvalidOperationException("An admitted object needs an explicit Remove record; accepted creation/presentation cannot be cancelled.");
             target.State = WorldObject.BirthState.Retired;
             if (objects.GetValueOrDefault(target.Id) == target) objects.Remove(target.Id);
