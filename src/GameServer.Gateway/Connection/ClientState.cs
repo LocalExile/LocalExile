@@ -1057,6 +1057,13 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         }
     }
     ushort nextBuff = 1;
+    /// <summary>The Elemental Overload indicator buff's instance (0: none sent yet). One instance, bound to the skill
+    /// that last crit; the client draws the diamond under that skill's icon and expires the buff after its window.</summary>
+    public ushort ElementalOverloadBuff;
+
+    /// <summary>When the Elemental Overload indicator's window ends (last crit + 8 s); the player tick removes the buff
+    /// then, as the client does not expire this invisible buff itself.</summary>
+    public double ElementalOverloadBuffUntil;
     /// <summary>The lowest of the buff instances NextBuff never hands out: the rules keep these for buffs that always
     /// use the same instance on their object (MonsterElementalAilments.Instance is the top three).</summary>
     public const ushort FixedBuffInstances = ushort.MaxValue - 7;

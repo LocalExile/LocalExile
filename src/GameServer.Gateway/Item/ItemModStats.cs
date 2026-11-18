@@ -116,14 +116,9 @@ public static class ItemModStats
                         // name, which is what the pools read (issue #504).
                         int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
-                        if (state is StatConditions.State.Holds) value = StatConditions.ApplyRecentAmount(row.Stats[s].Id, value, subject);
-                        if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.FoldAll(id, statExists, subject) is { Count: > 0 } targets)
-                        {
-                            value = StatConditions.ValueForFold(id, value);
-                            foreach (string target in targets) yield return (target, value);
-                        }
-                        else yield return (id, value);
+                        value = StatConditions.Counted(id, value, state, subject, statExists, out var targets);
+                        if (targets is null) yield return (id, value);
+                        else foreach (string target in targets) yield return (target, value);
                     }
             }
     }

@@ -437,7 +437,7 @@ public static partial class Game
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int life = Get("killing_blow_consumes_corpse_restore_x_life");
         int mana = Get("killing_blow_consumes_corpse_restore_x_mana");
-        if (life > 0 && conn.PlayerLife > 0)
+        if (life > 0 && conn.PlayerLife > 0 && !LifeRecovery.NonLeechBlocked(Get))
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + life);
         if (mana > 0 && conn.PlayerLife > 0)
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
@@ -709,6 +709,9 @@ public static partial class Game
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Select(s => (Name: Stats.Name(s.Key) ?? "", s.Value))
             .Where(s => s.Name == "blood_sand_stance_melee_skills_area_damage_+%_final"));
+        // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
+        // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
+        if (HasElementalOverload(stats)) AddElementalOverload(conn, SkillsFor(conn).EffectId(gem.Effect), stats);
         Func<string, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
         return new(raw, hitStats, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
