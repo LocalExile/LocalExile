@@ -118,9 +118,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Adding ruleset 171 on The Sovereign closed the client about 2 s later (live 2026-11-18, without a server layout); it
   is not sent until what it needs is known. Valerie, ValerieTutorial and Vesper are not created: the NPC writer does not
   serialize their `Stats` component.
-  The ruleset messages: S→C 0x2c9 (data) and C→S 0x2ca (actions; the hub's opcodes 0-7, from `0x14041b5d0` and its
-  neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
-  Not decoded: S→C 0x1e (a ruleset event such as `open_deepwater_device`, `update_collection_chest`) and the chart
+  The ruleset messages are in [03](../docs/protocol/03-area-and-world.md) §8. Not decoded: S→C 0x1e and the chart
   item's `DeepwaterChart` component.
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.

@@ -146,6 +146,14 @@ The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
 
+## 8. Rulesets: S→C 0x1f, 0x2c9, 0x1e and C→S 0x2ca
+
+S→C 0x1f adds a `Rulesets` row to the area (`u8 row, u32 value`; `InstanceProtocol.AddRuleset`); a league's windows
+look their ruleset up by row. S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-7
+come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`.
+S→C 0x1e carries a ruleset event by name (such as `open_deepwater_device`, `update_collection_chest`); its layout is
+not decoded.
+
 ## Open
 
 - The real player start position for each town (area data, or a real capture).
