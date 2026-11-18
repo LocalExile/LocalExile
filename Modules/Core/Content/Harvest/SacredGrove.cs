@@ -449,8 +449,10 @@ public static class SacredGrove
             await End(conn.ActionCount);
             return true;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, 2, out var walk)) return true;
-        var (action, now, here, _, arrive) = walk;
+        // The walk stops at the post's footprint, as for an NPC: its blocker size is the reach.
+        int reach = Math.Max(0, StationaryCollision.Resolve(target.Type).Size);
+        if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, reach, out var walk)) return true;
+        var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
@@ -460,7 +462,8 @@ public static class SacredGrove
         try
         {
             if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
-                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (target.X, target.Y), 2)) return true;
+                // The walk's stop, not the position now: the delay can end a frame before the last cell.
+                || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
             await Start(conn, area, grove, index);
         }
         finally

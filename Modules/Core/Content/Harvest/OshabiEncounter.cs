@@ -27,6 +27,7 @@ public static class OshabiEncounter
     public const int Orange = 1, Blue = 2, Green = 3, Red = 4;
     // MonsterVarieties rows: Oshabi, Vine Hammer, Groveguard Vine, Primal Groveguard Vine, Volatile Orchard, Root Wall.
     const int BossRow = 8658, HammerVine = 8660, Groveguard = 8663, PrimalGroveguard = 8664, VolatileOrchard = 8665, RootWall = 8666;
+    static readonly HashSet<int> AddRows = [HammerVine, Groveguard, PrimalGroveguard, VolatileOrchard, RootWall];
     // [G] Her Emerge: oshabiboss.ot hands the camera back 5.5 s after emerge 1. A colour change: soultree.ot's SwapTo*
     // functions end 3 s after the change.
     const double EmergeSeconds = 5.5, TransitionSeconds = 3;
@@ -271,9 +272,9 @@ public static class OshabiEncounter
             still: () => PlayerActionCurrent(conn, action));
         if (tree ? state.Started : target.States.GetValueOrDefault("enabled") == 0) { await End(conn.ActionCount); return true; }
         // [G] The tree is 17 cells across: the player stops at its edge.
-        int reach = tree ? 9 : 2;
+        int reach = tree ? 9 : Math.Max(0, StationaryCollision.Resolve(AltarType).Size);
         if (!TryBeginObjectWalk(conn, requestedAt, target.X, target.Y, reach, out var walk)) return true;
-        var (action, now, here, _, arrive) = walk;
+        var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
                 InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: target.Id), null,
@@ -290,7 +291,7 @@ public static class OshabiEncounter
         try
         {
             if (state.Started || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
-                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (target.X, target.Y), reach)) return true;
+                || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
             await Start(conn, e, state);
         }
         finally
@@ -517,7 +518,14 @@ public static class OshabiEncounter
         if (state.AltarOn && state.Altar is { } altar)
             await SetStates(conn, state, (altar, "visible", 1), (altar, "enabled", 1));
         uint[] adds;
-        lock (state.Adds) { adds = [.. state.Adds]; state.Adds.Clear(); }
+        // Her own kit summons Vine Hammers (the boss AI, not Adds): they go with the encounter's adds.
+        lock (conn.Monsters)
+            lock (state.Adds)
+            {
+                adds = [.. state.Adds.Union(conn.Monsters.Where(kv => !kv.Value.Dead && kv.Value.Variety?.Row is { } row && AddRows.Contains(row))
+                    .Select(kv => kv.Key))];
+                state.Adds.Clear();
+            }
         foreach (uint id in adds)
         {
             lock (conn.Monsters)
