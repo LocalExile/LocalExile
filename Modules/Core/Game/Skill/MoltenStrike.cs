@@ -394,6 +394,7 @@ public static partial class Game
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
+                conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, skillId) ?? "", conn.Clock.Elapsed.TotalSeconds, critical);
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)

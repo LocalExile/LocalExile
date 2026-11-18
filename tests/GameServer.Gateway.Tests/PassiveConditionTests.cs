@@ -158,5 +158,19 @@ public sealed class PassiveConditionTests
         var plainSettings = MonsterIgnites.Settings.From(plainRows.Select(kv => (kv.Key, kv.Value)), "main_hand", NoOverload);
         Assert.False(plainSettings.NeverFromCrit);
         Assert.True(new MonsterIgnites().TryApply(plainSettings, critical: true, 0, 0, false, new Random(1)));
+
+        // The window is per skill: only the skill that crit opens it, for eight seconds, and the keystone's carrier stat
+        // is added to that skill's damage snapshot only while its own window is open.
+        var events = new RecentEvents();
+        events.RecordSkillCrit("ImmortalCall", 10, true);
+        Assert.True(events.SkillCritRecently("ImmortalCall", 17.999));
+        Assert.False(events.SkillCritRecently("ImmortalCall", 18));
+        Assert.False(events.SkillCritRecently("Fireball", 11));
+        var withKeystone = new Dictionary<uint, int> { [Program.Stats.Key("keystone_elemental_overload")!.Value] = 1 };
+        double now = f.Conn.Clock.Elapsed.TotalSeconds;
+        f.Conn.RecentEvents.RecordSkillCrit("ImmortalCall", now, true);
+        var bonusKey = Program.Stats.Key("keystone_elemental_overload_damage_+%_final")!.Value;
+        Assert.Equal(40, Game.WithElementalOverload(f.Conn, "ImmortalCall", withKeystone).GetValueOrDefault(bonusKey));
+        Assert.Equal(0, Game.WithElementalOverload(f.Conn, "Fireball", withKeystone).GetValueOrDefault(bonusKey));
     }
 }

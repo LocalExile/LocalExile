@@ -663,6 +663,12 @@ public static partial class Game
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Select(s => (Name: Stats.Name(s.Key) ?? "", s.Value))
             .Where(s => s.Name == "blood_sand_stance_melee_skills_area_damage_+%_final"));
+        // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
+        // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
+        if (Stats.Key("keystone_elemental_overload") is uint eoKeystone && stats.GetValueOrDefault(eoKeystone) != 0
+            && Stats.Key("keystone_elemental_overload_damage_+%_final") is uint eoBonus
+            && conn.RecentEvents.SkillCritRecently(SkillsFor(conn).EffectId(gem.Effect) ?? "", conn.Clock.Elapsed.TotalSeconds))
+            stats[eoBonus] = 40;
         return new(raw, Get, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,

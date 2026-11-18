@@ -571,6 +571,8 @@ public static partial class Game
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
+                conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, SkillCatalog.FirstSkillId) ?? "",
+                    conn.Clock.Elapsed.TotalSeconds, critical);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
@@ -643,6 +645,7 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
+        player = WithElementalOverload(conn, SkillEffectId(conn, SkillCatalog.FirstSkillId) ?? "", player);
         return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
             DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
             DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
@@ -2430,6 +2433,8 @@ public static partial class Game
                             criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                         else ArcaneSurgeOnSpellHitLocked(conn, player, m);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
+                        conn.RecentEvents.RecordSkillCrit(SkillsFor(conn).EffectId(gem.Effect) ?? "",
+                            conn.Clock.Elapsed.TotalSeconds, critical);
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.

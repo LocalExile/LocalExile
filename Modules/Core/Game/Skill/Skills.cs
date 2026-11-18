@@ -334,16 +334,6 @@ public static partial class Game
         // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
         // here with the other live state flags so it cannot go stale with the cached stat head.
         if (Stats.Key("on_low_life") is uint lowLifeKey && !devSet.Contains(lowLifeKey)) stats[lowLifeKey] = lowLife ? 1 : 0;
-        // Elemental Overload's window: "Skills that have dealt a Critical Strike in the past 8 seconds deal 40% more
-        // Elemental Damage with Hits and Ailments". The event is already tracked (RecentEvents); the damage stat is the
-        // client's own carrier (keystone_elemental_overload_damage_+%_final), published here so the hit, spell and
-        // ailment resolvers read one decision. The keystone's other two rules are unconditional and live in the crit
-        // policy and the ailment settings.
-        bool overloadWindow = conn.RecentEvents.Happened(StatConditions.Crit8Seconds, statsAt);
-        if (Stats.Key("have_crit_in_past_8_seconds") is uint critWindowKey && !devSet.Contains(critWindowKey))
-            stats[critWindowKey] = overloadWindow ? 1 : 0;
-        if (Stats.Key("keystone_elemental_overload_damage_+%_final") is uint overloadKey && !devSet.Contains(overloadKey))
-            stats[overloadKey] = Get("keystone_elemental_overload") != 0 && overloadWindow ? 40 : 0;
         // Capture the unmodified recovery baseline from this same snapshot, before the temporary contribution.
         // The resource writer integrates Fortification separately across exact expiry boundaries.
         baselineLifePerSecond = PanelStats.LifePerMinute(recovery, conn.Pools.Life) / 60;
@@ -433,6 +423,22 @@ public static partial class Game
     // a key collision; the normal case is that the skill adds stats the player does not have.
     public static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
         AttackHitConverted(weapon, stats, melee, null);
+
+    /// <summary>Elemental Overload's per-skill window on a damage snapshot: while the keystone is allocated and this
+    /// skill dealt a critical strike in the past eight seconds, its hits and ailments deal 40% more Elemental Damage
+    /// (the client's carrier stat, <c>keystone_elemental_overload_damage_+%_final</c>). The window is per skill, not per
+    /// character (poewiki); PoB models it as a global flag because it cannot track per-skill crits. The activating
+    /// critical strike does not benefit — its damage is built before the crit is recorded. The skill-icon diamond is
+    /// drawn by the client itself, so nothing is sent for it.</summary>
+    public static IReadOnlyDictionary<uint, int> WithElementalOverload(ClientState conn, string effect,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        if (Stats.Key("keystone_elemental_overload") is uint keystone && stats.GetValueOrDefault(keystone) != 0
+            && Stats.Key("keystone_elemental_overload_damage_+%_final") is uint bonus
+            && conn.RecentEvents.SkillCritRecently(effect, conn.Clock.Elapsed.TotalSeconds))
+            return new Dictionary<uint, int>(stats) { [bonus] = 40 };
+        return stats;
+    }
 
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.
     public static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,

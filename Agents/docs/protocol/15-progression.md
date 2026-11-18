@@ -165,11 +165,12 @@ yet confirmed on screen).
   `has_elemental_overload_buff`. So there is no buff-bar icon and nothing for the server to send for the indicator. Its
   damage rides on `keystone_elemental_overload_damage_+%_final` (a non-public stat, like `in_blood_stance`) and the
   8-second window on `have_crit_in_past_8_seconds`; `elemental_overload_rotation_active` belongs to the unique item's
-  "every 16 seconds" variant. The wiki's window is per-skill (and the activating critical strike does not benefit);
-  PoB models it as the global `Condition:HaveElementalOverload`, which is what the server follows — the activating
-  critical strike is excluded by construction, its damage being built before the crit is recorded. Ghost Dance's
-  shrouds are a separate visible buff (`ghost_dance_stacks`, ShowCount), Call to Arms' is `call_to_arms`
-  ("Autoexertion").
+  "every 16 seconds" variant. The window is per skill (the skill that crit, and all its uses including proxies; the
+  activating critical strike does not benefit): the server tracks it per effect (`RecentEvents.RecordSkillCrit`) and
+  adds the carrier stat to that skill's damage snapshot (`WithElementalOverload`, `SupportedHitInputsFor`). PoB models
+  it as a global `Condition:HaveElementalOverload` flag because it cannot track per-skill crits — that is a calculator
+  limitation, not the game's behaviour. Ghost Dance's shrouds are a separate visible buff (`ghost_dance_stacks`,
+  ShowCount), Call to Arms' is `call_to_arms` ("Autoexertion").
 
 ### Passive tree jewel sockets
 
