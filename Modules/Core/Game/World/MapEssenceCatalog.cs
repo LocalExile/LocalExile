@@ -32,6 +32,30 @@ public static class MapEssenceCatalog
     public static Essence Higher(Essence essence) => All.FirstOrDefault(e => e.Type == essence.Type
         && e.Tier == essence.Tier + 1) ?? essence;
 
+    static readonly Lazy<IReadOnlyDictionary<int, int>> Groups = new(() =>
+        ClientTables.Table("EssenceType").ToDictionary(r => r.Index, r => r.Int("EssenceType")));
+
+    /// <summary>The next colour group, keeping the tier or raising it to that group's minimum tier.</summary>
+    public static Essence Transform(Essence essence, Random random)
+    {
+        int next = Groups.Value.GetValueOrDefault(essence.Type) + 1;
+        var group = All.Where(e => Groups.Value.GetValueOrDefault(e.Type) == next).ToArray();
+        if (group.Length == 0) return essence;
+        int tier = Math.Max(essence.Tier, group.Min(e => e.Tier));
+        var choices = group.Where(e => e.Tier == tier).ToArray();
+        return choices.Length == 0 ? essence : choices[random.Next(choices.Length)];
+    }
+
+    public static Essence? Additional(int level, IReadOnlyList<int> current, MapMods mods, Random random)
+    {
+        var types = current.Select(Find).OfType<Essence>().Select(e => e.Type).ToHashSet();
+        var pool = Pool(level).Where(e => !types.Contains(e.Type)).ToArray();
+        if (pool.Length == 0) return null;
+        var pick = pool[random.Next(pool.Length)];
+        return mods.Get("map_essence_monsters_higher_tier") > 0
+            || random.Next(100) < mods.Get("map_essences_are_1_tier_higher_chance_%") ? Higher(pick) : pick;
+    }
+
     public static IReadOnlyList<int> Roll(int level, MapMods mods, Random random)
     {
         var pool = Pool(level);
