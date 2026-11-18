@@ -184,7 +184,7 @@ public static partial class Game
         {
             if (Stats.Key(to) is not uint key) return;
             int value = group.Select(a => TemporaryAuraValue(a, from, effect)).DefaultIfEmpty().Max();
-            stats[key] = stats.GetValueOrDefault(key) + value;
+            if (value != 0) stats[key] = stats.GetValueOrDefault(key) + value;
         }
         var smite = auras.Where(a => a.AffectsSelf && a.EffectId == "Smite").ToArray();
         foreach (string kind in new[] { "attack", "spell" })
@@ -194,10 +194,11 @@ public static partial class Game
         }
         Add("base_chance_to_shock_%", smite, "base_chance_to_shock_%_from_skill");
         // This is a count supplied by the Vaal buff, not a scalable damage stat.
-        if (Stats.Key("base_smite_number_of_targets") is uint targets)
-            stats[targets] = stats.GetValueOrDefault(targets) + smite.Select(a =>
+        int extra = smite.Select(a =>
                 Skills.EffectStats(a.Effect, a.Level, a.Quality).FirstOrDefault(p =>
                     p.Item1 == Stats.Key("buff_grants_smite_additional_lightning_targets")).Item2).DefaultIfEmpty().Max();
+        if (extra != 0 && Stats.Key("base_smite_number_of_targets") is uint targets)
+            stats[targets] = stats.GetValueOrDefault(targets) + extra;
         Add("cast_speed_+%", auras.Where(a => a.AffectsSelf && a.EffectId == "VaalHaste"), "cast_speed_+%_granted_from_skill");
     }
 
