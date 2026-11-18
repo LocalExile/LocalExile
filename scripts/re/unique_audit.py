@@ -1,10 +1,11 @@
 """Audit the unique-item catalogue against the extracted game data and the Gateway's stat consumers.
 
-The seed (`src/GameServer.Gateway/Item/UniqueItemSeed.cs`) is the full unique catalogue, but a definition only says
+The world database's `unique_items`/`unique_item_mods` (data/world.db, built from `sql/`) is the full unique catalogue,
+but a definition only says
 which Mods.dat rows a unique carries. Whether those rows *do* anything on this server depends on the stats they carry
 and on code that reads each stat id. This script makes that gap countable instead of a guess:
 
-* every seed definition resolves to a base type, a unique name (Words + UniqueStashLayout) and its Mods.dat rows;
+* every definition resolves to a base type, a unique name (Words + UniqueStashLayout) and its Mods.dat rows;
 * every stat id is classified against Stats.dat and against the string literals in the C# sources
   (`--source src --source Modules ...`), which is where a consumer names the stat it reads;
 * stats are grouped into the mechanics that need more than a passive number (sockets, triggers, keystones, buffs,
@@ -19,21 +20,25 @@ Usage (repository root):
     python scripts/re/unique_audit.py
     python scripts/re/unique_audit.py --out Tools/re/out/unique-audit.md --json Tools/re/out/unique-audit.json
 
-The default output goes under `Tools/re/out/` (git-ignored). Nothing outside the seed and the data tables is written.
+The default output goes under `Tools/re/out/` (git-ignored). Only the two report files are written.
 """
 import argparse
 import json
 import os
 import pathlib
 import re
+import sqlite3
 import sys
 from collections import Counter, defaultdict
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+# scripts/re holds a dis.py that shadows the standard library's (argparse imports it on Python 3.14): drop this folder.
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != HERE]
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "dev"))
 import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 ROOT = pathlib.Path(".")
-SEED = ROOT / "src/GameServer.Gateway/Item/UniqueItemSeed.cs"
+SEED = ROOT / "data/world.db"
 DEFAULT_OUT = ROOT / "Tools/re/out/unique-audit.md"
 DEFAULT_JSON = ROOT / "Tools/re/out/unique-audit.json"
 
@@ -59,31 +64,31 @@ LITERAL = re.compile(r'"([A-Za-z0-9_+%\-]{3,})"')
 # An interpolated string builds an id at run time (`$"local_minimum_added_{slug}_damage"`). Its holes become a wildcard
 # so the ids it can produce count as consumed; the literal parts must stay at least as long as a stat id's own words.
 HOLE = re.compile(r"\{[^{}]*\}")
-SEED_ROW = re.compile(r'^\s*new\(("(?:[^"\\]|\\.)*"),\s*("(?:[^"\\]|\\.)*")(.*)\),\s*$')
 
 
 def seed_definitions():
-    """Every definition in the generated seed, as the fields the audit needs."""
-    rows = []
-    for line in SEED.read_text(encoding="utf-8").splitlines():
-        match = SEED_ROW.match(line)
-        if not match:
-            continue
-        name = json.loads(match.group(1))
-        base = json.loads(match.group(2))
-        rest = match.group(3)
-        mods = json.loads(re.match(r",\s*(\[[^\]]*\])", rest).group(1))
-        implicits = re.search(r"Implicits: (\[[^\]]*\])", rest)
-        rows.append({
-            "name": name,
-            "base": base,
-            "mods": mods,
-            "implicits": json.loads(implicits.group(1)) if implicits else None,
-            "corrupted": "Corrupted: true" in rest,
-            "ranges": "Ranges: [" in rest,
-            "influences": "Influences:" in rest,
-        })
-    return rows
+    """Every unique definition in world.db (`unique_items` and its ordered `unique_item_mods`)."""
+    db = sqlite3.connect(f"file:{SEED.as_posix()}?mode=ro", uri=True)
+    try:
+        mods = defaultdict(lambda: ([], []))
+        for name, base, implicit, mod in db.execute(
+                "SELECT name, base_type, implicit, mod FROM unique_item_mods ORDER BY name, base_type, implicit, ord"):
+            mods[(name, base)][1 if implicit else 0].append(mod)
+        rows = []
+        for name, base, own_implicits, corrupted, influences in db.execute(
+                "SELECT name, base_type, own_implicits, corrupted, influences FROM unique_items ORDER BY name, base_type"):
+            explicit, implicit = mods[(name, base)]
+            rows.append({
+                "name": name,
+                "base": base,
+                "mods": explicit,
+                "implicits": implicit if own_implicits else None,
+                "corrupted": bool(corrupted),
+                "influences": bool(influences),
+            })
+        return rows
+    finally:
+        db.close()
 
 
 def source_literals(folders):
@@ -218,8 +223,8 @@ def main():
     lines = [
         "# Unique mechanic coverage audit",
         "",
-        f"Seed definitions: **{summary['definitions']}**. Generated from `{SEED.as_posix()}` and the client tables (data/client.db);",
-        "run `python scripts/re/unique_audit.py` again after the seed or the data changes.",
+        f"Unique definitions: **{summary['definitions']}**. Generated from `{SEED.as_posix()}` and the client tables (data/client.db);",
+        "run `python scripts/re/unique_audit.py` again after the definitions or the data change.",
         "",
         "A stat is *covered* when its id appears as a string literal in the scanned C# sources, or matches the ids an",
         "interpolated string can build (for example `local_minimum_added_{slug}_damage`). That is an approximation of a",
@@ -229,7 +234,7 @@ def main():
         "",
         "| Measure | Count |",
         "|---|---|",
-        f"| Seed definitions | {summary['definitions']} |",
+        f"| Unique definitions | {summary['definitions']} |",
         f"| Base type missing from BaseItemTypes | {summary['bases_missing']} |",
         f"| Name missing from Words/UniqueStashLayout | {summary['names_missing']} |",
         f"| Mod id missing from Mods.dat | {summary['mod_ids_missing']} |",

@@ -58,6 +58,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
+        GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
@@ -67,7 +70,20 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapTorment.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapTorment.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapTorment.Tick);
+        GameEvents.Drops.Add(module.Manifest.Id, MapTorment.Drops);
+        GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat], [], [MapTorment.TaperStat]));
+        // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
+        // (MonsterAlternateAilments).
+        module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
+        module.Lifetime.Own(UtilityFlasks.HandOverDuringEffectFlags(Rules.AlternateAilmentFlaskFlags));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
         // Build the optional melee clock tables before combat can admit an action, rather than inside its send gate.
@@ -231,6 +247,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
+        Rules.ForgetSourceValues(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(conn);
     }

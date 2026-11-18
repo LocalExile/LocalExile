@@ -1562,13 +1562,17 @@ public static partial class Game
         return Math.Min(now, frame.Start);
     }
 
+    // The record belongs to the acting monster unless the caller names another published object: a Rampage weapon's
+    // hit answers with the weapon's own life (RampageIncoming), and the action's generation still gates that answer.
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null,
+        uint? recordId = null)
     {
+        uint record = recordId ?? id;
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, record, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1579,7 +1583,7 @@ public static partial class Game
                     var bytes = packet();
                     sent = bytes is not null;
                     // The others in the instance see it too (SharedMonsters.cs).
-                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    if (bytes is not null) BroadcastMonsterMessage(conn, record, bytes);
                     return bytes;
                 }
             });
@@ -2064,14 +2068,14 @@ public static partial class Game
         rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out bool monsterCritical,
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"),
-            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a));   // its crit, Executioner's
+            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(conn, now));   // its crit, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(conn, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
-        // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
-        double lessened = m.Ailments.ChillDamageDealtFactor(now);
+        // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
+        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
@@ -2159,16 +2163,18 @@ public static partial class Game
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, a.Ailments, source: id);
+        AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
+            new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
-        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage);
+        RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
-        AilmentsWhenHitLocked(m, StatOf, blocked, now);
+            InflictedLocked(conn, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
+        AilmentsWhenHitLocked(conn, m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { DamageTriggers.Remove(conn); conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
