@@ -334,6 +334,16 @@ public static partial class Game
         // The low-life flag the damage pipeline reads (Pain Attunement's "30% more Spell Damage when on Low Life"), kept
         // here with the other live state flags so it cannot go stale with the cached stat head.
         if (Stats.Key("on_low_life") is uint lowLifeKey && !devSet.Contains(lowLifeKey)) stats[lowLifeKey] = lowLife ? 1 : 0;
+        // Elemental Overload's window: "Skills that have dealt a Critical Strike in the past 8 seconds deal 40% more
+        // Elemental Damage with Hits and Ailments". The event is already tracked (RecentEvents); the damage stat is the
+        // client's own carrier (keystone_elemental_overload_damage_+%_final), published here so the hit, spell and
+        // ailment resolvers read one decision. The keystone's other two rules are unconditional and live in the crit
+        // policy and the ailment settings.
+        bool overloadWindow = conn.RecentEvents.Happened(StatConditions.Crit8Seconds, statsAt);
+        if (Stats.Key("have_crit_in_past_8_seconds") is uint critWindowKey && !devSet.Contains(critWindowKey))
+            stats[critWindowKey] = overloadWindow ? 1 : 0;
+        if (Stats.Key("keystone_elemental_overload_damage_+%_final") is uint overloadKey && !devSet.Contains(overloadKey))
+            stats[overloadKey] = Get("keystone_elemental_overload") != 0 && overloadWindow ? 40 : 0;
         // Capture the unmodified recovery baseline from this same snapshot, before the temporary contribution.
         // The resource writer integrates Fortification separately across exact expiry boundaries.
         baselineLifePerSecond = PanelStats.LifePerMinute(recovery, conn.Pools.Life) / 60;

@@ -88,6 +88,11 @@ public static class PlayerHitDamage
                     ? "blood_sand_stance_melee_skills_area_damage_+%_final_in_sand_stance"
                     : "blood_sand_stance_melee_skills_area_damage_+%_final_in_blood_stance") / 100.0));
             if (preciseTechnique) range = range.Scale(1.4);
+            // Elemental Overload: "40% more Elemental Damage with Hits and Ailments" while its window is open. The
+            // stat is the client's own carrier, published by the live stat view; a converted portion is elemental by
+            // its history, as the other elemental buckets are.
+            if ((path.History & DamageTypeHistory.Elemental) != 0)
+                range = range.Scale(Math.Max(0, 1 + get("keystone_elemental_overload_damage_+%_final") / 100.0));
             result = result.Add(path.Type, range);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain

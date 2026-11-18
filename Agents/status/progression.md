@@ -18,6 +18,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Stance (cannot evade, cannot be stunned) and Arrow Dancing (evasion doubled against projectile attacks, 25% less
   against melee attacks) change the rating an enemy attack rolls against. Magebane removes Dexterity's inherent evasion
   bonus and grants 1% spell suppression per 15 Dexterity; Pain Attunement grants 30% more Spell Damage on low life.
+  Elemental Overload's window grants 40% more Elemental Damage with hits and ailments, its critical strikes deal no
+  extra Damage and its ailments are never from critical strikes.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets, percentage attribute mods, The Adorned and Split Personality's allocated paths,
   including nested clusters (tree art check pending).

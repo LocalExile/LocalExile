@@ -128,5 +128,35 @@ public sealed class PassiveConditionTests
         Assert.Equal(130, PlayerHitDamage.Resolve(fire, SpellGet, new DamageConversion(), spell: true)[DamageType.Fire].Max);
         int NotLow(string name) => name == "keystone_pain_attunement" ? 1 : 0;
         Assert.Equal(100, PlayerHitDamage.Resolve(fire, NotLow, new DamageConversion(), spell: true)[DamageType.Fire].Max);
+
+        // Elemental Overload: the window's 40% more reaches a spell, an attack and an elemental ailment; and while the
+        // keystone is allocated an ailment is never from a critical strike (no critical ailment multiplier, and the
+        // application rolls the hit's chance instead of a critical strike's guaranteed one).
+        int Overload(string name) => name switch
+        {
+            "keystone_elemental_overload" => 1,
+            "keystone_elemental_overload_damage_+%_final" => 40,
+            "critical_ailment_dot_multiplier_+" => 50,
+            _ => 0,
+        };
+        Assert.Equal(140, PlayerHitDamage.Resolve(fire, Overload, new DamageConversion(), spell: true)[DamageType.Fire].Max);
+        Assert.Equal(140, PlayerHitDamage.Resolve(fire, Overload, new DamageConversion(), spell: false)[DamageType.Fire].Max);
+        var overloadRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
+                new DamageConversion(), Overload).ToDictionary(r => r.Stat, r => r.Value);
+        // 100 fire * 90% ignite * 60 s * 1.4, the same on a critical strike (its +50% multiplier does not apply).
+        Assert.Equal(7560, overloadRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+        Assert.Equal(7560, overloadRows["maximum_ignite_damage_to_deal_per_minute_from_critical_main_hand_damage"]);
+        var overloadSettings = MonsterIgnites.Settings.From(overloadRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Overload);
+        Assert.True(overloadSettings.NeverFromCrit);
+        Assert.False(new MonsterIgnites().TryApply(overloadSettings, critical: true, 0, 0, false, new Random(1)));
+        // Without the keystone the critical row keeps its multiplier and a critical strike always ignites.
+        int NoOverload(string name) => name == "critical_ailment_dot_multiplier_+" ? 50 : 0;
+        var plainRows = AilmentPanelStats.Compute(new AilmentPanelStats.Context("main_hand", false, true), fire,
+                new DamageConversion(), NoOverload).ToDictionary(r => r.Stat, r => r.Value);
+        Assert.Equal(5400, plainRows["maximum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage"]);
+        Assert.Equal(8100, plainRows["maximum_ignite_damage_to_deal_per_minute_from_critical_main_hand_damage"]);
+        var plainSettings = MonsterIgnites.Settings.From(plainRows.Select(kv => (kv.Key, kv.Value)), "main_hand", NoOverload);
+        Assert.False(plainSettings.NeverFromCrit);
+        Assert.True(new MonsterIgnites().TryApply(plainSettings, critical: true, 0, 0, false, new Random(1)));
     }
 }
