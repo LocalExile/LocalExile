@@ -116,8 +116,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Coast's rowboat, and gives the hub ruleset 172, its stash and guild stash
   ([status](../status/hideouts-and-maps.md), [16](../docs/protocol/16-waypoints.md)).
   Adding ruleset 171 on The Sovereign closed the client about 2 s later (live 2026-11-18, without a server layout); it
-  is not sent until what it needs is known. Valerie, ValerieTutorial and Vesper are not created: the NPC writer does not
-  serialize their `Stats` component.
+  is not sent until what it needs is known. ValerieTutorial (Coast, deck) and Vesper (below deck, hidden until
+  DeepwaterValVesperFlameGiven) are created; Valerie (NPCs 789) waits for the flag that ends the tutorial, which the
+  client data does not name.
   The ruleset messages are in [03](../docs/protocol/03-area-and-world.md) §8. Not decoded: S→C 0x1e and the chart
   item's `DeepwaterChart` component.
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden

@@ -177,8 +177,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The hub waypoints stay unlit (client area-type rule).
   In the Allflame leagues the Deepwater Coast's rowboat leads to The Sovereign once the character has QuestFlags 3552
   DeepwaterNPCIntroductionSeen, and after that first visit (3556) the Deepwater pin and `/boat` do too; the hub has its
-  ruleset and its deck stash and guild stash (verified live 2026-11-18, with 3552 set by hand). No character gets 3552
-  in game yet: only ValerieTutorial's introduction sets it, and she is not created. The Gateway generates the hub
+  ruleset and its deck stash and guild stash (verified live 2026-11-18, with 3552 set by hand). ValerieTutorial stands
+  on the Coast (coming near sets 3551, her "Ready for Adventure?" sets 3552) and on the deck, Vesper below deck (hidden
+  by her StateMachine); not checked live yet. The Gateway generates the hub
   (server_level_areas): the player arrives on the deck, with its waypoint and the boat gates between the deck and
   below deck (not checked live yet).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
