@@ -128,6 +128,11 @@ public static class AreaLayouts
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
         ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category);
 
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int, IReadOnlyList{ValueTuple{ushort, byte[]}}?)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category,
+        IReadOnlyList<(ushort Plugin, byte[] State)>? pluginStates) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category, pluginStates);
+
     public static AreaLayout For(ushort hash, uint seed)
     {
         var hideout = HideoutCatalog.ByArea(hash);
@@ -206,6 +211,8 @@ public static class AreaLayouts
             {
                 id = layout.Id, seed, hash = layout.Hash, written = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 nonce = Guid.NewGuid().ToString("N"),
+                // The terrain plugin states of the load (the Deepwater grid), for the trace: levelgen generates with them.
+                pluginStates = ServerLevels.PluginStatesOf(layout.Id, seed)?.ToDictionary(p => p.Key.ToString(), p => Convert.ToHexString(p.Value)),
             });
             SaveFiles.Write($"{Folder}/current.json", json);
         }

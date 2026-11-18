@@ -91,7 +91,10 @@ public static class ServerLevels
     // topology by it (the Deepwater variants of The Coast at 59), so the level is generated with the same. Part of the cache
     // key (StatsKey) when it is not 60.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedCategories = new();
-    static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category)> PlayedContexts = new();
+    // The terrain plugin states an (area, seed) is played with (0x1d extra data, InstanceEvents.TerrainPluginStates): the
+    // client's plugin builds its part of the level from them (the Allflame encounter grid). Part of the cache key (StatsKey).
+    static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<ushort, byte[]>> PlayedPluginStates = new();
+    static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category, string States)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
 
     public static byte[]? DelveTerrain(uint seed) => DelveTerrains.GetValueOrDefault(seed);
@@ -124,7 +127,17 @@ public static class ServerLevels
     static string StatsKey(string areaId, uint seed) =>
         (PlayedStats.TryGetValue((areaId, seed), out var stats) && stats.Count > 0
             ? "#" + string.Join(",", stats.OrderBy(s => s.Key).Select(s => $"{s.Key}={s.Value}")) : "")
-        + (CategoryOf(areaId, seed) is var category and not LeagueCategory.None ? $"@c{category}" : "");
+        + (CategoryOf(areaId, seed) is var category and not LeagueCategory.None ? $"@c{category}" : "")
+        + (PluginStatesOf(areaId, seed) is { } states ? "~p" + StatesKey(states) : "");
+
+    /// <summary>The terrain plugin states (area, seed) is played with, null for none.</summary>
+    public static IReadOnlyDictionary<ushort, byte[]>? PluginStatesOf(string areaId, uint seed) =>
+        PlayedPluginStates.TryGetValue((areaId, seed), out var states) && states.Count > 0 ? states : null;
+
+    // A short stable key of the states: the first 8 hex digits of SHA-256 over "id:hex;" per plugin, in id order.
+    static string StatesKey(IReadOnlyDictionary<ushort, byte[]>? states) => states is not { Count: > 0 } ? "" :
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(
+            string.Concat(states.OrderBy(p => p.Key).Select(p => $"{p.Key}:{Convert.ToHexString(p.Value)};")))))[..8];
 
     static int CategoryOf(string areaId, uint seed) => PlayedCategories.GetValueOrDefault((areaId, seed), LeagueCategory.None);
 
@@ -269,9 +282,18 @@ public static class ServerLevels
     /// <inheritdoc cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?)"/>
     /// <param name="category">The league category the instance is played in (0x1d +0x28, 60 for none), which the
     /// topology pick reads.</param>
-    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category)
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
+        PlayableSeed(areaId, seed, areaLevel, stats, category, null);
+
+    /// <inheritdoc cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int)"/>
+    /// <param name="pluginStates">The terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c>, bytes),
+    /// which the area's plugin builds its part of the level from.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category,
+        IReadOnlyList<(ushort Plugin, byte[] State)>? pluginStates)
     {
         category = LeagueCategory.Clamp(category);
+        var states = (pluginStates ?? []).ToDictionary(p => p.Plugin, p => p.State);
+        string statesKey = StatesKey(states);
         lock (Gate)
         {
             var snapshot = stats is null ? new Dictionary<uint, int>()
@@ -282,9 +304,10 @@ public static class ServerLevels
             if (!exact && seed == 1 && SeedInPlaceOfOne(areaId) is { } seedOneReplacement) seed = seedOneReplacement;
             uint Reserve(uint candidate)
             {
-                while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey, category))
+                while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey, category, statesKey))
                     candidate = Replacements(candidate).First();
-                PlayedContexts[(areaId, candidate)] = (level, statsKey, category);
+                PlayedContexts[(areaId, candidate)] = (level, statsKey, category, statesKey);
+                PlayedPluginStates[(areaId, candidate)] = states;
                 PlayedCategories[(areaId, candidate)] = category;
                 PlayedLevels[(areaId, candidate)] = level;
                 PlayedStats[(areaId, candidate)] = snapshot;
@@ -328,8 +351,9 @@ public static class ServerLevels
             if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
                 area = area with { Stats = played.ToDictionary(s => (int)s.Key, s => s.Value) };
             int category = CategoryOf(areaId, seed);
+            var pluginStates = PluginStatesOf(areaId, seed);
             var result = LevelGenerator.Generate(files, area, seed, topologyVariant: category, labyrinthNode: node,
-                delveTerrain: areaId == "Delve_Main" ? DelveTerrain(seed) : null);
+                delveTerrain: areaId == "Delve_Main" ? DelveTerrain(seed) : null, pluginStates: pluginStates);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
             // The doodad stage stamps the doodads' collision into the grids (re/011 §6c).
             var doodads = new DoodadStage(files, result.Random, result.Grid, walk, []);
@@ -341,7 +365,7 @@ public static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
-            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")}{(area.Stats is { Count: > 0 } s ? $" with {s.Count} area stat(s)" : "")}{(category == LeagueCategory.None ? "" : $" league category {category}")} ({walk.Width}x{walk.Height} cells, " +
+            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")}{(area.Stats is { Count: > 0 } s ? $" with {s.Count} area stat(s)" : "")}{(category == LeagueCategory.None ? "" : $" league category {category}")}{(pluginStates is null ? "" : $" with {pluginStates.Count} terrain plugin state(s)")} ({walk.Width}x{walk.Height} cells, " +
                 $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads), tile hash {result.Grid.Hash()}, in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             var roomLinks = new List<PlacedLink>();

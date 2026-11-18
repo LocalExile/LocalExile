@@ -85,6 +85,15 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _leagueCategory ??= compose();
     }
 
+    IReadOnlyList<(ushort Plugin, byte[] State)>? _terrainPluginStates;
+
+    /// <summary>The terrain plugin states the instance is played with (InstanceEvents.TerrainPluginStates), composed by its
+    /// first connection and kept with <see cref="AreaStats"/>: a party member gets the same level.</summary>
+    public IReadOnlyList<(ushort Plugin, byte[] State)> TerrainPluginStates(Func<IReadOnlyList<(ushort Plugin, byte[] State)>> compose)
+    {
+        lock (_areaStatsGate) return _terrainPluginStates ??= compose();
+    }
+
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
     public IReadOnlyDictionary<uint, int>? KeptAreaStats
     {

@@ -28,6 +28,24 @@ public static class InstanceProtocol
     /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
     public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
 
+    /// <summary>0x1d's extra data (<see cref="AreaInstance.TerrainData"/>) holding only terrain plugin states: flag bytes
+    /// 0x00, 0x01 (second byte bit 0), u8 count, then per plugin its TerrainPlugins <c>__col1</c> id (u16), the state's
+    /// length (u16) and the state, little-endian (<c>0x141ecdad0</c> → world +0x70). At generation start the client
+    /// creates each listed plugin with its state, then the area's own plugin with an empty one unless listed
+    /// (<c>0x141eca930</c>).</summary>
+    public static byte[] TerrainPluginStates(IReadOnlyList<(ushort Plugin, byte[] State)> states)
+    {
+        if (states.Count is 0 or > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+        var bytes = new List<byte> { 0x00, 0x01, (byte)states.Count };
+        foreach (var (plugin, state) in states)
+        {
+            if (state.Length > ushort.MaxValue) throw new ArgumentOutOfRangeException(nameof(states));
+            bytes.AddRange([(byte)plugin, (byte)(plugin >> 8), (byte)state.Length, (byte)(state.Length >> 8)]);
+            bytes.AddRange(state);
+        }
+        return [.. bytes];
+    }
+
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of

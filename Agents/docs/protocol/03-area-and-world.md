@@ -44,6 +44,11 @@ The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-end
 Its first flag byte's bit 5 selects the Delve terrain block (`0x141ecc7d0`).
 Bit 3 is the Labyrinth node: u32 seed, u16 LabyrinthSectionLayout row, u8 difficulty, from which `0x1424ec930` builds
 the day's layout and finds the room ([re/011](../re/011-level-generation.md), "Labyrinth pass").
+Bit 1 is Ultimatum's (`0x141eccca0`). In the second flag byte, bit 0 is the terrain plugin states: u8 count, then per
+plugin its TerrainPlugins `__col1` (u16), a u16 length and that many bytes (world +0x70). At generation start
+`0x141eca930` creates each listed plugin with its bytes (`0x141ecab90`; "Failed to create TerrainPlugin: unknown
+PluginID"), then the area's own WorldAreas `TerrainPlugin` with none unless listed (`0x141ecb130`); the Allflame
+encounter's grid is the DeepwaterPlugin's (re/011 §3c4). Bit 3 is Mercenary data (`0x141ecd3a0`).
 See [Delve](21-hideouts.md#delve-sulphite-and-the-crawler-live-2026-10-29) for the initial mine control.
 
 ### What the client does

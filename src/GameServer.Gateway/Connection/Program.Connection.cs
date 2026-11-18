@@ -112,8 +112,11 @@ public partial class Program
                 // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
                 // Composed by the instance's first connection, as the area stats.
                 int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
-                // The client generates the area at the seed, level, stats and category of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory);
+                // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates): the Allflame encounter's grid.
+                var pluginStates = instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
+                // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
+                // Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory, pluginStates);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -154,14 +157,21 @@ public partial class Program
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
+                // A module's own extra data (Delve's) and the Labyrinth's never meet plugin states: no such area has a
+                // ported plugin. Should one, the module's block is kept and the level would not be the client's.
+                if (pluginStates.Count > 0 && (moduleHeader?.Terrain is not null || labyrinthNode is not null))
+                    Console.WriteLine($"[gateway] {remote} {layout.Id}: the area's extra data is sent without its terrain plugin states");
+                byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
+                    : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
                 // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
                 if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
-                    TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
+                    TerrainData: terrainData,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
-                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
+                    (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
+                    string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));
                 await Logic.Entered(remote, conn, level, resolved.Level);
                 // A Labyrinth run: the rooms been in, for the Labyrinth map (S→C 0x1cb); anywhere else it ends.
                 if (resolved.Character is { Length: > 0 } runner)
