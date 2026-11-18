@@ -167,6 +167,11 @@ public static class GroundSlamWave
     /// <summary>Seconds after the slam's contact the front reaches a monster <paramref name="distance"/> cells away.</summary>
     public static double AdvanceSeconds(double distance) => Math.Max(0, distance) / CellsPerSecond;
 
+    /// <summary>Scale the gem's close-target hit bonus over the wave's reach, using the same falloff as Vaal Ground Slam.
+    /// The distance is the contact's distance from the original slam, so moving after release does not change it.</summary>
+    public static double CloseHitMultiplier(double distance, double length, int maximumPercent) =>
+        1 + maximumPercent / 100.0 * Math.Clamp(1 - distance / Math.Max(1, length), 0, 1);
+
     /// <summary>The wave's unit direction: from where the player stands toward what it aimed at, or (0, 0) when the two
     /// are the same cell, which is the one case a wave has no direction of its own.</summary>
     public static (double X, double Y) Direction((int X, int Y) from, (int X, int Y) to)

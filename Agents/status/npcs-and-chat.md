@@ -33,6 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and
   facing.
+  Estimated placements on blocked cells move to nearby walkable ground. Room placements and editable hideout furniture keep their coordinates.
   Their collision footprints now come from inherited OT metadata, including later-act NPC Id aliases.
   The shared routing and overlap correction covers spawned NPCs in towns and hideouts.
   Native walking respected the three NPCs and both stashes in Lioneye's Watch; the guild stash receives

@@ -630,6 +630,8 @@ public static partial class Game
         // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
         bool lightningStrike = IsLightningStrike(gem.Effect);
         if (lightningStrike) types.Remove(projectile ? 19 : 2);
+        bool volcanicFissure = IsVolcanicFissure(gem.Effect);
+        if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
         bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(conn).EffectId(gem.Effect));
@@ -650,7 +652,7 @@ public static partial class Game
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(conn, gem.Effect, gem.Level)));
-        if (lightningStrike && projectile)
+        if ((lightningStrike || volcanicFissure) && projectile)
             raw = raw.Scale(Math.Max(0, 1 + Get("active_skill_hit_ailment_damage_with_projectile_+%_final") / 100.0));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.

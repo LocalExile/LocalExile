@@ -123,7 +123,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
 - Vaal souls (#308), Vaal Ground Slam, Vaal Fireball, Vaal Spark and Vaal Discipline. Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
+- Ground Slam's forward wave gains more damage near the player. Volcanic Fissure hits along its path and launches
+  landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
