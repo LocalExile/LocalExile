@@ -31,7 +31,7 @@ bench.
   [game/maps.md](../docs/game/maps.md).
   Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
   are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards) and the Atlas graph validation;
+- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
   Voidstones; the map stash tab's layout (18 A5); the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 

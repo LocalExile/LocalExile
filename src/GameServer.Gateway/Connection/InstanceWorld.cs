@@ -5,6 +5,8 @@
 /// </summary>
 public sealed class InstanceWorld
 {
+    /// <summary>Module-owned static scene snapshots that survive rule reloads, keyed by their owner and placement.</summary>
+    public readonly Dictionary<string, (uint Id, string Type, GameServer.Core.Protocol.Instance.QuestObject Object)> SceneObjects = new(StringComparer.Ordinal);
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];
 
@@ -14,12 +16,21 @@ public sealed class InstanceWorld
     /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
 
+    /// <summary>Monsters of the area placed far from every player: the instance's, counted and saved with it, but not
+    /// created yet, so they are on no client and nothing acts on them. One is created, as a kept monster is, when a
+    /// player comes near. Under the Monsters lock.</summary>
+    public readonly List<SavedMonster> HeldBackMonsters = [];
+
     /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (ClientState.EmergeGround).</summary>
     public readonly EmergeGround EmergeGround = new();
 
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
+    /// Monsters lock.</summary>
+    public ClientState? PausedBy;
 
     /// <summary>Server objects of the instance (effects, projectiles, stashes, minions): ids unique to all its clients, from
     /// 0x04000000. A client numbers the objects it makes itself (its predicted projectiles: a wand's bolt) from 0x3000:

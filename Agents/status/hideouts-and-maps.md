@@ -33,22 +33,37 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion. A fresh save earns its first map point on its first completion. The Atlas
-  graph itself is still the client's, so connectivity is left to it.
+  completion. A fresh save earns its first map point on its first completion. The server
+  holds the Atlas graph (client.db `passive_graph*`, graph `atlas`) and refuses an allocation off the graph, of an
+  icon-only node (the masteries), or not touching the start or an allocated node, and a refund that cuts allocated nodes
+  off from the start (`AtlasPassives.CanAllocate/CanRefund`; not yet tried live). A save's old nodes are kept
+  as they are. The active preset is saved (module data `atlas.active`), picked with a tab (C→S 0x2a8) and sent last
+  so the client ends on it; the lists are sorted; the budget adds node-granted points (Unwavering Vision). A refund
+  spends one respec point (`atlas.respec`, starting at 0) and an Orb of Unmaking (Kirac's shop) grants one
+  ([15](../docs/protocol/15-progression.md) §2; not yet tried live). Trees II and III unlock at 50 and 100 completed
+  maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
+  nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
+  Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
+  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
+  drop factors act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
-  presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
-  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
-  real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  presets, before 0x21, so login does not announce every saved map. A completion re-sends that 0x1a3 right after the
+  0x1a4, so both panels (the Atlas and the map device's portals) draw the new mark without an area change.
+  `/atlas_complete <map | all>` and `/atlas_reset` (dev).
+  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; a native Beach boss kill also sent
+  the completion and refreshed the Atlas state. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
   the town side checks that Auth still has the destination instance; there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
+  a map's portal gets no portal back: an entry through that map's device portals arrives at it, also after a death, and it
+  replaces the map's own portal back there, #1002;
   while the server runs, being tested 2026-10-23).
   Code: Gateway (`UsePortalScroll`, `UseMapReturnPortal`).
   Docs: [21](../docs/protocol/21-hideouts.md) §5.
@@ -59,14 +74,27 @@ Part of [Status](../Status.md); what to build next in this area is in
   its Waypoint (with HideoutDoodad data), Stash, Nessa and map device come from its decoration (`scripts/re/atlas
   hideouts` → `data/hideouts.json`); the HUD shows the Edit button;
   the map device can be clicked and opens its window (S→C 0x7b kind 5);
-  maps go into its slots, Activate (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
+  maps go into its slots (dragged, or Ctrl + clicked: C→S 0x00e4 in and 0x00e5 out, live 2026-11-15), Activate
+  (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
   opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
-  stays gone); `An Audience With The King` is a fragment that opens the Crux of Nothingness by itself; in the map, a
+  stays gone); guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
+  Visiting another hideout preserves the visitor's own home; only the owner activates its device or edits its furniture.
+  The instance keeps the map's level and mods for its whole life (after its last portal or another
+  activation, and for guests); 0x1d sends the map's area stats (its mods, tier and atlas) and the Gateway generates
+  the level and applies the mods with them, the tier's more monster life and damage included;
+  `An Audience With The King` uses its native recipe to open the Crux of Nothingness by itself,
+  rejecting extra inputs before consumption (verified in the 3.29.3d client with both inputs preserved); in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
+- Map device portal labels (2026-11-14, live): a portal's floating label names its area and appends "(Completed)" once
+  that run's map boss is dead (S→C 0x008f flags bit 1, which the Portal component's nametag reads). The mark follows the
+  exact shared map run across area changes and guest kills. Every declared terminal boss must die; unrelated uniques
+  do not count. A new run of the same map starts unmarked, and existing visitors receive updated labels.
+  Live in a Chinese client: after the boss died the standing portals read "<area name> (已完成)", and the logged
+  message began `008F02`. See [21](../docs/protocol/21-hideouts.md) §5.
 
 ## Partly working
 
@@ -78,7 +106,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live player and waypoint records used the same saved cell.
 
 - Hideout editing moves and rotates installed furniture, the waypoint and NPCs through native C→S 0x5b.
-  Placements persist per character/template; runtime interactions and path blockers follow the moved objects.
+  Selection, placements and Monster Statues persist per account/template; legacy homes migrate from the first
+  character with a selected hideout (an explicit migration source can be configured). Cross-character client verification pending.
+  Runtime interactions and path blockers follow the moved objects.
   Every template of the selected hideout is editable: one without a captured walk map leaves cell checks to the client.
   Furniture moves send 0x161 to rebuild native hideout model collision without changing object ids.
   Server blockers are registered again at saved positions on entry.
@@ -220,6 +250,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
+  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+  the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart
   ([21](../docs/protocol/21-hideouts.md) §5, "Open").

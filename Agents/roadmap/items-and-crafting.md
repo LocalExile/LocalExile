@@ -31,10 +31,10 @@ features.
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
-  has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
-  Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
+  has every unique's base, mods and rolls, the mechanics behind those mods are the open part), and chancing.
+  Mageblood's "effects cannot be removed" waits for a server mechanic that removes flask effects (13 §2e).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
-  automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
+  automatic triggers with their ordinary hostile sources.
   Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack
   generation rules (`Sockets:` lines are dropped); ordinary default sockets, Tabula's six linked whites, Skin of the
   Loyal's six linked random colours, the 3.29 no-white property, fixed "Has X Sockets" counts and Malachai's all-white
@@ -96,7 +96,7 @@ features.
 - **Socket colours (3.29):** the 3.29 rules are in (white by default with an item-level colour chance, the
   Chromatic and non-white bench crafts, white sockets from Jeweller's/bench socket adds, Vaal colouring one white
   socket; [13](../docs/protocol/13-items.md), "Socket colours (3.29)", Status).
-  Remaining: Tainted Chromatic/Jeweller's Orbs, the Orb of Binding, the Locus of Corruption, the milestone bench
+  Remaining: the Locus of Corruption, the milestone bench
   reward (25 reforges keeping the most non-white sockets), special item overrides, and fitting the exact colour
   probabilities from live captures (the current curve is an approximation).
 - **Done when:** items' damage and defences count, and flasks and currency can be used.

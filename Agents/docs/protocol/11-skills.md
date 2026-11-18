@@ -964,8 +964,33 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   This retains the current walk when the target moves slightly instead of repeatedly restarting its path.
   A hostile monster within reach stops and swings: 0x1ab with its skill, flags 0x0408 | 0x80, target the player,
   sequence 0xffff.
-  Its busy period covers the full attack duration from the actual action send; contact still occurs halfway through:
+  Its busy period covers the full attack duration from the actual action send:
   the hit lands if the monster lives and the player is still within reach + 2 (0x1af, then 0x1b1 on the player).
+  Ordinary `Melee` contacts follow the native animation clock, not a fraction of the whole attack interval.
+  Actor setup `0x141ea0c60` starts with clip length / integer attack duration. When that is below 1,
+  `slow_animations_go_to_idle` (Actor resource +0x58, inherited from Monster.ot) clamps it to 1 for animation
+  categories whose Animation.dat column 2 is false (`Melee` and `OffMelee`). `ZombieBite` has a 1766 ms clip,
+  contact at 1099 ms and no slow span: its 2400 ms attack plays contact at 1099 ms, then recovers. The old linear
+  calculation was about 0.39 s late. Its 1388 ms Quick attack plays at 1.272334, so the linear calculation happened
+  to match.
+  Player damage and TakeHit arrived together; the error preceded both (3.29.3c hotfix, 2026-11-16).
+
+  Slow-span setup `0x141b0d690` / `0x141b0d420` uses length L, requested duration T, budget B (ACT `attack_time`,
+  else L), span S, and budgeted span E = B*S/L. With T <= B it restores linear playback. Otherwise the span takes
+  min(8*E, T-B+E); outside takes the remaining time, except a clamped Actor keeps natural outside speed and leaves
+  an idle tail after the cap. Body +0x1f8 independently multiplies progress by published `virtual_action_speed_+%`
+  (`0x141ea3840` / `0x141dc16b0`), including changes during a swing. The server settles elapsed action time before
+  applying each new published rate, and retimes pending contact and recovery. Freeze retains its separate
+  cancellation/contact-suppression path; a changed attack-duration stat does not replace an already admitted clip.
+
+  The variety's actual AOFiles can differ from the AO named by its ACT: `ZombieMummy` uses `Mummy_no_amb.ao`
+  without a slow span, while `IntMissionRaisedZombieMummy` uses `Mummy.ao` with one. The latter's 1166 ms clips have
+  spans 327..502 / 387..526 ms and contacts 566 / 632 ms. New `monster_melee_clocks` rows preserve that separate
+  source and leave the existing projectile/boss contact tables unchanged. Unknown AO composition, incomplete
+  clocks, dual wield and other native actions retain their previous timing. ACT options other than a single
+  `attack_time` (including `max_slow_time`, the explicit cap override parsed at `0x142a0a645`) are excluded from
+  known pools. Another category needs its actual AO, selected clip and native event clock verified at fast,
+  natural, slow and capped durations, then action-speed changes, in predictive and lockstep modes.
   A mortar skill (Sand Spitter: `monster_mortar_attack`, GrantedEffects SkillID 183 → MonsterMortar 183 →
   `Metadata/Projectiles/SandspitterMortarProjectile`, 1170 units/s) is drawn by the client, as from GGG, whose server
   creates no mortar object: the mortar action's constructor (`0x141b6c390`) takes its MonsterMortar row from the
@@ -1382,6 +1407,13 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   [actual decoder contract](../re/projectiles/results-and-protocol.md#31-actual-payload-decoding-fresh-defaults-and-dispatch).
   See [RE 012: results and lifecycle](../re/projectiles/results-and-protocol.md) for duplicate handling,
   late-result limits, exact VAs and the distinction between local prediction and authoritative hit presentation.
+  **Heavy Strike impact (2026-11-14).** Predictive Trarthus hits were observed entering `0x141e97e20`
+  with a null action and stat view, after the pathing attack had gone; skill-specific hit callbacks require an action.
+  The native `heavy_strike_02/heavy_strike_hit.ao` contains the impact mesh, particles and three sound events.
+  Heavy Strike and its transfigured variants now present that AO as a short-lived server effect at a confirmed hit.
+  Their generic immediate hit uses sequence `0xffff` to avoid a second skill impact if an action is still retained;
+  it keeps typed blood/weapon feedback, critical flags and frame ordering. Other skills keep their action sequence.
+  Impact removal uses the existing connection effect scheduler, including area retirement, rather than per-hit tasks.
 - **Release.** A spell leaves at its cast animation's **contact** keyframe, which the client plays stretched to the cast
   time: the Witch's `spell_projectile_wand` in `Art/Models/CHARACTERS/Witch/rig.amd` is 1066 ms long with `contact` at
   599 ms, so Fireball leaves after 56% of the cast. `python -I scripts/re/anim_contacts.py` writes every class's
@@ -1700,11 +1732,36 @@ Its hammers deal no damage: the client draws them, but the server has no hammerf
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
-**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
-cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before, and a later resync pulled the
-player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
-it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
-(§10k).
+**Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
+when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
+(live 2026-10-23). A resync follows at the end of the action ([07](07-latency-visibility-movement.md) §5).
+Shield Charge instead walks there at its charge speed and hits on the way (§10k).
+
+**Leap Slam** (ActionTypes `LeapSlam` 0x9779) resolves its range independently of its damage radius.
+`0x1412fafd0` gives range 60, or 30 for `skill_behaviour_variation` 2 (Groundbreaking, from GrantedEffects.SkillID).
+`0x1419fe630` scales the aim delta by `range / max(length - 1, 0)` when beyond range, rounding components with
+`floor(x + 0.5)`; the integer endpoint is not a strict radius-60/30 circle.
+`0x141a01520` searches from that candidate back toward the start for walking clearance and a clear layer-1 ray,
+so a gap need not be walkable along the whole flight.
+The server binds that landing to the use and resolves its area there, rather than applying an in-place melee reach test.
+
+The native `leave_ground` and `hit_ground` events time the flight (`0x1419fd8e0`); its speed is distance divided by
+that flight time (`0x1419fdaf0`). The named events and clip lengths are in `animation_clip_events` and `animation_clips`.
+For total base duration B, final hand speed S and action speed A, the clip duration is
+`B / 1000 / (1 + S/100) / (1 + A/100)`; `0x14270bce0` adds the skill's extra base milliseconds after the weapon's
+local speed, before final speed (ordinary Leap Slam adds 550, Groundbreaking adds none).
+The native startup skip seeks to `leave_ground - 0.01` animation seconds (`0x141944380`), not immediately to impact.
+It requires behaviour other than 2, the character's skipping flag, and no active `instant_movement_skill_delay`
+buff belonging to another action (`0x1419fda80`, `0x141944d40`). The server does not create that buff yet; its official
+refresh/expiry policy is unknown, so current eligible uses skip startup without claiming the official recovery cadence.
+
+Landing occupancy is separate from a successful hit: `0x1419fe0f0` pushes overlapping enemy centers apart by
+source size + target size + 2, even without a hit roll. The server uses that geometry with its existing walkability,
+knockback-immunity guards and queued position update; native displacement speed is not reproduced.
+The `leap_slam_always_knockback_within_range` inner-circle argument reaches an empty default-client callback
+(`0x1419fdce0`, vtable +0x530), so it does not establish the server's complete forced-knockback policy.
+Named movement-blocking regions and the native special-field landing gate also remain outside the server model.
+
 
 **Flicker Strike** (ActionTypes `FlickerStrike` 0x6352, base class `0x141a5f640`) does not move the player on the
 client: in 17 started Flicker actions with a target, nothing set the player's position (Frida, live 2026-11-09).
@@ -1890,6 +1947,14 @@ The life is set once, at `0x141b3860a`: `skill_effect_duration` (0x168) / 1000 s
 `spark_random_duration_%` (0x4397). That stat is virtual, so the client does not derive it from
 `base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
 spark died on its first tick and none was drawn (live 2026-10-30: sparks drawn).
+
+Twister (`avian_tornado`, ActiveSkills row 1292) also uses Spark's ActionType 57.
+SkillArtVariations `spark` selects ProjectilesArtVariations `spark_tornado` and Projectiles row 369,
+`Metadata/Projectiles/SandTornadoSpark` (speed 250), rather than TriggeredSupportTornado.
+Its 2,500 ms lifetime, nova, always-pierce and Avian-gain trigger come from the Twister stat set.
+The client also needs final `skill_behaviour_variation=4`, absent from that stat set: without it the triggered action
+creates ordinary Spark objects. Spark slot 0x310 selects the tornado branch at `0x141b35587`.
+Variation 4 has no 150-cell leash and forgets client contacts every 100 ms; official server repeat parity remains unverified.
 
 **Spark's wander (live 2026-10-31, Frida `scripts/re/frida/trace-spark-legs.js`, 1,084 sparks).** Each spark is its own
 copy of the Spark action. Its first leg seeds the client's small generator (`0x14146fcd0`, the TinyMT32 key
@@ -2634,7 +2699,10 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   If the use is still current and the player lives, the totem appears at the aimed cell, moved out of walls and
   monsters as a spawn is.
   The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2bb) and enters it
-  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+  in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it, then plays the Emerge basic
+  action at once (0x1ab, 0x1ac): a totem has no Transitionable, so the monster rise's 0x2bc does not apply.
+  The placement wait does not gate on the cast's action token: live 2026-11-09 it dropped six of seven placements whose
+  mana was paid (the client walked 0.38 s after the cast). Source, cooldown, Vaal and channel checks still cancel it.
 - Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
   Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
   24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
@@ -2673,7 +2741,28 @@ Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.3
 Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
 before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
 
+Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry the spell totems'
+proxy `0x4000` plus their radius and `skill_is_non_pathing`; with the gem's own `is_totem` the client plays no action. Shockwave Totem is a `Nova`: it casts while a hostile is
+within `base_totem_range` (80) and hits within its radius (24) of itself at the end of each cast, as the Arc totem's hit.
+Devouring Totem eats the nearest corpse in range once a cast while the player misses Life or Mana; the corpse is the
+totem's, not the player's. Decoy Totem (its taunt is the separate `totem_taunt_triggerable`), the ancestral melee
+totems (`ancestor_totem_parent_activiation_range`, owner buffs) and Searing Bond are still refused before cost.
+
 ## 10h. Player minions that fight
+
+The native Actor also has an ownership list, separate from model/team and count stats.
+Actor update flag `0x0100` (`0x142199c20`) reads a u16 count followed by `(u32 object, u16 source, u16 MinionType)`.
+A zero source removes the id; other entries append, so a changed entry needs removal before addition.
+The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
+`MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
+
+UpgradeMinion's availability check (`0x1412ea7d0`) requires a matching ownership entry.
+It maps a skill id to `0xc000 | (id & 0x3fff)`, or `0x8000 | (id & 0x3fff)` for an id already tagged `0xc000`.
+At the upgraded limit it also dereferences that source skill's limit stats: a roster entry without this skill record
+can crash the client on a subsequent cast.
+The module publishes a paired normal-skill proxy with that id and a parent reference to its ordinary source.
+GE `SkillID` supplies `skill_behaviour_variation`: zero selects Absolution and one selects Dominance in this action.
+Native verification covered Absolution and Dominance upgrades and full-cap refreshes with no ordinary sentinel remaining.
 
 A player minion is a monster on the player's team kept in `ClientState.Monsters` and listed in `ClientState.Minions`
 (`PlayerMinions.cs`).
@@ -3319,6 +3408,28 @@ Only self auras with an `AuraCatalog` effect are listed for now: a granted minio
 and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use it
 ([Paladin](../game/paladin.md)).
 
+**Worn-item active grants.** An item mod's `GrantedEffectsPerLevelKeys` reference exact GrantedEffectsPerLevel rows.
+`WornGrantedSkills` resolves those rows through GrantedEffects and preserves their effect id, level and
+ActiveSkills `IsManuallyCasted` value. Doryani's Delusion references GEPL 28267, level-30 Purity of Lightning;
+Severed in Sleep and United in Dream reference GEPL 47391, level-25 Envy; Aul's Uprising references GEPL 47390,
+level-15 Envy. These Mods rows have no nonempty `GrantedEffectRuthless` override, and GemEffects has no HardMode
+alternative for these effects, so the referenced rows remain authoritative in both data modes.
+For a Mods row whose `GrantedEffectRuthless` list is nonempty, HardMode uses those GEPL rows instead and otherwise
+keeps the normal list. The corrupted Determination and Grace controls select GEPL 17798/17486 and effects
+`DeterminationHardMode`/`GraceHardMode`; Standard keeps 17758/17446 and the normal effects.
+Socketed gems, worn grants and passive grants share one ordered source list for `GemSkillIds`, `GemSkillEffects`,
+`SupportedSkill` and admission. A worn grant's stable key is its host item and synthetic host-local source slot, so it
+does not collide with an active gem, a passive node or the same effect on another item. Ordinary support gems in the
+granting host support its active skill independently of link groups; their own level and quality apply, while active
+gem-level/quality bonuses do not raise the grant. SupportsGemsOnly supports such as Empower, Enhance, Enlighten,
+Spellslinger, Automation, Autoexertion and Eclipse are excluded from non-gem grants.
+Only manually cast worn effects with an existing executor are published. Trigger-only rows stay available through
+`AllWornGrantedSkillsOf` for their future trigger owners, and unsupported beast/aspect/Madness/Unhinged/Aegis grants
+remain out of the Actor list. A supported aura keeps its host identity in `AuraCatalog.Aura`; removing or inactivating
+the source ends it without refilling mana, while a still-valid same-family gem or worn host keeps the saved intent and
+takes ownership. A source with no alternative clears that spent intent so equipping another same-effect item does not
+resurrect it. Area entry and relog restoration still enumerate current sources and reject stale ids.
+
 **Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
 The one with an executor is Summon Elemental Relic, from Paladin's Elemental Valiance and the ordinary Guardian's
 Unwavering Crusade (19641), which have the same buff and grant.
@@ -3396,11 +3507,13 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
   alternate-shield flag. `0x1417a9410` dereferences `Buff+0x80` and its second word before any length check;
   `0x1417a9e70` passes the first word to MiscEffectPacks variation lookup. Empty-list activation reproduced
   an access violation at `0x1417a945f`. The base shield visual uses `[0, 0]`.
+  Both the source and received buff instantiate this behaviour and require the list, even with source display disabled.
 
   Temporal Rift (row 1915, `ChronomancerBuff`) also dereferences its list immediately: `0x141f83180`
   allocates the sample ring from word 0, and `0x141f832b0` reads the interval in milliseconds from word 1.
   An empty list reproduced an access violation at `0x141f831b1`. The server uses `[42, 100]`, retaining
   41 samples over four seconds; these sampling parameters are server choices, not captured retail traffic.
+  Both source and received buff packets carry these two words.
 - **Implemented effects.** Purity of Elements/Fire/Ice/Lightning add their resistances; Clarity and Vitality
   add their flat regeneration; Precision adds flat accuracy and increased critical strike chance; Haste adds
   attack, cast and movement speed. Generic
@@ -3451,10 +3564,20 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
   - **Masteries:** Mana6, Reservation3 (life efficiency), Reservation4 (area) and Reservation5 (self aura effect) are mapped;
     Reservation1 (damage per aura), Reservation2 (max resistances with reserved life and mana) and Reservation6 (aura
     duration) are not. Skill-specific reservation efficiency/effect stats are not modelled.
-  - **Systems:** supports, party/minion auras and life reservation.
-- **Dev check.** `/auras` prints the active auras, flat/percent reservation, reserved and unreserved mana,
-  reservation efficiency and aura effect. Area changes recreate the player object, so `SendPlayer` puts the
-  running auras' buffs back on it.
+  - **Systems:** party/minion auras and reservation-declining or special supports.
+- **Life reservation.** GEPL `LifeReservationFlat` / `LifeReservationPercent` share the active aura's source identity
+  with Mana reservation. `base_skill_reserve_life_instead_of_mana` moves the whole skill cost to Life; Mana-only aura
+  exemptions leave Life untouched. Worn `life_reserved_by_stat_%` is permanent while its item qualifies (Midnight
+  Bargain rolls 30), while Life reservation efficiency reprices skills per skill before summation. Full maximum Life
+  remains `Pools.Life`; the owner exposes a separate unreserved cap used by payment, leech, flask/recovery, level,
+  resurrection and wire publication. Proposed aura sets use a pure budget check; invalid or over-capacity sets are
+  refused or retired before clamping current Life, retaining a living minimum. Removing a reservation releases the cap
+  without adding current Life. Malachai's Awakening no-Life and Clear Mind no-Mana rows feed supported spell hits;
+  Ivory Tower adds Energy Shield from the final reserved total.
+- **Dev check.** `/auras` prints each aura's Mana and Life flat/percent reservation, reserved and unreserved pools,
+  item versus skill Life reservation, both efficiencies and aura effect. Every player 0x1b1 Life update and the initial
+  PlayerObject carry the same reserved Life. Area changes recreate the player object, so `SendPlayer` puts the running
+  auras' buffs back on it.
 
 ## 14. Character panel sums
 
@@ -4004,9 +4127,9 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
   utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
   soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
-  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
-  server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
-  mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target or
+  context still has no consumer (weapon-family damage, mana cost, Elusive/cooldown/buff contexts, minion or golem rows,
+  Frenzy's and Flicker Strike's own per-charge attack speed and damage).
 
 **Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
 lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges

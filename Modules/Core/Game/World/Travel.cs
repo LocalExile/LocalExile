@@ -16,6 +16,7 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(conn);
             if (conn.Closed || conn.PlayerLife == 0 || PlayerActionBlocked(conn, requestedAt, now)) return false;
+            CancelMeleeRepeats(conn, now);
             int action = Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? conn.Walk.Approach(x, y, reach, now, tolerance) : conn.Walk.WalkUpTo(x, y, (int)reach, now);
@@ -167,12 +168,14 @@ public static partial class Game
         }
         if (use.Ctrl)
         {
-            await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false);
+            await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false,
+                arrivalEntrance: AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance));
             return;
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false)
+            { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance) };
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
@@ -228,13 +231,14 @@ public static partial class Game
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
-    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint)
+    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint,
+        int? arrivalEntrance = null)
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
         var instances = list.Instances ?? [];
         var entries = instances
             .Select(i => new InstanceTransfer.InstanceListEntry((ulong)i.CreatedUnix, (uint)i.SecondsLeft, 0, i.Players)).ToList();
-        conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint);
+        conn.Chooser = new ChooserList(dest, [.. instances.Select(i => i.Id)], atWaypoint, arrivalEntrance);
         await Send(remote, stream, ciphers, InstanceTransfer.InstanceList(dest, entries),
             $"0x00ae instance list for 0x{dest:x4}: {entries.Count} instance(s) [{string.Join(", ", instances.Select(i => $"{i.Id} ({i.SecondsLeft} s left): {string.Join("/", i.Players)}"))}]");
     }
@@ -326,7 +330,7 @@ public static partial class Game
         lock (conn.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => conn.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(conn.Visited.Concat(conn.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))
-                .Concat(Quests.Rows(own.Where(f => inHideout || f != Quests.ThisIsMyHideout)))
+                .Concat(Quests.Rows(own.Where(f => OwnHideout(conn) || conn.Layout.Hash == StashCatalog.DelveHub || f != Quests.ThisIsMyHideout)))
                 .Distinct().Order()];
     }
 
@@ -365,12 +369,12 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} {why}: no data/hideouts.json (run scripts/dev/extract-data.ps1)");
             return;
         }
-        if (conn.Layout.Hash == hideout.AreaHash16) { Console.WriteLine($"[gateway] {remote} {why}: already in the {hideout.Name}"); return; }
+        if (conn.Layout.Hash == hideout.AreaHash16 && OwnHideout(conn)) { Console.WriteLine($"[gateway] {remote} {why}: already in the {hideout.Name}"); return; }
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
     public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
-        HideoutCatalog.Selected(CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
+        HideoutCatalog.Selected(SharedHideout(conn)?.Area ?? CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
     public static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
@@ -381,7 +385,7 @@ public static partial class Game
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
-        CharacterSaves.SetSelectedHideout(CharacterName(conn), hideout.AreaId);
+        SelectAccountHideout(conn, hideout.AreaId);
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
@@ -397,10 +401,15 @@ public static partial class Game
         foreach (var check in GameEvents.TravelRefusal.For(conn))
             if (check(conn, t) is { } refusal)
             {
+                t.Done?.Invoke(new() { Ok = false, Error = refusal });
                 await conn.Commands!.Reply(refusal);
                 return;
             }
-        if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
+        if (!conn.TryBeginAreaChange(t, out var projectiles))
+        {
+            t.Done?.Invoke(new() { Ok = false, Error = "area change refused" });
+            return;
+        }
         await GameEvents.RunPlayerLeaving(conn, "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
@@ -468,6 +477,7 @@ public static partial class Game
         }
         if (!RetireVitalsForTransfer(conn))
         {
+            t.Done?.Invoke(new() { Ok = false, Error = "connection replaced" });
             conn.ResumeAfterFailedTransfer();
             Console.WriteLine($"[gateway] {remote} transfer refused: saved life and mana belong to a newer connection");
             return;
@@ -506,7 +516,12 @@ public static partial class Game
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
-        else if (!t.AtSpawn) AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+        else if (!t.AtSpawn)
+        {
+            AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+            if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
+        }
+        if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
         string host = GatewayEndpoint.Host;
         ushort port = GatewayEndpoint.Port;
         await Send(remote, stream, ciphers, InstanceTransfer.ConnectInstance(host, port, r.Ticket, r.Area, conn.Keyring.Key(r.Ticket)),

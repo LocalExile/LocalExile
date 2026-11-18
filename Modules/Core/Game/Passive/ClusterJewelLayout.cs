@@ -26,7 +26,11 @@ public static class ClusterJewelLayout
 {
     public enum Kind { None, Small, Notable, Socket, Keystone }
 
-    public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders);
+    public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders)
+    {
+        public int EntryOffset { get; init; }
+        public IReadOnlyDictionary<int, int> ChildSockets { get; init; } = new Dictionary<int, int>();
+    }
 
     sealed record Template(int[] Small, int[] Notable, int[] Socket, int Total);
 
@@ -80,7 +84,6 @@ public static class ClusterJewelLayout
         int notables = entries.Count(e => e.Stat.StartsWith("local_affliction_notable_", StringComparison.Ordinal));
         int keystones = entries.Count(e => e.Stat.StartsWith("local_jewel_expansion_keystone_", StringComparison.Ordinal));
         int nodes = Game.ClusterNodeBudget(jewel);
-        bool treeSocket = Program.Passives.IsLargeJewelSlot(cell);
         // Only a large cell (a tree socket) keeps the full 12-slot ring; the expansion cells are compressed onto half
         // of it, whatever the jewel's own size.
         bool compressed = cellSize != 2;
@@ -92,7 +95,8 @@ public static class ClusterJewelLayout
         }
         // A single-keystone small cluster creates its only node at index zero, rotated by the cell start.
         if (size == 0 && keystones == 1 && nodes == 1)
-            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, []);
+            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, [])
+                { EntryOffset = Offset(0) };
 
         var kinds = new Dictionary<int, Kind>();
         var orders = new Dictionary<int, int>();
@@ -103,58 +107,42 @@ public static class ClusterJewelLayout
             if (order >= 0) orders[offset] = order;
         }
 
-        if (size == 1 && nodes == 4 && notables == 3 && sockets == 0)
+        // Medium clusters use the template priorities with the client's four/five-node remapping. In particular,
+        // a five-node medium without notables still has a real ring and can bridge a Split Personality socket.
+        int NotablePosition(int index) => size != 1 ? index
+            : sockets == 0 && notables == 2 ? index switch { 6 => 4, 10 => 8, _ => index }
+            : nodes == 4 ? index switch { 10 => 9, 2 => 3, _ => index } : index;
+        int SmallPosition(int index) => size != 1 ? index
+            : nodes == 4 ? index switch { 8 => 9, 4 => 3, _ => index }
+            : nodes == 5 && index == 4 ? 3 : index;
+        var used = new HashSet<int>();
+        for (int i = 0; i < sockets; i++)
         {
-            // Four-node medium ring: a small at the entrance, then the three sorted notables.
-            Put(0, Kind.Small);
-            for (int i = 0; i < 3; i++) Put(3 * (i + 1), Kind.Notable, i);
+            used.Add(template.Socket[i]);
+            Put(template.Socket[i], Kind.Socket);
         }
-        else if (treeSocket)
+        var notablePositions = template.Notable.Select(NotablePosition).Where(i => !used.Contains(i))
+            .Take(notables).Order().ToArray();
+        for (int i = 0; i < notablePositions.Length; i++)
         {
-            // The client's template layout: sockets take the first socket positions, the notables the first free notable
-            // positions in ascending order (the item's notables in the client's order), the smalls the remaining list.
-            var used = new HashSet<int>();
-            for (int i = 0; i < sockets; i++)
-            {
-                used.Add(template.Socket[i]);
-                Put(template.Socket[i], Kind.Socket);
-            }
-            var notablePositions = template.Notable.Where(i => !used.Contains(i)).Take(notables).Order().ToArray();
-            for (int i = 0; i < notablePositions.Length; i++)
-            {
-                used.Add(notablePositions[i]);
-                Put(notablePositions[i], Kind.Notable, i);
-            }
-            // The template has a limited number of notable positions: a smaller jewel's extra notable mods are inert,
-            // and its remaining nodes are theme smalls.
-            int smalls = Math.Max(0, Game.ClusterNodeBudget(jewel) - sockets - notablePositions.Length - keystones);
-            foreach (int index in template.Small.Where(i => !used.Contains(i)).Take(smalls))
-                Put(index, Kind.Small);
+            used.Add(notablePositions[i]);
+            Put(notablePositions[i], Kind.Notable, i);
         }
-        else
-        {
-            // An expansion cell's nodes are laid evenly around the ring (a 4-node medium uses 0, 3, 6, 9) and the
-            // jewel's own socket takes the template's socket index. A jewel with notables or keystones has not been
-            // measured in an expansion cell yet, so it stays on the count-based estimate.
-            if (keystones > 0 || nodes <= 0 || total % nodes != 0) return null;
-            int step = total / nodes;
-            var ring = Enumerable.Range(0, nodes).Select(i => i * step).ToArray();
-            // The jewel's own socket takes the template's socket index, its first notable the template's notable index.
-            // A small cluster has a single notable position (index 4), so with several notable mods the client shows
-            // only the first one and the other two positions are theme smalls; extra notable mods are inert.
-            int socketIndex = sockets > 0 ? template.Socket[0] : -1;
-            int notableIndex = notables > 0 ? template.Notable[0] : -1;
-            if (socketIndex >= 0 && !ring.Contains(socketIndex)) return null;
-            if (notableIndex >= 0 && !ring.Contains(notableIndex)) return null;
-            if (socketIndex >= 0 && notableIndex >= 0 && socketIndex == notableIndex) return null;
-            foreach (int index in ring)
-            {
-                if (index == notableIndex) Put(index, Kind.Notable, 0);
-                else if (index == socketIndex) Put(index, Kind.Socket);
-                else Put(index, Kind.Small);
-            }
-        }
+        int smalls = Math.Max(0, nodes - sockets - notablePositions.Length - keystones);
+        foreach (int index in template.Small.Select(SmallPosition).Where(i => !used.Contains(i)).Take(smalls))
+            Put(index, Kind.Small);
 
-        return new Layout(block, compressed ? total / 2 : total, kinds, orders);
+        var children = new Dictionary<int, int>();
+        foreach (int child in Program.Passives.ClusterSlots(cell))
+        {
+            int index = Program.Passives.ClusterIndex(child);
+            // Large jewels open the two outer sockets before the middle one. Pane indexes run left/middle/right,
+            // while PassiveTreeExpansionJewels.SocketIndices is ordered left/right/middle (4,8,6).
+            int order = size == 2 ? index switch { 1 => 2, 2 => 1, _ => index } : index;
+            if (order >= 0 && order < sockets && order < template.Socket.Length)
+                children[child] = Offset(template.Socket[order]);
+        }
+        return new Layout(block, compressed ? total / 2 : total, kinds, orders)
+            { EntryOffset = Offset(0), ChildSockets = children };
     }
 }

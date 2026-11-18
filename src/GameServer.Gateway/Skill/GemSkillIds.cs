@@ -9,16 +9,23 @@
 /// </summary>
 public sealed class GemSkillIds
 {
+    public enum SourceKind { SocketedGem, PassiveGrant, WornGrant }
+
     // Neutral identity state must outlive a Game module replacement: a live actor holds these skill ids.
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>A socketed gem: the item it is in, its socket, its GrantedEffects row.</summary>
-    public readonly record struct Gem(uint Host, int Socket, int Effect);
+    /// <summary>
+    /// One source that may grant a skill: its source kind, host, source-local socket and GrantedEffects row. Socketed
+    /// gems and passive nodes may inherit an id by skill identity when they move; an item grant stays tied to its
+    /// exact host/mod row and cannot take an id from a distinct host.
+    /// </summary>
+    public readonly record struct Gem(uint Host, int Socket, int Effect, SourceKind Source = SourceKind.SocketedGem);
+    readonly record struct Left(ushort Id, Gem Key);
 
-    Dictionary<(uint Host, int Socket, int Effect), (ushort Id, int Effect)> _byPlace = [];
+    Dictionary<(SourceKind Source, uint Host, int Socket, int Effect), (ushort Id, int Effect)> _byPlace = [];
     // The gems that left the equipment, oldest first: their ids wait for a gem of their skill to come back (a gem moved
     // through the cursor), and go to a new gem only when no id is left that no gem had.
-    List<(ushort Id, int Effect)> _left = [];
+    List<Left> _left = [];
     readonly Lock _lock = new();
 
     /// <summary>The ids of <paramref name="gems"/>, in their order, from <paramref name="pool"/> (the ids gem skills may
@@ -33,14 +40,17 @@ public sealed class GemSkillIds
             var used = new HashSet<ushort>();
             // A gem in the same socket with the same skill keeps its id.
             for (int i = 0; i < gems.Count; i++)
-                if (_byPlace.TryGetValue((gems[i].Host, gems[i].Socket, gems[i].Effect), out var had) && had.Effect == gems[i].Effect && used.Add(had.Id))
+                if (_byPlace.TryGetValue((gems[i].Source, gems[i].Host, gems[i].Socket, gems[i].Effect), out var had)
+                    && had.Effect == gems[i].Effect && used.Add(had.Id))
                     ids[i] = had.Id;
-            // A gem moved to another socket keeps the id of the same skill's gem that left its place: in this call, or
-            // earlier (it went through the cursor).
-            var leaving = _byPlace.Values.Where(p => !used.Contains(p.Id)).ToList();
+            // A socketed gem moved to another socket keeps the id of the same skill's gem that left its place: in this
+            // call, or earlier (it went through the cursor). Passive and worn sources only return to the same host
+            // identity; a same-effect source on another item is a different skill instance.
+            var leaving = _byPlace.Where(p => !used.Contains(p.Value.Id))
+                .Select(p => new Left(p.Value.Id, new(p.Key.Host, p.Key.Socket, p.Key.Effect, p.Key.Source))).ToList();
             var candidates = leaving.Concat(_left).ToList();
             for (int i = 0; i < gems.Count; i++)
-                if (ids[i] is null && candidates.FindIndex(l => l.Effect == gems[i].Effect) is var at and >= 0)
+                if (ids[i] is null && candidates.FindIndex(l => CanInherit(l.Key, gems[i])) is var at and >= 0)
                 {
                     ids[i] = candidates[at].Id;
                     used.Add(candidates[at].Id);
@@ -60,8 +70,17 @@ public sealed class GemSkillIds
             _left = [.. _left.Concat(leaving).Where(l => !used.Contains(l.Id)).DistinctBy(l => l.Id)];
             _byPlace = [];
             for (int i = 0; i < gems.Count; i++)
-                if (ids[i] is ushort id) _byPlace[(gems[i].Host, gems[i].Socket, gems[i].Effect)] = (id, gems[i].Effect);
+                if (ids[i] is ushort id) _byPlace[(gems[i].Source, gems[i].Host, gems[i].Socket, gems[i].Effect)] = (id, gems[i].Effect);
             return ids;
         }
     }
+
+    static bool CanInherit(Gem previous, Gem current) =>
+        previous.Effect == current.Effect && previous.Source == current.Source && current.Source switch
+        {
+            SourceKind.SocketedGem => true,
+            SourceKind.PassiveGrant => previous.Host == current.Host && previous.Socket == current.Socket,
+            SourceKind.WornGrant => previous.Host == current.Host && previous.Socket == current.Socket,
+            _ => false,
+        };
 }

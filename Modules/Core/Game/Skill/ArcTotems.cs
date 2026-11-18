@@ -14,6 +14,7 @@ public static partial class Game
 
         var skill = SupportedSkill(conn, totem.SkillId);
         var caster = TotemCasterStats(CharacterPlayerStats(conn));
+        var blind = BlindHitInput.Capture(caster, skill.Stats);
         var stats = MergeSkillStats(caster, skill.Stats);
         int Get(string name) => GolemStat(stats, name);
         var inputs = SupportedHitInputsFor(conn, totem.SkillId, area: false, totem: true);
@@ -35,7 +36,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(conn, caster, m, hit.Scale(more).Roll(Random.Shared)), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
-                SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsProfane(conn, totem.SkillId, false));
+                SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
             bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(Random.Shared));
@@ -44,7 +45,8 @@ public static partial class Game
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(conn, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared);
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
+                    blind: blind);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }
 

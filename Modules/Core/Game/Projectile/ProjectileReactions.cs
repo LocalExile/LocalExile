@@ -21,8 +21,7 @@ public static partial class Game
         {
             conn.LastEnemyHitAt = now;
             // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-            conn.RecentEvents.Record(StatConditions.HitEnemy, now);
-            if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+            conn.RecentEvents.RecordHit(now, critical);
         }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
@@ -108,7 +107,15 @@ public static partial class Game
         bool playerKill = true)
     {
         var conn = session.Conn;
+        // The projectile's lethal hit froze this decision before the output queue can publish it.
+        bool destroyCorpse;
+        lock (conn.Monsters)
+        {
+            destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
+            if (playerKill) QueueMadnessExplosionLocked(conn, id, monster);
+        }
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
+        session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
@@ -130,6 +137,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
+            GainPhasingOnKill(conn);
             session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
@@ -151,15 +159,15 @@ public static partial class Game
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
-            session.World(PlayerId, InstanceEntities.PlayerExperienceUpdate(PlayerId, change.After));
+            session.PlayerExperience(change.After);
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
-                session.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
+                session.World(PlayerId, PlayerLifeUpdate(conn));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
@@ -168,6 +176,9 @@ public static partial class Game
         }
         CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
             : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(conn).Mods));
+        // The map overlay's "X monsters remain" (S→C 0x1a0): a projectile's kill is committed here, not through
+        // Game.MonsterKilled (MonsterRemaining.cs).
+        session.Enqueue(() => SendRemainingMonsters(session.remote, session.stream, session.ciphers, conn));
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
         // that lock 100-200 ms on a pack kill, and the stat sends and input handlers wait for the same lock. The session's
         // output task runs after it.
@@ -176,6 +187,8 @@ public static partial class Game
             CommitProjectileLoot(session, monster, position);
             return Task.CompletedTask;
         });
+        session.Enqueue(() => PublishUnhingedCorpseDestruction(session.remote, session.stream, session.ciphers,
+            conn, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)
@@ -189,8 +202,7 @@ public static partial class Game
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
-                ? openMap.Area.Tier : 0;
+            int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -211,11 +223,12 @@ public static partial class Game
     public static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
-    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
-    {
-        session.Create(id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
-        session.World(id, InstanceProtocol.EnterWakeZone(id));
-    }
+    // One admitted create and wake, projected at the gate from the item as it lies there. A pickup that wins the race
+    // leaves no item, so the create is suppressed instead of a removal reaching an object the client never saw; the
+    // claim on SeenGround keeps the 100 ms ground sync from removing that unseen ID and from creating the drop again.
+    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground) =>
+        session.Create(id, () => GroundItemPresentation(session.Conn, id, justDropped: true, expected: ground, includeWake: false),
+            wake: true);
 
     public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)

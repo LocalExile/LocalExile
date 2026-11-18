@@ -6,6 +6,8 @@ Automated wire/dispatcher tests and 42 bounded real-client collection/counter ch
 This establishes the collection/counter scope, not full Vaal execution or lifecycle parity.
 Unsupported Vaal casts are refused before action echoes, including full budgets and effective zero cost.
 Vaal Ground Slam now has an explicit executor, atomic soul/Rage payment and a GEPL-based prevention timer.
+Vaal Discipline is the first Vaal aura executor: BuffDefinitions 160 `vaal_aura_energy_shield` (BuffVisuals 329).
+Its source and received buffs show the timed HUD icon; live, its affected/caster EPKs did not render.
 The optional Behemoth capability and current modular validation limits are in [Behemoth](../game/behemoth.md).
 
 ## Primary evidence

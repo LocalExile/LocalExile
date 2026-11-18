@@ -2,6 +2,8 @@
 /// Character.ot supplies 2000%/minute recharge (one third of maximum per second). Caller supplies game time.</summary>
 public sealed class EnergyShield
 {
+    public readonly record struct Snapshot(uint Current, double Fraction, double? InterruptedSecondsAgo);
+
     public uint Current { get; private set; }
     public uint Maximum { get; private set; }
     public bool Full => Maximum > 0 && Current >= Maximum;
@@ -13,11 +15,16 @@ public sealed class EnergyShield
         Current = refill ? maximum : Math.Min(Current, maximum);
         if (Current == Maximum) { fraction = 0; Recharging = false; }
     }
+    public void Interrupt(double now)
+    {
+        if (!double.IsFinite(now)) return;
+        interruptedAt = Math.Max(interruptedAt, now);
+        Recharging = false;
+    }
     public int Damage(int amount, bool bypass, double now)
     {
         if (amount <= 0) return 0;
-        interruptedAt = now;
-        Recharging = false;
+        Interrupt(now);
         if (bypass) return amount;
         uint absorbed = Math.Min(Current, (uint)amount);
         Current -= absorbed;
@@ -45,9 +52,37 @@ public sealed class EnergyShield
         Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
         if (Current == Maximum) Recharging = false;
     }
+    public Snapshot Capture(double now)
+    {
+        double? interruptedSecondsAgo = !double.IsFinite(interruptedAt) ? null
+            : double.IsFinite(now) && double.IsFinite(now - interruptedAt) ? now - interruptedAt : 0;
+        double carry = Current < Maximum && double.IsFinite(fraction) && fraction is >= 0 and < 1 ? fraction : 0;
+        return new(Current, carry, interruptedSecondsAgo);
+    }
+    public void Restore(Snapshot snapshot, double now)
+    {
+        Current = Math.Min(snapshot.Current, Maximum);
+        fraction = Current < Maximum && double.IsFinite(snapshot.Fraction) && snapshot.Fraction is >= 0 and < 1
+            ? snapshot.Fraction : 0;
+        Recharging = false;
+        if (snapshot.InterruptedSecondsAgo is not double secondsAgo)
+        {
+            interruptedAt = double.NegativeInfinity;
+            return;
+        }
+        if (!double.IsFinite(secondsAgo) || !double.IsFinite(now) || !double.IsFinite(now - secondsAgo))
+        {
+            interruptedAt = double.IsFinite(now) ? now : 0;
+            return;
+        }
+        interruptedAt = now - secondsAgo;
+    }
     /// <summary>Whether recharge would run now, full or not: no damage within the delay and a positive rate.</summary>
     public bool RechargeReady(double now, Func<string, int> get) =>
-        Maximum > 0 && now >= interruptedAt + Delay(get) && RechargePerMinute(Maximum, get) > 0;
+        Maximum > 0 && (NotDelayed(get) || now >= interruptedAt + Delay(get)) && RechargePerMinute(Maximum, get) > 0;
+    /// <summary>"Energy Shield Recharge is not delayed by Damage" (Vaal Discipline): while it holds, damage taken does not
+    /// hold back recharge, and a delay already running is dropped.</summary>
+    public static bool NotDelayed(Func<string, int> get) => get("energy_shield_recharge_not_delayed_by_damage") != 0;
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp(((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) + 50) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);
@@ -77,6 +112,7 @@ public sealed class EnergyShield
     public void Advance(double from, double to, Func<string, int> get, bool alive)
     {
         if (!alive) { Empty(); return; }
+        if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
         if (to <= from || Current >= Maximum) { Recharging = false; return; }
         double start = interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);

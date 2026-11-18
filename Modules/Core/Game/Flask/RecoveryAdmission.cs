@@ -5,7 +5,8 @@ public static partial class Game
     // Called only inside SpendFlask's accepted charge transaction, under Monsters and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
     static void AcceptRecoveryFlaskLocked(string remote, ClientState conn, uint slot, InventoryItem flask,
-        ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife)
+        ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
+        IReadOnlyDictionary<string, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
         var state = Automation(conn);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
@@ -18,16 +19,26 @@ public static partial class Game
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
         uint lifeBefore = conn.PlayerLife, manaBefore = conn.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
-        var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, conn.PlayerUnreservedLife, UnreservedMana(conn))!.Value;
+        var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, conn.PlayerMaxLife,
+            LifeCap(conn), UnreservedMana(conn))!.Value;
         (conn.PlayerLife, conn.PlayerMana) = (life, mana);
         TrimLeechLocked(conn); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
         double now = AreaTime(conn);
+        ApplyConditionalFlaskAilmentProtectionLocked(conn, local, now);
         if (recovery.ExtraLife > 0)
             conn.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
         var effects = Flasks.RecoveryEffects(recovery, (byte)slot, now, () => conn.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
         StartRecoveryEffectsLocked(conn, effects, copyLife);
+        if (during is { Count: > 0 } && effects.Count > 0)
+        {
+            conn.RecoveryFlaskStats.Start(effects, during);
+            RecomputePoolsAndSpeed(conn);
+            state.StatRevision++;   // PublishFlaskChanges sends the character's stats
+            Console.WriteLine($"[gateway] {remote} flask {slot} ({type.Name}) during effect: " +
+                string.Join(", ", during.Select(s => $"{s.Stat} {s.Value}")));
+        }
         // IsRecovery rows carry one u32 recovery-per-minute value, duration as f32 seconds (+0x68),
         // and the flask-bar source cell (+0x60). Preserve the existing native timer/sound payloads.
         bool withDuration = Environment.GetEnvironmentVariable("Game_FLASK_BUFF_DURATION") != "0";
@@ -42,4 +53,25 @@ public static partial class Game
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}"));
         }
     }
+
+    // The extracted "if bleeding/poisoned" suffixes remove an ailment that exists when the paid use is accepted and
+    // then protect against new applications for the rolled seconds. Neither suffix grants protection if its trigger
+    // ailment was absent. Both live in the shared incoming-ailment owner.
+    static void ApplyConditionalFlaskAilmentProtectionLocked(ClientState conn,
+        IReadOnlyDictionary<string, int> local, double now)
+    {
+        if (local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") is int bleed
+            && bleed > 0 && conn.IncomingAilments.RemoveOrProtectBleeding(now, bleed))
+            Console.WriteLine($"[gateway] flask removed bleeding and protects for {bleed} s");
+        if (local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") is int poison
+            && poison > 0 && conn.IncomingAilments.RemoveOrProtectPoison(now, poison))
+            Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
+    }
+
+    static bool ConditionalFlaskAilmentProtectionTriggered(ClientState conn,
+        IReadOnlyDictionary<string, int> local, double now) =>
+        local.GetValueOrDefault("local_flask_bleeding_immunity_if_bleeding_and_remove_corrupted_blood_s") > 0
+            && conn.IncomingAilments.Bleeding(now)
+        || local.GetValueOrDefault("local_flask_poison_immunity_if_poisoned_s") > 0
+            && conn.IncomingAilments.PoisonStacks(now) > 0;
 }
