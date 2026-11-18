@@ -81,8 +81,9 @@ public static partial class Game
             name => player(name) + (name == SkillDurationModifiers.IncreasedDuration ? player("guard_skill_effect_duration_+%") : 0),
             own);
 
-    // Called immediately after the trigger's successful payment, under the connection lock.
-    public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
+    // Called immediately after the use's successful payment, under the connection lock: a guard skill cast from the
+    // skill bar arrives here as well as a triggered one (Cast When Damage Taken).
+    public static void StartGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
     {
         var gem = SupportedSkill(conn, skill);
         if (!TriggerGuardReady(conn, now)) return;
@@ -108,7 +109,11 @@ public static partial class Game
             if (!RandomRolls.Chance(Get("immortal_call_%_chance_to_not_consume_endurance_charges"), 100, Random.Shared))
                 charges.State.Lose(ChargeType.Endurance, removable, charges.Limits(ChargeType.Endurance));
             guard.Remaining = removable;
-            duration *= Math.Max(0, 1 + removable * Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5") / 100d);
+            // The gem's 20% and the helmet enchantment's "increased Immortal Call duration per Endurance Charge
+            // removed" are the same increased duration, so they add (PoB's GemStatMap has both as INC).
+            int perChargeDuration = Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5")
+                + Get("immortal_call_buff_effect_duration_+%_per_removable_endurance_charge");
+            duration *= Math.Max(0, 1 + removable * perChargeDuration / 100d);
             guard.Physical = Math.Max(0, 1 + Own("mortal_call_physical_damage_taken_+%_final") / 100d)
                 * Math.Max(0, 1 + removable * Own("mortal_call_physical_damage_taken_per_endurance_charge_consumed_final_permyriad") / 10000d);
             guard.Elemental = Math.Max(0, 1 + Own("mortal_call_elemental_damage_taken_+%_final") / 100d)

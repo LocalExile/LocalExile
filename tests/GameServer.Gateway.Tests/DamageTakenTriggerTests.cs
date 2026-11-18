@@ -249,7 +249,7 @@ public class DamageTakenTriggerTests
         var call = Game.GemSkillEffects(conn).Single(g => g.Name == "Immortal Call");
         var charges = Game.ChargesOf(conn);
         charges.State.Set(ChargeType.Endurance, 3, now + 4, charges.Limits(ChargeType.Endurance));
-        Game.StartTriggeredGuard(conn, session, call.Id, now + 4);
+        Game.StartGuard(conn, session, call.Id, now + 4);
         Assert.Equal(0, charges.Effective(ChargeType.Endurance));
         Assert.Equal((412, 750, 1000), Game.TriggeredGuardHit(conn, 1000, 1000, 1000, now + 4.1));
         Assert.False(Game.TriggerGuardReady(conn, now + 8.59));
@@ -258,7 +258,7 @@ public class DamageTakenTriggerTests
         conn.PlayerStats[Program.Stats.Key("base_minimum_endurance_charges")!.Value] = 1;
         _ = Game.CharacterPlayerStats(conn);
         charges.State.Set(ChargeType.Endurance, 7, now + 9, charges.Limits(ChargeType.Endurance));
-        Game.StartTriggeredGuard(conn, session, call.Id, now + 9);
+        Game.StartGuard(conn, session, call.Id, now + 9);
         Assert.Equal(2, charges.Effective(ChargeType.Endurance)); // At most five of seven are consumed.
         Assert.Equal(5u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
             Game.TriggeredGuardPresentation(conn, now + 9).AsSpan(^4)));

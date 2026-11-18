@@ -187,6 +187,12 @@ public static partial class Game
                 if (reserve && !TryPlanStanceLocked(conn, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
             if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(conn, manual)) is not null) return false;
+            // A guard skill shares one cooldown with the other guard skills, and its own buff has to be over before a
+            // new one starts: Immortal Call's cooldown does not recover during its effect, so it is ready again only
+            // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
+            // a bypass charge or a cost is spent.
+            if (skillId is not null && SkillsFor(conn).IsGuard(effect)
+                && !TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(conn)

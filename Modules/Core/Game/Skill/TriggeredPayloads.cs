@@ -26,7 +26,7 @@ public static partial class Game
         if (skill.Name is null || !TriggerPayloadAvailable(conn, gem)) return null;
         if (TriggerGuardSpell(conn, gem))
             return TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
-                ? () => StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
+                ? () => StartGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
         if (TriggerSummonSpell(conn, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));
         if (UsesProjectileRuntime(gem.Effect))

@@ -1327,6 +1327,14 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        // A guard skill cast from the skill bar: its buff starts here (a triggered one starts in its trigger's
+        // release). Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs).
+        if (gem.Name is not null && SkillsFor(conn).IsGuard(gem.Effect))
+        {
+            StartGuard(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, conn.Clock.Elapsed.TotalSeconds);
+            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Guard);
+            return true;
+        }
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
