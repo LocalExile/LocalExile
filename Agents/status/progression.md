@@ -11,9 +11,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
 - A passive node's conditional stats (`..._while_dual_wielding`, `..._if_..._recently`) count only while their
-  condition holds, on the same conditions items use; Resolute Technique (hits cannot be evaded, never crit) and Precise
-  Technique (40% more Attack Damage above Maximum Life Accuracy, never crit) also work, as does the "critical strikes do
-  not deal extra Damage" part of Elemental Overload and Perfect Agony.
+  condition holds, on the same conditions items use, and an attack's hit takes the tree's "with &lt;weapon type&gt;"
+  rows (mace, axe, sword, claw, dagger, staff, wand; the ailment-only rows are still unused). Resolute Technique (hits
+  cannot be evaded, never crit) and Precise Technique (40% more Attack Damage above Maximum Life Accuracy, never crit)
+  also work, as does the "critical strikes do not deal extra Damage" part of Elemental Overload and Perfect Agony.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets, percentage attribute mods, The Adorned and Split Personality's allocated paths,
   including nested clusters (tree art check pending).

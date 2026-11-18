@@ -12,7 +12,8 @@ public static class PlayerHitDamage
     public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(string Name, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
-        bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false)
+        bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false,
+        HitIncreases additional = default)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -64,11 +65,14 @@ public static class PlayerHitDamage
             if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get("bow_elemental_damage_+%");
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
-            if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;
+            if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental + additional.Elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
-                increased += meleePhysical
+                increased += meleePhysical + additional.Physical
                     + (!melee && !spell && projectile && get("keystone_strong_bowman") != 0 ? strength : 0)
                     + (lifeLeech ? (double)get("physical_damage_+%_while_life_leeching") : 0);
+            if (additional.Typed is { } extra)
+                foreach (var source in extra)
+                    if ((path.History & source.History) != 0) increased += source.Increased;
 
             // Preserve the existing attack multiply-before-divide projection and spell factor construction.
             // Clamp the complete increased bucket once: a negative original-type subtotal must survive until here.
@@ -115,3 +119,9 @@ public static class PlayerHitDamage
         return types;
     }
 }
+
+/// <summary>Increases the caller computed for this hit beyond the resolver's generic buckets: a physical-only one, an
+/// elemental-only one, and per damage-type ones (a history so a converted portion inherits each type it was). The tree's
+/// "with &lt;weapon type&gt;" rows arrive here.</summary>
+public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
+    IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null);

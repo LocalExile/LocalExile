@@ -18,9 +18,10 @@ public static class SupportedAttackDamage
         return sources.ToFrozenDictionary();
     }
 
-    // ModParser's "with Claws" is Claw + Hit, not an ailment increase. This belongs to the attacking hand.
+    // ModParser's "with Claws" is Claw + Hit, not an ailment increase. This belongs to the attacking hand; the rest of
+    // the tree's "with <weapon type>" rows are WeaponTypeDamage's.
     public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        weapon.ItemClass == "Claw" ? get("claw_damage_+%") : 0;
+        WeaponTypeDamage.Any(weapon, get);
 
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
@@ -28,7 +29,7 @@ public static class SupportedAttackDamage
         return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
-            additionalIncreased: WeaponIncrease(weapon, get));
+            additionalIncreased: WeaponIncrease(weapon, get), additional: WeaponTypeDamage.Of(weapon, get));
     }
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a
