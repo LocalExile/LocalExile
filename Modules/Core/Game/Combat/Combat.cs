@@ -134,7 +134,7 @@ public static partial class Game
     public static double AttackContactDelay(ClientState conn, double attackSeconds, bool approach)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.AttackContact(ao, WeaponProfileFor(conn, activeSet: true));
+        double contact = Animations.AttackContact(ao, AnimationWeaponProfileFor(conn));
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0);
     }
 
@@ -146,7 +146,7 @@ public static partial class Game
         out string? clip, out double fraction)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        var weapon = WeaponProfileFor(conn, activeSet: true);
+        var weapon = AnimationWeaponProfileFor(conn);
         // A transfigured gem (Id + AltX / AltY) swings its base gem's clip: Holy Sweep of Hammerfalls (SweepAltX) shares
         // Sweep's Animation row (173) and its sweep_maul, whose contact is 350 of 1375 ms; without it the hit fell back
         // to attack1's 0.69 and landed long after the swing (live 2026-11-09).
@@ -177,7 +177,7 @@ public static partial class Game
         if (contactClip is not null)
         {
             string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-            var weapon = WeaponProfileFor(conn, activeSet: true);
+            var weapon = AnimationWeaponProfileFor(conn);
             if (Animations.SkillAttackContactAt(ao, weapon, contactClip, 0) is { } first
                 && Animations.SkillAttackContactAt(ao, weapon, contactClip, 1) is { } second && second.Contact > first.Contact)
                 return (second.Contact - first.Contact, true);
@@ -205,7 +205,7 @@ public static partial class Game
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt, ushort sequence)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
-        double contact = Animations.DefaultAttackContactSeconds(ao, WeaponProfileFor(conn, activeSet: true), sequence, attackSeconds) / attackSeconds;
+        double contact = Animations.DefaultAttackContactSeconds(ao, AnimationWeaponProfileFor(conn), sequence, attackSeconds) / attackSeconds;
         bool approach = !conn.LockstepClient && arrivedAt > departedAt && stop != from;
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }
@@ -516,7 +516,7 @@ public static partial class Game
                     ownPenetration.Select(pair => (pair.Key, pair.Value));
                 var conversion = DamageStats.Conversion(player, conversionStats, Stats, attack: true);
                 var prehit = DefaultMeleePrehitProfileLocked(conn, targetId, m, player, weapon, conversion,
-                    ownPenetration, ProjectileWorldTime(conn));
+                    ownPenetration, ProjectileWorldTime(conn), accuracy.Rating);
                 if (prehit is null)
                 {
                     Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled: the target is no longer " +
@@ -638,7 +638,7 @@ public static partial class Game
     // holds Monsters and uses the result through the contact without reading the player or weapon again.
     public static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
         SpawnedMonster target, IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed weapon,
-        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at)
+        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at, int accuracy)
     {
         if (!target.Hostile || target.Dead || target.Life == 0
             || !conn.Monsters.TryGetValue(targetId, out var registered) || !ReferenceEquals(registered, target))
@@ -650,10 +650,11 @@ public static partial class Game
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
         player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
-        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
-            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
-            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion));
+        // The swinging hand's rating: an off-hand swing uses its own local accuracy (accuracy-scaled added damage).
+        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, new(accuracy), additionalIncreased),
+            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion, accuracy),
+            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion, accuracy));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from

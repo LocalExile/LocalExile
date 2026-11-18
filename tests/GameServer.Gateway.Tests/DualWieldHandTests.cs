@@ -54,7 +54,7 @@ public sealed class DualWieldHandTests
 
     static DamagePacket DefaultHit(ClientState conn, AttackHand hand) =>
         Game.AttackHitConverted(Game.HandWeapon(conn, hand), Game.CharacterPlayerStats(conn), Game.MeleeAttack(conn),
-            Game.ConversionFor(conn, -1, 1, attack: true));
+            Game.ConversionFor(conn, -1, 1, attack: true), new(Game.HandAccuracy(conn, hand)));
 
     [Fact]
     public void Two_weapons_alternate_by_the_clients_sequence_with_each_hands_own_inputs()
@@ -73,7 +73,8 @@ public sealed class DualWieldHandTests
                 var hand = Game.DefaultAttackHand(conn, sequence);
                 Assert.Equal(sequence % 2 == 0 ? AttackHand.Main : AttackHand.Off, hand);
                 var weapon = hand == AttackHand.Main ? main : off;
-                var expected = Game.AttackHitConverted(weapon, stats, Game.MeleeAttack(conn), Game.ConversionFor(conn, -1, 1, attack: true));
+                var expected = Game.AttackHitConverted(weapon, stats, Game.MeleeAttack(conn), Game.ConversionFor(conn, -1, 1, attack: true),
+                    new(Game.HandAccuracy(conn, hand)));
                 Assert.Equal((expected.MinTotal, expected.MaxTotal), (DefaultHit(conn, hand).MinTotal, DefaultHit(conn, hand).MaxTotal));
                 double seconds = Game.DefaultAttackSeconds(conn, hand, stats);
                 Assert.Equal(hand == AttackHand.Main ? main.AttackSeconds(stats)

@@ -42,8 +42,16 @@ public static partial class Game
     }
     public static int PlayerBlindAccuracy(ClientState conn, int rating, IReadOnlyDictionary<uint, int>? player = null) =>
         TimedBlind.Apply(rating, PlayerBlindValue(conn, player).Less);
-    public static int PlayerAccuracy(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
-        PlayerBlindAccuracy(conn, conn.Pools.Accuracy, player);
+    public static int PlayerAccuracy(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
+    {
+        int blindLess = PlayerBlindValue(conn, player).Less;
+        if (blindLess == 0) return conn.Pools.Accuracy;
+        // BaseStats calls this while building the final dictionary; read raw sources when that dictionary is absent.
+        uint moreKey = Stats.Key(PlayerAccuracyModifiers.BootsMore)!.Value;
+        int more = player is not null ? player.GetValueOrDefault(moreKey)
+            : conn.PlayerStats.TryGetValue(moreKey, out int value) ? value : CharacterStatSources(conn).Stats.GetValueOrDefault(moreKey);
+        return PlayerAccuracyModifiers.Unselected(conn.Pools, more, blindLess);
+    }
     public static int PlayerEvasion(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
     public static int PlayerEvasion(ClientState conn, double now) =>

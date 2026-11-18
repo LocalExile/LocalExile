@@ -528,6 +528,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
+    public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
+    public List<(double At, double Extra)>? SupportDamageChanges { get; set; }
     public int EnergyShieldBurnPctPerMinute { get; init; }
     public int EnergyShieldDamagePctPerMinute { get; init; }
     /// <summary>The exact physical gem source that activated this fire, or null for legacy state.</summary>

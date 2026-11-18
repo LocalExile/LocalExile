@@ -238,13 +238,25 @@ public sealed class BehemothRuntimeTests
         c.PlayerStats[Program.Stats.Key("cannot_gain_rage_during_soul_gain_prevention")!.Value] = 0;
         c.VaalPreventionUntil = 0; c.Rage.Clear(); Assert.True(c.Rage.Gain(30, 0, rage));
         var resources = Game.ResourceEffectsOf(c); resources.Mana.Spent(199, 10);
+        var items = Game.ItemsOf(c);
+        var club = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        var inspiration = Program.Items.FindGem("Inspiration Support")!.Value;
+        items.Change(PlayerInventories.Weapon1, club.Id, item => item with
+        {
+            Sockets = [item.Sockets[0], new(SocketColour.White, ItemCatalog.Create(inspiration.Type) with { GemVariant = inspiration.Variant.Index })],
+            Links = [2],
+        });
+        Assert.Contains(Game.SupportedSkill(c, skill.Id).Supports, support => support.Effect.Id == "SupportInspiration");
         var plan = (VaalUseReservation)typeof(Game).GetMethod("PlanVaalUse", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, [c, skill.Id])!;
+        Assert.Equal(0u, plan.Mana); // The native Vaal Ground Slam has no mana cost.
+        // Exercise the positive-mana reservation already accepted by the commit path.
         plan = plan with { Mana = 1, PreventionSeconds = 0 };
         uint manaBeforeCommit = c.PlayerMana;
         lock (c.Monsters) typeof(Game).GetMethod("CommitVaalUse", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, [c, plan, 123d]);
         Assert.Equal(manaBeforeCommit - 1, c.PlayerMana); Assert.Equal(0, resources.Mana.SpentRemainder);
+        Assert.Equal(1, c.SupportGems.InspirationCharges);
         Assert.Equal(30 - plan.Rage + 10, c.Rage.Read(0, rage).Current); Assert.Equal(123, c.NextAttackAt);
     }
 

@@ -580,7 +580,7 @@ static partial class SurvivorsSkills
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
             ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         CastAnimationKind kind = SurvivorsCastKind(skill);
-        if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
+        if (Animations.CastClip(ao, AnimationWeaponProfileFor(conn), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
@@ -861,6 +861,9 @@ static partial class SurvivorsSkills
         int castSpeed = armedAttack ? 0 : Get("base_cast_speed_+%") + Get("cast_speed_+%") + (spell ? Get("spell_cast_speed_+%") : 0);
         double interval = SurvivorsFormulas.CastInterval(baseSeconds, rank, castSpeed);
         var skillKeys = SurvivorsKeyStats(skillStats);
+        var accuracy = spell ? new AttackAccuracyProfile(int.MaxValue)
+            : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, weapon.LocalSources)
+            with { Rating = WeaponAccuracyFor(conn, null, playerKeys, skillKeys) };
         var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
         List<(string Name, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
@@ -899,7 +902,7 @@ static partial class SurvivorsSkills
             }
             else if (armedAttack)
             {
-                own = SupportedAttackDamage.Raw(weapon, Get, coefficients.Base, coefficients.Added);
+                own = SupportedAttackDamage.Raw(weapon, Get, accuracy, coefficients.Base, coefficients.Added);
             }
             else
             {
@@ -945,9 +948,10 @@ static partial class SurvivorsSkills
         };
         var raw = RawDamage();
         if (raw.IsZero) return null;
-        var hitDamage = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: false, projectile: true,
+        Func<string, int> hitStats = armedAttack ? SupportedAttackDamage.HitModifiers(weapon, Get) : Get;
+        var hitDamage = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: false, projectile: true,
             supportModifiers: supportMods);
-        var areaHit = PlayerHitDamage.Resolve(raw, Get, conversion, spell, area: true, projectile: true,
+        var areaHit = PlayerHitDamage.Resolve(raw, hitStats, conversion, spell, area: true, projectile: true,
             supportModifiers: supportMods);
         if (hitDamage.IsZero && areaHit.IsZero) return null;
 
@@ -968,7 +972,7 @@ static partial class SurvivorsSkills
             : AttackCriticalMultiplier(conn, playerKeys, skill.Effect, skillKeys);
         string hand = spell ? "spell" : "main_hand";
         var ailmentRows = AilmentPanelStats.Compute(new(hand, Spell: spell), raw, conversion, Get);
-        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : conn.Pools.Accuracy,
+        var shot = new ProjectileOffense(hitDamage, spell, Accuracy: spell ? int.MaxValue : accuracy.Rating,
             CriticalChance: crit, CriticalMultiplier: multiplier, Label: skill.Name)
         {
             AreaHit = areaHit,
@@ -978,7 +982,7 @@ static partial class SurvivorsSkills
             SkillStats = skillKeys,
             Penetration = Penetration.Of(playerKeys, Stats, attack: !spell, skillKeys, local),
             ResistanceMods = HitResistMods(playerKeys, skillKeys),
-            AccuracyProfile = spell ? null : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, local),
+            AccuracyProfile = spell ? null : accuracy,
             AlwaysHits = Get("global_always_hit") != 0,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local),

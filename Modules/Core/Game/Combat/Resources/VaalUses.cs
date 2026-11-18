@@ -106,12 +106,10 @@ public static partial class Game
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
         conn.PlayerMana -= plan.Mana;
-        if (plan.Life > 0)
-        {
-            conn.PlayerLife -= plan.Life;
-            Lifetap.Spend(conn, SupportedSkill(conn, plan.Skill).Stats, (int)plan.Life, now);
-        }
+        conn.PlayerLife -= plan.Life;
         ManaSpentLocked(conn, plan.Mana, stats);
+        if (plan.Life > 0 || plan.Mana > 0)
+            ApplyPaidSupportCostsLocked(conn, plan.Skill, SupportedSkill(conn, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
         if (attackDeadline is double next) conn.NextAttackAt = next;
         conn.VaalPreventionUntil = Math.Max(conn.VaalPreventionUntil, now + plan.PreventionSeconds);
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(conn).EffectId(plan.Effect)}, " +
