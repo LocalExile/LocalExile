@@ -1,5 +1,5 @@
 /// <summary>Recipient-owned curse slots. No module callbacks or catalogue mutations survive a reload.</summary>
-public sealed class MonsterCurses
+public sealed class MonsterCurses(Action? changed = null)
 {
     public sealed record Curse(uint Caster, string Effect, ushort Skill, ushort Row, ushort Buff,
         double Applied, double Until, bool Aura, bool Mark, IReadOnlyDictionary<string, int> Stats);
@@ -45,6 +45,7 @@ public sealed class MonsterCurses
                 stats[key] = stats.GetValueOrDefault(key) + value;
         basis = cached = null;
         Version++;
+        changed?.Invoke();
     }
 
     public MonsterModEffects Effects(MonsterModEffects original)

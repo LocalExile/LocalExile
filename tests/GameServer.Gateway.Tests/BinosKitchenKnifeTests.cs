@@ -42,14 +42,14 @@ public sealed class BinosKitchenKnifeTests
             var near = At(25);
             var far = At(60);
             var immune = At(15);
-            immune.TemporaryStats["poison immunity"] = new Dictionary<string, int> { ["cannot_be_poisoned"] = 1 };
+            immune.SetTemporaryStats("poison immunity", new Dictionary<string, int> { ["cannot_be_poisoned"] = 1 });
             var ally = At(10, false); ally.Life = 100;
             var farAlly = At(60, false); farAlly.Life = 100;
             var scaledAlly = At(5, false); scaledAlly.Life = 100;
-            scaledAlly.TemporaryStats["recovery"] = new Dictionary<string, int>
-            { ["life_regeneration_rate_+%"] = 100, ["life_recovery_rate_+%"] = 50 };
+            scaledAlly.SetTemporaryStats("recovery", new Dictionary<string, int>
+            { ["life_regeneration_rate_+%"] = 100, ["life_recovery_rate_+%"] = 50 });
             var preventedAlly = At(5, false); preventedAlly.Life = 100;
-            preventedAlly.TemporaryStats["no regeneration"] = new Dictionary<string, int> { ["no_life_regeneration"] = 1 };
+            preventedAlly.SetTemporaryStats("no regeneration", new Dictionary<string, int> { ["no_life_regeneration"] = 1 });
             dead.Poisons.Add(t, 50, 4);
             dead.Poisons.Add(t, 200, 3);
             dead.Dead = true; dead.Life = 0;

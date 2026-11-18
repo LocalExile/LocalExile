@@ -349,24 +349,59 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public byte Level { get; init; } = 1;
     public MonsterRarity Rarity { get; init; }
     // Its mods (MonsterMods.cs): the rarity's own and the rolled affixes, with what they change. Kept with the instance.
-    public MonsterModSet Mods { get; set; } = MonsterModSet.None;
-    public readonly MonsterCurses Curses = new();
+    public MonsterModSet Mods { get => mods; set { mods = value; MarkStatsDirty(); } }
+    MonsterModSet mods = MonsterModSet.None;
+    // A curse put on or taken off changes its stats.
+    public MonsterCurses Curses => curses ??= new(MarkStatsDirty);
+    MonsterCurses? curses;
     /// <summary>Stats an encounter's script gives it for a while (Izaro's statues' buffs), on top of its mods: they add to
     /// its hits (<see cref="MonsterModEffects.AddedTo"/>) and to what it takes.</summary>
-    public IReadOnlyDictionary<string, int>? EncounterStats;
+    public IReadOnlyDictionary<string, int>? EncounterStats { get => encounterStats; set { encounterStats = value; MarkStatsDirty(); } }
+    IReadOnlyDictionary<string, int>? encounterStats;
     /// <summary>What its own buffs grant while they last (MonsterSkills.cs: a war cry's, a buff skill's).</summary>
-    public IReadOnlyDictionary<string, int>? BuffStats;
+    public IReadOnlyDictionary<string, int>? BuffStats { get => buffStats; set { buffStats = value; MarkStatsDirty(); } }
+    IReadOnlyDictionary<string, int>? buffStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
-    public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats => temporaryStats;
+    readonly Dictionary<string, IReadOnlyDictionary<string, int>> temporaryStats = new(StringComparer.Ordinal);
+    public void SetTemporaryStats(string key, IReadOnlyDictionary<string, int> stats) { temporaryStats[key] = stats; MarkStatsDirty(); }
+    public bool RemoveTemporaryStats(string key) { bool removed = temporaryStats.Remove(key); if (removed) MarkStatsDirty(); return removed; }
+
+    // Its stats (Effects) are built from the sources above when one of them changes: the change only marks them dirty,
+    // and the area's Stats phase builds them once, for the next frame (StatsByFrame, set by that phase); until then reads
+    // see the last build. Outside an area's frames (tests, tools) a read after a change builds at once.
+    MonsterModEffects? effects;
+    public bool StatsDirty { get; private set; } = true;
+    public bool StatsByFrame { get; set; }
+    public void MarkStatsDirty() => StatsDirty = true;
+    readonly List<Action<MonsterModEffects, MonsterModEffects>> afterRebuild = [];
+    /// <summary>Runs once after the next build, with the stats before and after (a maximum life that follows them).</summary>
+    public void AfterStatsRebuild(Action<MonsterModEffects, MonsterModEffects> then)
+    {
+        if (!StatsByFrame) { var before = Effects; RebuildStats(); then(before, Effects); return; }
+        afterRebuild.Add(then);
+    }
     public MonsterModEffects Effects
     {
         get
         {
-            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
-            foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
-            if (BuffStats is { Count: > 0 } buffs) effects = effects.Combine(buffs);
-            return Curses.Effects(effects);
+            if (effects is null || StatsDirty && !StatsByFrame) RebuildStats();
+            return effects!;
         }
+    }
+    /// <summary>Builds its stats from its sources (the Stats phase, or the first read).</summary>
+    public void RebuildStats()
+    {
+        var before = effects ?? MonsterModEffects.None;
+        var built = encounterStats is { } encounter ? mods.Effects.Combine(encounter) : mods.Effects;
+        foreach (var stats in temporaryStats.Values) built = built.Combine(stats);
+        if (buffStats is { Count: > 0 } buffs) built = built.Combine(buffs);
+        effects = Curses.Effects(built);
+        StatsDirty = false;
+        if (afterRebuild.Count == 0) return;
+        var then = afterRebuild.ToArray();
+        afterRebuild.Clear();
+        foreach (var action in then) action(before, effects);
     }
     // The client's speed roll for this object in percent (MonsterSpeedRoll.cs); Walk's speed already includes it.
     public int SpeedRoll { get; init; }

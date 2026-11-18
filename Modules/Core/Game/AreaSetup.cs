@@ -27,6 +27,7 @@ public static class AreaSetup
         Game.StartMonsterDamageOverTime(area, conn, source);
         Game.StartMonsterAilments(area, conn, source);
         Game.StartMonsterAi(area, conn, source);
+        Game.StartStats(area, conn, source);
         // The area's walkers, once a frame for everyone (AreaMovement); whoever needs them current between frames steps
         // them to its time first, and this pass then has nothing left to do.
         var frames = conn.Frames;
