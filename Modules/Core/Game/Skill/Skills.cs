@@ -423,6 +423,8 @@ public static partial class Game
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+            extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AddGolemStats(conn, extra);
         AddSelfOfferingStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
@@ -443,6 +445,16 @@ public static partial class Game
                      heraldEffectPct).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        IReadOnlyList<(uint Key, int Value)> catPhase;
+        lock (conn.Monsters)
+            catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
+                name => Stats.Key(name) is uint key
+                    ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : extra.GetValueOrDefault(key)
+                    : 0);
+        foreach (var (k, v) in catPhase)
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        foreach (var (k, v) in AvianRawStatsLocked(conn, extra).Concat(CrabRawStatsLocked(conn, extra)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The subscribers' stats (GameEvents.Stats), added like /god's: the pools (life, mana) are not rebuilt from them.
         if (GameEvents.Stats.Any)
@@ -1436,5 +1448,16 @@ public static partial class Game
             .Select(s => (s.Id, s.Effect, s.Name, s.Level, s.Quality, s.Gem));
     }
 
-}
 
+    static string? TravelSkillsExceptDashDisabled(ClientState conn, int effect, ushort skillId)
+    {
+        if (!SkillsFor(conn).IsTravel(effect) || IsDashEffect(SkillsFor(conn).EffectId(effect))
+            || Stats.Key("your_travel_skills_except_dash_are_disabled") is not uint travelKey) return null;
+        var gem = SupportedSkill(conn, skillId);
+        if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null
+            || gem.WornGrant is not null && !gem.RequirementsMet) return null;
+        return CharacterPlayerStats(conn).GetValueOrDefault(travelKey) == 0
+            ? null : "travel skills except Dash are disabled";
+    }
+
+}

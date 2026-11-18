@@ -7,6 +7,10 @@ public static partial class Game
 {
     static void EndReservationRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
+        EndCatAspectRuntimeLocked(conn, aura);
+        EndAvianAspectLocked(conn, aura);
+        EndCrabAspectLocked(conn, aura);
+        EndSpiderAspectLocked(conn, aura);
         var state = conn.Reservations;
         var pending = state.Procs.Where(p => p.Skill != aura.SkillId).ToArray();
         state.Procs.Clear(); foreach (var proc in pending) state.Procs.Enqueue(proc);
@@ -168,6 +172,7 @@ public static partial class Game
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
+        if (DamageStats.Prohibited(DamageType.Fire, Get)) return;
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(conn, aura, "herald_of_ash_burning_%_overkill_damage_per_minute") / 6000.0
             * Math.Max(0, 1 + (Get("burn_damage_+%") + Get("damage_over_time_+%")) / 100.0)
@@ -189,10 +194,19 @@ public static partial class Game
     public static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
+        bool catChanged = false;
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
             var state = conn.Reservations;
+            catChanged = CatAspectReconcileLocked(conn, now);
+            catChanged |= AvianReconcileLocked(conn, now);
+            catChanged |= CrabReconcileLocked(conn, now);
+            if (catChanged)
+            {
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                conn.ApplyMovementSpeed();
+            }
             for (int count = Math.Min(256, state.Procs.Count); count > 0; count--)
             {
                 var proc = state.Procs.Dequeue();
@@ -215,7 +229,9 @@ public static partial class Game
             }
             else if (ReservationAura(conn, "TemporalRift") is null) state.Echoes.Clear();
             ReservationArcticTrailLocked(conn, now);
+            SpiderAspectTickLocked(conn, now);
         }
+        if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
         await ReservationFightersTick(remote, stream, ciphers, conn, now);
         await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,

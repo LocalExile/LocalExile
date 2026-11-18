@@ -37,7 +37,8 @@ public static partial class Game
 
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
     public sealed partial class ProjectileSession : IProjectileWorld, IProjectileRuntime
-    {
+    {        public long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
+
         public readonly string remote;
         public readonly NetworkStream stream;
         public readonly ConnectionCiphers ciphers;

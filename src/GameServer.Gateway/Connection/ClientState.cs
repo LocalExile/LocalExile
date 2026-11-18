@@ -170,6 +170,8 @@ public sealed record MonsterMovement
 
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    public readonly SpiderWebState SpiderWebs = new();
+
     public double WalkSpeedAtZeroFactor;
 
     public bool MaimedMovementShown;
