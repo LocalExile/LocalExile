@@ -31,13 +31,17 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Build
+        id: build
         run: dotnet build GameServer.slnx -c Release
 
       - name: Data tests
         run: dotnet test tests/GameServer.Data.Tests -c Release --no-build
 
+      # Each suite runs when the build worked, whatever the suite before it did: one failure does not hide the others.
       - name: Core tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/GameServer.Core.Tests -c Release --no-build
 
       - name: Gateway tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/GameServer.Gateway.Tests -c Release --no-build
