@@ -5,6 +5,8 @@ public sealed partial class ClientState
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
+    public ushort PhasingBuff;
+    public double PhasingSentUntil;
     // Elusive: the buff starts at 100% + elusive effect and loses 20% of base effect per second; it cannot be
     // refreshed while running.
     public double ElusiveStart;
@@ -24,6 +26,13 @@ public sealed partial class ClientState
     public HashSet<uint> RetiredCombatObjects { get; } = [];
     public HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
     public RampageState.Value SentRampage { get; set; }
+    // The stat-driving part of the last published streak: the full stats go out only when one of these changes,
+    // while current_rampage_stacks (every kill) goes as one partial stat update.
+    public (int Active, int Damage, int Movement, int Rarity, int Area, int AttackSpeed)? SentRampageStat;
+    public int SentRampageStacks;
+    // Explosion art budget: a burst of kill explosions should not create an effect object for every corpse.
+    public double ExplosionArtWindow;
+    public int ExplosionArtCount;
     public ushort RampageBuff { get; set; }
     public double? RampageTransferAt;
     public double VaalPreventionUntil;
@@ -61,6 +70,9 @@ public sealed partial class ClientState
             CombatRushUse = null;
             if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
             RampageBuff = 0;
+            if (PhasingBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, PhasingBuff));
+            PhasingBuff = 0;
+            PhasingSentUntil = 0;
             if (ElusiveBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, ElusiveBuff));
             ElusiveBuff = 0;
             ElusiveUntil = 0;
@@ -68,6 +80,10 @@ public sealed partial class ClientState
             ElusiveMovementPct = 0;
             ElusiveEffectPercent = -1;
             SentRampage = default;
+            SentRampageStat = null;
+            SentRampageStacks = 0;
+            ExplosionArtWindow = 0;
+            ExplosionArtCount = 0;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
             if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));

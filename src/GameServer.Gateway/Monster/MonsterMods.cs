@@ -73,10 +73,53 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
-    /// map_hidden_monster_life_+%_final, a map tier's).</summary>
+    /// map_hidden_monster_life_+%_final, a map tier's) × the handed-over more life stats (<see cref="HandOverMore"/>).</summary>
     public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
         * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0)));
+        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife)));
+
+    // The more life and more damage stats modules handed over, in the order they were handed over.
+    static volatile string[] _moreLife = [], _moreDamage = [];
+    static readonly object MoreLock = new();
+
+    /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
+    /// has multiplies its <see cref="MaxLife"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
+    /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
+    /// (the module's lifetime) takes back the stats it added.</summary>
+    public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage)
+    {
+        string[] addedLife, addedDamage;
+        lock (MoreLock)
+        {
+            addedLife = [.. life.Distinct().Except(_moreLife)];
+            addedDamage = [.. damage.Distinct().Except(_moreDamage)];
+            _moreLife = [.. _moreLife, .. addedLife];
+            _moreDamage = [.. _moreDamage, .. addedDamage];
+        }
+        return new MoreHandOver(addedLife, addedDamage);
+    }
+
+    sealed class MoreHandOver(string[] life, string[] damage) : IDisposable
+    {
+        int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            lock (MoreLock)
+            {
+                _moreLife = [.. _moreLife.Except(life)];
+                _moreDamage = [.. _moreDamage.Except(damage)];
+            }
+        }
+    }
+
+    double More(string[] stats)
+    {
+        double factor = 1.0;
+        foreach (string id in stats) factor *= Math.Max(0, 1 + this[id] / 100.0);
+        return factor;
+    }
 
     /// <summary>The monster's hit before the player's defences: the base physical damage raised by damage_+% and
     /// physical_damage_+% (increased, the gains inherit them), by the rarity's monster_rarity_damage_+%_final (more)
@@ -87,7 +130,7 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     {
         double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
             * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
-            * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0)
+            * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var conversion = new DamageConversion()
             .Add(DamageType.Physical, DamageType.Chaos, this["base_physical_damage_%_to_convert_to_chaos"])

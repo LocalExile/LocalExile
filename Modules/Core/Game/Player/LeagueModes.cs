@@ -8,6 +8,7 @@ public static partial class Game
     public static readonly Lazy<ItemCatalog> HardModeItems = new(() => new("data", hardMode: true));
     public static readonly Lazy<SkillCatalog> HardModeSkills = new(() => new("data", hardMode: true));
     public static readonly Lazy<PassiveTree> HardModePassives = new(() => new("data", hardMode: true));
+    public static readonly Lazy<AtlasPassives> HardModeAtlasPassives = new(() => new("data", hardMode: true));
     public static readonly Lazy<ItemRolls> HardModeRolls = new(() => new(HardModeItems.Value));
     public static readonly Lazy<UniqueCatalog> HardModeUniques = new(() => new(HardModeItems.Value));
     public static readonly Lazy<EssenceCrafting> HardModeEssences = new(() => new(HardModeItems.Value, HardModeRolls.Value));

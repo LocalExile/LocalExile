@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Diagnostics;
 
 public static partial class Game
 {
@@ -349,9 +350,15 @@ public static partial class Game
                         return predictedLeap ? LeapSlamAcknowledgement(ciphers, reply) : reply;
                     });
                     if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                    else if (ServerTrace.Latency)
+                        Console.WriteLine($"[gateway] {remote} action echo refused 0x{use.SkillId:x4}:"
+                            + $" ActionCount={conn.ActionCount} action={action} life={conn.PlayerLife} closed={conn.Closed}");
                 };
-                if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
-                else await echo();
+                // The action acknowledgement is sent here and not queued behind the projectile presentation: it is a
+                // state reply that the client needs within this use, and the queue's own records (creates, moves, bursts)
+                // took long enough that the next click had already started a new action, so the echo was refused as stale
+                // and the client never ran the action (live 2026-11-17: 51 of 59 Kinetic Blast casts, no casting animation).
+                await echo();
                 Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
                 if (cooldownUse?.Current(conn) == false) continue;
@@ -821,6 +828,11 @@ public static partial class Game
                     // The equipment again (S→C 0x02bc), as after an equip: the player object's own list does not set how a
                     // two-handed weapon is held, the update does (live 2026-10-22: it was held one-handed after every load).
                     await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "entering");
+                    // The area's population stays in this handler: run beside it, its monster creations and the frame
+                    // pass hold the combat lock long enough that a packet builder waiting for that lock while it holds
+                    // the send gate stalls every cast and walk echo (live 2026-11-17: two 400-500 ms freezes behind a
+                    // 596 ms empty send, and a 559 ms lock hold). The handler answers no input meanwhile only because the
+                    // client is still loading the area.
                     await PopulateArea(remote, stream, ciphers, conn);
                     // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
                     // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line
@@ -838,6 +850,11 @@ public static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
+                    // Nobody walked while the client was on its loading screen, so the walk history starts here: without this
+                    // the first collision pass replayed the whole entry (1.2 s of frames) under the combat lock, 258 ms, and
+                    // the player's first movement waited for it (live 2026-11-17).
+                    lock (conn.Monsters)
+                        conn.WalkersSteppedTo = ProjectileWorldTime(conn);
                     StartWorldFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;

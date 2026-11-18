@@ -320,6 +320,8 @@ public sealed class MonsterCatalog(string folder = "data")
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
         var (visualHashes, classStances) = WeaponTables();
+        int bowClass = ClientTables.Has("ItemClasses")
+            ? Array.FindIndex(ClientTables.Table("ItemClasses").ToArray(), r => r.Text("Id") == "Bow") : -1;
         IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
         {
             var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
@@ -330,7 +332,8 @@ public sealed class MonsterCatalog(string folder = "data")
                 if (visual < visualHashes.Count && type < classStances.Count && type < 255)
                     held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
             }
-            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            bool bow = bowClass >= 0 && row.IntOrNull("MainHand_ItemClassesKey") == bowClass;
+            Hold(0, bow ? "Weapon2_ItemVisualIdentityKeys" : "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
             Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
             return held;
         }

@@ -330,7 +330,9 @@ public static partial class Game
         var packets = new List<byte[]>();
         packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
         ClampReservedResources(conn);
-        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
+        bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff && a.AffectsSelf == b.AffectsSelf;
+        // Both records are published for every aura, including Generosity ones (the received one only has its icon
+        // suppressed), so both must be removed and restored symmetrically — across module reloads too.
         foreach (var old in conn.PresentedAuras.Values)
             if (!conn.Auras.TryGetValue(old.SkillId, out var current) || !Same(old, current))
                 packets.AddRange(AuraCatalog.EndPackets(old, PlayerId));
@@ -358,7 +360,6 @@ public static partial class Game
             conn.AuraStatsDirty = false;
             packets.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
             packets.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-            packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
             packets.Add(PlayerLifeUpdate(conn));
