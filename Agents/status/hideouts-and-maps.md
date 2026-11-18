@@ -99,7 +99,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
-  box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

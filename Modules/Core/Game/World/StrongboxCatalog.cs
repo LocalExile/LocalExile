@@ -6,7 +6,24 @@ public static class StrongboxCatalog
 {
     public sealed record Definition(int Row, string Id, string Name, int Weight, int HardModeWeight, int MinLevel, int MaxLevel,
         bool RareType, string? WeightStat, string Model, IReadOnlyList<string> Components, StateMachineData? States,
-        IReadOnlyList<ItemMod> Mods);
+        IReadOnlyList<ItemMod> Mods)
+    {
+        /// <summary>Strongboxes <c>__col4</c>: false on the fixed boxes (the Grandmaster's caches, the unique chests' bases,
+        /// Atziri's Vessel, the Breach box, Ventor's box), true on every box that spawns. Read (inferred) as "rolls a
+        /// rarity and mods".</summary>
+        public bool Rollable { get; init; } = true;
+        /// <summary>Strongboxes <c>__col2</c> (5, 10, 12, 15): read as the box's base item count. ASSUMED meaning (unnamed
+        /// column; it fits Armourer's 15, Blacksmith's 12, Large and Ornate 10, the rest 5).</summary>
+        public int Items { get; init; } = 5;
+        /// <summary>What the box drops (<see cref="StrongboxLoot"/>).</summary>
+        public Contents Kind { get; init; }
+        /// <summary>The Chests row's tags and "default": what its explicit mods' spawn weights read.</summary>
+        public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>(["default"]);
+    }
+
+    /// <summary>What a box drops: from its Chests tags (armour, weapon, jewellery, gem, map, divination_card, scarab), else
+    /// from its id (Arcanist: currency, Artisan: quality currency), else the general container table.</summary>
+    public enum Contents { General, Currency, QualityCurrency, Armour, Weapon, Jewellery, Gem, Map, Card, Scarab }
 
     static readonly Lazy<IReadOnlyList<Definition>> Data = new(Load);
     public static IReadOnlyList<Definition> All => Data.Value;
@@ -16,6 +33,7 @@ public static class StrongboxCatalog
     {
         if (!ClientTables.Has("Strongboxes") || !ClientTables.Has("Chests")) return [];
         var chests = ClientTables.Table("Chests").ToArray();
+        var tags = ClientTables.TableOrEmpty("Tags");
         var types = ObjectTypes.All().ToDictionary(t => t.Type, t => t.Row);
         var shared = ObjectTypes.SharedStates();
         var stats = Program.Stats.Names;
@@ -36,12 +54,31 @@ public static class StrongboxCatalog
                 if (Program.Items.Mods.Row(mod) is { } value)
                     mods.Add(value.Roll(ModSection.Implicit, new Random(0)));
             int? stat = row.IntOrNull("SpawnWeightIncrease");
+            var chestTags = chest.Ints("TagsKeys").Select(t => tags.Row(t)?.Text("Id") ?? "").Append("default").ToHashSet(StringComparer.Ordinal);
             result.Add(new(index, id, chest.Text("Name") ?? id, row.Int("SpawnWeight"), row.Int("SpawnWeightHardmode"),
                 chest.Int("MinLevel"), chest.Int("MaxLevel"), row.BoolOrNull("__col7") == true,
-                stat is int key && key >= 0 && key < stats.Count ? stats[key] : null, model, components, states, mods));
+                stat is int key && key >= 0 && key < stats.Count ? stats[key] : null, model, components, states, mods)
+            {
+                Rollable = row.BoolOrNull("__col4") ?? true,
+                Items = Math.Max(1, row.IntOrNull("__col2") ?? 5),
+                Kind = KindOf(id, chestTags),
+                Tags = chestTags,
+            });
         }
         return result;
     }
+
+    static Contents KindOf(string id, IReadOnlySet<string> tags) =>
+        tags.Contains("armour") ? Contents.Armour
+        : tags.Contains("weapon") ? Contents.Weapon
+        : tags.Contains("jewellery") ? Contents.Jewellery
+        : tags.Contains("gem") ? Contents.Gem
+        : tags.Contains("map") ? Contents.Map
+        : tags.Contains("divination_card") ? Contents.Card
+        : tags.Contains("scarab") ? Contents.Scarab
+        : id.Contains("/Arcanist", StringComparison.Ordinal) ? Contents.Currency
+        : id.Contains("/Artisan", StringComparison.Ordinal) ? Contents.QualityCurrency
+        : Contents.General;
 
     public static int Weight(Definition type, int level, bool hardMode, MapMods mods)
     {

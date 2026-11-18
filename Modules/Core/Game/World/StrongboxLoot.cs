@@ -1,10 +1,10 @@
 using GameServer.Core.Protocol.Instance;
-using static GameServer.Modules.Strongbox.StrongboxCatalog;
-
-namespace GameServer.Modules.Strongbox;
+using static StrongboxCatalog;
+using static Game;
+using static Program;
 
 /// <summary>
-/// What an opened box drops: its base item count (<see cref="Entry.Items"/>) × (100 + <c>map_strongbox_item_quantity_+%</c>
+/// What an opened box drops: its base item count (<see cref="Definition.Items"/>) × (100 + <c>map_strongbox_item_quantity_+%</c>
 /// + the box's <c>chest_item_quantity_+%</c>) / 100 × the league's item drop multiplier (a fraction is a chance of one more),
 /// of the kind its Chests row names, at the area level plus the box's <c>chest_dropped_item_level_+</c>, through the
 /// server's drop pipeline (<see cref="ItemDrops"/>, the item rolls). A box of no kind is the general table
@@ -39,10 +39,10 @@ public static class StrongboxLoot
     /// <param name="boxStat">A stat of the box's own mods (its implicits and rolled explicits).</param>
     /// <param name="corrupted">A Vaal Orb corrupted the box: its contents drop corrupted (the items that can be; stackable
     /// currency, cards and scarabs do not). Only the Corrupted flag is set: no corruption implicit or outcome is rolled.</param>
-    public static List<ItemDrops.Drop> Roll(ClientState conn, Entry box, Func<string, int> boxStat, int level,
-        IReadOnlyDictionary<uint, int> stats, Random rng, bool corrupted = false)
+    public static List<ItemDrops.Drop> Roll(ClientState conn, Definition box, Func<string, int> boxStat, int level,
+        MapMods stats, Random rng, bool corrupted = false)
     {
-        int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        int Stat(string name) => stats.Get(name);
         var catalog = ItemsFor(conn);
         var drops = DropsFor(conn);
         var rolls = RollsFor(conn);
@@ -53,7 +53,7 @@ public static class StrongboxLoot
         int count = Math.Max(1, (int)Math.Floor(quantity) + (rng.NextDouble() < quantity - Math.Floor(quantity) ? 1 : 0));
         // The box's "more rarity" on top of its hidden rarity: one increased value for the drop table.
         double moreRarity = 1 + boxStat("chest_item_rarity_+%_final_from_mod") / 100.0;
-        int increasedRarity = (int)Math.Round((100 + box.HiddenRarity) * moreRarity) - 100;
+        int increasedRarity = (int)Math.Round((100 + boxStat("chest_hidden_item_rarity_+%")) * moreRarity) - 100;
         var chances = ItemDrops.WithIncreasedRarity(ItemDrops.RarityChances(MonsterRarity.Rare), increasedRarity, rules.EquipmentRarityMultiplier);
         var result = new List<ItemDrops.Drop>();
         var gems = box.Kind == Contents.Gem ? GemSources.DropPool(catalog) : null;

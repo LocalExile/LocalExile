@@ -1,26 +1,26 @@
 using GameServer.Core.Protocol.Instance;
-
-namespace GameServer.Modules.Strongbox;
+using static Game;
+using static Program;
 
 /// <summary>
 /// Currency used on a box (C→S 0x74, <see cref="InstanceItems.UseItemOnObject"/>): the orbs that change an item's rarity
-/// and explicit mods change a closed, uncorrupted box's the same way; one leaves its stack only when the box changed,
-/// and the box is created again under a new id with its new rarity and mods (as when it opens: ObjectMagicProperties
-/// has no update message the server knows).
+/// and explicit mods change a closed, uncorrupted box's the same way; one leaves its stack only when the box changed, and
+/// the box is created again (same id) with its new rarity and mods, as when it opens.
 /// </summary>
-public static partial class StrongboxManager
+public static partial class MapStrongboxes
 {
     const string ScrollOfWisdom = "Metadata/Items/Currency/CurrencyIdentification", EngineersOrb = "Metadata/Items/Currency/CurrencyStrongboxQuality";
 
     /// <summary>GameEvents.Packet(0x74): true when the target is one of this instance's boxes (handled, or refused with
-    /// the reason logged); false for any other object, which this module leaves alone.</summary>
+    /// the reason logged); false for any other object.</summary>
     public static async Task<bool> UseItemOn(ClientState conn, byte[] message)
     {
         if (message.Length < InstanceItems.UseItemOnObjectLength) return false;
         var use = InstanceItems.ReadUseItemOnObject(message);
-        if (conn.Instance is not { } instance || await Find(conn, use.TargetObjectId) is not var (index, _)) return false;
+        if (conn.Instance is null || !Areas.TryGetValue(conn.Instance, out var area)
+            || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetObjectId) is not { } target) return false;
         var (remote, stream, ciphers) = conn.Wire;
-        string Log(string text) => $"[gateway] {remote} <= 0x0074 item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
+        string Log(string text) => $"[map-content] {remote} <= 0x0074 item {use.ItemId} (inventory {use.InventoryId}) on strongbox 0x{use.TargetObjectId:x}: {text}";
         var items = ItemsOf(conn);
         if (items.RowOf(use.ItemId) is not byte row || PlayerInventories.InventoryId(row) != use.InventoryId
             || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } used)
@@ -29,16 +29,12 @@ public static partial class StrongboxManager
             return true;
         }
         var currency = ItemsFor(conn).ByHash(used.Item.TypeHash);
-        var area = Areas.GetOrCreateValue(instance);
         await area.Gate.WaitAsync();
         try
         {
-            if (area.Boxes is not { } boxes || index >= boxes.Count || boxes[index].Id != use.TargetObjectId
-                || StrongboxCatalog.ByRow(boxes[index].Row) is not { } type) return true;
-            var box = boxes[index];
-            string? refusal = box.Opened ? "the box is open" : box.Corrupted ? "the box is corrupted" : !type.Rollable ? "the box cannot be modified" : null;
-            Box? changed = null;
-            if (refusal is null) (changed, refusal) = Change(conn, type, box, currency?.Id);
+            var box = area.Boxes![target.Index];
+            if (StrongboxCatalog.Find(box.Type) is not { } type) return true;
+            var (changed, refusal) = Change(ItemsFor(conn).Mods, type, box, currency?.Id, AreaLevel(conn), AreaMods(conn), Random.Shared);
             if (changed is null)
             {
                 Console.WriteLine(Log($"{currency?.Name ?? $"0x{used.Item.TypeHash:x8}"} refused: {refusal}"));
@@ -49,27 +45,27 @@ public static partial class StrongboxManager
                 Console.WriteLine(Log("the item is gone"));
                 return true;
             }
-            changed = changed with { Id = conn.TakeObjectId() };
-            boxes[index] = changed;
-            Save(instance, boxes);
+            area.Boxes[box.Index] = changed;
+            Keep(conn, area);
             uint inventory = PlayerInventories.InventoryId(row);
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inventory, items.NextRevision(row), [used.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventory}: {currency!.Name} used" + (taken.Left is { } l ? $", {l.Item.StackSize} left" : ", stack gone"));
-            Console.WriteLine(Log($"{currency.Name}: {Describe(conn, box)} → {Describe(conn, changed)}, now 0x{changed.Id:x}"));
-            await Replace(instance, index, box, changed);
+            Console.WriteLine(Log($"{currency.Name}: {Label(conn, box)} → {Label(conn, changed)}"));
+            foreach (var member in Members(conn)) await Present(member, changed, true);
         }
         finally { area.Gate.Release(); }
         return true;
     }
 
-    /// <summary>What the currency makes of a closed, uncorrupted box, or null with the reason.</summary>
-    static (Box? Box, string? Refusal) Change(ClientState conn, StrongboxCatalog.Entry type, Box box, string? currency)
+    /// <summary>What the currency (a BaseItemTypes id) makes of the box, or null with the reason: only a closed,
+    /// uncorrupted box of a type that rolls mods changes.</summary>
+    internal static (Box? Box, string? Refusal) Change(ModCatalog catalog, StrongboxCatalog.Definition type, Box box, string? currency,
+        int level, MapMods stat, Random rng)
     {
-        var catalog = ItemsFor(conn).Mods;
+        if (box.Phase != 0) return (null, "the box is open");
+        if (box.Corrupted) return (null, "the box is corrupted");
+        if (!type.Rollable) return (null, "the box cannot be modified");
         var mods = box.Explicits;
-        int level = AreaLevel(conn);
-        var stat = StatOf(AreaStats(conn));
-        var rng = Random.Shared;
         (Box?, string?) With(byte rarity, IReadOnlyList<ItemMod> rolled) => (box with { Rarity = rarity, Mods = Kept(rolled) }, null);
         static (Box?, string?) Fail(string why) => (null, why);
         switch (currency)
@@ -102,7 +98,7 @@ public static partial class StrongboxManager
             // corrupted (an official-forum account; StrongboxLoot). No outcome table for boxes is in the data.
             case CurrencyEffects.VaalOrb:
                 return (box with { Corrupted = true, VaalOrb = true }, null);
-            // Boxes are created identified (the map mod that makes them unidentified is not consumed): nothing to identify.
+            // Boxes are sent identified (the map mod that makes them unidentified is not consumed): nothing to identify.
             case ScrollOfWisdom: return Fail("the box is identified");
             // CurrencyItems: "This item is no longer usable." / "Formerly improved the quality of a Strongbox".
             case EngineersOrb: return Fail("Engineer's Orb is no longer usable (CurrencyItems Directions)");
