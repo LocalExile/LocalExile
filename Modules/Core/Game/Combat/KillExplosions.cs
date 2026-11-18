@@ -72,18 +72,23 @@ public static partial class Game
         int elementalChance = Get("explode_enemies_for_10%_life_as_random_element_on_kill_chance_%");
         DamageType? element = elementalChance > 0 && Random.Shared.Next(100) < elementalChance
             ? (DamageType)Random.Shared.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
+        // Hinekora, Death's Fury: the stat value is the chance, and the blast is 500% of life as fire. It follows the
+        // physical explosion (the monster's life, mitigated, not the player's damage increases).
+        int fireChance = Get(Chieftain.FireExplodeChance);
+        int fire = fireChance > 0 && Random.Shared.Next(100) < fireChance ? Chieftain.LifeAsFire(corpse.MaxLife) : 0;
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
         int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
         int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
-        if (physical == 0 && chaos == 0 && elemental == 0) return false;
+        if (physical == 0 && chaos == 0 && elemental == 0 && fire == 0) return false;
         // The modifiers can trigger on the same kill; preserve each damage type through mitigation.
         var packet = DamagePacket.Of(DamageType.Physical, physical, physical)
-            .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos));
+            .Add(DamagePacket.Of(DamageType.Chaos, chaos, chaos))
+            .Add(DamagePacket.Of(DamageType.Fire, fire, fire));
         var elementalPacket = element is { } e ? OriathExplosionPacket(corpse.MaxLife, e, player) : DamagePacket.Empty;
         var elementalPenetration = Penetration.Of(player, Stats, attack: false);
-        long amount = (long)physical + chaos + elemental;
+        long amount = (long)physical + chaos + fire + elemental;
         string type = string.Join(" and ", new[] { physical > 0 ? "physical" : null, chaos > 0 ? "chaos" : null,
-            element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
+            fire > 0 ? "fire" : null, element is { } t ? t.ToString().ToLowerInvariant() : null }.Where(x => x is not null));
         int radius = KillExplosionRadius;
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
@@ -116,7 +121,7 @@ public static partial class Game
         }
         Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} {type.ToString().ToLowerInvariant()} within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
-        string art = chaos > 0 ? ChaosExplosionAo : KillExplosionAo;
+        string art = chaos > 0 ? ChaosExplosionAo : fire > 0 ? Chieftain.FireExplosionAo : KillExplosionAo;
         await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, art).Blob()),
             $"0x02bb create effect 0x{effect:x} {art} at ({at.X}, {at.Y})");

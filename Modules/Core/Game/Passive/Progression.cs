@@ -1132,6 +1132,14 @@ public static partial class Game
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
         int fireColdRes = Get("fire_and_cold_damage_resistance_%");
         int fireLightningRes = Get("fire_and_lightning_damage_resistance_%");
+        // Tasalio: every modifier that changed fire resistance, including all-element and pair mods, also adds that
+        // percentage of itself to cold and lightning. Those shared mods therefore count again at the percentage.
+        int fireMods = allRes + Get("base_fire_damage_resistance_%") + Get("fire_damage_resistance_+%") + elementalRes
+            + fireColdRes + fireLightningRes;
+        int sharedFire = Chieftain.Shared(fireMods, Get(Chieftain.FireResistanceShare));
+        // Valako: the same reading for maximum fire resistance, including all-maximum modifiers.
+        int fireMaxMods = allMax + allElemMax + Get("base_maximum_fire_damage_resistance_%");
+        int sharedFireMax = Chieftain.SharedMaximum(fireMaxMods, Get(Chieftain.MaxFireResistanceShare));
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get("base_mana_reservation_efficiency_+%") + Get("base_reservation_efficiency_+%")
@@ -1192,13 +1200,13 @@ public static partial class Game
             FireResistance: allRes + Get("base_fire_damage_resistance_%") + Get("fire_damage_resistance_+%") + elementalRes
                 + fireColdRes + fireLightningRes,
             ColdResistance: allRes + Get("base_cold_damage_resistance_%") + Get("cold_damage_resistance_+%") + elementalRes
-                + pairRes + fireColdRes,
+                + pairRes + fireColdRes + sharedFire,
             LightningResistance: allRes + Get("base_lightning_damage_resistance_%") + Get("lightning_damage_resistance_+%")
-                + elementalRes + pairRes + fireLightningRes,
+                + elementalRes + pairRes + fireLightningRes + sharedFire,
             ChaosResistance: Get("base_chaos_damage_resistance_%"),
             FireMaxResistance: allMax + allElemMax + Get("base_maximum_fire_damage_resistance_%"),
-            ColdMaxResistance: allMax + allElemMax + Get("base_maximum_cold_damage_resistance_%"),
-            LightningMaxResistance: allMax + allElemMax + Get("base_maximum_lightning_damage_resistance_%"),
+            ColdMaxResistance: allMax + allElemMax + Get("base_maximum_cold_damage_resistance_%") + sharedFireMax,
+            LightningMaxResistance: allMax + allElemMax + Get("base_maximum_lightning_damage_resistance_%") + sharedFireMax,
             ChaosMaxResistance: allMax + Get("base_maximum_chaos_damage_resistance_%"),
             SpellSuppressionChance: Get("base_spell_suppression_chance_%"),
             SpellSuppressionEffect: Get("base_spell_damage_%_suppressed"),

@@ -60,6 +60,14 @@ public static partial class Game
                         Quality(p.Socket, p.Gem), p.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
+        // Tukohama, War's Herald: skills socketed in body armour are also supported by Ancestral Call and Fist of War
+        // at the stat's level. Resolve keeps one support per family, so a socketed copy of the same support still competes.
+        if (equipment.FirstOrDefault(e => e.Row == PlayerInventories.BodyArmour).Item?.Id == selected.Place.ItemId)
+        {
+            var sources = CharacterStatSources(conn).Stats;
+            int Stat(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
+            candidates.AddRange(Chieftain.BodyArmourSupports(Stat));
+        }
         candidates.AddRange(OffhandSupportsForMainHand(conn, skillId, selected.Place.ItemId, equipment, places, requirements));
         var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
