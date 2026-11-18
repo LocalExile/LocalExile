@@ -64,11 +64,66 @@ public static class AreaExits
     /// <summary>Each transition object of the layout with its role, and where each "entranceN" is (<see cref="Entrances"/>).
     /// <paramref name="usable"/>: whether a player can walk up to an object at a cell (a walkable cell in reach).</summary>
     public static (List<PlacedExit> Exits, List<EntrancePoint> Entrances) Resolve(TerrainCache files, GenerationResult result,
-        Func<int, int, bool>? usable = null)
+        Func<int, int, bool>? usable = null) => Resolve(files, result.Records, Objects(files, result), usable);
+
+    /// <summary><see cref="Resolve(TerrainCache, GenerationResult, Func{int, int, bool}?)"/> for a layout's subgraph records
+    /// and transition objects, with the ExtraTerrainFeatures "link" rooms paired (<see cref="Links"/>).</summary>
+    public static (List<PlacedExit> Exits, List<EntrancePoint> Entrances) Resolve(TerrainCache files, IReadOnlyList<DoodadRecord> records,
+        IReadOnlyList<PlacedTileObject> objects, Func<int, int, bool>? usable = null)
     {
-        var rooms = Rooms(files, result.Records.SelectMany(r => r.Rooms));
-        var objects = Objects(files, result);
+        var (extra, unpaired) = Links(records);
+        var rooms = Rooms(files, records.SelectMany(r => r.Rooms), extra, unpaired);
         return (Resolve(rooms, objects, usable), Entrances(rooms, objects));
+    }
+
+    /// <summary>The first number of the gates <see cref="Links"/> makes up: above any the 3.29 graphs use (22 at most).</summary>
+    public const int LinkNumbers = 900;
+
+    /// <summary>An ExtraTerrainFeatures row whose descriptions (+0x29) say "link" (HarvestEncounter, BetrayalLaboratory,
+    /// SynthesisEncounter, the Sanctum rows, BrequelSkyHiveEncounter) joins the room it places to the "link" node of the
+    /// sub-area its world area adds (HarvestEncounter's harvest_encounter.arm and night_garden.dgr's garden.arm): a gate
+    /// each way within the area. Per row, in layout order, the k-th pool room pairs with the k-th "link" room of the
+    /// records the row added; pair k becomes "teleport{A}" "telepad{B}" in the pool room and "teleport{B}" "telepad{A}" in
+    /// the other (A = <see cref="LinkNumbers"/> + 2k, B = A + 1), which the slots then place as any gate. Rooms without a
+    /// partner are returned apart (no exit).</summary>
+    static (Dictionary<PlacedRoom, string[]> Extra, HashSet<PlacedRoom> Unpaired) Links(IReadOnlyList<DoodadRecord> records)
+    {
+        var extra = new Dictionary<PlacedRoom, string[]>(ReferenceEqualityComparer.Instance);
+        var unpaired = new HashSet<PlacedRoom>(ReferenceEqualityComparer.Instance);
+        var order = new List<string>();
+        var pool = new Dictionary<string, List<PlacedRoom>>(StringComparer.Ordinal);
+        var sub = new Dictionary<string, List<PlacedRoom>>(StringComparer.Ordinal);
+        var seen = new HashSet<PlacedRoom>(ReferenceEqualityComparer.Instance);
+        static bool Link(IReadOnlyList<string> d) => d.Any(s => s.Equals("link", StringComparison.OrdinalIgnoreCase));
+        void Add(Dictionary<string, List<PlacedRoom>> to, string row, PlacedRoom room)
+        {
+            if (!seen.Add(room)) return;
+            if (!pool.ContainsKey(row) && !sub.ContainsKey(row)) order.Add(row);
+            if (!to.TryGetValue(row, out var list)) to[row] = list = [];
+            list.Add(room);
+        }
+        foreach (var record in records)
+            foreach (var room in record.Rooms)
+                if (room.Feature is { } row && Link(room.FeatureDescriptions)) Add(pool, row, room);
+        foreach (var record in records)
+            if (record.FeatureRow is { } row)
+                foreach (var room in record.Rooms)
+                    if (room.Feature is null && Link(room.Descriptions)) Add(sub, row, room);
+        int k = 0;
+        foreach (var row in order)
+        {
+            var a = pool.GetValueOrDefault(row) ?? [];
+            var b = sub.GetValueOrDefault(row) ?? [];
+            int n = Math.Min(a.Count, b.Count);
+            for (int i = 0; i < n; i++, k++)
+            {
+                int to = LinkNumbers + 2 * k, back = to + 1;
+                extra[a[i]] = [$"teleport{to}", $"telepad{back}"];
+                extra[b[i]] = [$"teleport{back}", $"telepad{to}"];
+            }
+            foreach (var room in a.Skip(n).Concat(b.Skip(n))) unpaired.Add(room);
+        }
+        return (extra, unpaired);
     }
 
     /// <summary>Where each "entranceN" of the layout is (its slot, else its room's first transition object, else the
@@ -131,6 +186,8 @@ public static class AreaExits
         public required PlacedRoom Room { get; init; }
         public required IReadOnlyList<RoomPoint> Points { get; init; }
         public required IReadOnlyList<Description> Descriptions { get; init; }
+        /// <summary>An ExtraTerrainFeatures "link" room that found no partner (<see cref="Links"/>).</summary>
+        public bool UnpairedLink { get; init; }
         readonly Dictionary<Description, RoomPoint> _slots = new(ReferenceEqualityComparer.Instance);
 
         public string Name => Path.GetFileName(Room.Room.Path);
@@ -205,9 +262,19 @@ public static class AreaExits
     }
 
     /// <summary>The placed rooms with their points, descriptions and slots.</summary>
-    public static List<LayoutRoom> Rooms(TerrainCache files, IEnumerable<PlacedRoom> rooms)
+    public static List<LayoutRoom> Rooms(TerrainCache files, IEnumerable<PlacedRoom> rooms) => Rooms(files, rooms, null, null);
+
+    /// <summary><see cref="Rooms(TerrainCache, IEnumerable{PlacedRoom})"/> with descriptions added to some rooms (the
+    /// paired "link" rooms' gates) and the "link" rooms left without a partner.</summary>
+    static List<LayoutRoom> Rooms(TerrainCache files, IEnumerable<PlacedRoom> rooms, Dictionary<PlacedRoom, string[]>? extra,
+        HashSet<PlacedRoom>? unpaired)
     {
-        var list = rooms.Select(r => new LayoutRoom { Room = r, Points = Points(files, r), Descriptions = Descriptions(r) }).ToList();
+        var list = rooms.Select(r => new LayoutRoom
+        {
+            Room = r, Points = Points(files, r),
+            Descriptions = Descriptions(extra?.GetValueOrDefault(r) is { } more ? r.Descriptions.Concat(more) : r.Descriptions),
+            UnpairedLink = unpaired?.Contains(r) == true,
+        }).ToList();
         foreach (var room in list) room.PlaceArrivals();
         foreach (var room in list) room.PlaceGates(list);
         return list;
@@ -229,10 +296,10 @@ public static class AreaExits
         return points;
     }
 
-    static List<Description> Descriptions(PlacedRoom room)
+    static List<Description> Descriptions(IEnumerable<string> descriptions)
     {
         var list = new List<Description>();
-        foreach (var d in room.Descriptions)
+        foreach (var d in descriptions)
         {
             if (EntranceDescription.Match(d) is { Success: true } e)
                 list.Add(new Description(ExitKind.Entrance, int.Parse(e.Groups[1].Value), !e.Groups[2].Success, null));
@@ -254,7 +321,8 @@ public static class AreaExits
         if (exitsOfNode.Count == 0)
         {
             foreach (var o in objects)
-                yield return new PlacedExit(o, ExitKind.Unused, 0, false, null, null, room.Name, $"{room.Name}'s node names no exit");
+                yield return new PlacedExit(o, ExitKind.Unused, 0, false, null, null, room.Name,
+                    room.UnpairedLink ? $"{room.Name}: link without a partner" : $"{room.Name}'s node names no exit");
             yield break;
         }
         // Each exit with a slot takes the nearest object (closest pairs first); exits without one take what is left. An

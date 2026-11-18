@@ -339,7 +339,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                     if (Loose(grid.Corner(x + u + _ox, y + v + _oy).Ground) && Loose(ground))
                         grid.SetGround(x + u + _ox, y + v + _oy, ground);
             notes.Add($"area unique room {Path.GetFileName(room.Path)} ({row.Name}) o{o} at ({x + _ox}, {y + _oy})");
-            placer.PlaceRoom(room, x, y, o, grid.Corner(x + _ox, y + _oy).Height, ground, true);
+            placer.PlaceRoom(room, x, y, o, grid.Corner(x + _ox, y + _oy).Height, ground, true, row);
             Pool!.RoomPlaced(x + _ox, y + _oy, w, h);
             return true;
         }

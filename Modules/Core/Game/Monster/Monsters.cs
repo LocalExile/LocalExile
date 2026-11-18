@@ -627,6 +627,19 @@ public static partial class Game
         }
         var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
+        // A sub-area an ExtraTerrainFeatures row adds is that row's world area; the map's population stays out (the
+        // Sacred Grove beside a map: ServerLevels.Level.FeatureAreas).
+        var featureAreas = layout.Level?.FeatureAreas ?? [];
+        Func<int, int, bool>? scatterable = trapClear.Count == 0 && featureAreas.Count == 0 ? null : (x, y) =>
+        {
+            if (trapClear.Contains((x, y))) return false;
+            for (int i = 0; i < featureAreas.Count; i++)
+            {
+                var a = featureAreas[i];
+                if (x >= a.X0 && y >= a.Y0 && x < a.X1 && y < a.Y1) return false;
+            }
+            return true;
+        };
         Phase("shrines, traps, later forms");
         var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
@@ -634,7 +647,7 @@ public static partial class Game
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
             // A shrine's guards must be seen standing: not an emerge variety, which lies buried until the player is near.
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
-            scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
+            scatterable: scatterable,
             additionalPacks: MapScarabPacks.Requests(mapMods),
             ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.

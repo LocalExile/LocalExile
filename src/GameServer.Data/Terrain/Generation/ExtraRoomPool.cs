@@ -2,10 +2,10 @@ namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A row of Data/ExtraTerrainFeatures.dat as the pool holds it: id (+0), rooms (+8, .arm), tiles (+0x18,
 /// .tdt / .tst), room orientations (+0x39, 8 = any), the linked row added with it (+0x49), the world area it leads to (+0x51,
-/// a WorldAreas row: a sub-area, <c>0x14204dd90</c>) and the oversize flag (+0x61: a telepad injector's room,
-/// <c>0x142108750</c>).</summary>
+/// a WorldAreas row: a sub-area, <c>0x14204dd90</c>), the oversize flag (+0x61: a telepad injector's room,
+/// <c>0x142108750</c>) and the injected room's descriptions (+0x29: "link", "sidearea", "maptrial", "telepad5" …).</summary>
 sealed record ExtraFeatureRow(string Name, IReadOnlyList<string> Rooms, IReadOnlyList<string> Tiles, IReadOnlyList<int> Orientations,
-    int Link, int WorldArea, bool Oversize)
+    int Link, int WorldArea, bool Oversize, IReadOnlyList<string> Descriptions)
 {
     /// <summary><c>0x142108a70</c>'s orientation mask of the row: 0 (any) when it lists 8, else a bit per orientation.</summary>
     public int Mask => Orientations.Contains(8) ? 0 : Orientations.Aggregate(0, (m, o) => m | 1 << (o & 31));
@@ -48,7 +48,7 @@ sealed class ExtraRoomPool
     }
 
     ExtraFeatureRow Row(int row) => new(Table.String(row, 0), Table.StringList(row, 8), Table.StringList(row, 0x18),
-        Table.I32List(row, 0x39), Table.Ref8(row, 0x49), Table.Ref(row, 0x51), Table.Bool(row, 0x61));
+        Table.I32List(row, 0x39), Table.Ref8(row, 0x49), Table.Ref(row, 0x51), Table.Bool(row, 0x61), Table.StringList(row, 0x29));
 
     /// <summary>AddExtraTerrainFeature by id: <see cref="Add(ExtraFeatureRow, int)"/> for the row named
     /// <paramref name="name"/>.</summary>
