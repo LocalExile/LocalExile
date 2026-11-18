@@ -78,13 +78,18 @@ public static partial class Game
         }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        // Lethe Shade: "Take 50% less Damage over Time if you've started taking Damage over Time in the past second".
+        // A damaging ailment's latest application is its onset; while one landed within the last second, all the
+        // damaging-ailment DoT the player takes is halved (a new application refreshes the window).
+        double dotStart = Math.Max(conn.IncomingAilments.LatestStart, conn.ElementalAilments.LatestIgniteStart);
+        double letheFactor = Get("keystone_lethe_shade") != 0 && until - dotStart < 1 ? .5 : 1;
         var immunities = PlayerImmunities(conn, stats);
         int damage = 0, lifeDamage = 0;
         if (conn.ElementalAilments.HasEffects)
         {
             damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
                 MaxResistance(conn, DamageType.Fire), immunities.Contains(DamageType.Fire),
-                source => DamageTakenFromBlindedPct(conn, source, stats));
+                source => DamageTakenFromBlindedPct(conn, source, stats), letheFactor);
             if (Get("base_cannot_be_damaged") > 0) damage = 0;
             damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
                 IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
@@ -99,7 +104,7 @@ public static partial class Game
                 conn.Pools, conn.EnergyShield, Get, Resistance(conn, physical), MaxResistance(conn, physical),
                 Resistance(conn, chaos), MaxResistance(conn, chaos), conn.Immune || Get("base_cannot_be_damaged") > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), conn.Walk.MovingSeconds,
-                ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry));
+                ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry, letheFactor));
         }
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)

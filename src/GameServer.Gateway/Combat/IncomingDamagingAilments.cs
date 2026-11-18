@@ -18,6 +18,10 @@ public sealed class IncomingDamagingAilments
     double bleedFraction, poisonFraction, bleedTakenFraction, poisonTakenFraction;
     double bleedProtectedUntil = double.NegativeInfinity, poisonProtectedUntil = double.NegativeInfinity;
     double last = double.NegativeInfinity;
+    // Lethe Shade: when a bleed or poison was last applied, the onset of the player's damaging-ailment DoT (with the
+    // ignite start in PlayerElementalAilments). NegativeInfinity while none has landed.
+    double latestStart = double.NegativeInfinity;
+    public double LatestStart => latestStart;
     long bleedRevision, poisonRevision;
 
     public bool Bleeding(double now) => bleeds.Any(b => Active(b.From, b.Until, now));
@@ -47,8 +51,10 @@ public sealed class IncomingDamagingAilments
         if (now < bleedProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         seconds *= SelfDuration(victim, bleed: true);
+        if (!reflected) seconds *= IncomingResourceDefences.LetheShadeAilmentDuration(victim);
         if (!(seconds > 0)) return false;
         bleeds.Add(new(now, now + seconds, perSecond, source, reflected));
+        latestStart = now;
         bleedRevision++;
         return true;
     }
@@ -60,8 +66,10 @@ public sealed class IncomingDamagingAilments
         if (now < poisonProtectedUntil) return false;
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         seconds *= SelfDuration(victim, bleed: false);
+        if (!reflected) seconds *= IncomingResourceDefences.LetheShadeAilmentDuration(victim);
         if (!(seconds > 0)) return false;
         poisons.Add(new(now, now + seconds, perSecond, source, reflected));
+        latestStart = now;
         poisonRevision++;
         return true;
     }
@@ -120,7 +128,7 @@ public sealed class IncomingDamagingAilments
         Func<string, int> get, int bleedResistance, int bleedMaxResistance, int poisonResistance,
         int poisonMaxResistance, bool immune, bool physicalImmune, bool chaosImmune,
         Func<double, double, double> movingSeconds,
-        ref double nonChaosBypassCarry, ref double chaosBypassCarry)
+        ref double nonChaosBypassCarry, ref double chaosBypassCarry, double dotTakenFactor = 1)
     {
         Reconcile(get);
         from = Math.Max(from, last);
@@ -179,6 +187,8 @@ public sealed class IncomingDamagingAilments
             : DamageModel.Mitigate(bleedFraction, bleedResistance, bleedMaxResistance);
         double poisonMitigated = unaffectedPoison || chaosImmune ? 0
             : DamageModel.Mitigate(poisonFraction, poisonResistance, poisonMaxResistance);
+        bleedMitigated *= dotTakenFactor;
+        poisonMitigated *= dotTakenFactor;
         bleedFraction = poisonFraction = 0;
         if (unaffectedBleed || physicalImmune)
         {
@@ -222,6 +232,7 @@ public sealed class IncomingDamagingAilments
         bleedFraction = poisonFraction = bleedTakenFraction = poisonTakenFraction = 0;
         bleedProtectedUntil = poisonProtectedUntil = double.NegativeInfinity;
         last = double.NegativeInfinity;
+        latestStart = double.NegativeInfinity;
         // Keep revisions monotonic so a presentation snapshot from before a lifecycle clear can never compare
         // equal to a fresh empty state.
         bleedRevision++;

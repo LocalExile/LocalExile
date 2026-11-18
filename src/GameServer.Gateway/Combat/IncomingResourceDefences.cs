@@ -19,6 +19,11 @@ public static class IncomingResourceDefences
 
     static int Per(int attribute, int per) => per > 0 ? Math.Clamp(attribute / per, 0, 100) : 0;
 
+    /// <summary>Lethe Shade: "100% more Duration of Ailments on you" (a multiplicative doubling). Reflected ailments are
+    /// excluded by the callers, which pass no victim or skip the factor for a reflection (poewiki /wiki/Lethe_Shade).</summary>
+    public static double LetheShadeAilmentDuration(Func<string, int>? get) =>
+        get is not null && get("keystone_lethe_shade") != 0 ? 2 : 1;
+
     public static int Taken(int damage, Func<string, int> get, int lessPct = 0) =>
         (int)Math.Clamp(Math.Max(0, damage) * Math.Max(0m, 1 + get(TakenStat) / 100m)
             * Math.Max(0m, 1 + get(ConditionalTakenStat) / 100m)
