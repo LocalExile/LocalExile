@@ -19,6 +19,9 @@ public static partial class Game
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
         IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
     {
+        // The active items are worked out once: every check below would otherwise ask each worn item again.
+        activeItems = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
+            .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         var ailments = conn.ElementalAilments.Snapshot(now);
         var leech = LeechOf(conn).Active(now);
         bool moving = conn.Walk.Moving(now), alive = conn.PlayerLife > 0;
@@ -100,8 +103,9 @@ public static partial class Game
         flags["_while_not_channelling"] = conn.ChannelSkill == 0;
         flags["_while_you_have_active_physical_aegis"] = physicalAegis.Active;
         flags["_while_you_have_depleted_physical_aegis"] = physicalAegis.Depleted;
-        flags["_while_unhinged"] = alive && Unhinged(conn);
-        flags["_while_not_unhinged"] = alive && !Unhinged(conn);
+        bool unhinged = alive && Unhinged(conn);
+        flags["_while_unhinged"] = unhinged;
+        flags["_while_not_unhinged"] = alive && !unhinged;
         flags["_if_you_have_beast_minion"] = HasSourceValidBeastMinion(conn);
         flags["_if_golem_summoned_in_past_8_seconds"] =
             GolemSummonedInPastEightSeconds(conn, AreaTime(conn));

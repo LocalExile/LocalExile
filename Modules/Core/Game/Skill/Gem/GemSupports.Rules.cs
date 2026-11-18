@@ -27,7 +27,7 @@ public static partial class Game
     /// <summary>Every item-granted source currently present on the supplied equipment, including unsupported/triggered rows.</summary>
     public static IReadOnlyList<WornGrantedSkills.Grant> AllWornGrantedSkillsOf(ClientState conn,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null) =>
-        WornGrantedSkillOwner(conn).For(equipment ?? ItemsOf(conn).EquipmentSnapshot());
+        WornGrantsFor(conn, equipment ?? ItemsOf(conn).EquipmentSnapshot());
 
     /// <summary>
     /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
