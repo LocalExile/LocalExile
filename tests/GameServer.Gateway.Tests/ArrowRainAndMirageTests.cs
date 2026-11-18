@@ -423,6 +423,7 @@ public class ArrowRainAndMirageTests
         Righteous_fire_uses_player_damage_modifiers();
         await Righteous_fire_uses_its_current_burning_damage_support();
         await Righteous_fire_combines_its_admitted_supports();
+        await Righteous_fire_settles_its_timed_supports_between_skill_payments();
         Claw_and_dagger_projectiles_keep_the_released_hand_and_source();
     }
 
@@ -694,15 +695,175 @@ public class ArrowRainAndMirageTests
         Assert.Equal(80, m.Ignites.Advance(7, Game.MonsterDotTaken(m, DamageType.Fire, 7)));
     }
 
+    sealed class ProjectileClock : IPlayerUpdateSchedule
+    {
+        public readonly Queue<Action> Steps = [];
+        public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            Steps.Dequeue()();
+            return Task.CompletedTask;
+        }
+    }
+
+    static async Task SwapRighteousFireSocket(Battle b, uint host, int index, string name, byte quality = 0)
+    {
+        var items = Game.ItemsOf(b.Conn);
+        var gem = Program.Items.FindGem(name)!.Value;
+        items.Add(PlayerInventories.Cursor, 0, 0, ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index, Quality = quality });
+        await Game.SocketGem("rf-links", b.Stream, b.Ciphers, b.Conn,
+            new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host, (uint)index));
+        items.Remove(PlayerInventories.Cursor, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+    }
+
+    static async Task Righteous_fire_settles_its_timed_supports_between_skill_payments()
+    {
+        using var b = new Battle("Righteous Fire", "Lifetap Support", "Inspiration Support", "Tornado Shot", "Lifetap Support");
+        var c = b.Conn;
+        var items = Game.ItemsOf(c);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { ItemLevel = 80, Links = [3, 2] });
+        c.Pools = Game.PoolsFor(c, 100);
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        b.Ally.Walk.Teleport(105, 100, 0);
+        var gems = Game.GemSkillEffects(c);
+        var gem = gems.Single(g => g.Name == "Righteous Fire");
+        var payer = gems.Single(g => g.Name == "Tornado Shot");
+        var own = Game.SupportedSkill(c, gem.Id).Stats;
+        Assert.Equal(10, own[Program.Stats.Key(Lifetap.DamageStat)!.Value]);
+        Assert.Equal(3, own[Program.Stats.Key("elemental_damage_+%_final_per_righteous_charge")!.Value]);
+        c.Clock.Start();
+        await Game.OnUseObject("rf-time", b.Stream, b.Ciphers, c, new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
+        c.Clock.Stop();
+        var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        double origin = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c))) + 1;
+        void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(origin + time));
+        void Pay(uint mana, uint life)
+        {
+            Assert.True(Game.PayMana(c, payer.Id, out uint paidMana, out uint paidLife));
+            Assert.Equal((mana, life), (paidMana, paidLife));
+        }
+        async Task Tick(double end, double factor)
+        {
+            At(end);
+            await AssertRighteousFireTick(b, rf, factor);
+        }
+        Task Swap(int slot, string name) => SwapRighteousFireSocket(b, host.Id, slot, name);
+        var previous = Game.AreaUpdateContext.Value;
+        var clock = new ProjectileClock();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            await Tick(1, 1);
+            At(2);
+            Pay(0, 27);
+            Assert.Equal(origin + 6, c.Lifetap.Until);
+            await Tick(2.25, 1.05); // First half of this interval preceded the life payment.
+            await Tick(2.75, 1.1);
+
+            await Swap(4, "Inspiration Support");
+            At(3.125);
+            Pay(8, 0);
+            At(3.375);
+            Pay(8, 0);
+            Assert.Equal(2, c.SupportGems.InspirationCharges);
+            await Tick(3.5, 1.1 * (.25 + .5 * 1.03 + .25 * 1.06));
+
+            At(5);
+            await Swap(4, "Lifetap Support");
+            Pay(0, 27);
+            Assert.Equal(origin + 9, c.Lifetap.Until);
+            await Tick(6.25, 1.1 * 1.06); // A refresh spans the former deadline.
+            await Tick(9.25, 1.05 * 1.06);
+            await Tick(10, 1.06);
+
+            await Swap(4, "Inspiration Support");
+            for (int i = 0; i < 13; i++) Pay(8, 0);
+            Assert.Equal((5, 120L), (c.SupportGems.InspirationCharges, c.SupportGems.InspirationSpent));
+            At(10.25);
+            Pay(8, 0); // The 122-Mana threshold clears all five charges.
+            Assert.Equal((0, 0L), (c.SupportGems.InspirationCharges, c.SupportGems.InspirationSpent));
+            await Tick(10.5, 1.075);
+
+            At(11);
+            Pay(8, 0);
+            At(11.25);
+            await Swap(2, "Arcane Surge Support");
+            await Tick(11.5, 1.015);
+            At(11.75);
+            await Swap(2, "Inspiration Support");
+            await Tick(12, 1.015);
+            Assert.Same(rf, c.RighteousFire);
+
+            At(21.25);
+            c.PlayerSent = true;
+            await Game.SendSupportGemBuffs("rf-time", b.Stream, b.Ciphers, c);
+            Assert.Equal(0, c.SupportGems.InspirationCharges);
+            await Tick(21.25, 1.015); // The player tick published expiry before settling damage.
+
+            At(22);
+            Pay(8, 0);
+            At(32.25);
+            Pay(8, 0); // No presentation tick since the previous charges expired.
+            Assert.Equal(1, c.SupportGems.InspirationCharges);
+            await Tick(32.5, 1.015);
+
+            At(33);
+            await Swap(0, "Righteous Fire");
+            Assert.Null(c.RighteousFire);
+            gem = Game.GemSkillEffects(c).Single(g => g.Name == "Righteous Fire");
+            await Game.ActivateRighteousFire("rf-time", b.Stream, b.Ciphers, c, gem.Id, gem.Effect, gem.Level, gem.Quality, gem.Gem);
+            rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+            await Tick(33.75, 1.03); // The new source starts while an existing Inspiration charge is active.
+
+            // A payment arrives after the player tick sampled [43, 43.5] but before its queued publications finish.
+            At(43);
+            clock.Steps.Enqueue(() => At(43.5));
+            clock.Steps.Enqueue(updates.Stop.Cancel);
+            uint laterMana = 0;
+            using var paidDuringTick = GameEvents.Tick.Add("Game", (actor, elapsed) =>
+            {
+                At(43.75);
+                Game.PayMana(actor, payer.Id, out laterMana, out _);
+                At(44);
+                return Task.CompletedTask;
+            });
+            c.Wire = ("rf-time", b.Stream, b.Ciphers);
+            c.PlayerUpdatesState = updates;
+            Assert.True(c.PlayerUpdatesWorker.TryStart(c, updates.Rules, null, updates, out updates.Generation));
+            b.Enemy.Burn = 0;
+            uint beforeTick = b.Enemy.Life;
+            c.Clock.Start();
+            await Game.RunPlayerTick("rf-time", b.Stream, b.Ciphers, c, updates);
+            c.Clock.Stop();
+            Assert.Empty(clock.Steps);
+            Assert.Equal(8u, laterMana);
+            Assert.Equal(RighteousFireHalfSecondDamage(c, rf, 1), (int)(beforeTick - b.Enemy.Life));
+            await Tick(44.25, 1.03);
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
+            updates.Stop.Dispose();
+        }
+    }
+
+    static int RighteousFireHalfSecondDamage(ClientState c, RighteousFireState rf, double factor)
+    {
+        double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
+            + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
+        return (int)Math.Floor(basis * factor * .5);
+    }
+
     static async Task AssertRighteousFireTick(Battle b, RighteousFireState rf, double factor)
     {
         var c = b.Conn;
-        double basis = (c.PlayerMaxLife * (double)rf.DamagePctPerMinute
-            + c.Pools.EnergyShield * (double)rf.EnergyShieldDamagePctPerMinute) / 6000;
         b.Enemy.Burn = 0;
         uint before = b.Enemy.Life, playerLife = c.PlayerLife;
         await Game.BurnAround("rf-link", b.Stream, b.Ciphers, c, rf, .5);
-        Assert.Equal((int)Math.Floor(basis * factor * .5), (int)(before - b.Enemy.Life));
+        Assert.Equal(RighteousFireHalfSecondDamage(c, rf, factor), (int)(before - b.Enemy.Life));
         Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
         Assert.Equal(playerLife, c.PlayerLife);
     }
@@ -743,12 +904,7 @@ public class ArrowRainAndMirageTests
         Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         async Task Replace(int index, string name, byte quality = 0)
         {
-            var replacement = Program.Items.FindGem(name)!.Value;
-            items.Add(PlayerInventories.Cursor, 0, 0,
-                ItemCatalog.Create(replacement.Type) with { GemVariant = replacement.Variant.Index, Quality = quality });
-            await Game.SocketGem("rf-links", b.Stream, b.Ciphers, c,
-                new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, (uint)index));
-            items.Remove(PlayerInventories.Cursor, Assert.Single(items.Items(PlayerInventories.Cursor)).Id);
+            await SwapRighteousFireSocket(b, host.Id, index, name, quality);
             Assert.Same(rf, c.RighteousFire);
         }
         await Tick(1.55 * 1.2 * 1.25 * 1.15);

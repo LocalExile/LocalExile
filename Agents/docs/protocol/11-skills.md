@@ -3118,7 +3118,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   Their area, elemental and DoT more factors multiply separately.
   A linked elemental damage prohibition stops the burn on enemies.
   Elemental Focus's ailment prohibition allows the skill's burning area.
-  Buff- and charge-dependent support damage and native comparison remain open.
+  Lifetap and Inspiration scale the parts of a tick when the support is linked and the buff or charges are active.
+  Their more damage factors multiply during overlaps.
+  Other conditional DoT modifiers and native timing remain unverified.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +

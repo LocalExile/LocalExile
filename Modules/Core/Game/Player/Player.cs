@@ -497,10 +497,9 @@ public static partial class Game
             {
                 conn.PlayerLife -= (uint)life;
                 lifeCost = (uint)life;
-                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
             ManaSpentLocked(conn, cost, player);
-            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ApplyPaidSupportCostsLocked(conn, skillId, own, cost, life);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
@@ -677,6 +676,7 @@ public static partial class Game
                 int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
+                SetRighteousFireSupportProfileLocked(conn, rf, supported.Stats);
                 bool changed = rf.SpellDamageMore != more || rf.Radius != radius;
                 if (!changed) return;
                 rf.SpellDamageMore = more;
@@ -814,6 +814,7 @@ public static partial class Game
                     Instance = conn.Instance,
                 };
                 conn.RighteousFire = state;
+                SetRighteousFireSupportProfileLocked(conn, state, supported.Stats);
                 conn.Minions.StatRevision++;
                 // The initial create/wake/receipt are immutable originals captured in the same admission mutation. A
                 // profile writer after this boundary can replace the retained ring but cannot change what this
@@ -1062,7 +1063,7 @@ public static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
-            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
             if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
@@ -1439,7 +1440,11 @@ public static partial class Game
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
-    public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
+    public static Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds) =>
+        BurnAround(remote, stream, ciphers, conn, rf, seconds, null);
+
+    static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        RighteousFireState rf, double seconds, double? tickEnd)
     {
         if (!CurrentGameWork) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
@@ -1462,6 +1467,7 @@ public static partial class Game
                 playerStats = CharacterPlayerStats(conn);
                 perSecond = RighteousFireEnemyDps(conn, rf, playerStats, supported.Stats);
             }
+            perSecond *= RighteousFireTimedSupportFactor(rf, tickEnd ?? now, seconds);
             var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
                 .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
             var here = conn.Walk.Position(now);
