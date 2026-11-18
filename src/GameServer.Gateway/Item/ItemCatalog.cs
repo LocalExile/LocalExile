@@ -196,7 +196,8 @@ public sealed class ItemCatalog
     public BaseType? Row(int row) => row >= 0 && row < _rows.Rows.Count ? _rows.Rows[row] : null;
 
     /// <summary>A BaseItemTypes row by number, or by Id: exact, then the last path segment, then the display name, then
-    /// any part of the Id. Several matches: the first one the serializer supports.</summary>
+    /// an exact trailing parenthetical display alias, then any part of the Id.
+    /// Several matches: the first one the serializer supports.</summary>
     /// <summary>Every BaseItemTypes row (the launcher's suggestions).</summary>
     public IReadOnlyList<BaseType> All => _rows.Rows;
 
@@ -213,6 +214,7 @@ public sealed class ItemCatalog
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
             t => t.Id.EndsWith("/" + query, StringComparison.OrdinalIgnoreCase),
             t => t.Name.Equals(query, StringComparison.OrdinalIgnoreCase),
+            t => t.Name.EndsWith("(" + query + ")", StringComparison.OrdinalIgnoreCase),
             t => t.Id.Contains(query, StringComparison.OrdinalIgnoreCase),
         })
         {

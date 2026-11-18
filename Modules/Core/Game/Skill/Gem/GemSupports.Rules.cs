@@ -3,10 +3,52 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     public static GemSupports Supports = null!;
+
+    /// <summary>Fills the item-granted skills at startup (the world loader, before the Gateway listens); the Ruthless
+    /// set is built with the HardMode data (LoadHardModeData).</summary>
+    public static void LoadWornGrantedSkillsData() => WornGrantedSkillCatalog = new(Skills, Items.Mods);
+
+    static WornGrantedSkills WornGrantedSkillCatalog = default!;
+    static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
     public sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
         Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
         WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1);
 
+    public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
+        GemSkillIds.Gem Identity, Item? SourceGem, WornGrantedSkills.Grant? WornGrant,
+        PassiveGrantedSkills.Grant? PassiveGrant, bool Active);
+
+    /// <summary>
+    /// Source-identity owner for item grants in this connection's data mode. Later trigger, minion, aspect and
+    /// temporary-state owners should resolve their sources through this (and <see cref="AllWornGrantedSkillsOf"/>)
+    /// and validate retained work with <see cref="WornGrantedSkills.StillWorn"/>, never from a translated mod name.
+    /// </summary>
+    public static WornGrantedSkills WornGrantedSkillOwner(ClientState conn) =>
+        LeagueFor(conn).HardMode ? RuthlessWornGrantedSkillCatalog : WornGrantedSkillCatalog;
+
+    /// <summary>Every item-granted source currently present on the supplied equipment, including unsupported/triggered rows.</summary>
+    public static IReadOnlyList<WornGrantedSkills.Grant> AllWornGrantedSkillsOf(ClientState conn,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null) =>
+        WornGrantsFor(conn, equipment ?? ItemsOf(conn).EquipmentSnapshot());
+
+    /// <summary>
+    /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
+    /// trigger owns admission; its Actor row is needed to receive the triggered action. Unsupported grants remain
+    /// available from <see cref="AllWornGrantedSkillsOf"/> but are not presented as usable Actor skills.
+    /// </summary>
+    public static IReadOnlyList<WornGrantedSkills.Grant> WornGrantedSkillsOf(ClientState conn,
+        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
+    {
+        equipment ??= ItemsOf(conn).EquipmentSnapshot();
+        return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
+            && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
+            && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
+                || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
+                || AuraCatalog.Supported(g.EffectId)
+                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
+    }
+
+    public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
     public static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
         if (BuildScopeOf(conn) is not { } scope)
@@ -88,17 +130,7 @@ public static partial class Game
             && CrueltyActivePct(conn, skillId) is int crueltyPct and > 0
             && Stats.Key(CrueltyDotStat) is uint crueltyKey)
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
-        if (SkillsFor(conn).IsMelee(selected.Effect)
-            && conn.Auras.Values.FirstOrDefault(a => a.EffectId == "BloodAndSand" && a.AffectsSelf) is { } stance)
-        {
-            string input = stance.Stance == "Sand" ? "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance"
-                : "blood_sand_stance_melee_skills_area_of_effect_+%_final_in_blood_stance";
-            if (Stats.Key(input) is uint stanceInput && Stats.Key("active_skill_area_of_effect_+%_final") is uint target)
-            {
-                int value = SkillsFor(conn).EffectStats(stance.Effect, stance.Level, stance.Quality).FirstOrDefault(s => s.Item1 == stanceInput).Item2;
-                own[target] = (int)Math.Round(100 * ((1 + own.GetValueOrDefault(target) / 100.0) * (1 + value / 100.0) - 1));
-            }
-        }
+        ApplyBloodAndSandMeleeStats(conn, selected.Effect, own);
         if (SkillsFor(conn).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
@@ -106,6 +138,131 @@ public static partial class Game
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(conn, selected.Place.Gem, requirements) is null,
             Host: selected.Place.ItemId, Group: group);
+    }
+
+    /// <summary>
+    /// The one ordered source list used by Actor publication, id assignment, support resolution, admission and restore:
+    /// socketed gems, worn-item grants, then passive grants.
+    /// </summary>
+    public static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesAt(string? character,
+        IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlySet<uint>? inactive, LeagueRuntime league,
+        IReadOnlyList<PassiveGrantedSkills.Grant> granted, IReadOnlyList<WornGrantedSkills.Grant> worn)
+    {
+        string name = string.IsNullOrEmpty(character) ? "Exile" : character;
+        var catalog = league.HardMode ? HardModeItems : Items;
+        var gems = GemRequirementSnapshot.PlacesIn(equipment)
+            .Where(p => catalog.ByHash(p.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
+            .SelectMany(p => catalog.GemEffects(p.Gem).Select(effect => (Place: p, Effect: effect))).ToList();
+        var identities = new List<GemSkillIds.Gem>(gems.Count + worn.Count + granted.Count);
+        identities.AddRange(gems.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect)));
+        identities.AddRange(worn.Select(g => new GemSkillIds.Gem(g.Host, g.Socket, g.Effect, GemSkillIds.SourceKind.WornGrant)));
+        identities.AddRange(granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect, GemSkillIds.SourceKind.PassiveGrant)));
+        var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds()).Assign(identities, GemSkillIdPool);
+        var result = new List<PlayerSkillSource>(identities.Count);
+        for (int i = 0; i < identities.Count; i++)
+        {
+            if (ids[i] is not ushort id) continue;
+            if (i < gems.Count)
+            {
+                var g = gems[i];
+                result.Add(new(id, g.Effect, catalog.GemName(g.Place.Gem), catalog.GemLevel(g.Place.Gem),
+                    g.Place.Gem.Quality, g.Place.Gem.TypeHash, identities[i], g.Place.Gem, null, null,
+                    inactive?.Contains(g.Place.ItemId) != true));
+            }
+            else if (i < gems.Count + worn.Count)
+            {
+                var g = worn[i - gems.Count];
+                result.Add(new(id, g.Effect, g.EffectId, g.Level, 0, 0, identities[i], null, g, null,
+                    inactive?.Contains(g.Host) != true));
+            }
+            else
+            {
+                var g = granted[i - gems.Count - worn.Count];
+                result.Add(new(id, g.Effect, g.EffectId, g.Level, 0, 0, identities[i], null, null, g, true));
+            }
+        }
+        return result;
+    }
+
+    static SupportedGem WornSupportedSkill(ClientState conn, WornGrantedSkills.Grant grant,
+        IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        GemRequirementSnapshot? requirements)
+    {
+        // The accepted-use path cannot trust the last panel publication: requirements and support eligibility must
+        // come from the current equipment/attribute snapshot even when no stat update announced the change.
+        requirements ??= CurrentGemRequirements(conn, equipment);
+        var host = equipment.Single(e => e.Item.Id == grant.Host).Item.Item;
+        var local = ItemModStats.Local(host, ItemsFor(conn).Mods);
+        (int Level, int Quality) LocalBonus(int socket, Item gem) =>
+            SocketedGemBonuses.For(host, socket, gem, ItemsFor(conn), SkillsFor(conn), local, conn.Pools.Level);
+        int Quality(int socket, Item gem)
+        {
+            int colour = ItemsFor(conn).ByHash(gem.TypeHash) is { } type ? ItemsFor(conn).Gem(type)?.Colour ?? 0 : 0;
+            return gem.Quality + LocalBonus(socket, gem).Quality
+                + (colour is >= 1 and <= 3 && (int)host.Sockets[socket].Colour == colour ? 10 : 0);
+        }
+        var candidates = new List<GemSupports.Candidate>();
+        // Supports socketed in the granting host apply without link groups; an item-granted active is not a gem link.
+        foreach (var place in GemRequirementSnapshot.PlacesIn(equipment).Where(p => p.ItemId == grant.Host
+            && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
+            if (ItemsFor(conn).ByHash(place.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: true } gem)
+            {
+                var variant = gem.Variant(place.Gem.GemVariant);
+                foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
+                    candidates.Add(new(effect, EffectiveGemLevel(conn, place.Gem, LocalBonus(place.Socket, place.Gem).Level),
+                        Quality(place.Socket, place.Gem), place.Socket));
+            }
+        candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
+        var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
+        int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
+        var supports = Supports.Resolve(grant.Effect, candidates, SkillsFor(conn), weaponClass, sourceIsGem: false);
+        var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        ApplySupportStats(conn, own, supports);
+        if (SkillsFor(conn).IsAura(grant.Effect, supports.Select(s => s.Effect.Row)))
+            own[OwnAuraRestriction.BaseAura] = 1;
+        own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
+        return new(grant.Effect, grant.Level, 0, supports, own,
+            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
+    }
+
+    static void ApplySupportStats(ClientState conn, Dictionary<uint, int> own, IReadOnlyList<GemSupports.Applied> supports)
+    {
+        foreach (var support in supports)
+            foreach (var (key, value) in support.Stats)
+            {
+                string stat = Stats.Name(key) ?? "";
+                if (stat is "base_spell_cast_time_ms" or "virtual_base_spell_cast_time_ms" or "hundred_times_casts_per_second"
+                    or "casting_spell" or "base_life_cost" or "life_cost" or "base_es_cost" or "es_cost" or "base_mana_cost" or "mana_cost"
+                    or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
+                own[key] = stat.EndsWith("_final", StringComparison.Ordinal) && own.TryGetValue(key, out int previous)
+                    ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
+                    : own.GetValueOrDefault(key) + value;
+            }
+        // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
+        // plain stats read by damage conversion and resource costs, scoped to this supported skill.
+        int? keystones = null;
+        foreach (string stat in new[] { "skill_cost_+%_per_keystone", "physical_damage_%_to_add_as_chaos_per_keystone" })
+            if (Stats.Key(stat) is uint perKey && own.TryGetValue(perKey, out int per))
+            {
+                own[perKey] = per * (keystones ??= KeystoneCount(conn));
+                if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
+                    && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
+                    own[plain] = own.GetValueOrDefault(plain) + own[perKey];
+                if (stat == "skill_cost_+%_per_keystone" && Stats.Key("base_cost_+%") is uint costKey)
+                    own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
+            }
+        double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
+        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
+            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
+            if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
+        // Global added damage on support gems applies to this skill, not to the character or other link groups.
+        foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
+            foreach (string bound in new[] { "minimum", "maximum" })
+                if (Stats.Key($"global_{bound}_added_{type}_damage") is uint k && own.TryGetValue(k, out int damage))
+                    foreach (string kind in new[] { "attack", "spell" })
+                        if (Stats.Key($"{kind}_{bound}_added_{type}_damage") is uint target)
+                            own[target] = own.GetValueOrDefault(target) + damage;
+
     }
 
     // The Squire ("Socketed Support Gems can also Support Skills from your Main Hand"): every support gem in an active
@@ -151,7 +308,14 @@ public static partial class Game
     public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        return MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        var skill = SupportedSkill(conn, skillId);
+        return MergeSkillStats(player, skill.Stats, SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
+    }
+
+    static double SkillCostMore(ClientState conn, IReadOnlyDictionary<uint, int> own)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        return BloodCharges.Uses(Get) ? BloodCharges.More(Get(BloodCharges.CostPerCharge), conn.BloodCharges) : 1;
     }
 
     // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
@@ -163,7 +327,8 @@ public static partial class Game
         return (Stat("non_curse_aura_effect_+%") + Stat("aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
     }
 
-    public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        bool? channelled = null, double costMore = 1)
     {
         var result = new Dictionary<uint, int>(player);
         foreach (var (key, value) in own)
@@ -177,7 +342,8 @@ public static partial class Game
                 ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
-            result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0);
+            result[mana] = ManaRecoveryRules.Cost(baseCost,
+                name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0, channelled, costMore);
         if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
         {
             int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
@@ -419,8 +585,9 @@ public static partial class Game
         conn.CombatRushAttackSpeed = 0;
     }
 
-    public static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area, int addedChaos = 0)
-        => SupportedHitFor(conn, skillId, suppress: false, area, projectile: true, addedChaos: addedChaos);
+    public static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area,
+        long additionalIncreased = 0, int addedChaos = 0)
+        => SupportedHitFor(conn, skillId, suppress: false, area, additionalIncreased: additionalIncreased, projectile: true, addedChaos: addedChaos);
 
     // The same supported attack swung with the off-hand weapon of a dual-wielded attack (the Offence tab's Off Hand rows).
     public static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
@@ -431,15 +598,18 @@ public static partial class Game
     public sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<string, int> Get,
         GameServer.Core.World.DamageConversion Conversion, bool Attack, bool Melee, bool Area, bool Projectile,
         List<(string Name, int Value)> Modifiers, HashSet<int> Types, SkillHitPlan Plan, Dictionary<uint, int> Caster,
-        bool WieldingWand = false, bool WieldingBow = false, bool Secondary = false);
-
-    // charges: the removable charge counts a charge-spending use counted (Discharge), instead of the ones held now.
-    // projectile: separates the projectile stage of hybrid melee-projectile attacks (such as Molten Strike) from the melee hit.
-    public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, bool projectile = false,
-        int addedChaos = 0, bool totem = false)
+        bool WieldingWand = false, bool WieldingBow = false, bool Secondary = false)
     {
-        var gem = SupportedSkill(conn, skillId);
+        public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
+        public int WeaponIncreased { get; init; }
+        public bool Armed { get; init; }
+    }
+
+    public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
+        bool projectile = false, int addedChaos = 0, bool totem = false)
+    {
+        var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
         if (charges is not null)
@@ -493,25 +663,33 @@ public static partial class Game
         if (molten && projectile && Get("active_skill_hit_ailment_damage_with_projectile_+%_final") is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToList();
+        modifiers.AddRange(gem.Stats.Select(s => (Name: Stats.Name(s.Key) ?? "", s.Value))
+            .Where(s => s.Name == "blood_sand_stance_melee_skills_area_damage_+%_final"));
         return new(raw, Get, DamageStats.Conversion(stats, Stats, secondary ? null : attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,
-            WieldingWand: attackWeapon?.WieldingWand == true,
-            WieldingBow: attackWeapon?.Bow == true, Secondary: secondary);
+            WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true, Secondary: secondary)
+        {
+            FrozenStats = new Dictionary<uint, int>(stats),
+            WeaponIncreased = attackWeapon is null ? 0 : SupportedAttackDamage.WeaponIncrease(attackWeapon, Get),
+            Armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon),
+        };
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, bool projectile = false,
-        int addedChaos = 0)
-        => SupportedHitInputsFor(conn, skillId, area, weapon, charges, projectile: projectile, addedChaos: addedChaos) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, long additionalIncreased = 0, bool projectile = false, int addedChaos = 0)
+        => SupportedHitInputsFor(conn, skillId, area, weapon, charges, projectile: projectile, addedChaos: addedChaos) is { } inputs
+            ? SupportedHitFrom(inputs, suppress, additionalIncreased) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
-    public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
+    public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
+        long additionalIncreased = 0)
     {
-        var hit = PlayerHitDamage.Resolve(inputs.Raw, inputs.Get, inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
+        var hit = PlayerHitDamage.Resolve(inputs.Raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack && !inputs.Secondary,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
-            wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120), secondary: inputs.Secondary);
+            wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),
+            secondary: inputs.Secondary, additionalIncreased: additionalIncreased + (inputs.Attack ? inputs.WeaponIncreased : 0));
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
@@ -519,13 +697,15 @@ public static partial class Game
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of
     // an attack with that hand's weapon, or a spell's / secondary-damage skill's hit.
     public static List<(string Stat, int Value)> SupportedAilmentRows(ClientState conn, ushort skillId, string hand,
-        SkillCatalog.Unarmed? weapon = null, bool projectile = false, int addedChaos = 0)
-        => SupportedHitInputsFor(conn, skillId, weapon: weapon, projectile: projectile, addedChaos: addedChaos) is { } inputs ? SupportedAilmentRowsFrom(inputs, hand) : [];
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, bool projectile = false, int addedChaos = 0)
+        => SupportedHitInputsFor(conn, skillId, weapon: weapon, projectile: projectile, addedChaos: addedChaos) is { } inputs
+            ? SupportedAilmentRowsFrom(inputs, hand, additionalIncreased) : [];
 
-    public static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
+    public static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
+        long additionalIncreased = 0)
     {
         var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee);
-        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get);
+        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
     }
 
     public static AttackAccuracyProfile SupportedAccuracy(ClientState conn, ushort skillId)
@@ -572,195 +752,70 @@ public static partial class Game
             Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
-    public static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
+    public static SkillCatalog.ReservationCost? SupportedReservationCost(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
+        if (SkillsFor(conn).EffectId(gem.Effect) is not { } effectId) return null;
         var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
-        if (CurseCatalog.Hex(SkillsFor(conn).EffectId(gem.Effect)))
+        if (CurseCatalog.Hex(effectId) || effectId == "TemporalChains")
         {
             var blasphemy = gem.Supports.FirstOrDefault(s => IsBlasphemySupport(s.Effect.Id));
             if (blasphemy is null) return null;
             sourceReservation = SkillsFor(conn).Reservation(blasphemy.Effect.Row, blasphemy.Gem.Level);
-            var sources = CharacterStatSources(conn).Stats;
-            if (SkillsFor(conn).EffectId(gem.Effect) == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
-                && conn.PlayerStats.GetValueOrDefault(free, sources.GetValueOrDefault(free)) != 0) return (0, 0);
+            var curseSources = CharacterStatSources(conn).Stats;
+            if (effectId == "TemporalChains" && Stats.Key("temporal_chains_no_reservation") is uint free
+                && conn.PlayerStats.GetValueOrDefault(free, curseSources.GetValueOrDefault(free)) != 0) return new(0, 0, 0, 0);
         }
         if (sourceReservation is not { } reservation) return null;
-        // Integer multipliers are exact percentages (Arrogance's 201% of Grace's 50% is 100.50%), so binary floating
-        // point must not cost the reservation its last permyriad (2.01 * 5000 = 10049.99...).
+        var sources = CharacterStatSources(conn).Stats;
+        int Own(string name) => GolemStat(gem.Stats, name);
+        int Get(string name) => Own(name) + (Stats.Key(name) is uint key
+            ? conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key)) : 0);
+        int manaFlat = reservation.ManaFlat, manaPercent = reservation.ManaPercent;
+        int lifeFlat = reservation.LifeFlat, lifePercent = reservation.LifePercent;
+        bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
+        bool mine = Supports.Of(gem.Effect)?.Types.Contains(35) == true;
+        bool lifeInstead = SkillsFor(conn).LifeReservation(gem.Effect, gem.Level)
+            || Get("base_skill_reserve_life_instead_of_mana") != 0 || Get("skill_reserve_life_instead_of_mana") != 0
+            || curse && Get("curse_aura_skills_reserve_life") != 0
+            || mine && Get("skills_that_throw_mines_reserve_life") != 0;
+        if (lifeInstead)
+        {
+            lifeFlat += manaFlat;
+            lifePercent += manaPercent;
+            manaFlat = manaPercent = 0;
+        }
+        if (Get("base_skill_no_life_reservation") != 0 || Get("skill_no_life_reservation") != 0)
+            lifeFlat = lifePercent = 0;
+        // Mana-only exemptions never erase a Life reservation.
+        if (AuraCatalog.Supported(effectId) && Get(AuraCatalog.NoManaReservationStat(effectId)) != 0)
+            manaFlat = manaPercent = 0;
+        if (effectId == "TemporalChains" && Get("temporal_chains_no_reservation") != 0)
+            manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
-        return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
+        return new((int)Math.Floor(manaFlat * factor), (int)Math.Floor(manaPercent * factor),
+            (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor));
+    }
+
+    // Compatibility view for one-pool callers: select the resource the caller's context will use, never a Mana-only
+    // projection that would erase a Life cost. Full callers use SupportedReservationCost's four raw slots.
+    public static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
+    {
+        if (SupportedReservationCost(conn, skillId) is not { } cost) return null;
+        var context = ReservationContext(conn, skillId);
+        bool explicitLife = cost.LifeFlat != 0 || cost.LifePercent != 0;
+        return context.Life
+            ? (explicitLife ? cost.LifeFlat : cost.ManaFlat, explicitLife ? cost.LifePercent : cost.ManaPercent)
+            : (cost.ManaFlat, cost.ManaPercent);
     }
 
     public static int SupportedCriticalMultiplier(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         int extra = Stats.Key("base_critical_strike_multiplier_+") is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
-        return (int)Math.Clamp((long)(SkillsFor(conn).IsAttack(gem.Effect)
-            ? AttackCriticalMultiplier(conn, CharacterPlayerStats(conn), gem.Effect, gem.Stats)
-            : conn.Pools.SpellCriticalStrikeMultiplier) + extra, int.MinValue, int.MaxValue);
-    }    static readonly Lazy<WornGrantedSkills> WornGrantedSkillCatalog =
-        new(() => new(Skills, Items.Mods));
-    static readonly Lazy<WornGrantedSkills> RuthlessWornGrantedSkillCatalog =
-        new(() => new(HardModeSkills, HardModeItems.Mods, ruthless: true));
-
-    public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
-        GemSkillIds.Gem Identity, Item? SourceGem, WornGrantedSkills.Grant? WornGrant,
-        PassiveGrantedSkills.Grant? PassiveGrant, bool Active);
-
-    /// <summary>
-    /// Source-identity owner for item grants in this connection's data mode. Later trigger, minion, aspect and
-    /// temporary-state owners should resolve their sources through this (and <see cref="AllWornGrantedSkillsOf"/>)
-    /// and validate retained work with <see cref="WornGrantedSkills.StillWorn"/>, never from a translated mod name.
-    /// </summary>
-    public static WornGrantedSkills WornGrantedSkillOwner(ClientState conn) =>
-        LeagueFor(conn).HardMode ? RuthlessWornGrantedSkillCatalog.Value : WornGrantedSkillCatalog.Value;
-
-    /// <summary>Every item-granted source currently present on the supplied equipment, including unsupported/triggered rows.</summary>
-    public static IReadOnlyList<WornGrantedSkills.Grant> AllWornGrantedSkillsOf(ClientState conn,
-        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null) =>
-        WornGrantedSkillOwner(conn).For(equipment ?? ItemsOf(conn).EquipmentSnapshot());
-
-    /// <summary>
-    /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
-    /// trigger owns admission; its Actor row is needed to receive the triggered action. Unsupported grants remain
-    /// available from <see cref="AllWornGrantedSkillsOf"/> but are not presented as usable Actor skills.
-    /// </summary>
-    public static IReadOnlyList<WornGrantedSkills.Grant> WornGrantedSkillsOf(ClientState conn,
-        IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
-    {
-        equipment ??= ItemsOf(conn).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
-            && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
-            && (IsDashEffect(g.EffectId) || AuraCatalog.Supported(g.EffectId)
-                || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
+        var player = CharacterPlayerStats(conn);
+        return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
+            ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
+            : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);
     }
-
-    public static bool IsDashEffect(string? effectId) => effectId is "Dash" or "DashHardMode" or "DashArborix";
-
-    /// <summary>
-    /// The one ordered source list used by Actor publication, id assignment, support resolution, admission and restore:
-    /// socketed gems, worn-item grants, then passive grants.
-    /// </summary>
-    public static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesAt(string? character,
-        IReadOnlyList<(byte Row, InventoryItem Item)> equipment, IReadOnlySet<uint>? inactive, LeagueRuntime league,
-        IReadOnlyList<PassiveGrantedSkills.Grant> granted, IReadOnlyList<WornGrantedSkills.Grant> worn)
-    {
-        string name = string.IsNullOrEmpty(character) ? "Exile" : character;
-        var catalog = league.HardMode ? HardModeItems : Items;
-        var gems = GemRequirementSnapshot.PlacesIn(equipment)
-            .Where(p => catalog.ByHash(p.Gem.TypeHash) is not { } type ? !league.HardMode : league.Rules.AllowsGemBase(type.Id))
-            .SelectMany(p => catalog.GemEffects(p.Gem).Select(effect => (Place: p, Effect: effect))).ToList();
-        var identities = new List<GemSkillIds.Gem>(gems.Count + worn.Count + granted.Count);
-        identities.AddRange(gems.Select(g => new GemSkillIds.Gem(g.Place.ItemId, g.Place.Socket, g.Effect)));
-        identities.AddRange(worn.Select(g => new GemSkillIds.Gem(g.Host, g.Socket, g.Effect, GemSkillIds.SourceKind.WornGrant)));
-        identities.AddRange(granted.Select(g => new GemSkillIds.Gem(g.Host, 0, g.Effect, GemSkillIds.SourceKind.PassiveGrant)));
-        var ids = GemSkillIdsOf.GetOrAdd(name, _ => new GemSkillIds()).Assign(identities, GemSkillIdPool);
-        var result = new List<PlayerSkillSource>(identities.Count);
-        for (int i = 0; i < identities.Count; i++)
-        {
-            if (ids[i] is not ushort id) continue;
-            if (i < gems.Count)
-            {
-                var g = gems[i];
-                result.Add(new(id, g.Effect, catalog.GemName(g.Place.Gem), catalog.GemLevel(g.Place.Gem),
-                    g.Place.Gem.Quality, g.Place.Gem.TypeHash, identities[i], g.Place.Gem, null, null,
-                    inactive?.Contains(g.Place.ItemId) != true));
-            }
-            else if (i < gems.Count + worn.Count)
-            {
-                var g = worn[i - gems.Count];
-                result.Add(new(id, g.Effect, g.EffectId, g.Level, 0, 0, identities[i], null, g, null,
-                    inactive?.Contains(g.Host) != true));
-            }
-            else
-            {
-                var g = granted[i - gems.Count - worn.Count];
-                result.Add(new(id, g.Effect, g.EffectId, g.Level, 0, 0, identities[i], null, null, g, true));
-            }
-        }
-        return result;
-    }
-
-    static SupportedGem WornSupportedSkill(ClientState conn, WornGrantedSkills.Grant grant,
-        IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        GemRequirementSnapshot? requirements)
-    {
-        // The accepted-use path cannot trust the last panel publication: requirements and support eligibility must
-        // come from the current equipment/attribute snapshot even when no stat update announced the change.
-        requirements ??= CurrentGemRequirements(conn, equipment);
-        var host = equipment.Single(e => e.Item.Id == grant.Host).Item.Item;
-        var local = ItemModStats.Local(host, ItemsFor(conn).Mods);
-        (int Level, int Quality) LocalBonus(int socket, Item gem) =>
-            SocketedGemBonuses.For(host, socket, gem, ItemsFor(conn), SkillsFor(conn), local, conn.Pools.Level);
-        int Quality(int socket, Item gem)
-        {
-            int colour = ItemsFor(conn).ByHash(gem.TypeHash) is { } type ? ItemsFor(conn).Gem(type)?.Colour ?? 0 : 0;
-            return gem.Quality + LocalBonus(socket, gem).Quality
-                + (colour is >= 1 and <= 3 && (int)host.Sockets[socket].Colour == colour ? 10 : 0);
-        }
-        var candidates = new List<GemSupports.Candidate>();
-        // Supports socketed in the granting host apply without link groups; an item-granted active is not a gem link.
-        foreach (var place in GemRequirementSnapshot.PlacesIn(equipment).Where(p => p.ItemId == grant.Host
-            && GemRequirementsUnmetAt(conn, p.Gem, requirements) is null))
-            if (ItemsFor(conn).ByHash(place.Gem.TypeHash) is { } type && ItemsFor(conn).Gem(type) is { IsSupport: true } gem)
-            {
-                var variant = gem.Variant(place.Gem.GemVariant);
-                foreach (int effect in new[] { variant.Effect, variant.Effect2 }.Where(e => e >= 0))
-                    candidates.Add(new(effect, EffectiveGemLevel(conn, place.Gem, LocalBonus(place.Socket, place.Gem).Level),
-                        Quality(place.Socket, place.Gem), place.Socket));
-            }
-        candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
-        var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
-        int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
-        var supports = Supports.Resolve(grant.Effect, candidates, SkillsFor(conn), weaponClass, sourceIsGem: false);
-        var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        ApplySupportStats(conn, own, supports);
-        if (SkillsFor(conn).IsAura(grant.Effect, supports.Select(s => s.Effect.Row)))
-            own[OwnAuraRestriction.BaseAura] = 1;
-        own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
-        return new(grant.Effect, grant.Level, 0, supports, own,
-            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
-    }
-
-    static void ApplySupportStats(ClientState conn, Dictionary<uint, int> own, IReadOnlyList<GemSupports.Applied> supports)
-    {
-        foreach (var support in supports)
-            foreach (var (key, value) in support.Stats)
-            {
-                string stat = Stats.Name(key) ?? "";
-                if (stat is "base_spell_cast_time_ms" or "virtual_base_spell_cast_time_ms" or "hundred_times_casts_per_second"
-                    or "casting_spell" or "base_life_cost" or "life_cost" or "base_es_cost" or "es_cost" or "base_mana_cost" or "mana_cost"
-                    or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
-                own[key] = stat.EndsWith("_final", StringComparison.Ordinal) && own.TryGetValue(key, out int previous)
-                    ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
-                    : own.GetValueOrDefault(key) + value;
-            }
-        // Machinations: its "per Keystone" stats count the character's allocated keystones. The chaos gain feeds the
-        // plain stats read by damage conversion and resource costs, scoped to this supported skill.
-        int? keystones = null;
-        foreach (string stat in new[] { "skill_cost_+%_per_keystone", "physical_damage_%_to_add_as_chaos_per_keystone" })
-            if (Stats.Key(stat) is uint perKey && own.TryGetValue(perKey, out int per))
-            {
-                own[perKey] = per * (keystones ??= KeystoneCount(conn));
-                if (stat == "physical_damage_%_to_add_as_chaos_per_keystone" && own[perKey] != 0
-                    && Stats.Key("physical_damage_%_to_add_as_chaos") is uint plain)
-                    own[plain] = own.GetValueOrDefault(plain) + own[perKey];
-                if (stat == "skill_cost_+%_per_keystone" && Stats.Key("base_cost_+%") is uint costKey)
-                    own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
-            }
-        double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
-        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "es_cost", "base_es_cost",
-            "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
-            if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
-        // Global added damage on support gems applies to this skill, not to the character or other link groups.
-        foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
-            foreach (string bound in new[] { "minimum", "maximum" })
-                if (Stats.Key($"global_{bound}_added_{type}_damage") is uint k && own.TryGetValue(k, out int damage))
-                    foreach (string kind in new[] { "attack", "spell" })
-                        if (Stats.Key($"{kind}_{bound}_added_{type}_damage") is uint target)
-                            own[target] = own.GetValueOrDefault(target) + damage;
-
-    }
-
 }

@@ -122,6 +122,7 @@ public sealed class MonsterEmerge
     /// whether it waits to rise (the caller then starts the watch). Under the Monsters lock.</summary>
     public static bool AddLocked(ClientState conn, uint id, SpawnedMonster m, EmergeKind kind, bool unrisen)
     {
+        m.ObjectId = id;
         var g = conn.EmergeGround;
         bool waits = unrisen && kind != EmergeKind.None;
         if (waits && kind == EmergeKind.Buried) { conn.DormantMonsters[id] = m; return true; }

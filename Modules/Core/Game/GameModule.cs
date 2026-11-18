@@ -72,7 +72,6 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMonsterModsData();
         Rules.LoadPassiveGrantedSkillsRulesData();
         // Combat, skills and projectiles.
-        Rules.LoadElusiveData();
         Rules.LoadOwnAurasData();
         global::StationaryCollision.LoadStationaryCollisionData();
         Rules.LoadProjectilesData();
@@ -113,6 +112,22 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
         InstanceEvents.AreaStats.Add(module.Manifest.Id, Rules.MapAreaStats);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabBosses.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapEssences.Enter);
+        GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
+        GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Rules.InitializeAccountHideouts(module.Settings<Rules.HideoutMigrationSettings>().LegacySourceCharacter);
@@ -283,7 +298,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
-        if (conn.MonstersPlaced) Rules.KeepInstanceMonsters(conn);
+        Rules.KeepInstanceMonsters(conn);
     }
 
     public IDisposable ProjectileMutation(ClientState conn) => Rules.ProjectileMutation(conn, advance: false);

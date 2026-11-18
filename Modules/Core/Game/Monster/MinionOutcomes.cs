@@ -39,6 +39,7 @@ public static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            QueueMadnessExplosionLocked(conn, victimId, monster);
             conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
@@ -81,7 +82,7 @@ public static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); TrimLeechLocked(conn);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
@@ -231,6 +232,8 @@ public static partial class Game
                             [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
                     }
                     if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
+                    if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)
+                        return RighteousFireRingCurrentLocked(conn, output.RighteousFireRing!) ? output.Packet : null;
                     if (output.Target is not null && output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
                     if (output.Kind == PlayerMinions.OutputKind.GolemAction)
                     {
@@ -319,8 +322,8 @@ public static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "accepted minion outcomes");
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-            await Send(remote, stream, ciphers, [], "player life after minion outcomes", atGate: () =>
-            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "player life after minion outcomes", atGate: () =>
+            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? PlayerLifeUpdate(conn) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
         await SendSentinelOwnership(remote, stream, ciphers, conn, Current);

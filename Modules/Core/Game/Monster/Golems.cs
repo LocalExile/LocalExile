@@ -52,6 +52,17 @@ public static partial class Game
         new(golem.Monster.Life, golem.Monster.MaxLife, golem.ShieldPool.Current, golem.ShieldPool.Maximum,
             golem.Regeneration, golem.ShieldPool.Capture(at), at, golem.LastStep);
 
+    static IReadOnlyList<PlayerSkillSource> PlayerSkillSourcesLocked(ClientState conn)
+    {
+        string name = CharacterName(conn);
+        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        return PlayerSkillSourcesAt(name, equipment, InactiveItems.GetValueOrDefault(name), LeagueFor(conn),
+            GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment));
+    }
+
+    static PlayerSkillSource? CurrentPlayerSkillSourceLocked(ClientState conn, ushort source) =>
+        PlayerSkillSourcesLocked(conn).FirstOrDefault(row => row.Id == source);
+
     static FreshSummonAdmission? PrepareFreshSummonLocked(ClientState conn, ushort source, SupportedGem supported,
         Dictionary<uint, int> player, GemSourceLifetimes.SourceLifetime? gemSource)
     {

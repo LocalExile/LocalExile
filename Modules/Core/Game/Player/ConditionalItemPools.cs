@@ -19,6 +19,9 @@ public static partial class Game
     public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now,
         IEnumerable<Item>? activeItems, out LifeReservationConditionSnapshot reservationSnapshot)
     {
+        // The active items are worked out once: every check below would otherwise ask each worn item again.
+        activeItems = activeItems?.ToArray() ?? ItemsOf(conn).EquipmentSnapshot()
+            .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         var ailments = conn.ElementalAilments.Snapshot(now);
         var leech = LeechOf(conn).Active(now);
         bool moving = conn.Walk.Moving(now), alive = conn.PlayerLife > 0;
@@ -29,6 +32,13 @@ public static partial class Game
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
         var lowLifeSources = SelfCurseConditionInputs(conn, activeItems, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
+        var physicalAegis = PhysicalAegisStatus(conn, now);
+        string stance = StanceCatalog.Selected(conn.Auras.Values);
+        bool blood = stance == StanceCatalog.BloodSelection, sand = stance == StanceCatalog.SandSelection;
+        bool changedStance = conn.RecentEvents.Happened(StatConditions.ChangedStance, now);
+        bool catAspect = CatAspectRootActiveLocked(conn);
+        bool catsStealth = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Stealth;
+        bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
         var flags = new Dictionary<string, bool>
         {
             [RecentSavageHitItemFlag] = alive && !conn.Closed && !conn.LeavingArea
@@ -54,7 +64,7 @@ public static partial class Game
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
             [BurningItemCondition] = alive && (ailments.Ignite
-                || conn.RighteousFire is not null),
+                || conn.RighteousFire is { } rf && RighteousFireOwnerCurrentLocked(conn, rf)),
             ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && conn.ResourceEffectsState is ResourceEffectsState blindOwner
@@ -91,12 +101,34 @@ public static partial class Game
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = conn.ChannelSkill != 0;
         flags["_while_not_channelling"] = conn.ChannelSkill == 0;
+        flags["_while_you_have_active_physical_aegis"] = physicalAegis.Active;
+        flags["_while_you_have_depleted_physical_aegis"] = physicalAegis.Depleted;
+        bool unhinged = alive && Unhinged(conn);
+        flags["_while_unhinged"] = unhinged;
+        flags["_while_not_unhinged"] = alive && !unhinged;
+        flags["_if_you_have_beast_minion"] = HasSourceValidBeastMinion(conn);
         flags["_if_golem_summoned_in_past_8_seconds"] =
             GolemSummonedInPastEightSeconds(conn, AreaTime(conn));
+        flags["_in_blood_stance"] = flags["_while_in_blood_stance"] = blood;
+        flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
+        flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
+        flags["has_cat_aspect"] = catAspect;
         flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
             && lowLifeSources.GetValueOrDefault(curseKey) != 0;
         flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
         flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
+        flags["has_cats_stealth"] = catsStealth;
+        flags["has_cats_agility"] = catsAgility;
+        flags["_while_you_have_cat_aspect"] = catAspect;
+        flags["_while_have_cat_aspect"] = catAspect;
+        flags["_if_you_have_cat_aspect"] = catAspect;
+        flags["_while_you_have_cats_stealth"] = catsStealth;
+        flags["_while_have_cats_stealth"] = catsStealth;
+        flags["_if_you_have_cats_stealth"] = catsStealth;
+        flags["_while_you_have_cat_stealth"] = catsStealth;
+        flags["_while_you_have_cats_agility"] = catsAgility;
+        flags["_while_have_cats_agility"] = catsAgility;
+        flags["_if_you_have_cats_agility"] = catsAgility;
         var charges = ChargesOf(conn);
         foreach (var type in Charges.Types)
         {
@@ -104,7 +136,9 @@ public static partial class Game
                 charges.Converted(type), alive);
         }
         var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
-        return RequalifySourcePhasing(conn, equipmentFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
+        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems, lowLifeSources), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
+        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
 
@@ -144,13 +178,13 @@ public static partial class Game
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         return Stats.Key(LifeReservation.ItemPercentStat) is uint key
             && conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-            : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat);
+            : WornItemSum(conn, active).GetValueOrDefault(LifeReservation.ItemPercentStat);
     }
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
@@ -158,12 +192,21 @@ public static partial class Game
         StatConditions.BeenFrozen,
         StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
         StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
+        // Accepted-use, mana, flask, stance and charge recorders.
+        StatConditions.SpentMana, StatConditions.UsedSkill, StatConditions.UsedMovementSkill, StatConditions.UsedDash,
+        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill,
+        StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
+        StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
+        StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
+        // Hit outcomes (RecordHit/RecordCriticalOutcome), mine detonation; the curse casts come from the constructor.
+        StatConditions.NonCrit, StatConditions.Crit8Seconds, StatConditions.DetonatedMine,
     };
     sealed class ConditionalItemPoolState
     {
         public StatSourcesResult? Applied;
         public bool Building;
         public long Revision, Presented;
+        public (int Movement, int Avoid) AppliedElusive;
         public int AppliedOnslaughtEffect;
     }
 
@@ -178,14 +221,18 @@ public static partial class Game
             var state = ConditionalItemPools.GetOrCreateValue(conn);
             if (state.Building || conn.Closed || conn.LeavingArea) return false;
             EquipmentStatSources(conn, ItemsOf(conn).EquipmentSnapshot());
+            ReconcileBeastCompanionsLocked(conn);
             var current = conn.StatSourcesCache;
             var before = state.Applied;
+            var elusive = ElusivePanelState(conn);
+            bool sameElusive = state.AppliedElusive == elusive;
             int onslaughtEffect = Stats.Key("onslaught_effect_+%") is uint effectKey
                 ? conn.PlayerStats.TryGetValue(effectKey, out int replacement) ? replacement
                     : current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
             bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
-            if (current is null || ReferenceEquals(before, current) && sameOnslaughtEffect) return false;
+            if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
             state.Applied = current;
+            state.AppliedElusive = elusive;
             state.AppliedOnslaughtEffect = onslaughtEffect;
             // After a Game-module reload the source marker is new but the connection's old final pools survive.
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
@@ -195,7 +242,9 @@ public static partial class Game
                         || s.Id.Contains("_while_", StringComparison.Ordinal)
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id)
                         || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
-            if (sameOnslaughtEffect
+            bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
+                == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
+            if (sameElusive && sameHerEmbrace && sameOnslaughtEffect
                 && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)

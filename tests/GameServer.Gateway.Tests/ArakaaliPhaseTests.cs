@@ -9,7 +9,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class ArakaaliPhaseTests
 {
-    [Fact]
+    [GameFilesFact]
     public async Task Yugul_pools_chill_without_damage_and_owned_fear_actors_leave_no_reload_duplicates()
     {
         using var runtime = new Runtime(); using var wire = new Wire(); using var observerWire = new Wire();
@@ -131,7 +131,7 @@ public sealed class ArakaaliPhaseTests
         Assert.Empty(c.SceneViews); solar.Stop();
     }
 
-    [Fact]
+    [GameFilesFact]
     public async Task Campaign_phase_changes_survive_reload_and_keep_their_own_attacks()
     {
         using var runtime = new Runtime(); using var wire = new Wire();

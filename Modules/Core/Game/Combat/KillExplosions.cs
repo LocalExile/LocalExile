@@ -99,7 +99,7 @@ public static partial class Game
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
                 if (Dist(m.Walk.Position(now), at) > radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false);
+                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
                 if (element is not null)
                 {
                     var mitigated = GameServer.Core.World.DamageModel.Mitigate(elementalPacket,

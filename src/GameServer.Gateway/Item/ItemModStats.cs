@@ -38,7 +38,15 @@ public static class ItemModStats
     /// </para></summary>
     public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
-        => SumValues(Values(items, mods, local, subject, statExists, Program.GameLogicOrNull));
+    {
+        sums++;
+        return SumValues(Values(items, mods, local, subject, statExists, Program.GameLogicOrNull));
+    }
+
+    /// <summary>How many times this thread has called <see cref="Sum"/>. A stat-sources lookup whose inputs did not
+    /// change must add none (Agents/docs/dev/performance.md, "Hot paths"): a test reads this before and after one.</summary>
+    public static long SumsOnThisThread => sums;
+    [ThreadStatic] static long sums;
 
     static Dictionary<string, int> SumValues(IEnumerable<(string Id, int Value)> values)
     {

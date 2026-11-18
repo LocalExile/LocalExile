@@ -5,6 +5,8 @@
 `GemSupports` reads native GrantedEffects, ActiveSkills and GrantedEffectsPerLevel tables.
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
+`SupportsGemsOnly` is retained from GrantedEffects. It excludes meta supports from item-granted non-gem actives while
+leaving them available to real skill gems.
 These item supports do not require links and pass through the same compatibility and duplicate-family resolver.
 The Squire's mod adds every support gem in the active off-hand, unlinked, to the main hand's gems (verified live).
 An unambiguous displayed support-level stat uses the item's rolled value, including developer-set levels.

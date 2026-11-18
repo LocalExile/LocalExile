@@ -18,6 +18,10 @@ rows with `SendsGenericCommandPacket` never arrive as chat: the client sends C�
 (`/destroy` 9, `/hideout` 45: [21](21-hideouts.md) §3), so our commands must not reuse those words. `InstanceChat.Length` frames it
 (the length depends on the text), and `SplitClientMessages` uses it for id 0x15.
 
+`/played` is `ShowTimePlayed`, Commands row 1: **C→S 0x16, u8 2, empty wstr** (`00 16 02 00 00`).
+The Commands module answers with a chat line and saves online seconds in character module data.
+The counter starts when this support is installed; earlier playtime cannot be reconstructed from existing saves.
+
 The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
 the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
