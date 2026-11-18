@@ -27,31 +27,29 @@ public sealed partial class DelveModule
         if (mine.Pending?.Id == plan.Id) return;
         if (Sulphite(world.CharacterData) < plan.Cost)
         { await player.Tell($"This trip requires {plan.Cost} sulphite."); return; }
-        if (DelveTerrain.Seed(plan.From, plan.To) != 1)
+        // Validate the generated layout and rails before transferring, including the first trip.
+        IEnumerable<string> previousShapes = mine.SeenRoutes ?? [];
+        if (mine.LastScene is { SceneSeed: > 0 } last && last.RailShape?.StartsWith("v1:", StringComparison.Ordinal) != true
+            && DelveRailRoute.Load("Delve_Main", last.SceneSeed) is { } previousRail)
+            previousShapes = previousShapes.Append(previousRail.Shape());
+        var shapes = previousShapes.ToArray();
+        DelveMine.Plan? prepared = null;
+        for (int retry = 0; retry < 12; retry++)
         {
-            IEnumerable<string> previousShapes = mine.SeenRoutes ?? [];
-            if (mine.LastScene is { SceneSeed: > 0 } last && last.RailShape?.StartsWith("v1:", StringComparison.Ordinal) != true
-                && DelveRailRoute.Load("Delve_Main", last.SceneSeed) is { } previousRail)
-                previousShapes = previousShapes.Append(previousRail.Shape());
-            var shapes = previousShapes.ToArray();
-            DelveMine.Plan? prepared = null;
-            for (int retry = 0; retry < 12; retry++)
-            {
-                DelveMine.Plan candidate;
-                try { candidate = DelveTerrain.Procedural(mine, plan); }
-                catch (ArgumentException ex) { await player.Tell(ex.Message); return; }
-                if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
-                var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
-                if (rails is null || (mine.SeenTerrain ?? []).Contains(scene.TileHash))
-                { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
-                string shape = rails.Shape();
-                if (shapes.Any(old => DelveRailRoute.Similar(old, shape))) { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
-                prepared = candidate with { TerrainHash = scene.TileHash, RailShape = shape };
-                break;
-            }
-            if (prepared is null) { await player.Tell("A new connected mine route could not be generated. No sulphite was spent."); return; }
-            plan = prepared;
+            DelveMine.Plan candidate;
+            try { candidate = DelveTerrain.Procedural(mine, plan); }
+            catch (ArgumentException ex) { await player.Tell(ex.Message); return; }
+            if (ServerLevels.PrepareDelve(candidate.SceneSeed, DelveMine.MonsterLevel(plan.Depth), candidate.Terrain!) is not { } scene) continue;
+            var rails = DelveRailRoute.Load("Delve_Main", candidate.SceneSeed);
+            if (rails is null || (mine.SeenTerrain ?? []).Contains(scene.TileHash))
+            { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
+            string shape = rails.Shape();
+            if (shapes.Any(old => DelveRailRoute.Similar(old, shape))) { ServerLevels.ForgetDelve(candidate.SceneSeed); continue; }
+            prepared = candidate with { TerrainHash = scene.TileHash, RailShape = shape };
+            break;
         }
+        if (prepared is null) { await player.Tell("A new connected mine route could not be generated. No sulphite was spent."); return; }
+        plan = prepared;
         var attempt = new Attempt(plan, world.AccountData) { Player = player, Owner = CharacterName(conn) };
         _attempts[plan.Id] = attempt;
         if (!DelveMine.Change(world.AccountData, m => m.Pending is null && m.Current == plan.From

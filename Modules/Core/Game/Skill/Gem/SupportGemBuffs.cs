@@ -140,7 +140,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            stats = WithTriggeredGuard(conn, stats);
+            stats = WithSelfBuffs(conn, WithTriggeredGuard(conn, stats));
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
             int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
             void Add(string name, long value)

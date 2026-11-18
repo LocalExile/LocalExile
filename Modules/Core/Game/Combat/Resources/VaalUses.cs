@@ -56,7 +56,7 @@ public static partial class Game
         int preventionMs = SkillsFor(conn).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get("modifiers_to_buff_effect_duration_also_affect_soul_prevention_duration") != 0;
-        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats)
+        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, player, gem.Stats, SkillDurationModifiers.Kinds.Buff)
             : Get("modifiers_to_skill_effect_duration_also_affect_soul_prevention_duration") != 0
             ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(player, n), n => GolemStat(gem.Stats, n))
             : preventionMs / 1000d;

@@ -221,7 +221,7 @@ public static partial class Game
                     ("total_energy_shield_recovery_per_minute_from_regeneration", (int)Math.Round(EnergyShield.RegenPerMinute(pools.EnergyShield, Get) + inputs.LifeRegenerationToEnergyShield)),
                     ("energy_shield_recharge_rate_per_minute", (int)Math.Round(EnergyShield.RechargePerMinute(pools.EnergyShield, Get))),
                     ("energy_shield_recharge_active", 0) })
-                .Concat(ChargePanelStats.Compute(Get)))
+                .Concat(ChargeMaxima.Compute(Get)))
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             // Special maxima mirror completed standard maxima, including explicit final replacements.
             foreach (var (stat, value) in ChargePanelStats.MirroredMaximums(Get))

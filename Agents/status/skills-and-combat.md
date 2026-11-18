@@ -65,6 +65,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Righteous Fire enemy burn with linked supports, Lifetap and Inspiration. [Skills §12](../docs/protocol/11-skills.md)
+- Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
+- Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
+  on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).
@@ -81,6 +84,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, main…), with that
+  weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
+  swings, and `skill_double_hits_when_dual_wielding` skills hit with both at once. Not checked live.
+  Docs: [11](../docs/protocol/11-skills.md) §4.
 - Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
   attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
   hit roll and drops them along the swing.
@@ -89,6 +96,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
 - Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
+- Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
+  supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - Lifetap Support. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Blood Magic. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
@@ -123,7 +133,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
 - Vaal souls (#308), Vaal Ground Slam, Vaal Fireball, Vaal Spark and Vaal Discipline. Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
+- Ground Slam's forward wave gains more damage near the player. Volcanic Fissure hits along its path and launches
+  landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
@@ -151,6 +162,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spells disabled (Devout of Gruthkul). Docs: [11](../docs/protocol/11-skills.md) §10j.
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Charge gains on stun, skill use and target state, supports' own chances, "lose all" and "on reaching maximum"
+  uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
+  Docs: [11](../docs/protocol/11-skills.md) §15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) §10d.
@@ -158,9 +172,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
+- Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
+  projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
+  Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
+  Puncture always bleeds, for its skill duration and with its more bleeding damage.
+  Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
+  guard refuses the next before its cost (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
+  swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
+  a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Summons: quality, source recovery and spell repeats; mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
