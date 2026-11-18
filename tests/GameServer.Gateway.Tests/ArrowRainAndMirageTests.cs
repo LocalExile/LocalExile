@@ -2015,6 +2015,9 @@ public class ArrowRainAndMirageTests
         Assert.Equal(541, Game.SupportedAccuracy(c, gem.Id).Rating);
         var off = Game.OffhandWeaponFor(c)!;
         Assert.Equal(793, Game.WeaponAccuracyFor(c, off, Game.CharacterPlayerStats(c), Game.SupportedSkill(c, gem.Id).Stats));
+        // An off-hand swing (main's hand alternation) keeps the boots' less-accuracy factor.
+        Assert.Equal(793, Game.SupportedAccuracy(c, gem.Id, AttackHand.Off).Rating);
+        Assert.Equal(571, Game.HandAccuracy(c, AttackHand.Off, Game.CharacterPlayerStats(c)));   // floor((228 + 153) * 2 * .75)
         Assert.Equal(new DamageRange(4.23, 25.38), Game.SupportedHitInputsFor(c, gem.Id, weapon: off)!.Raw[DamageType.Lightning]);
         var panel = Game.PlayerSkills(c).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
         Assert.Equal(541, panel[Key("main_hand_accuracy_rating")]);
