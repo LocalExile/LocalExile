@@ -30,11 +30,19 @@ public static class ChargeMaxima
         if (get(AllZero) != 0) endurance = frenzy = power = 0;
         return [(Names[0], endurance), (Names[1], frenzy), (Names[2], power)];
 
-        int Value(ChargeType type) => rows.First(r => r.Stat == Names[(int)type]).Value;
+        int Value(ChargeType type) => Find(rows, type);
     }
 
     /// <summary>One type's maximum.</summary>
-    public static int Of(ChargeType type, Func<string, int> get) => Compute(get).First(r => r.Stat == Names[(int)type]).Value;
+    public static int Of(ChargeType type, Func<string, int> get) => Find(Compute(get), type);
+
+    // A loop, not First with a lambda: the condition flags ask on every stat lookup (performance.md, "Hot paths").
+    static int Find(List<(string Stat, int Value)> rows, ChargeType type)
+    {
+        foreach (var (stat, value) in rows)
+            if (stat == Names[(int)type]) return value;
+        throw new InvalidOperationException(Names[(int)type]);
+    }
 
     /// <summary>The type's limits with these maxima (<see cref="Charges.LimitsOf"/>).</summary>
     public static Charges.Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0) =>

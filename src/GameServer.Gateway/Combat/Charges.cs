@@ -101,8 +101,7 @@ public static class Charges
     /// </summary>
     public static Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0, int? maximum = null)
     {
-        string virtualMaximum = VirtualMaximums[Index(type)];
-        maximum ??= ChargePanelStats.Compute(get).First(r => r.Stat == virtualMaximum).Value;
+        maximum ??= PanelMaximum(type, get);
         int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get("minimum_frenzy_power_endurance_charges"), 0, maximum.Value);
         int increased = get("charge_duration_+%") + get("base_charge_duration_+%") + type switch
         {
@@ -113,6 +112,15 @@ public static class Charges
         int more = type == ChargeType.Power ? get("power_charge_duration_+%_final") : 0;
         double ms = BaseDurationMs * Math.Max(0, 100 + increased) / 100.0 * Math.Max(0, 100 + more) / 100.0;
         return new(maximum.Value, minimum, (int)Math.Floor(ms));
+    }
+
+    // The panel's maximum of one type, without a lambda: LimitsOf runs on every stat lookup's condition flags.
+    static int PanelMaximum(ChargeType type, Func<string, int> get)
+    {
+        string virtualMaximum = VirtualMaximums[Index(type)];
+        foreach (var (stat, value) in ChargePanelStats.Compute(get))
+            if (stat == virtualMaximum) return value;
+        throw new InvalidOperationException(virtualMaximum);
     }
 
     /// <summary>One type's charges as an area change hands them on: how many were held and how much of their duration was

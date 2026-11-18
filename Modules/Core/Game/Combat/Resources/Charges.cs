@@ -175,10 +175,12 @@ public static partial class Game
         }
         // "Count as having maximum number of … Charges": the effects count the maximum; the rows and buffs keep the
         // charges really held.
-        // Every stat snapshot comes here: copy the counts only when one of them changes (performance.md, "Hot paths").
+        // Every stat snapshot comes here: copy the counts only when one of them changes, and read the two stats with Get
+        // itself, not a delegate per type (performance.md, "Hot paths").
         var counted = held;
         foreach (var type in Charges.Types)
-            if (limits[type].Maximum > held[type] && ChargeScaling.CountsAsMaximum(type, Get))
+            if (limits[type].Maximum > held[type]
+                && (Get(ChargeScaling.CountAsMaximumStat(type)) != 0 || Get(ChargeScaling.AllCountAsMaximum) != 0))
             {
                 if (ReferenceEquals(counted, held)) counted = new(held);
                 counted[type] = limits[type].Maximum;
