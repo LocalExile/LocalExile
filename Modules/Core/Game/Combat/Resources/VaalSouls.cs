@@ -79,13 +79,16 @@ public static partial class Game
             // The sources are reconciled by the equipment and skill seams (RefreshVaalSouls there); a kill only adds one
             // soul to what they set. Reading the whole player stat snapshot and every supported Vaal gem here cost 2-3 ms
             // per corpse in a pack (measured 2026-11-18), and the prevention it read is this connection's own deadline
-            // (WithVaalPrevention publishes has_soul_gain_prevention from it).
+            // (WithVaalPrevention publishes has_soul_gain_prevention from it). Vaal Immortal Call holds soul gain for
+            // its duration (the buff's cannot_gain_souls); its state is a cheap table read, not a stat build.
+            bool held = VaalImmortalCallActive(conn, now);
             bool prevented = conn.VaalPreventionUntil > VaalResourceTime(conn)
                 || Stats.Key("has_soul_gain_prevention") is uint prevention
                     && conn.PlayerStats.GetValueOrDefault(prevention) != 0;
-            if (prevented)
+            if (prevented || held)
             {
-                Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(conn):0.000})");
+                Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: " +
+                    $"{(held ? "Vaal Immortal Call" : "soul gain prevention")} (t={VaalResourceTime(conn):0.000})");
                 return false;
             }
             if (!conn.VaalSouls.Gain()) return false;

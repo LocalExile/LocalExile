@@ -1042,7 +1042,7 @@ public static partial class Game
     public static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
-        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null)
+        DashUseReceipt? dashReceipt = null, double? swingAt = null, LeapSlam.Use? leap = null, Action? guardStart = null)
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
@@ -1358,8 +1358,20 @@ public static partial class Game
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
+        if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
+        {
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            lock (conn.Monsters) StartVaalImmortalCall(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            return true;
+        }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        // A guard skill cast from the skill bar starts its buff in CastSelfBuff. An instant cast passes guardStart, and
+        // the caller starts it after the instant action, so the buff, its stats and its session records cannot take
+        // the send gate first. Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs).
+        if (gem.Name is not null && guardStart is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect)))
+            return true;
+        // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
@@ -1408,13 +1420,14 @@ public static partial class Game
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        bool guard = gem.Name is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
             return;
         }
-        if (gem.Name is null || !ObjectInstantSupported(conn, skillId, gem.Effect)) return;
+        if (gem.Name is null || !ObjectInstantSupported(conn, gem.Effect)) return;
         int epoch;
         lock (conn.Monsters)
         {
@@ -1424,7 +1437,17 @@ public static partial class Game
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
             CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
-        if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
+        // The guard starts after the instant action, so the action's record carries no guard work before it and the
+        // guard's one lock entry goes out right behind it (StartGuard publishes it).
+        Action? guardStart = guard
+            ? () =>
+            {
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                lock (conn.Monsters) StartTriggeredGuard(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            }
+            : null;
+        if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
+                guardStart: guardStart))
         {
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
@@ -1438,13 +1461,19 @@ public static partial class Game
                         return PlayerInstantAction(conn, skillId, at, targetId);
                     }
                 });
+            guardStart?.Invoke();
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
     }
 
-    static bool ObjectInstantSupported(ClientState conn, ushort skill, int effect) =>
+    static bool ObjectInstantSupported(ClientState conn, int effect) =>
         InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect) || InPlaceSelfBuff(conn, effect)
-        || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
+        // The client's 0x2064 (skill_is_instant) is what EffectStats publishes from IsInstant; reading the type here
+        // skips a full supported-skill stat build (51 ms on a live press, measured 2026-11-18).
+        || !SkillsFor(conn).IsMovement(effect) && (SkillsFor(conn).IsInstant(effect)
+            // Vaal Immortal Call has a 0 cast time but no Instant active-skill type (only InstantShiftAttackForLeftMouse),
+            // so accept the instant request (0x191) for it as well as the ordinary cast.
+            || VaalImmortalCallSpell(conn, effect));
 
     public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
@@ -1454,7 +1483,7 @@ public static partial class Game
         if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
-            if (ObjectInstantSupported(conn, skillId, gem.Effect))
+            if (ObjectInstantSupported(conn, gem.Effect))
                 await UseInstantSkill(remote, stream, ciphers, conn, skillId, PlayerId, conn.Walk.Position(AreaTime(conn)));
             return;
         }

@@ -106,7 +106,7 @@ public static partial class Game
                 immunities.Contains(physical), immunities.Contains(chaos), conn.Walk.MovingSeconds,
                 ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry));
         }
-        conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
+        conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage), until);
         if (conn.PlayerLife == 0)
         {
             conn.InvalidateIncomingHits();
