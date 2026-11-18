@@ -73,36 +73,44 @@ public static class SacredGrove
         public Dictionary<uint, MonsterTag> Monsters { get; set; } = [];
         public int Activations { get; set; }
         public int Level { get; set; }
-        /// <summary>A replacement (<see cref="AddReplacement"/>) took the grove: it has no crops and holds Oshabi's
-        /// encounter (<see cref="OshabiEncounter"/>) instead.</summary>
-        public bool Heart { get; set; }
+        /// <summary>The key of the replacement (<see cref="AddReplacement"/>) that took the grove, which then has no crops;
+        /// null for a grove of crops.</summary>
+        public string? ReplacedBy { get; set; }
     }
 
-    static Func<ClientState, HarvestStats, Random, bool>[] Replacements = [];
+    /// <summary>A replaced grove's place: the centre of the grove's sub-area (on a walkable cell) and the area level.</summary>
+    public readonly record struct GroveSite((int X, int Y) Centre, int Level);
+
+    /// <summary>A grove replacement (<see cref="AddReplacement"/>).</summary>
+    /// <param name="Key">Saved with the grove, so that <paramref name="Place"/> runs again on a later entry.</param>
+    /// <param name="Roll">Runs once when the grove is built, before its crops, with the grove's stats and the area's own
+    /// Random; true replaces the grove.</param>
+    /// <param name="Place">Puts the replacement's content in the replaced grove, on every entry to the area.</param>
+    public sealed record Replacement(string Key, Func<ClientState, HarvestStats, Random, bool> Roll, Func<ClientState, GroveSite, Task> Place);
+
+    static Replacement[] Replacements = [];
     static readonly Lock ReplacementsLock = new();
 
-    /// <summary>Lets another module replace a map's Sacred Grove with Oshabi's encounter: <paramref name="roll"/> runs once
-    /// when the grove is built, before its crops, with the grove's stats and the area's own Random, and true replaces it.
-    /// Disposing the result removes the roll.</summary>
-    public static IDisposable AddReplacement(Func<ClientState, HarvestStats, Random, bool> roll)
+    /// <summary>Lets another module replace a map's Sacred Grove with content of its own. Disposing the result removes
+    /// it.</summary>
+    public static IDisposable AddReplacement(Replacement replacement)
     {
-        lock (ReplacementsLock) Replacements = [.. Replacements, roll];
-        return new Removal(roll);
+        lock (ReplacementsLock) Replacements = [.. Replacements, replacement];
+        return new Removal(replacement);
     }
 
-    sealed class Removal(Func<ClientState, HarvestStats, Random, bool> roll) : IDisposable
+    sealed class Removal(Replacement replacement) : IDisposable
     {
         public void Dispose()
         {
-            lock (ReplacementsLock) Replacements = [.. Replacements.Where(r => r != roll)];
+            lock (ReplacementsLock) Replacements = [.. Replacements.Where(r => r != replacement)];
         }
     }
 
-    /// <summary>Where a replaced grove's soul tree stands: the centre of the grove's sub-area, on a walkable cell [G].</summary>
-    static (int X, int Y) HeartPoint(ClientState conn, ServerLevels.Level level)
+    static GroveSite SiteOf(ClientState conn, Grove grove)
     {
-        var r = GroveRecords(level).First();
-        return conn.Layout.Near(((r.X * 2 + r.W) * 23 / 2, (r.Y * 2 + r.H) * 23 / 2));
+        var r = GroveRecords(conn.Layout.Level!).First();
+        return new(conn.Layout.Near(((r.X * 2 + r.W) * 23 / 2, (r.Y * 2 + r.H) * 23 / 2)), grove.Level);
     }
 
     sealed class Area
@@ -234,10 +242,10 @@ public static class SacredGrove
         var lines = level.RoomObjects.Where(o => o.Type.StartsWith(ObjectRoot, StringComparison.Ordinal)
             && (whole || rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1))).ToList();
         var sites = Sites(lines, memoryLine);
-        if (!whole && Replacements is { Length: > 0 } replacements && replacements.Any(roll => roll(conn, stats, random)))
+        if (!whole && Replacements.FirstOrDefault(r => r.Roll(conn, stats, random)) is { } replacement)
         {
-            grove.Heart = true;
-            Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: replaced by Oshabi's encounter, no crops");
+            grove.ReplacedBy = replacement.Key;
+            Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: replaced by {replacement.Key}, no crops");
             return grove;
         }
         if (tables.Level(areaLevel) is not { } values || sites.Count == 0)
@@ -360,11 +368,10 @@ public static class SacredGrove
     public static async Task Enter(ClientState conn)
     {
         if (await Load(conn) is not { Grove: { } grove } area) return;
-        if (grove.Heart)
+        if (grove.ReplacedBy is { } key)
         {
-            // A reload re-places it: the encounter's own saved state keeps its progress.
-            await OshabiEncounter.Place(conn, HeartPoint(conn, conn.Layout.Level!), grove.Level,
-                new(Altar: false, Rewards: true, Log: "Heart of the Grove"));
+            if (Replacements.FirstOrDefault(r => r.Key == key) is { } replacement) await replacement.Place(conn, SiteOf(conn, grove));
+            else Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: replaced by {key}, which is not loaded; the grove stays empty");
             return;
         }
         GroveObject[] objects;
