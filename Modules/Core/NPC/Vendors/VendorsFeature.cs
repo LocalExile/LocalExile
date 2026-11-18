@@ -10,8 +10,8 @@ static class VendorsFeature
     {
         if (conn.NpcRewardOffer is not null)
         {
-            if (buy.InventoryId == PlayerInventories.InventoryId(PlayerInventories.MainInventory))
-                await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId);
+            if (PlayerInventories.Row(buy.InventoryId) is byte rewardRow)
+                await ClaimNpcReward(remote, stream, ciphers, conn, buy.ItemId, rewardRow);
             return;
         }
         if (PlayerInventories.Row(buy.InventoryId) is byte row)

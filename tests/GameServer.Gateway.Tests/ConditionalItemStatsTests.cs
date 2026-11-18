@@ -9,11 +9,12 @@ namespace GameServer.Gateway.Tests;
 /// A condition that does hold moves the value onto the stat's plain name, which is what the pools and panels already
 /// read — without that the condition would be decided correctly and the mod would still do nothing.
 /// </summary>
-public class ConditionalItemStatsTests
+public partial class ConditionalItemStatsTests
 {
     [Fact]
     public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
     {
+        Ring_conditions_rebuild_the_actual_stat_cache_on_same_item_slot_moves();
         Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes();
         A_stats_condition_is_decided_from_the_state_the_server_keeps();
         The_shield_condition_is_answered_in_every_spelling_the_tables_use();
@@ -49,7 +50,7 @@ public class ConditionalItemStatsTests
                 subject: new(Value: name => name == "energy_shield" ? shield : null), statExists: exists);
             Assert.Equal(shield >= 500 ? 60 : 0, sum.GetValueOrDefault("base_life_regeneration_rate_per_minute"));
         }
-        Assert.Equal("movement_velocity_+%", StatConditions.Fold("movement_speed_+%_if_enemy_killed_recently", exists));
+        Assert.Equal("base_movement_velocity_+%", StatConditions.Fold("movement_speed_+%_if_enemy_killed_recently", exists));
         Assert.False(StatConditions.TryRecentEvent("damage_+%_per_enemy_killed_recently", out _, out _));
         Assert.False(StatConditions.TryRecentEvent("damage_+%_if_killed_at_least_5_enemies_recently", out _, out _));
         Assert.False(StatConditions.TryRecentEvent("x_if_used_a_skill_recently_if_4_warlord_items", out _, out _));
@@ -79,7 +80,7 @@ public class ConditionalItemStatsTests
                 ["_while_at_maximum_power_charges"] = active,
             });
             Assert.Equal(active ? 20 : 0, ItemModStats.Sum([phased], Program.Items.Mods,
-                subject: subject, statExists: exists).GetValueOrDefault("movement_velocity_+%"));
+                subject: subject, statExists: exists).GetValueOrDefault("base_movement_velocity_+%"));
             Assert.Equal(active ? 25 : 0, ItemModStats.Sum([lowLife], Program.Items.Mods,
                 subject: subject, statExists: exists).GetValueOrDefault("base_spell_block_%"));
             var maximum = WithMod("PhysAddedAsChaosWithMaxPowerChargesUnique__1", 15);

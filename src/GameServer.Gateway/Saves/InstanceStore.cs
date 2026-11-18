@@ -10,6 +10,12 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
+    /// <summary>Reads a retained instance without admitting another connection.</summary>
+    public InstanceState? Find(ulong id, long created, string? soloOwner = null)
+    {
+        lock (_instances) return _instances.GetValueOrDefault((id, created, soloOwner?.ToUpperInvariant()));
+    }
+
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
@@ -46,6 +52,35 @@ public sealed partial class InstanceState
 {
     /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
     public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
+
+    MapDevice.Run? _map;
+
+    /// <summary>The map this instance was opened with, or null outside a map: its level, mods and owner for population,
+    /// monsters, drops and every later entry.</summary>
+    public MapDevice.Run? Map => Volatile.Read(ref _map);
+
+    /// <summary>The first connection that brings a map fixes it (<see cref="Map"/>); later ones keep that one.</summary>
+    public MapDevice.Run? OpenedWith(MapDevice.Run? run)
+    {
+        if (run is not null) Interlocked.CompareExchange(ref _map, run, null);
+        return Map;
+    }
+
+    readonly Lock _areaStatsGate = new();
+    IReadOnlyDictionary<uint, int>? _areaStats;
+
+    /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
+    /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
+    public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
+    public IReadOnlyDictionary<uint, int>? KeptAreaStats
+    {
+        get { lock (_areaStatsGate) return _areaStats; }
+    }
 
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
@@ -281,6 +316,10 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
 {
     /// <summary>Its mods as rolled (MonsterMods.cs): the same affixes, values and rare name on the next entry.</summary>
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;
+
+    /// <summary>Planned by the area's population and not created yet (InstanceWorld.HeldBackMonsters): its cell is the
+    /// planned one, its mods are not rolled and its life is full.</summary>
+    public bool Planned { get; init; }
 
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>

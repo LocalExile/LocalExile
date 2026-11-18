@@ -82,6 +82,11 @@ throws (the out-of-range builder is `0x140e272d0`, the exception type `0x143a5c5
 4. **tasks** (`0x141ee6950`): u8 n, then n × (u16 task id + task data; an unknown id logs "Unrecognised task serialised by
    server; missing registration?")
 
+A base-data entity variable is raw u32 name hash, u8 flags (0), u8 value count (1), u8 type (1), raw u32 entity id.
+`0x141dfe5a0` resolves type 1 through the instance entity table and defers an unresolved forward reference.
+The variable-name hash is `0x1406db8f0`, Murmur2 of UTF-16LE with seed 0; `next` is `0x61f4555e`.
+This is distinct from the narrowed-byte metadata type hash.
+
 ### Component order: traced, and now derived from the .ot files
 
 Components are built from the type's component list (`0x14242dfe0`). The object-type constructor `0x141ec7c10`

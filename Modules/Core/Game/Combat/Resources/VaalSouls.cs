@@ -39,8 +39,8 @@ public static partial class Game
             var player = CharacterPlayerStats(conn);
             var requirements = CurrentGemRequirements(conn);
             var sources = new List<(uint, uint)>();
-            foreach (var gem in GemSkillEffectsAt(conn.Character, requirements.Places, requirements.Inactive, LeagueFor(conn),
-                GrantedSkillsOf(conn)))
+            foreach (var gem in GemSkillEffectsAt(conn.Character, requirements.Equipment, requirements.Inactive, LeagueFor(conn),
+                GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, requirements.Equipment)))
             {
                 if (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null) continue;
                 var supported = SupportedSkillAt(conn, gem.Id, requirements);
@@ -78,7 +78,12 @@ public static partial class Game
             if (Dist(monster.Walk.Position(now), conn.Walk.Position(now)) > ExperienceRange) return false;
             RefreshVaalSouls(conn);
             var stats = CharacterPlayerStats(conn);
-            if (RageStat(stats, "has_soul_gain_prevention") != 0 || !conn.VaalSouls.Gain()) return false;
+            if (RageStat(stats, "has_soul_gain_prevention") != 0)
+            {
+                Console.WriteLine($"[gateway] Vaal soul not gained from monster 0x{id:x}: soul gain prevention (t={VaalResourceTime(conn):0.000})");
+                return false;
+            }
+            if (!conn.VaalSouls.Gain()) return false;
             // "Kills grant an additional Vaal Soul if you have Rampaged Recently".
             if (RageStat(stats, "gain_an_additional_vaal_soul_on_kill_if_have_rampaged_recently") != 0
                 && conn.Rampage.Current.Active)

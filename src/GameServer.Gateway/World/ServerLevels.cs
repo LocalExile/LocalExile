@@ -78,6 +78,12 @@ public static class ServerLevels
     // WorldAreas level 71, chateau_2.dgr at a tier-16 map's 83). Lookups without a level (monster packs, heights,
     // projectiles) get that generation. Never trimmed: one entry per map instance opened.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedLevels = new();
+    // The area stats an (area, seed) is played with (0x1d's first list, 1-based Stats ids; InstanceEvents.AreaStats): the
+    // generator's extra terrain feature roll reads them as the client's does, so the level is generated with the same list.
+    // Part of the cache key (StatsKey): two instances of one (area, seed) with other stats are other levels.
+    static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<uint, int>> PlayedStats = new();
+    // A seed's rules cannot change after any client has received it. Reserve distinct seeds for conflicting rules.
+    static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
 
     public static byte[]? DelveTerrain(uint seed) => DelveTerrains.GetValueOrDefault(seed);
@@ -98,11 +104,17 @@ public static class ServerLevels
     }
 
     /// <summary>The exception of a failed generation of (area, seed), while it is among the last ones asked for.</summary>
-    public static string? Error(string areaId, uint seed) => Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)), seed, LevelOf(areaId, seed, 0)));
+    public static string? Error(string areaId, uint seed) =>
+        Errors.GetValueOrDefault((CacheArea(areaId, LabyrinthDay.NodeFor(areaId, seed)) + StatsKey(areaId, seed), seed, LevelOf(areaId, seed, 0)));
 
     /// <summary>The cache's area key: a Labyrinth room played in today's layout is generated with its labyrinth node
     /// (LabyrinthDay), so the day's seed is part of it and a new day generates the room again.</summary>
     static string CacheArea(string areaId, LabyrinthNodeKey? node) => node is null ? areaId : $"{areaId}@lab{node.Seed}";
+
+    /// <summary>The cache key's part for the area stats (area, seed) is played with: none without stats.</summary>
+    static string StatsKey(string areaId, uint seed) =>
+        PlayedStats.TryGetValue((areaId, seed), out var stats) && stats.Count > 0
+            ? "#" + string.Join(",", stats.OrderBy(s => s.Key).Select(s => $"{s.Key}={s.Value}")) : "";
 
     /// <summary>The area level (area, seed) is generated at: <paramref name="areaLevel"/> when given (above 0), else the
     /// one it was played at (<see cref="PlayedLevels"/>), else its WorldAreas level (what the client takes for a 0x1d
@@ -171,7 +183,7 @@ public static class ServerLevels
         if (!IsSupported(areaId) && !(areaId == "Delve_Main" && DelveTerrains.ContainsKey(seed))) return null;
         int at = LevelOf(areaId, seed, areaLevel);
         var node = LabyrinthDay.NodeFor(areaId, seed);
-        var key = (CacheArea(areaId, node), seed, at);
+        var key = (CacheArea(areaId, node) + StatsKey(areaId, seed), seed, at);
         if (Known(key, out var known)) return known;
         lock (Gate)
         {
@@ -234,30 +246,41 @@ public static class ServerLevels
     public static uint PlayableSeed(string areaId, uint seed) => PlayableSeed(areaId, seed, 0);
 
     /// <inheritdoc cref="PlayableSeed(string, uint)"/>
-    public static uint PlayableSeed(string areaId, uint seed, int areaLevel)
-    {
-        seed = Playable(areaId, seed, areaLevel);
-        if (areaLevel > 0) PlayedLevels[(areaId, seed)] = areaLevel;
-        return seed;
-    }
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel) => PlayableSeed(areaId, seed, areaLevel, null);
 
-    static uint Playable(string areaId, uint seed, int areaLevel)
+    /// <inheritdoc cref="PlayableSeed(string, uint)"/>
+    /// <param name="stats">The area stats the instance is played with (0x1d's first list), which the generation reads; a
+    /// seed tried in place of one the port cannot generate is tried with them too.</param>
+    public static uint PlayableSeed(string areaId, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats)
     {
-        if (AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 }) return seed;
-        if (seed == 1)
+        lock (Gate)
         {
-            if (SeedInPlaceOfOne(areaId) is not { } inPlace) return seed;
-            Console.WriteLine($"[gateway] server levels: the client cannot generate {areaId} at seed 1; played at seed {inPlace}");
-            seed = inPlace;
-        }
-        if (!IsSupported(areaId) || For(areaId, seed, areaLevel) is not null) return seed;
-        foreach (uint other in Replacements(seed))
-            if (For(areaId, other, areaLevel) is not null)
+            var snapshot = stats is null ? new Dictionary<uint, int>()
+                : stats.Where(p => p.Value != 0).ToDictionary(p => p.Key, p => p.Value);
+            string statsKey = string.Join(",", snapshot.OrderBy(p => p.Key).Select(p => $"{p.Key}={p.Value}"));
+            int level = areaLevel > 0 ? areaLevel : AreaLevel(areaId);
+            bool exact = AreaLayouts.Recording || Environment.GetEnvironmentVariable("Game_SEED") is { Length: > 0 };
+            if (!exact && seed == 1 && SeedInPlaceOfOne(areaId) is { } seedOneReplacement) seed = seedOneReplacement;
+            uint Reserve(uint candidate)
             {
+                while (PlayedContexts.TryGetValue((areaId, candidate), out var prior) && prior != (level, statsKey))
+                    candidate = Replacements(candidate).First();
+                PlayedContexts[(areaId, candidate)] = (level, statsKey);
+                PlayedLevels[(areaId, candidate)] = level;
+                PlayedStats[(areaId, candidate)] = snapshot;
+                return candidate;
+            }
+            seed = Reserve(seed);
+            if (exact || !IsSupported(areaId) || For(areaId, seed, level) is not null) return seed;
+            foreach (uint replacement in Replacements(seed))
+            {
+                uint other = Reserve(replacement);
+                if (For(areaId, other, level) is null) continue;
                 Console.WriteLine($"[gateway] server levels: {areaId} seed {seed} not generated; played at seed {other}");
                 return other;
             }
-        return seed;
+            return seed;
+        }
     }
 
     /// <summary>The seeds tried in place of one the port cannot generate, in order (1 … int.MaxValue, as Auth's).</summary>
@@ -282,6 +305,8 @@ public static class ServerLevels
         {
             var files = Files();
             var area = AreaInfo.Load(Read, areaId, areaLevel);
+            if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
+                area = area with { Stats = played.ToDictionary(s => (int)s.Key, s => s.Value) };
             var result = LevelGenerator.Generate(files, area, seed, labyrinthNode: node,
                 delveTerrain: areaId == "Delve_Main" ? DelveTerrain(seed) : null);
             var walk = Walkability.Build(result.Grid, t => files.Walk(t.Path));
@@ -295,8 +320,8 @@ public static class ServerLevels
             var exits = AreaExits.Resolve(files, result, (x, y) => WithinReach(walk.Walk, walk.Width, walk.Height, x, y, 13));
             // A room's waypoint line when no tile places one (The Ledge).
             if (!objects.Any(o => o.Type == GameServer.Core.Protocol.Instance.WaypointObject.MetadataPath)) objects.AddRange(AreaObjects.RoomWaypoints(result));
-            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")} ({walk.Width}x{walk.Height} cells, " +
-                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads) in {clock.ElapsedMilliseconds} ms");
+            Console.WriteLine($"[gateway] server levels: generated {areaId} seed {seed} level {areaLevel}{(node is null ? "" : $" labyrinth node {node.Row} of day {node.Seed}")}{(area.Stats is { Count: > 0 } s ? $" with {s.Count} area stat(s)" : "")} ({walk.Width}x{walk.Height} cells, " +
+                $"{objects.Count} tile object(s), {doodads.Placed.Count} doodads), tile hash {result.Grid.Hash()}, in {clock.ElapsedMilliseconds} ms");
             ConnectionPerformance.Server("LevelGen", clock.Elapsed, areaId);
             var roomLinks = new List<PlacedLink>();
             return new Level(walk.Width, walk.Height, walk.Walk, heights, objects, doodads.Placed, AreaObjects.Rooms(result),

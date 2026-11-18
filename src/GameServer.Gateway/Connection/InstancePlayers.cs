@@ -29,11 +29,52 @@ public static class InstanceEvents
 {
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
+
+    /// <summary>The area stats a new instance is played with (0x1d's first stat list, 1-based Stats ids): the client's
+    /// level generator reads them, so the Gateway generates the level with the same list. Asked once per instance, by
+    /// its first connection, before that connection's state exists; the answers are summed.</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyDictionary<uint, int>?>> AreaStats = new();
+
+    /// <summary>The league's answers to <see cref="AreaStats"/>, summed; a failing answer counts as none.</summary>
+    public static IReadOnlyDictionary<uint, int> ComposeAreaStats(LeagueRuntime league, AreaStatsRequest request)
+    {
+        var sum = new Dictionary<uint, int>();
+        foreach (var compose in AreaStats.For(league))
+        {
+            IReadOnlyDictionary<uint, int>? part;
+            try { part = compose(request); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[gateway] area stats of 0x{request.Area:x4} for {request.Character}: {ex.GetType().Name}: {ex.Message}");
+                continue;
+            }
+            foreach (var (key, value) in part ?? new Dictionary<uint, int>()) sum[key] = sum.GetValueOrDefault(key) + value;
+        }
+        return sum;
+    }
+
+    /// <summary>Two stat lists summed (the area stats and the league's own, both sent in 0x1d's first list).</summary>
+    public static IReadOnlyDictionary<uint, int>? Merge(IReadOnlyDictionary<uint, int>? a, IReadOnlyDictionary<uint, int>? b)
+    {
+        if (a is not { Count: > 0 }) return b;
+        if (b is not { Count: > 0 }) return a;
+        var merged = new Dictionary<uint, int>(a);
+        foreach (var (key, value) in b) merged[key] = merged.GetValueOrDefault(key) + value;
+        return merged;
+    }
 }
 
-public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
+/// <summary>What an instance's area stats are composed from: the character whose connection opens it, its league, the
+/// area (WorldAreas HASH16) and the map it was opened with (<see cref="InstanceState.Map"/>), null outside a map.</summary>
+public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map);
+
+public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
+{
+    public byte ActorStance { get; init; }
+}
 public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
-public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination, uint Life);
+public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,
+    uint Life, uint EnergyShield = 0, uint MaximumEnergyShield = 0);
 
 public partial class Program
 {
@@ -86,6 +127,8 @@ public sealed partial class ClientState
     public readonly HashSet<uint> SeenGround = [];
     /// <summary>The instance's monsters as this client was last shown them (SharedMonsters.cs SyncInstanceMonsters).</summary>
     public readonly Dictionary<uint, MonsterView> MonsterViews = [];
+    /// <summary>Instance scene snapshots already created on this connection, guarded by Monsters.</summary>
+    public readonly HashSet<uint> SceneViews = [];
     /// <summary>The instance's monsters out of this client's wake zone (it was sent 0x1aa for them: Resync.KeepWakeZone).
     /// A monster is asleep (SpawnedMonster.Asleep: no AI, its walk stopped) only when it is out of every client's.</summary>
     public readonly HashSet<uint> AsleepMonsters = [];

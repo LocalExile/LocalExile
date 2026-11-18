@@ -59,13 +59,30 @@ public static class InstanceMapDevice
     /// <summary>C→S 0x00e7: an Atlas map node picked in the hideout map device. u16 BE WorldAreas HASH16, u8 0x0d.</summary>
     public static (ushort Area, byte Mode) ReadSelectMap(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
-    /// <summary>C→S 0xe8: Ctrl + click with the Atlas map device open (0x14030e970 → 0x14216e750 when the window's
-    /// +0x10b8 check passes and the item's inventory kind is 0 or 0x0c). Writer 0x141f9f660: u32 BE item id, u8 flags,
-    /// u8 into (1 from the main inventory onto Map1, 0 back out), u8, u8 row (13 Map1), u8.</summary>
+    /// <summary>C→S 0xe8: Ctrl + click with the map device open, for an **Atlas Idol** (the ItemClasses row 94,
+    /// `AtlasRelic`, which the client's Ctrl + click handler tests first: `cmp eax,0x5f` at `0x140310f44`). Writer
+    /// `0x14216e750`, serializer `0x141f9f660`: u32 BE item id, then five single bytes, no byte swap — `+0x14`, `+0x15`,
+    /// `+0x16` and the low/high of the handler's u16 argument at `+0x17`/`+0x18`. The first of the five is 1 when the item
+    /// is in inventory row 84 (`ExpandedMainInventory1`, `0x14030ea5c`); there is no row-13 byte (the 0x0d the old note
+    /// remembered is 0xe7's). A **map** never sends this message: it sends <see cref="MoveIntoDeviceId"/> or
+    /// <see cref="MoveOutOfDeviceId"/>.</summary>
     public sealed record Move(uint ItemId, byte Flags, bool IntoDevice, byte Extra, byte Row);
 
     public static Move ReadMove(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7] != 0, m[8], m[9]);
+
+    /// <summary>C→S 0xe4 (into) and 0xe5 (out): Ctrl + click with the map device open, for the items that are not Atlas
+    /// Idols — a map goes this way. Writers `0x14216e300` (0xe4) and `0x14216e5d0` (0xe5), serializer `0x141f9eac0`:
+    /// u32 BE item id, u8 flags (bit 0 of +0x24, bit 1 of +0x26), u8 +0x28, u8 +0x29, u8 (bit 7 set: into the device; the
+    /// low 7 bits are +0x27), u16 BE the open map device object's +0x7b (0 when it has none). 12 bytes.</summary>
+    public const ushort MoveIntoDeviceId = 0x00e4, MoveOutOfDeviceId = 0x00e5;
+    public const int MoveItemLength = 12;
+
+    public sealed record ItemClick(uint ItemId, byte Flags, byte Flags2, byte Flags3, bool IntoDevice, ushort Device);
+
+    public static ItemClick ReadItemClick(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..6]), m[6], m[7], m[8], (m[9] & 0x80) != 0,
+            BinaryPrimitives.ReadUInt16BigEndian(m[10..12]));
 
     /// <summary>C→S 0xf6: a Voidstone clicked into (or out of) an Atlas socket with the map device open
     /// (0x1407bf070 → 0x14216eac0). Writer 0x141f993f0: u32 BE item id, u8, u8 (both 0 on the live
@@ -93,11 +110,23 @@ public static class InstanceMapDevice
     /// handler gives each listed portal object (it must exist already) its destination through PortalClient vtable +0xb8
     /// (0x14161c0e0: the area, its model, rendering on) and runs the device's on_map_portal_opened; an entry whose area
     /// became 0 closes its portal (+0xc0) and runs on_map_portal_closed. A portal object never listed here is not drawn.
+    /// <para>
+    /// The label floating over the player's own portal is the Portal component's own nametag: slot +0xb8 calls the text
+    /// getter 0x14161ca80, which takes the WorldAreas row the entry's area HASH16 resolved to ([component+0xb0], then its
+    /// +8, the localized area name) and then tests a byte of the component (<c>0x14161caa7</c>); set, the label is
+    /// ClientStrings 0x1fe5 <c>MapPortalsSuffixMapCompleted</c>, "{0} (Completed)" (<c>0x14161caf1</c>). That byte is
+    /// +0x33, which only bit 1 of this message's flags fills (reader <c>0x1421a73c1</c>): the dispatcher passes it to the
+    /// handler (<c>0x14218ca36</c>) and the handler forwards it, per listed portal, as the 7th argument of +0xb8
+    /// (<c>0x14218cc2d</c>). It re-runs +0xb8 for every portal on every 0x008f, so a re-sent list relabels them.
+    /// <paramref name="completed"/> sets that bit 1 and nothing else: bit 0 (0x01) is a different byte, +0x32, and
+    /// selects the "just opened" render path, so it stays clear.
+    /// </para>
     /// </summary>
-    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals)
+    public static byte[] Portals(uint deviceId, IReadOnlyList<Portal> portals, bool completed = false)
     {
-        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8(0).U8(0).U8(0).U32(deviceId).U16(0).U8(0).U8(0)
-            .U8((byte)portals.Count);
+        // The flags byte: bit 1 (0x02) is the completed label, 0 is a plain one.
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(PortalsId).U8((byte)(completed ? 0x02 : 0x00)).U8(0).U8(0)
+            .U32(deviceId).U16(0).U8(0).U8(0).U8((byte)portals.Count);
         foreach (var p in portals)
         {
             w.U32(p.ObjectId).U16(p.Area);

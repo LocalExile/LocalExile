@@ -43,6 +43,14 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public long Delay { get; init; }
     /// <summary>Simulation quanta between generated areas; terrain-skipped centres consume no time.</summary>
     public long Interval { get; init; }
+    /// <summary>Candidate angles tried per sector before it is omitted. Every failure draws once more, as in the
+    /// client's decrement-before-test counter.</summary>
+    public int PlacementAttempts { get; init; } = 1;
+    /// <summary>Percent chance, rolled once per group (always sampled when set), of one more area.</summary>
+    public int? ExtraCountChancePercent { get; init; }
+    /// <summary>Emit through a per-update timer: one area per runtime update when due, adding Interval and keeping
+    /// overdue time without catching up (the client's cluster timer).</summary>
+    public bool UpdateTimer { get; init; }
 }
 public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
@@ -334,4 +342,26 @@ public interface IProjectileWorld
     TerrainContact? TraceFlight(ProjectileEntity projectile, ProjectileVector from, ProjectileVector to) => TraceTerrain(from, to);
     ProjectileHitResult Hit(ProjectileDamage damage);
     void Publish(ProjectileEvent value);
+}
+
+/// <summary>The client's per-update cluster timer (3.29.3c 0x141ac99c0): subtract the update's elapsed time; when
+/// the timer is not positive, emit the next area and add the interval. One area per update, no catch-up, overdue time
+/// kept; the update after the last area retires the group.</summary>
+public sealed class ProjectileAreaTimer(long delay, long interval, int count)
+{
+    long timer = delay;
+    public int Emitted { get; private set; }
+    public bool Retired { get; private set; }
+    public long Timer => timer;
+
+    /// <summary>Advance by one update; returns the index of the area to emit now, if any.</summary>
+    public int? Update(long elapsed)
+    {
+        if (Retired) return null;
+        if (Emitted >= count) { Retired = true; return null; }
+        timer -= elapsed;
+        if (timer > 0) return null;
+        timer += interval;
+        return Emitted++;
+    }
 }

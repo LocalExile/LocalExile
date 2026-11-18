@@ -136,15 +136,6 @@ public static partial class Game
                     stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
     }
 
-    // "Recover X% of Life / Mana / Energy Shield when you Block" (Kiloava's Leadership): a percent of each maximum
-    // (PoB LifeOnBlock, ManaOnBlock and EnergyShieldOnBlock PercentStat), rounded down.
-    public static (int Life, int Mana, uint EnergyShield) BlockRecovery(ClientState conn, IReadOnlyDictionary<uint, int> stats)
-    {
-        long Pct(string name, long maximum) => Stats.Key(name) is uint key ? maximum * Math.Max(0, stats.GetValueOrDefault(key)) / 100 : 0;
-        return ((int)Pct("recover_%_of_maximum_life_on_block", conn.PlayerMaxLife), (int)Pct("mana_%_gained_on_block", conn.Pools.Mana),
-            (uint)Pct("energy_shield_%_gained_on_block", conn.EnergyShield.Maximum));
-    }
-
     // The Leadership buff on the player (S→C 0x1c1 with its remaining seconds, 0x1c2 when it ends or the player dies) and
     // the player's stats with or without its stats. Sent after a trigger and from the player tick.
     public static byte[]? SpiritChieftainPresentation(ClientState conn)
@@ -199,7 +190,7 @@ public static partial class Game
             RemoveMinionBodiesLocked(conn, now);
             // The buff ends with the player's death (SpiritChieftains.End), so its minion does too.
             double until = alive ? conn.SpiritChieftains.Active(now)?.Until ?? now : now;
-            foreach (var minion in conn.Minions.All.Where(m => m.Fights).ToArray())
+            foreach (var minion in conn.Minions.All.Where(m => m.Fights && m.SpiritChieftain).ToArray())
             {
                 var m = minion.Monster;
                 bool current = conn.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
@@ -236,7 +227,8 @@ public static partial class Game
             {
                 if (ReferenceEquals(conn.SpiritChieftains.Pending, summon)) conn.SpiritChieftains.Pending = null;
                 m.Aggro = true;
-                conn.Minions.Add(new(id, m, summon.Skill, variety.Name) { Until = summon.Until, Fights = true });
+                conn.Minions.Add(new(id, m, summon.Skill, variety.Name)
+                    { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => conn.PlayerLife > 0 && ReferenceEquals(conn.SpiritChieftains.Pending, summon)
                 && AreaTime(conn) < summon.Until);
         if (!CurrentGameWork) return;

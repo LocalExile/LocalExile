@@ -25,7 +25,8 @@ static class TattoosFeature
         bool forbidden = ForbiddenTattoo.IsForbidden(entry.Name);
         if (!forbidden && TattooStats.For(entry.Name) is null) return $"{entry.Name} has no server effect yet";
         int totalLimit = ItemsFor(conn).Limits.Get("tattoo_total", SystemSettings.Default.TattooTotalLimit);
-        if (!conn.Tattoos.ContainsKey(node) && totalLimit > 0 && conn.Tattoos.Count >= totalLimit)
+        if (!entry.IsRunegraft && !conn.Tattoos.ContainsKey(node) && totalLimit > 0
+            && conn.Tattoos.Values.Count(name => TattooCatalogue.Find(name)?.IsRunegraft != true) >= totalLimit)
             return $"a character can have at most {totalLimit} tattoos";
         if (entry.EventOnly && !forbidden) return $"{entry.Name} is event-only and is not supported yet";
 

@@ -10,11 +10,17 @@ public class HardcoreDeathRulesTests
     static Character NewCharacter(string league) => new(Guid.NewGuid(), Guid.NewGuid(), "DeathProbe", CharacterClass.Witch,
         12, league, "1_1_2", DiedAt.AddDays(-1), DiedAt, "1_1_town", 3);
 
+    // toVoid is what the Game module does when the league's rules have HardcoreDeathToVoid (Ruthless's setting, off by
+    // default): the death is permanent.
     [Theory]
-    [InlineData("Hardcore", "Standard", false)]
-    public void Death_retains_base_and_ssf_unless_ruthless_is_permanently_dead(string league, string target, bool terminal)
+    [InlineData("Hardcore", "Standard", false, false)]
+    [InlineData("Hardcore Ruthless", "Ruthless", false, false)]
+    [InlineData("SSF Hardcore Ruthless", "SSF Ruthless", false, false)]
+    [InlineData("Hardcore Ruthless", "Void", true, true)]
+    [InlineData("HC SSF R Allflame", "Void", true, true)]
+    public void Death_retains_base_and_ssf_unless_ruthless_is_permanently_dead(string league, string target, bool toVoid, bool terminal)
     {
-        var source = LeagueCatalog.FromEnvironment().ResolveSavedLeague(league)!;
+        var source = LeagueCatalog.FromEnvironment().ResolveSavedLeague(league)! with { PermanentDeath = toVoid };
         var original = NewCharacter(league);
         var dead = HardcoreDeathRules.Apply(original, source, DiedAt);
         Assert.Equal(target, dead.League);

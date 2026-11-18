@@ -27,6 +27,8 @@ public static class ClientStateRules
                         conn.RetiredCombatObjects.Clear(); conn.RetiredCombatBuffs.Clear();
                         conn.OwnedCombatState = current;
                         conn.SentRampage = default;
+                        conn.SentRampageStat = null;
+                        conn.SentRampageStacks = 0;
                     }
                     return current;
                 }

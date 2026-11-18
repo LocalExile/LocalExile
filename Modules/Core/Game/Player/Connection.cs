@@ -33,8 +33,9 @@ public static partial class Game
             // item is in its cell (it never left it).
             if (startItems.CancelOffers().Count is > 0 and var cancelled)
                 Console.WriteLine($"[gateway] {remote} {cancelled} item(s) offered in an unfinished sale are back in their cells");
-            return level;
         }
+        ResumeForArrival(remote, conn);
+        return level;
     }
 
     // The Escape menu (C→S 0x1d4, 22-pause.md) pauses the area outside towns and hideouts, where the client does not ask
@@ -59,6 +60,7 @@ public static partial class Game
         // the horde kill the player while they pick. Only the module that holds it resumes the clock.
         if (!pause && conn.PauseHeld)
         {
+            lock (conn.Monsters) if (conn.Instance?.World is { } held && ReferenceEquals(held.PausedBy, conn)) held.PausedBy = null;
             await Send(remote, stream, ciphers, InstancePause.State(true),
                 "0x01d3 still paused (C→S 0x01d4 0 ignored; a module holds the pause)");
             return;
@@ -67,7 +69,50 @@ public static partial class Game
         {
             foreach (var changed in GameEvents.PauseChanged.For(conn)) changed(conn, pause);
             if (pause) conn.Clock.Stop(); else conn.Clock.Start();
+            if (conn.Instance?.World is { } world) world.PausedBy = pause ? conn : null;
         }
         await Send(remote, stream, ciphers, InstancePause.State(pause), $"0x01d3 {(pause ? "paused" : "resumed")} (C→S 0x01d4 {(pause ? 1 : 0)})");
+    }
+
+    // The menu's "Exit to character selection" sends C→S 0x153 without a 0x1d4 0 first (issue #991): the pause ends with
+    // the connection that asked for it, or the instance's clock stays stopped for whoever comes next. A module-held pause
+    // (PauseHeld) is left to its module. Under the Monsters lock; true when the clock started again.
+    public static bool EndEscapePause(ClientState pauser)
+    {
+        if (pauser.Instance?.World is not { } world || !ReferenceEquals(world.PausedBy, pauser)) return false;
+        world.PausedBy = null;
+        if (pauser.PauseHeld || world.Clock.IsRunning) return false;
+        foreach (var changed in GameEvents.PauseChanged.For(pauser)) changed(pauser, false);
+        world.Clock.Start();
+        return true;
+    }
+
+    // An arrival never finds the instance's clock stopped: a player pauses only alone (SetPaused), so another player coming
+    // in ends that pause and resumes the pausing player's world, and a stop nobody holds any more (its connection gone) ends
+    // too. Only a module-held pause of a player still here (PauseHeld) stays.
+    static void ResumeForArrival(string remote, ClientState conn)
+    {
+        if (conn.Instance is not { } instance) return;
+        ClientState? resumed;
+        lock (conn.Monsters)
+        {
+            var world = instance.World;
+            if (world.Clock.IsRunning) return;
+            var here = instance.Presence.PlayersExcept(conn.PeerId).Select(p => p.Owner).OfType<ClientState>()
+                .Where(other => !other.Closed).ToList();
+            if (here.Any(other => other.PauseHeld)) return;
+            resumed = world.PausedBy is { } pauser && here.Contains(pauser) && EndEscapePause(pauser) ? pauser : null;
+            world.PausedBy = null;
+            if (!world.Clock.IsRunning) world.Clock.Start();
+        }
+        Console.WriteLine($"[gateway] {remote} the instance's clock was stopped" +
+            (resumed is null ? " with nobody holding it: it runs again" : $": {CharacterName(resumed)}'s pause ended (another player came in)"));
+        if (resumed?.Outbox is { } outbox) _ = Tell(outbox);
+
+        static async Task Tell(Func<byte[], string?, Task> outbox)
+        {
+            try { await outbox(InstancePause.State(false), "0x01d3 resumed (another player came into the instance)"); }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+        }
     }
 }

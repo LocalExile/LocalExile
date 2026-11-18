@@ -34,6 +34,77 @@ only ERROR/Exception/SCRIPT lines (`GLINES=<n>` for more). Arguments go through 
 | `ReadSchema.java` | `<out.json> <components.json> [factory:a+b] [only:f+g] [withc]` | read-sequence summaries (section 7) |
 | `SendSites.java` | `<out.json> [send:0xaddr/REG+…]` | every call of a send function (default the instance send `0x1421752b0`, message in RDX) resolved over the CFG to its (vtable, id) pairs, path by path (section 7) |
 
+### Headless heap and analysis troubleshooting
+
+`support/analyzeHeadless.bat` uses `GHIDRA_HEADLESS_MAXMEM`, falling back to `GHIDRA_MAXMEM`, then 2G.
+For example, `$env:GHIDRA_HEADLESS_MAXMEM = '16G'` in PowerShell raises the Java heap limit for that shell's
+headless runs; choose a limit that leaves RAM for Windows and other processes.
+`support/launch.bat` does read `support/launch.properties`, but places the launcher's `-Xmx` after that file's
+VM arguments. A heap setting in `launch.properties` therefore does not replace the headless limit.
+Extra `-Xmx` arguments in `GHIDRA_JAVA_OPTIONS` or `GHIDRA_HEADLESS_JAVA_OPTIONS` come last and can override it.
+
+An out-of-memory error during analysis may need both more heap and fewer analysis passes.
+The log's stack trace identifies the failing analyzer; a pre-script can disable its **bare option name** before
+analysis. Sub-options such as `ASCII Strings.Minimum string length` do not disable the analyzer itself.
+Save this helper as `Tools/re/LocalAnalysisOptions.java` (local, ignored):
+
+```java
+import ghidra.app.script.GhidraScript;
+
+public class LocalAnalysisOptions extends GhidraScript {
+    @Override
+    public void run() {
+        var options = getCurrentAnalysisOptionsAndValues(currentProgram);
+        var names = getScriptArgs();
+        if (names.length == 0) {
+            options.entrySet().stream().sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(entry -> println(entry.getKey() + " = " + entry.getValue()));
+            return;
+        }
+        for (String name : names) {
+            if (!options.containsKey(name)) {
+                throw new IllegalArgumentException("Unknown analysis option: " + name);
+            }
+            setAnalysisOption(currentProgram, name, "false");
+        }
+    }
+}
+```
+
+With no script arguments it lists the installed program's options. For an already imported `PathOfExile.exe`,
+this example resumes analysis with Microsoft demangling disabled and saves the result:
+
+```powershell
+$ghidraDir = Join-Path $PWD 'Tools/ghidra_12.1.4_PUBLIC_20260921/ghidra_12.1.4_PUBLIC'
+$projectDir = Join-Path $PWD 'Tools/ghidra-projects'
+$env:JAVA_HOME = Join-Path $PWD 'Tools/jdk-21'
+$env:GHIDRA_HEADLESS_MAXMEM = '16G'
+& "$ghidraDir/support/analyzeHeadless.bat" $projectDir poe3293 `
+    -process PathOfExile.exe -scriptPath Tools/re `
+    -preScript LocalAnalysisOptions.java 'Demangler Microsoft' `
+    -log Tools/re/headless-analysis.log -scriptlog Tools/re/headless-script.log
+```
+
+For inspection alone, the same command with `-noanalysis -readOnly` and no argument after
+`LocalAnalysisOptions.java` lists options without saving. Analysis options persist in a saved project.
+Ghidra rejects project paths containing a dot-prefixed component, such as a `.codex` worktree. In that case,
+`$projectDir` must point to the imported project outside that tree; the script path can still use the worktree.
+Other option names from the reduced-pass recipe are `Windows x86 PE RTTI Analyzer`, `Decompiler Parameter ID`,
+`Call Convention ID`, `Apply Data Archives`, `Create Address Tables`, `ASCII Strings`, `Embedded Media`,
+`Aggressive Instruction Finder`, `Non-Returning Functions - Known`, `Non-Returning Functions - Discovered` and
+`Stack`. Disable only the passes implicated by the failure: omitting them sacrifices their types, strings,
+function or stack recovery. A reduced pass is not a fully analyzed project, and there is no fixed completion time.
+
+`-noanalysis` skips automatic analysis; it is for querying an analyzed project, not a substitute for preparing a
+fresh import. Failed decompilation or `halt_baddata()` alone does not prove that missing analysis is the cause.
+The `g.sh` and `run.ps1` wrappers above deliberately use `-noanalysis -readOnly`; a retry that must save analysis
+uses the headless launcher directly, as above.
+
+The Java requirement is version-specific: Ghidra 12.2 declares `application.java.min=25` in
+`Ghidra/application.properties`. Its launcher needs a matching JDK 25 or later; this repository's 12.1.x/JDK 21
+wrapper paths do not select that toolchain. The installed launcher files, that properties file and Ghidra's
+`GetAndSetAnalysisOptionsScript.java` example are the references for these settings.
+
 ### Full decompilation dump (grep before you run Ghidra)
 
 `Tools/re/out/decomp-all/` (git-ignored, never commit it) holds the whole client decompiled, one file per function:
@@ -355,19 +426,23 @@ How 3.29.3b → 3.29.3c was ported; every step maps from evidence, nothing by of
    message ids; its report needs reading line by line, since stat keys, offsets after another id (`0x22 + 0x2b9`) and
    ClientStrings rows share the range. Re-check every script's code signature against the new executable.
 
-**The 3.29.3.5 hotfix needs no port.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
-sections and all 148,967 `.pdata` functions at the same addresses; every `.text` difference is a RIP-relative
-displacement, because `.rdata` and `.data` moved by a few bytes (mostly -0x30, +0x10, -0x80). Code addresses and
-message ids are unchanged; addresses of globals, vtables and strings are not, so a script that uses one needs the
+**The already-supported 3.29.3.5 hotfix.** Its `PathOfExile.exe` (build 328126, still "3.29.3c") has the 3.29.3c release's
+sections and all 148,967 `.pdata` functions at the same addresses. Most `.text` differences reference moved data,
+but a fresh comparison also reports four changed immediates (`0x140e61a01`, `0x14182f300`, `0x142e15d25`,
+`0x142e15d49`) and two changed fields outside `.pdata` spans (`0x1420f4065`, `0x1420f4071`). Their semantics remain
+unresolved; the comparator reports **not proven equal**, not unconditional whole-program equivalence.
+Selected network contracts are checked separately below. Globals, vtables and strings move, so a script needs the
 hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
 (`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
 
-**3.29.3d needs no port either** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+**The already-supported 3.29.3d** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
 sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
 (`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
 offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
 the 132,753 files `game-pack pack` takes are identical.
+The changed offsets are observed; equivalence of the affected TLS state is unresolved. Equal selected network
+contracts below do not resolve these whole-program comparator exceptions or change the admission rule.
 
 **A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
 LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
@@ -403,3 +478,38 @@ changes which of several identical functions a class table's entry names, so a c
 byte-equal between two builds with the same code.
 
 A moved function or a changed table is a port: the first list of this section.
+
+### Network contract evidence
+
+`scripts/re/port/network_contracts.json` pins the originals by full SHA-256: historical 3.29.3b, 3.29.3c release,
+3.29.3.5 hotfix and 3.29.3d. It retains function spans, field-reading instructions, the correction/teleport/removal
+switch routes and build-specific data targets for the Predictive investigation. Labels are analyst names.
+Structural matches normalize calls and RIP-relative operands; they do not prove every callee or referenced datum
+equivalent. The manifest distinguishes selected callee checks and unresolved comparator exceptions.
+
+From the checkout root, with Python and Capstone installed (`python -m pip install capstone`), run:
+
+```powershell
+python -I scripts/re/port/verify_network_contracts.py --client "C:\clients\3.29.3b\PathOfExile.exe" --client "C:\clients\3.29.3c\PathOfExile.exe" --client "C:\clients\3.29.3.5\PathOfExile.exe" --client "C:\clients\3.29.3d\PathOfExile.exe" --require-all
+```
+
+Replace the four paths with retained **unpatched originals**. The command reads them without writing; each result
+must have an empty `errors` list, `missing_builds` must be empty, and exit status must be 0. A single `--client`
+checks that build only; omit `--require-all` for that case. Unknown hashes are refused. Byte/span checks reproduce
+the retained observations; they are not whole-program or live gameplay parity tests.
+
+The 0x128 route maps from 3.29.3b `0x14214ef81` to `0x1421558d1` in all three later executables. The client skips
+it in Lockstep; Predictive applies its distance tests to the player-first snapshot, as described in
+[07 §5](../protocol/07-latency-visibility-movement.md). Actor 0x1ac decrements `+0x22c` before the mode branch;
+the Predictive branch releases an eligible server-created action. It is not a generic action stop.
+
+The native manifest records the position-tracking field evidence for the three supported originals:
+message kind `+8`, object id `+0x10`, Actor local flag `+0x1c8`, Actor `+8` → entity `+0x98` → Positioned,
+grid coordinates `+0x294/+0x298`, and movement-step duration `+0x240`. Position tracking reads no absolute globals.
+The world handler takes its message in the second argument; the third register is not a second candidate message.
+The sampled movement indicator means nonzero step duration, not independently measured velocity.
+
+Review of GGG/retail Predictive behavior supports player-first correction ordering. This finding does not establish
+a universal correction radius or send timer. The executable checks above independently verify the selected
+client-side contracts; they do not reproduce GGG's server implementation or prove gameplay parity.
+These findings concern 3.29; message-id mappings must follow the relevant build rather than importing 3.30 mappings.

@@ -49,7 +49,11 @@ static partial class Sirus
             converted = converted.Add(type, damage[type]).Add(type, physical.Scale(fraction)); remaining -= fraction;
         }
         damage = converted.Add(DamageType.Physical, physical.Scale(remaining));
-        return new(Skill(v, effect), Math.Max(.1, Game.SkillsFor(c).CastTimeMs(effect) / 1000d), 200, damage) { Spell = true, Scripted = true };
+        return new(Skill(v, effect), Math.Max(.1, Game.SkillsFor(c).CastTimeMs(effect) / 1000d), 200, damage)
+        {
+            Spell = true, Scripted = true,
+            Ailments = IncomingAilmentSettings(name => Stat(c, effect, level, name)),
+        };
     }
 
     // The monster set, not the throne or the invulnerable projection, owns the encounter reward.

@@ -25,6 +25,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public bool HideMinimapIcon { get; init; }
     public StateMachineData? StateMachine { get; init; }
     public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
+    /// <summary>Base-data script variables containing one entity reference (141dedf80 / 141dfe5a0, type 1).</summary>
+    public IReadOnlyDictionary<uint, uint> EntityVariables { get; init; } = new Dictionary<uint, uint>();
 
     static readonly HashSet<string> Supported = ["Positioned", "BaseEvents", "Animated", "Transitionable", "InteractionAction", "MinimapIcon",
         "TriggerableBlockage", "Chest", "Stats", "ObjectMagicProperties", "NPC", "Movement", "StateMachine"];
@@ -45,7 +47,10 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
         w.U8(0);            // object flags
-        w.U8(0);            // base data entry count
+        if (EntityVariables.Count > byte.MaxValue) throw new ArgumentException("too many entity variables");
+        w.U8((byte)EntityVariables.Count);
+        foreach (var (hash, entity) in EntityVariables.OrderBy(v => v.Key))
+            w.U32(hash).U8(0).U8(1).U8(1).U32(entity);
         foreach (string c in Components)
         {
             switch (c)

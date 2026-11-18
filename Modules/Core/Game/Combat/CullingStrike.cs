@@ -30,22 +30,26 @@ public static partial class Game
 
     // The hit's own damage, then the cull. A boss stage this hit starts, or one still running, keeps the boss alive.
     public static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
-        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
+        bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null,
+        IReadOnlyDictionary<uint, int>? cullPlayer = null)
     {
         m.LastHitBy = conn;
+        // The culling context is the attack's cached offensive snapshot and is passed for every victim of an area
+        // skill. `player` is Rampage's freshness-scoped source: only the first target gets a rebuilt snapshot, so it
+        // must stay separate from the stats the cull reads.
+        var cullStats = cullPlayer ?? player;
         int threshold = m.Rarity is MonsterRarity.Normal or MonsterRarity.Magic
             ? Math.Max(cull.Threshold, cull.NormalMagicThreshold) : cull.Threshold;
         // Conditional culling sources that depend on the target's state (poedb Culling Strike / passives): each grants
-        // the standard 10% cull when its condition holds. The weapon-local, flask, stun and "crit recently" sources need
-        // extra context and stay outside this (they are not target-state). Pacifism (CannotKill) is never overridden.
-        if (threshold == 0 && !cull.CannotKill && player is not null)
+        // the standard 10% cull when its condition holds. The weapon-local (local/main_hand/off_hand), flask, stun and
+        // "crit recently" sources need extra context and stay outside this. Pacifism (CannotKill) is never overridden.
+        if (threshold == 0 && !cull.CannotKill && cullStats is not null)
         {
-            int Get(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
+            int Get(string name) => Stats.Key(name) is uint k ? cullStats.GetValueOrDefault(k) : 0;
             bool applies = false;
-            if (Get("culling_strike_on_burning_enemies") != 0 && m.Ignites.Burning) applies = true;
+            if (Get("culling_strike_on_burning_enemies") != 0 && BurningTarget(conn, m)) applies = true;
             if (Get("culling_strike_on_frozen_enemies") != 0
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, conn.Clock.Elapsed.TotalSeconds) > 0) applies = true;
-            if (Get("culling_strike_vs_bleeding_enemies") != 0 && m.Bleeds.Burning) applies = true;
             if (Get("culling_strike_vs_cursed_enemies") != 0 && m.Curses.All.Count > 0) applies = true;
             if (Get("culling_strike_vs_marked_enemy") != 0 && m.Curses.All.Values.Any(c => c.Mark)) applies = true;
             if (Get("culling_strike_on_enemies_affected_by_poachers_mark") != 0
@@ -59,12 +63,18 @@ public static partial class Game
             damage = (int)Math.Min(damage, Math.Max(0, (long)m.Life - 1));
             threshold = 0;
         }
+        uint beforeHit = m.Life;
         var hit = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
+        // The direct hit's excess feeds overkill effects; a subsequent cull contributes no overkill.
+        m.Overkill = beforeHit > 0 && hit.Life == 0
+            ? (int)Math.Clamp((long)damage - beforeHit, 0, int.MaxValue) : 0;
         if (threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
             || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
         m.Life = hit.Life;
         hit = TakeOwnerDamageLocked(conn, m, (int)hit.Life, rampageSource, player);
-        if (hit.Life == 0 && cull.RecoverLifePct > 0 && conn.PlayerLife > 0)
+        bool cannotRecoverLife = cullStats is not null && Stats.Key("cannot_recover_life") is uint ck
+            && cullStats.GetValueOrDefault(ck) != 0;
+        if (!cannotRecoverLife && hit.Life == 0 && cull.RecoverLifePct > 0 && conn.PlayerLife > 0)
         {
             // Instant recovery, sent with the next vitals update like instant leech.
             var leech = LeechOf(conn);
@@ -73,20 +83,40 @@ public static partial class Game
                 ref leech.LifeInstantCarry, minimum: 1);
             leech.InstantLifeChanged |= before != conn.PlayerLife;
         }
-        if (hit.Life == 0 && player is not null)
+        if (hit.Life == 0 && cullStats is not null)
         {
-            int lifeGained = Stats.Key("life_gained_on_cull") is uint lk ? player.GetValueOrDefault(lk) : 0;
-            int manaGained = Stats.Key("mana_gained_on_cull") is uint mk ? player.GetValueOrDefault(mk) : 0;
-            if (lifeGained > 0 && conn.PlayerLife > 0)
+            int Get(string name) => Stats.Key(name) is uint k ? cullStats.GetValueOrDefault(k) : 0;
+            int lifeGained = Get("life_gained_on_cull");
+            int manaGained = Get("mana_gained_on_cull");
+            if (!cannotRecoverLife && lifeGained > 0 && conn.PlayerLife > 0)
             {
+                // The same capped recovery the other instant Life sources use: reserved Life and Petrified Blood apply.
                 var leech = LeechOf(conn);
                 uint before = conn.PlayerLife;
-                conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + lifeGained);
+                conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, before, lifeGained,
+                    ref leech.LifeInstantCarry, minimum: 1);
                 leech.InstantLifeChanged |= before != conn.PlayerLife;
             }
             if (manaGained > 0)
-                conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + manaGained);
+            {
+                // Carry and client update follow the same rule as recovery on kill, including a gain up to full Mana.
+                var leech = LeechOf(conn);
+                uint before = conn.PlayerMana;
+                conn.PlayerMana = RecoveryPool.Advance(before, (uint)UnreservedMana(conn), manaGained,
+                    ref leech.ManaInstantCarry);
+                leech.InstantManaChanged |= before != conn.PlayerMana;
+            }
         }
         return hit;
+    }
+
+    // Burning covers the supported non-ignite sources too. Righteous Fire only puts its aura on the monsters in range
+    // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own. `m.Burn` is only
+    // the DoT's fractional carry and is never cleared, so it is not a burning signal.
+    static bool BurningTarget(ClientState conn, SpawnedMonster m)
+    {
+        if (m.Ignites.Burning || m.HeraldBurns.Burning) return true;
+        return conn.RighteousFire is { } rf && conn.Monsters.Any(pair =>
+            pair.Value == m && rf.Auras.ContainsKey(pair.Key));
     }
 }
