@@ -71,8 +71,8 @@ $manifest = @(
        Args = @('scripts/re/projectile_clips.py'); Version = 4; Needs = @('tables')
        UsedBy = 'server-created projectile objects (monster mortars): each Projectiles row''s flight and impact clip indexes and lengths in its rig, the flight clip''s contact (a spell mortar''s landing time), and its .ao default animation (11-skills.md)' }
     @{ Name = 'passive-graphs'; Outputs = @('data\passive-skill-graphs.json', 'data\phrecia-passive-skillgraph.psg'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 6; Needs = @('tables')
-       UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
+       Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client', 'data/passive-skill-graphs.json'); Version = 7; Needs = @('tables')
+       UsedBy = 'ordinary/ascendancy server membership and connectivity, and the Atlas tree''s pathing; derived Phrecia client artifact remains uninstalled' }
     # The servers never open Client/ as they run: what they would read from it comes from these two.
     @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'; Servers = $true
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()

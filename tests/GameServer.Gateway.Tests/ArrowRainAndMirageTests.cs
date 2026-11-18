@@ -30,13 +30,12 @@ public class ArrowRainAndMirageTests
             {
                 var rain = Assert.Single(clone.Abilities);
                 Assert.Equal(9511, rain.Effect); Assert.Null(rain.Projectile);
-                typeof(Game).GetMethod("GolemAbilityContactLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                typeof(Game).GetMethod("GolemAbilityContactLocked", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
                     .Invoke(null, ["test", b.Stream, b.Ciphers, c, clone,
                         new GolemState.Action(rain, 200, b.Enemy, (120, 100), 0, clone.Monster.ActionGeneration), 1d]);
                 Assert.Equal(11, clone.Pulses.Count);
                 Assert.All(clone.Pulses, p => Assert.True(p.Next >= 1.35));
-                clone.Monster.Mods = MonsterModSet.None with
-                    { Effects = new(new Dictionary<string, int> { ["accuracy_rating"] = 1000000 }) };
+                clone.Gear["accuracy_rating"] = 1000000;
                 uint life = b.Enemy.Life;
                 Game.GolemStepLocked("test", b.Stream, b.Ciphers, c, clone, 1.36);
                 Assert.True(b.Enemy.Life < life);
@@ -55,7 +54,7 @@ public class ArrowRainAndMirageTests
                     Assert.True(attack.Attack.Damage.MaxTotal > 0);
                     Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
                     var ailmentTarget = new SpawnedMonster("ailment target", new(120, 100, 0), 100, 3, 100000) { Hostile = true };
-                    typeof(Game).GetMethod("MinionAilmentsLocked", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    typeof(Game).GetMethod("MinionAilmentsLocked", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
                         .Invoke(null, [c, clone, attack, 999u, ailmentTarget, true, 1d]);
                     Assert.False(ailmentTarget.Poisons.Poisoned);
                     Assert.Equal(element == DamageType.Fire, ailmentTarget.Ignites.Burning);

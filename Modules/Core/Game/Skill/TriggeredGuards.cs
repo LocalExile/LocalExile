@@ -161,8 +161,20 @@ public static partial class Game
     public static (int Physical, int Other, int Chaos) TriggeredGuardHit(ClientState conn,
         int physical, int other, int chaos, double at)
     {
+        (physical, other, chaos) = MitigateTriggeredGuardHit(conn, physical, other, chaos, at);
+        return AbsorbTriggeredGuardHit(conn, physical, other, chaos, at);
+    }
+
+    static (int Physical, int Other, int Chaos) MitigateTriggeredGuardHit(ClientState conn,
+        int physical, int other, int chaos, double at) =>
+        CurrentTriggeredGuard(conn, at) is { Until: > 0 } guard
+            ? ((int)(physical * guard.Physical), (int)(other * guard.Elemental), chaos)
+            : (physical, other, chaos);
+
+    static (int Physical, int Other, int Chaos) AbsorbTriggeredGuardHit(ClientState conn,
+        int physical, int other, int chaos, double at)
+    {
         if (CurrentTriggeredGuard(conn, at) is not { Until: > 0 } guard) return (physical, other, chaos);
-        physical = (int)(physical * guard.Physical); other = (int)(other * guard.Elemental);
         int Absorb(int damage)
         {
             int absorbed = (int)Math.Min(guard.Remaining, (long)damage * guard.Percent / 100);
