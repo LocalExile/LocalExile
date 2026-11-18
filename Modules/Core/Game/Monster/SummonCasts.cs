@@ -18,7 +18,7 @@ static partial class Game
                 lock (conn.Monsters)
                 {
                     if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed
-                        || conn.LeavingArea || conn.PlayerLife == 0 || recovery != conn.ActionInterruptionGeneration
+                        || conn.LeavingArea || conn.PlayerLife == 0 || !triggered && recovery != conn.ActionInterruptionGeneration
                         || !SameTriggerSource(gem, SupportedSkill(conn, source))) return false;
                     if (!conn.Paused && AreaTime(conn) >= due) break;
                 }

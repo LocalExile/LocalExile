@@ -14,11 +14,11 @@ public static class GatewayProjectileSkillProfiles
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
             "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
-            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike" });
+            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
-        "Spark", "SparkAltX", "SparkAltY", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
+        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
         "WinterOrb", "ForbiddenRite", "Cremation", "RollingMagma", "ToxicRain", "PoisonousConcoction"
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
@@ -68,6 +68,10 @@ public static class GatewayProjectileSkillProfiles
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
+        // Spark behaviour variation 4 selects tornado art and forgets contacts every 100 ms (native action).
+        // An official server contact trace remains separate from this client-side repeat policy.
+        else if (effect == "Twister")
+            p = p with { HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(.1)) };
 
         // Rolling Magma lobs its orb onto the aim, where it explodes, then chains along the ground: each of its chains
         // (number_of_chains, 2 at level 1) is a bounce forward and another explosion, which may hit the same monsters.
@@ -97,6 +101,9 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("molten-strike", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
+
+        else if (effect == "HolyFlameTotem")
+            p = p with { Count = Math.Max(1, get("base_number_of_projectiles")), Pierce = -1, CannotReturn = true };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
@@ -142,6 +149,7 @@ public static class GatewayProjectileSkillProfiles
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.

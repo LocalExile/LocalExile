@@ -32,6 +32,7 @@ public sealed class BlockRecoveryTests
     {
         var conn = new ClientState(new(1, "block-recovery", 1000, 1000, 100, 100, null, []), 1, 1)
         {
+            Character = "BlockRecovery" + Guid.NewGuid().ToString("N"),
             PlayerLife = life, PlayerMana = mana, Instance = new(), EvasionEntropy = 100,
             IncomingHitRandom = new NonCriticalRolls(),
             Pools = new(100, 1000, 100, 0, 0, BlockChance: 100, SpellBlockChance: 100,

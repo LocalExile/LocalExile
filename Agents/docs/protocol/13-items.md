@@ -295,6 +295,10 @@ passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus
 attributes, resistances, block, suppression, speeds, crit, accuracy …) and the stats the client shows (0x1b3), the same
 way a passive's would. They are sent again when equipment changes (`SendEquipment`).
 
+Two historical stat names are misleading: Malachai's Vision's collection-gated ES and Mana `recharge_rate_per_minute`
+rows describe flat regeneration, not recharge speed. Replica Mistwall's `spell_block_is_maximum` row retains the
+unscalable value 75, but means the current maximum spell-block chance, including changes to that maximum.
+
 Heist magnitude enchantments travel in the enchant list alongside the original explicit rolls.
 The native item tooltip scales eligible explicit values from those rolls.
 [#565](https://github.com/LocalExile/LocalExile/issues/565)
@@ -466,7 +470,9 @@ Instilling-enchanted flask through the normal charge/buff path. Other trigger co
 Official mechanic reference: https://www.pathofexile.com/forum/view-thread/3147479 (Major New Content).
 
 **Mageblood's mechanic** (`Game.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
-from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask bar constantly apply their effects. The
+from `num_magic_utility_flasks_always_apply`; the Foulborn belt's mutated mod counts from the right instead,
+`num_magic_utility_flasks_always_apply_rightmost`) magic utility flasks in the flask bar constantly apply their effects;
+life, mana, normal and unique flasks between them are skipped. The
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
 (the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
 buff on the client with no duration (0x1c1 with the flask-bar cell and without bit 1), put on and taken off by a ticker
@@ -478,9 +484,10 @@ The running effects and the permanent ones are combined before the strongest-per
 already used when the belt went on counts once, not twice, while different effects still stack; the running effects keep
 their own duration and stay after the belt is removed.
 
-Not modelled yet: the "Magic Utility Flask Effects cannot be removed" backstop (nothing in the server removes a flask's
-effect), the Foulborn rightmost variant. Enkindling/Instilling server logic is described above. How the client draws a flask buff without a duration
-has not been seen live.
+"Magic Utility Flask Effects cannot be removed" needs no code yet: the server ends a flask effect only at expiry, on
+death and when the flask leaves the bar, as the game does, and has no remover (`remove_flask_effects_on_hit_%`,
+Nullifier-like monsters) for it to stop. Enkindling/Instilling server logic is described above. How the client draws a
+flask buff without a duration has not been seen live.
 
 **Headhunter's mechanic** (`StolenMods`, the UniqueBelts module): killing a rare monster with
 `gain_rare_monster_mods_on_kill_ms` on the character adds the stats of the rare's rolled affixes (not its rarity's
@@ -491,6 +498,15 @@ time left, replaced at each change by the same ticker. Death and an area change 
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+
+**Kalandra's Touch** (`RingReflections`, Progression's equipment sum): a ring with `local_ring_duplicate_other_ring`
+("Reflects opposite Ring") in the left or right ring slot (rows 6/7) adds a copy of the other slot's ring to the
+active items, so every modifier of it (implicits, explicits, crafted, enchantments and anointments, corruption and
+influence implicits, at the other ring's quality) counts twice, requirements included. The copy keeps the other ring's
+corrupted and influence flags (Path of Building's CalcSetup counts the Touch as such an item). Nothing is reflected
+from another Kalandra's Touch, an empty or inactive slot, sockets or socketed gems, or in the third ring slot (row
+102, no opposite slot). The item and its tooltip are unchanged on the wire; whether the client draws the reflected
+lines itself is not checked.
 
 Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
 Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
@@ -1169,8 +1185,8 @@ item overrides remain open. No extracted-data changes are required.
 - **Eldritch Chaos and Eldritch Exalted Orbs** reroll or add to a rare's explicits as Chaos/Exalted do, only on an
   item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The **Eldritch Orb of Annulment** is an
   Annulment under the same condition.
-- **Orb of Unmaking**, used from the bag (C→S 0x58), refunds every allocated Atlas passive of all three presets and is
-  consumed; with nothing allocated it stays (`Game.UseOrbOfUnmaking`).
+- **Orb of Unmaking**, used from the bag (C→S 0x58), grants one Atlas passive respec point and is consumed
+  (CurrencyItems "Grants an atlas passive skill refund point"; [15](15-progression.md) §2).
 - **Orb of Binding** turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as
   Alchemy) with four linked sockets coloured from the base's requirements.
 - **Tainted currency** (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's Whetstone)
@@ -1541,10 +1557,22 @@ all unique acquisition/conditional mechanics, native tooltip behavior or officia
 
 The "during effect" suffixes (`UtilityFlasks.DuringEffect`) count while the flask runs, scaled by its effect: increased
 armour (`local_flask_armour_+%_while_healing` → `physical_damage_reduction_rating_+%`), increased evasion, movement
-speed, additional elemental resistances, increased critical strike chance and increased Ward; the
+speed, additional elemental resistances, increased critical strike chance, increased Ward, and Dying Sun's increased
+area of effect (`base_skill_area_of_effect_+%`) and additional projectiles (`number_of_additional_projectiles`), and
+Oriath's End's kill explosion chance; on life, mana and hybrid flasks the same list counts while that use's own recovery
+runs, ending early when the pools fill (`UtilityFlasks.RecoveryDuringEffects`: Divination Distillate's rarity, quantity,
+light radius and resistances). Unique flask mechanics on top: Bottled Faith's ground has tripled radius, and ground
+created during its effect keeps its increased damage taken for enemies on it, with its crit chance against them read
+per target at the hit (`Game.GroundCritical`, computed with Rational Doctrine's profane increase); Cinderswallow Urn's
+ignites during the effect retain damage taken individually until they end, and a corpse the player consumes while still
+ignited recharges it (paid by the flask-charge loop); Rumi's block adds before increased block; Stormblood lets a critical strike's every damage
+type count for shock, chill and freeze (Sap, Brittle and the Replica Rumi's Petrified are not modelled); the
 ailment, stun and curse ones (avoid, reduced effect or duration on you, immunities, "chance to Freeze, Shock and
 Ignite", stun recovery) reach the character panel only; life and energy shield leech are not applied (leech is not
 modelled).
+Oriath's End scales through the secondary-damage path, but its explosions still use the shared fixed radius and art
+and do not apply ailments.
+Cinderswallow's damage-taken qualifier through ignite proliferation remains unverified.
 
 With `flasks_apply_to_your_linked_targets` (Paladin's Field Medicine), a non-unique utility flask also puts its buff
 and the Silver Flask's Onslaught (0x1c1, the player as source, the flask's duration) on each of the player's linked
@@ -1618,9 +1646,9 @@ Quicksilver at once and a use while dead was refused; `/goto 1_1_town` during Ru
 off the bar ended its effect at once. Not seen live: the client actually walking faster or phasing through monsters (the
 bridge cannot make it walk), the tooltip's duration with quality.
 
-**Mageblood:** while the unique belt is worn, the leftmost magic utility flasks apply their effects permanently without
-charges or a duration (`Game.Mageblood`, §2e); using them is refused, and the character's stats are re-sent when the
-bar changes.
+**Mageblood:** while the unique belt is worn, the leftmost (Foulborn: rightmost) magic utility flasks apply their
+effects permanently without charges or a duration (`Game.Mageblood`, §2e); using them is refused, and the character's
+stats are re-sent when the bar changes.
 
 ## 8b. Flask charges
 

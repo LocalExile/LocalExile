@@ -8,7 +8,8 @@ public static class AuraRadius
 {
     public static int Of(AuraCatalog.Aura aura, int auraAreaPct, SkillCatalog skills, StatCatalog stats)
     {
-        var own = skills.EffectStats(aura.Effect, aura.Level, aura.Quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
+        var own = (aura.SkillStats ?? skills.EffectStats(aura.Effect, aura.Level, aura.Quality))
+            .ToDictionary(kv => kv.Item1, kv => kv.Item2);
         int Get(string name) => (stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0)
             + (name == SkillArea.BaseIncreased ? auraAreaPct : 0);
         return SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false);

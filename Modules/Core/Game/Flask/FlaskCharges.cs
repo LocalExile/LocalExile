@@ -146,10 +146,7 @@ public static partial class Game
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (!conn.FlaskChargeCarry.CritReady(now)) return;
-        var bar = ItemsOf(conn).Items(PlayerInventories.Flask).Select(f => (f.Id,
-            Chance: ItemModStats.Local(f.Item, ItemsFor(conn).Mods).GetValueOrDefault("local_recharge_on_crit_%"),
-            Full: ItemsFor(conn).ByHash(f.Item.TypeHash) is not { } t || ItemsFor(conn).FlaskChargesOf(t) is not { } c
-                || f.Item.Charges >= FlaskCharges.Of(c, ItemModStats.Local(f.Item, ItemsFor(conn).Mods)).MaxCharges)).ToList();
+        var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
         var character = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
@@ -179,6 +176,15 @@ public static partial class Game
                 if (conn.LeavingArea) { next = updates.Schedule.Now(conn) + 3; continue; }
                 await DrainFlaskTriggers(remote, stream, ciphers, conn);
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
+                // Cinderswallow Urn: the ignited corpses consumed since the last step (NoteCorpseConsumedLocked).
+                if (Interlocked.Exchange(ref conn.IgnitedCorpsesConsumed, 0) is int corpses and > 0)
+                {
+                    Console.WriteLine($"[gateway] {remote} {corpses} ignited corpse(s) consumed: flask charges");
+                    await GainFlaskCharges(remote, stream, ciphers, conn,
+                        (_, local) => corpses * local.GetValueOrDefault("local_flask_gain_X_charges_on_consuming_ignited_corpse"),
+                        "consumed ignited corpse");
+                    if (!PlayerUpdatesCurrent(conn, updates)) return;
+                }
                 if (updates.Schedule.Now(conn) < next || conn.PlayerLife == 0) continue;
                 next += 3;
                 var character = CharacterPlayerStats(conn);

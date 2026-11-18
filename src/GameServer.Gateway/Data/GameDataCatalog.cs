@@ -73,6 +73,8 @@ public static class GameDataCatalog
         var ranges = Children(store, "unique_item_ranges", "name, base_type, ord", "name", "base_type");
         var groups = Children(store, "unique_item_roll_groups", "name, base_type, grp", "name", "base_type");
         var options = Children(store, "unique_item_roll_options", "name, base_type, grp, ord", "name", "base_type", "grp");
+        var variants = Children(store, "unique_item_variants", "name, base_type, variant", "name", "base_type");
+        var variantMods = Children(store, "unique_item_variant_mods", "name, base_type, variant, ord", "name", "base_type", "variant");
         var identities = store.LoadRows("unique_item_identities", "name, base_type")
             .ToDictionary(r => Key(r, "name", "base_type"), r => Text(r, "visual_identity"));
         return [.. Enabled(store.LoadRows("unique_items", "name, base_type")).Select(row =>
@@ -90,7 +92,11 @@ public static class GameDataCatalog
                     IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count"),
                     [.. options[Key(g, "name", "base_type", "grp")].Select(o => o.ContainsKey("weight") ? (int)Int(o, "weight") : 1)]))] : null,
                 (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus"),
-                    VisualIdentityId = identities.GetValueOrDefault(key) };
+                    VisualIdentityId = identities.GetValueOrDefault(key),
+                    Variants = variants[key].Any() ? [.. variants[key].Select(v => new UniqueCatalog.Variant(
+                        Text(v, "variant"), v["variant_base_type"] as string,
+                        [.. variantMods[Key(v, "name", "base_type", "variant")].Select(m => Text(m, "mod"))],
+                        (int)Int(v, "weight")))] : null };
         })];
     }
 

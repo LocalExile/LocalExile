@@ -25,6 +25,27 @@ public sealed class RampageAndSoulEaterTests
         Assert.Equal(new[] { 15 }, session.TakeTiers());
     }
 
+    // The full stat and skill snapshots follow a streak only when something they carry changes (Game.RampagePresentation).
+    [Fact]
+    public void Rampage_snapshots_follow_every_stack_count_a_stat_or_skill_reads()
+    {
+        static object Signature(int stacks, int rarityPer = 0, int areaPer25 = 0, int attackSpeedPer10 = 0) =>
+            Game.RampageStatSignature(new(stacks, ExpiresAt: 5), rarityPer, areaPer25, attackSpeedPer10);
+        // Damage and movement: every 20 stacks, for everyone.
+        Assert.Equal(Signature(1), Signature(19));
+        Assert.NotEqual(Signature(19), Signature(20));
+        Assert.NotEqual(Signature(0), Signature(1));
+        // Chain Hook's and Shield Charge's attack speed: every 10 stacks, only with the stat.
+        Assert.Equal(Signature(9), Signature(10));
+        Assert.NotEqual(Signature(9, attackSpeedPer10: 2), Signature(10, attackSpeedPer10: 2));
+        Assert.NotEqual(Signature(29, attackSpeedPer10: 2), Signature(30, attackSpeedPer10: 2));
+        Assert.Equal(Signature(10, attackSpeedPer10: 2), Signature(19, attackSpeedPer10: 2));
+        // Rarity per X kills and area per 25: at their own group sizes.
+        Assert.NotEqual(Signature(14, rarityPer: 15), Signature(15, rarityPer: 15));
+        Assert.NotEqual(Signature(24, areaPer25: 5), Signature(25, areaPer25: 5));
+        Assert.Equal(Signature(24), Signature(25));
+    }
+
     [Fact]
     public void Soul_eater_gains_caps_and_decays_after_four_seconds()
     {

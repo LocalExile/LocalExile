@@ -56,7 +56,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   - Regeneration: other conversions than Zealot's Oath, named conditional/more modifiers and other recovery systems.
   - Charges: Brand attachment/cap enforcement, the Affliction non-damaging effect and Absorption recoup consumers.
     Reap's damage over time debuff, Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits
-    (Bear Trap, Herald of Ice) whose rows are display-only.
+    beyond Bear Trap's hit (Herald of Ice, Bear Trap's immobilise and decaying debuff).
   - Deferred (owner's decision, 2026-10-29): Spirit and Siphoning Charges. Their only 3.29 player sources are unique
     mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
     `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need unique definitions beyond
@@ -153,6 +153,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   costs, death/resurrection and slow destination loading ([27](../docs/protocol/27-vaal-souls.md)).
   Validate the [modular Behemoth candidate](../docs/game/behemoth.md) natively; other Vaal executors and official
   distribution/capacity parity remain open.
+  Vaal minion totem, trap and mine execution remains open; these casts are refused before souls or actions are spent.
+  Vaal Animate Weapon, full ascended special attacks and minion stance targeting remain open.
 
 ### Death screen variants
 

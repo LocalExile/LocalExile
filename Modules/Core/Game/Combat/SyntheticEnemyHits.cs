@@ -35,13 +35,13 @@ public static partial class Game
             bool blocked = block && DamageModel.Blocks(blockChance, conn.IncomingHitRandom.NextDouble() * 100, luckyBlock, unluckyBlock);
             if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(conn.IncomingHitRandom))
                 resistance = maximum = 90;
-            bool immune = PlayerImmunities(conn).Contains(type);
+            bool immune = PlayerImmunities(conn, stats).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
                 : PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) > 0
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
             var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
-                stats, attack: !spell, ranged: ranged && !spell);
+                stats, attack: !spell, ranged: ranged && !spell, spell: spell);
             // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
             if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
                 name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);
@@ -63,6 +63,8 @@ public static partial class Game
             conn.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(conn);
             RecordIncomingHitLocked(conn, now, spell, blocked, suppressed, lifeDamage);
+            RecentHitLifeLossOnHitLocked(conn, now);
+            UnhingedHitRecoveryLocked(conn, now, stats);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,

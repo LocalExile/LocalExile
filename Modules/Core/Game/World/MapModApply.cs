@@ -24,9 +24,17 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
-    static Dictionary<string, int> MapMonsterEffects(MapMods mods)
+    /// <summary>The vital and deadly Atlas keystones' more monster life and damage (Wellspring of Creation, Dance of
+    /// Destruction): the area's map_ stat becomes the monster stat of the same name, which acts as a more modifier on
+    /// the monster's life or hit (handed over to MonsterModEffects.HandOverMore in GameModule.Load).</summary>
+    internal static readonly string[] AtlasMoreLife = ["monster_life_+%_final_from_vital_atlas", "monster_life_+%_final_from_deadly_atlas"],
+        AtlasMoreDamage = ["monster_damage_+%_final_from_vital_atlas", "monster_damage_+%_final_from_deadly_atlas"];
+
+    public static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
+        foreach (string atlas in AtlasMoreLife.Concat(AtlasMoreDamage))
+            if (mods.Get("map_" + atlas) is int more and not 0) extra[atlas] = more;
         if (mods.Get("map_monsters_cannot_be_stunned") != 0)
             extra["base_cannot_be_stunned"] = 1;
         void Gain(string mapId, string monsterId)
@@ -37,6 +45,15 @@ public static partial class Game
         Gain("map_monsters_%_physical_damage_to_add_as_fire", "physical_damage_%_to_add_as_fire");
         Gain("map_monsters_%_physical_damage_to_add_as_cold", "physical_damage_%_to_add_as_cold");
         Gain("map_monsters_%_physical_damage_to_add_as_lightning", "physical_damage_%_to_add_as_lightning");
+        Gain("map_monsters_base_bleed_duration_+%", "base_bleed_duration_+%");
+        // The extracted map rows use the real monster stats rather than a synthetic "global" flag:
+        // MapPoisoning: map_monsters_poison_on_hit=1;
+        // MapUberModPoison: the same plus all_damage_can_poison and +100% poison duration.
+        if (mods.Get("map_monsters_poison_on_hit") != 0)
+            extra["base_chance_to_poison_on_hit_%"] =
+                extra.GetValueOrDefault("base_chance_to_poison_on_hit_%") + 100;
+        Gain("map_monsters_base_poison_duration_+%", "base_poison_duration_+%");
+        Gain("map_monsters_all_damage_can_poison", "all_damage_can_poison");
         return extra;
     }
 
@@ -49,17 +66,35 @@ public static partial class Game
         return list;
     }
 
+    /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
+    /// scarab drop factors (its increased and more modifiers multiplied, 1 for none) on the base map chances
+    /// (<c>drop_card_chance_pct</c>, <c>drop_scarab_chance_pct</c>, ItemDrops.Roll): a factor f adds the base chance
+    /// × (f − 1) per kill.</summary>
     static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(ClientState conn, int monsterLevel, MonsterRarity rarity, Random rng)
     {
         if (MapModsOf(conn) is not { } mods) yield break;
         var drops = DropsFor(conn);
         if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel) is { } packCard)
             yield return packCard;
-        if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && drops.Card(rng, monsterLevel) is { } card)
-            yield return card;
-        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && drops.Scarab(rng, monsterLevel) is { } scarab)
-            yield return scarab;
+        double card = MapDropFactor(mods, "map_divination_card_drop_chance_+%", "map_divination_card_drop_chance_+%_final_from_quality",
+            "map_divination_card_drop_chance_+%_final_from_faridun_wish");
+        if (card > 1 && MapDropExtra("drop_card_chance_pct", card - 1, rng) && drops.Card(rng, monsterLevel) is { } extraCard)
+            yield return extraCard;
+        double scarab = MapDropFactor(mods, "map_scarab_drop_chance_+%_final_from_uber_mod",
+            "map_unscaled_scarab_drop_chance_+%_final_from_uber_mod", "map_scarab_drop_chance_+%_final_from_faridun_wish");
+        if (scarab > 1 && MapDropExtra("drop_scarab_chance_pct", scarab - 1, rng) && drops.Scarab(rng, monsterLevel) is { } extraScarab)
+            yield return extraScarab;
     }
+
+    static double MapDropFactor(MapMods mods, params string[] ids)
+    {
+        double factor = 1.0;
+        foreach (string id in ids) factor *= Math.Max(0, 100 + mods.Get(id)) / 100.0;
+        return factor;
+    }
+
+    static bool MapDropExtra(string setting, double quantity, Random rng) =>
+        rng.NextDouble() < Math.Clamp(SystemSettings.Default.Get(setting), 0, 100) / 100.0 * quantity;
 
     static SingleUseCooldown? WithMapCooldown(ClientState conn, SingleUseCooldown? plan)
     {

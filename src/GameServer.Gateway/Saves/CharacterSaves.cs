@@ -227,12 +227,35 @@ public static class CharacterSaves
     public static void SetStance(string character, string stance) => Update(character, save => save with { Stance = stance });
 
     /// <summary>Persist aura intent by stable GrantedEffects Id, replacing any alias of the same aura family.</summary>
-    public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>
+    public static void SetAuraActive(string character, string effect, bool active)
     {
-        string family = AuraCatalog.Family(effect);
-        var auras = (save.ActiveAuras ?? []).Where(id => AuraCatalog.Family(id) != family).ToList();
-        if (active) auras.Add(effect);
-        return save with { ActiveAuras = auras };
+        if (StanceCatalog.IsSource(effect))
+        {
+            Update(character, save =>
+            {
+                string family = StanceCatalog.SourceFamily(effect);
+                var auras = (save.ActiveAuras ?? []).Where(id => StanceCatalog.SourceFamily(id) != family).ToList();
+                string selected = family == StanceCatalog.BloodAndSand
+                    ? StanceCatalog.PersistedSelection(effect, save.Stance)
+                    : StanceCatalog.Selection(save.Stance ?? StanceCatalog.BloodSelection);
+                if (active) auras.Add(StanceCatalog.RuntimeEffectId(effect, selected));
+                return save with { ActiveAuras = auras };
+            });
+            return;
+        }
+        Update(character, save =>
+        {
+            string family = AuraCatalog.Family(effect);
+            var auras = (save.ActiveAuras ?? []).Where(id => AuraCatalog.Family(id) != family).ToList();
+            if (active) auras.Add(effect);
+            return save with { ActiveAuras = auras };
+        });
+    }
+
+    /// <summary>The selected stance is one canonical choice; Blood is implicit when no state is saved.</summary>
+    public static void SetActiveStance(string character, string? selected) => Update(character, save => save with
+    {
+        Stance = selected,
     });
 
     /// <summary>Whether Petrified Blood should be running after entering an area (its own intent; it is not an
@@ -346,9 +369,23 @@ public static class CharacterSaves
         uint before = 0, after = 0;
         // The last run of either function is the one stored (ConcurrentDictionary retries a lost race).
         UnsavedExperience.AddOrUpdate(character,
-            name => after = add(before = Saves.LoadCharacter(name)?.Experience ?? start),
+            name => after = add(before = Saves.CharacterExperience(name).Experience ?? start),
             (_, total) => after = add(before = total));
         return (before, after);
+    }
+
+    /// <summary>
+    /// The character's experience as <see cref="Load"/> gives it (the unsaved total, else the saved one; null when it has no
+    /// save), without reading the whole save: every kill asks, and a whole save is its items and their mods too
+    /// (2026-11-16: about 0.8 ms and 300 KB a read for a 55-item save).
+    /// </summary>
+    public static uint? Experience(string character)
+    {
+        // The unsaved total first: it is dropped only after a save holding it is written, so when it is missing the row is
+        // current. (Reading the row first could miss both when a save is written between the two reads.)
+        bool unsaved = UnsavedExperience.TryGetValue(character, out uint xp);
+        var (saved, experience) = Saves.CharacterExperience(character);
+        return !saved ? null : unsaved ? xp : experience;
     }
 
     /// <summary>Saves the character's unsaved experience, if any. A character with no save any more (deleted) only drops it.</summary>

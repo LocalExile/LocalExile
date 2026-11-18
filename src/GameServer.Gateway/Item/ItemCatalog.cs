@@ -17,6 +17,15 @@ public sealed class ItemCatalog
     }
 
     private StashRules? _stash;
+
+    /// <summary>Builds, at startup, what every login reads of the items: the stash rules and their tab layouts, the gems,
+    /// the flasks, the weapons' criticals and the attribute requirements. They are built on first use otherwise, which
+    /// was inside the first player's login (2026-11-17: about 0.9 s of it).</summary>
+    public void Warm()
+    {
+        _ = Stash;
+        _ = _gems.Value; _ = _flasks.Value; _ = _weaponCrits.Value; _ = _requirements.Value;
+    }
     private readonly string _folder;
     private readonly Lazy<HashSet<int>> _activeGemEffects;
 
@@ -186,7 +195,8 @@ public sealed class ItemCatalog
     public BaseType? Row(int row) => row >= 0 && row < _rows.Value.Rows.Count ? _rows.Value.Rows[row] : null;
 
     /// <summary>A BaseItemTypes row by number, or by Id: exact, then the last path segment, then the display name, then
-    /// any part of the Id. Several matches: the first one the serializer supports.</summary>
+    /// an exact trailing parenthetical display alias, then any part of the Id.
+    /// Several matches: the first one the serializer supports.</summary>
     /// <summary>Every BaseItemTypes row (the launcher's suggestions).</summary>
     public IReadOnlyList<BaseType> All => _rows.Value.Rows;
 
@@ -203,6 +213,7 @@ public sealed class ItemCatalog
             t => t.Id.Equals(query, StringComparison.OrdinalIgnoreCase),
             t => t.Id.EndsWith("/" + query, StringComparison.OrdinalIgnoreCase),
             t => t.Name.Equals(query, StringComparison.OrdinalIgnoreCase),
+            t => t.Name.EndsWith("(" + query + ")", StringComparison.OrdinalIgnoreCase),
             t => t.Id.Contains(query, StringComparison.OrdinalIgnoreCase),
         })
         {
@@ -319,11 +330,11 @@ public sealed class ItemCatalog
     public GemType? Gem(BaseType t) => _gems.Value.GetValueOrDefault(t.Row);
 
     /// <summary>The GrantedEffects rows a gem item grants as skills: its variant's effect and, for a Vaal gem, the base
-    /// skill. Support gems grant none: they modify the linked active skills (granting one as a skill crashed the client in
-    /// the Actor skill reader, 0x141eee1ba).</summary>
+    /// skill. Only active effects enter the Actor: a support can grant an active companion, but its support effect
+    /// crashes the Actor skill reader at 0x141eee1ba.</summary>
     public IEnumerable<int> GemEffects(Item gem)
     {
-        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
+        if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
         if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
         if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
