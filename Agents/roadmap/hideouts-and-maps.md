@@ -6,12 +6,23 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Harvest, what is left: Oshabi, Sacred Blossom and her area `HarvestLeagueBoss`; the memory-line grove
-(`memory_line_num_harvest_plots`, the larger plot with premium seeds) and a check that its room's sites group as the
-normal grove's do; Faridun seeds, Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab
-weighting;
+Harvest, what is left: Refiner's Bargain's crops, Nature's Favour's lucky crafts and the Harvest-scarab weighting;
 the client questions (the gate label, which crop object carries the seed list, the Extractor/Irrigator state sequence
-and where seeds sit); the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and enchants.
+and where seeds sit), and Oshabi's soul tree and boss state sequence captured live; AtlasNode 158 `OshabiBoss`'s
+completion (`HarvestLeagueBoss` has no `Bosses_MonsterVarietiesKeys`, so AtlasProgress never completes it); opening the
+Atlas RandomContent nodes (MapDeviceRecipes 74-89, whose RecipeItems hold the placeholder 3920) to reach the Overgrown
+Grove; a 3.29 source for `map_harvest_%_chance_for_faridun_seed` (Mirage areas); Oshabi's Sacred Suffering ground and
+vine teleports; the recipes for influences, exchanges, divination cards, gem lenses, corrupted maps and enchants.
+
+### Stored Horticrafting crafts (3.13-3.18, Legacy)
+
+- **Known:** 3.13-3.18 let the Horticrafting Station store up to 10 crafts (15 after Oshabi's first kill in
+  3.14-3.15); 3.19 removed it. The 3.29 client keeps the HarvestSiloWindow lambdas; ClientStrings 5211 "Send crafting
+  option to your Horticrafting Station for storage." (referenced at 0x142401e00) and the remaining-slot texts 5587-5589 (5587 at
+  0x1402c5c40); `craftingsilo.ot`; the Extractor's `start_encounter` / `pump_fluid` states. These are code addresses,
+  so they hold for every allowed build.
+- **Missing:** the old craft list (HarvestCraftOptions is 3.19+) and the store message.
+- **Start:** a Legacy module.
 
 ### Switching hideout templates
 
