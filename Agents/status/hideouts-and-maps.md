@@ -175,9 +175,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
   The hub waypoints stay unlit (client area-type rule).
-  In the Allflame leagues the Deepwater pin, `/boat` and the Deepwater Coast's rowboat lead to The Sovereign, with its
-  hub ruleset and its deck stash and guild stash (verified live 2026-11-18); it has no server layout yet (not in
-  server_level_areas), so the player arrives off the ship, and no waypoint, NPC or way back but /hideout is there.
+  In the Allflame leagues the Deepwater Coast's rowboat leads to The Sovereign once the character has QuestFlags 3552
+  DeepwaterNPCIntroductionSeen, and after that first visit (3556) the Deepwater pin and `/boat` do too; the hub has its
+  ruleset and its deck stash and guild stash (verified live 2026-11-18, with 3552 set by hand). No character gets 3552
+  in game yet: only ValerieTutorial's introduction sets it, and she is not created. The hub has no server layout yet
+  (not in server_level_areas), so the player arrives off the ship, and no waypoint, NPC or way back but /hideout is there.
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.

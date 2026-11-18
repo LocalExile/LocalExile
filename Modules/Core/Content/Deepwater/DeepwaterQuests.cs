@@ -14,8 +14,8 @@ internal sealed class DeepwaterQuests : Quests.Act
     [
         new Quests.Quest("DeepwaterTutorial")
         {
-            Quests.On.Entered(DeepwaterModule.HubId, "DeepwaterHubVisited"),
-            Quests.On.Npc(DeepwaterModule.Coast, Npc + "ValerieTutorial", goneWith: "DeepwaterHubVisited"),
+            Quests.On.Entered(DeepwaterModule.HubId, DeepwaterModule.HubVisited),
+            Quests.On.Npc(DeepwaterModule.Coast, Npc + "ValerieTutorial", goneWith: DeepwaterModule.HubVisited),
             Quests.On.Npc(DeepwaterModule.HubId, Npc + "Valerie", goneWith: null),
             Quests.On.Npc(DeepwaterModule.HubId, Npc + "VesperCrafting", goneWith: null),
         },

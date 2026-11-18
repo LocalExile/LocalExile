@@ -19,6 +19,8 @@ public sealed class DeepwaterModule : IModule
     internal const string Coast = "1_1_2";
     /// <summary>QuestFlags 3552, set by Valerie's "Ready for Adventure?" (NPCTalk 3932).</summary>
     internal const string IntroductionSeen = "DeepwaterNPCIntroductionSeen";
+    /// <summary>QuestFlags 3556, set on the first arrival on The Sovereign (DeepwaterQuests).</summary>
+    internal const string HubVisited = "DeepwaterHubVisited";
     // LeagueNames' Id of the Allflame league.
     const string LeagueName = "Deepwater";
 
@@ -42,6 +44,11 @@ public sealed class DeepwaterModule : IModule
     static byte? Ruleset(string id) =>
         ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
             ? (byte)row.Index : null;
+
+    /// <summary>The pin and /boat reach The Sovereign only after the first boarding from The Coast (QuestFlags 3556, set on
+    /// arrival): an earlier trip would remove ValerieTutorial before her introduction sets <see cref="IntroductionSeen"/>.
+    /// (The real rule is probably league quest flag 1834 DeepwaterBoatUnlocked, which the World panel's pin shows by.)</summary>
+    static bool Unlocked(ClientState conn) => ClientHasQuestFlag(conn, HubVisited);
 
     sealed class State
     {
@@ -75,6 +82,9 @@ public sealed class DeepwaterModule : IModule
             uint from = bytes.Length >= 6 ? BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2)) : 0;
             byte flag = bytes.Length >= 7 ? bytes[6] : (byte)0;
             module.Log($"{PlayerOf(conn).Character} <= 0x0183 World panel Deepwater pin (from object 0x{from:x}, u8 {flag})");
+            // The u8 (1 with Ctrl held, which skips the client's "already there" test) is ignored, as for the other hub pins:
+            // TravelTo opens no new instance, so on The Sovereign itself the click does nothing.
+            if (!Unlocked(conn) || PlayerOf(conn).AreaId == HubId) return true;
             await WorldOf(conn).TravelTo(HubId, "World panel Deepwater pin");
             return true;
         });
@@ -82,7 +92,7 @@ public sealed class DeepwaterModule : IModule
         GameEvents.Packet(InstanceItems.CommandId).Add(id, async (conn, bytes) =>
         {
             if (InstanceItems.ReadCommand(bytes).Id != InstanceItems.WarpToDeepwaterHubCommand) return false;
-            if (PlayerOf(conn).AreaId == HubId) return true;
+            if (!Unlocked(conn) || PlayerOf(conn).AreaId == HubId) return true;
             await WorldOf(conn).TravelTo(HubId, "/boat");
             return true;
         });
