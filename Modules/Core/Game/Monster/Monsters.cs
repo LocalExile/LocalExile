@@ -185,6 +185,8 @@ public static partial class Game
         {
             // What was not created (this connection is going) stays the instance's: the next runner's pass creates it.
             if (created < due.Count) lock (conn.Monsters) held.AddRange(due.Skip(created));
+            conn.Performance.Count("held-back reveal passes");
+            conn.Performance.Count("held-back monsters created", created);
         }
         // A kill counted while the count was held.
         await SendRemainingMonsters(remote, stream, ciphers, conn);
