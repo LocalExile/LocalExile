@@ -15,8 +15,8 @@ Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reus
 Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
 Harbinger remains separate work.
 Other contributors' classes are not copied into this prerequisite.
-Idols has extracted client data but no gameplay implementation and is a separate task.
-There is no placeholder Idols module or dependency on one.
+Idols are their own module, `Modules/Legacy/Idols`, listed by the league beside this one; neither depends on the other.
+See [Idols](idols.md).
 
 The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERIFIED_ARISTOCRAT`
 opt-ins still require the reviewed combined 3.29.3b graph installed separately.
