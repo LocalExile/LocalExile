@@ -31,6 +31,12 @@ Positioned as an NPC's (`… 00 02 00 01`), Animated `00`, MinimapIcon `00`, Int
 (`StashObject`). It is not in the town tiles' `.tmd` records, so the server places it: `StashCatalog` (Lioneye's
 Watch at (319, 272), next to Nessa). A click sends C→S 0x24 with skill `0x0266`, as for NPCs and the waypoint.
 
+The lid is the client's own: its StateMachine `open` is a client-block state the blob does not carry, and
+`UpdateStashDoodadAnimation` (`0x1417ef1d0`) plays `open_idle` / `closed_idle` when called with `true` (the model
+added) but the `open` / `close` clip when called without (the state's `on_or_create_state_open_*`). That is probably
+why a re-entered hideout's stash shows its lid closing as it appears (the event order is not traced); no field of the
+blob selects either.
+
 ## 2. The tab list
 
 The instance keeps three lists of 0x68-byte tab records (`0x142173910`): personal stash `+0xc498`, guild stash
