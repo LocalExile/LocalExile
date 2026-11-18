@@ -26,6 +26,7 @@ public sealed class QuestObjectsModule : IModule
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
         module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
+        module.Lifetime.Own(GameEvents.Command(module.Manifest.Id, "bandit", BanditChoices.Usage, BanditChoices.Command, "help", "fight", "claim"));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
         GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
@@ -36,6 +37,7 @@ public sealed class QuestObjectsModule : IModule
             await SpawnTrialObjects(remote, stream, ciphers, conn);
             // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
             await StartQuestArea(remote, stream, ciphers, conn);
+            await BanditChoices.Announce(conn);
             await TickBeacon(conn);
         });
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => TickBeacon(conn));
