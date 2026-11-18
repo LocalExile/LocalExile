@@ -46,12 +46,36 @@ public static partial class Game
         memo.Kept[(uint)Interlocked.Increment(ref memo.Next) % memo.Kept.Length] =
             new([.. list], mods, rules, Stats, recent is null ? null : [.. recent], sum);
         return sum;
+    }
 
-        static bool SameItems(Item[] a, Item[] b)
+    static bool SameItems(Item[] a, Item[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (!ReferenceEquals(a[i], b[i])) return false;
+        return true;
+    }
+
+    // WornGrantedSkills.For reads every mod of every worn item; its answer is a pure function of the catalog and of
+    // the items in their rows. The Physical Aegis condition asks on every stat-sources lookup (12 us of one).
+    sealed record WornGrants(WornGrantedSkills Owner, (byte Row, InventoryItem Item)[] Equipment, IReadOnlyList<WornGrantedSkills.Grant> Grants);
+    static readonly RuleTable<ClientState, WornGrants> WornGrantsOf = new();
+
+    static IReadOnlyList<WornGrantedSkills.Grant> WornGrantsFor(ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment)
+    {
+        var owner = WornGrantedSkillOwner(conn);
+        if (WornGrantsOf.TryGetValue(conn, out var known) && ReferenceEquals(known.Owner, owner) && Same(known.Equipment, equipment))
+            return known.Grants;
+        WornGrantedSkills.Grant[] grants = [.. owner.For(equipment)];
+        WornGrantsOf.AddOrUpdate(conn, new(owner, [.. equipment], grants));
+        return grants;
+
+        // An inventory item is a new record whenever its place, its id or its item changes.
+        static bool Same((byte Row, InventoryItem Item)[] a, IReadOnlyList<(byte Row, InventoryItem Item)> b)
         {
-            if (a.Length != b.Length) return false;
+            if (a.Length != b.Count) return false;
             for (int i = 0; i < a.Length; i++)
-                if (!ReferenceEquals(a[i], b[i])) return false;
+                if (a[i].Row != b[i].Row || !ReferenceEquals(a[i].Item, b[i].Item)) return false;
             return true;
         }
     }
