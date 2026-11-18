@@ -101,13 +101,8 @@ public static partial class Game
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
         candidates.AddRange(OffhandSupportsForMainHand(conn, skillId, selected.Place.ItemId, equipment, places, requirements));
-        var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1
-            && !(requirements?.Inactive.Contains(e.Item.Id) ?? IsInactive(conn, e.Item.Id))).Select(e => e.Item).FirstOrDefault();
-        int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
-        bool allOneHandMelee = weapon is not null
-            && WeaponIdentity.AllOneHandMelee(ItemModStats.Local(weapon.Item, ItemsFor(conn).Mods));
-        var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass,
-            ItemsFor(conn).GemLevel(selected.Place.Gem), sourceIsGem: true, allOneHandMelee);
+        var supports = ResolveEquippedSupports(conn, selected.Effect, ItemsFor(conn).GemLevel(selected.Place.Gem),
+            candidates, equipment, requirements?.Inactive ?? inactive, sourceIsGem: true);
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
         // "+1 to Supported <type> Skill Gems" (Awakened supports): every supported_*_skill_gem_level_+ counts, the
         // generic active-gem one included.
@@ -214,9 +209,8 @@ public static partial class Game
                         Quality(place.Socket, place.Gem), place.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
-        var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
-        int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
-        var supports = Supports.Resolve(grant.Effect, candidates, SkillsFor(conn), weaponClass, sourceIsGem: false);
+        var supports = ResolveEquippedSupports(conn, grant.Effect, grant.Level, candidates, equipment,
+            requirements.Inactive, sourceIsGem: false);
         var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(conn, own, supports);
         if (SkillsFor(conn).IsAura(grant.Effect, supports.Select(s => s.Effect.Row)))
@@ -224,6 +218,26 @@ public static partial class Game
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(grant.Effect, grant.Level, 0, supports, own,
             RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
+    }
+
+    static IReadOnlyList<GemSupports.Applied> ResolveEquippedSupports(ClientState conn, int effect, int level,
+        List<GemSupports.Candidate> candidates, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        IReadOnlySet<uint>? inactive, bool sourceIsGem)
+    {
+        int? weaponClass = null;
+        bool allOneHandMelee = false;
+        if (candidates.Exists(c => Supports.Of(c.Effect) is { Weapons.Length: > 0 }))
+        {
+            var catalog = ItemsFor(conn);
+            foreach (var (row, item) in equipment)
+            {
+                if (row != PlayerInventories.Weapon1 || inactive?.Contains(item.Id) == true) continue;
+                weaponClass = catalog.ByHash(item.Item.TypeHash)?.ClassRow;
+                allOneHandMelee = WeaponIdentity.AllOneHandMelee(ItemModStats.Local(item.Item, catalog.Mods));
+                break;
+            }
+        }
+        return Supports.Resolve(effect, candidates, SkillsFor(conn), weaponClass, level, sourceIsGem, allOneHandMelee);
     }
 
     static void ApplySupportStats(ClientState conn, Dictionary<uint, int> own, IReadOnlyList<GemSupports.Applied> supports)

@@ -72,6 +72,7 @@ Nothing yet.
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
+  Cast when Damage Taken checks its level cap against the actual level of an active skill granted by equipment.
   Varunastra fits one-hand melee skill/support table restrictions; bow, wand and two-hand-only restrictions still apply.
   Support resolution retains the existing main-hand policy. Native eligibility and broader hand selection remain unverified.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.

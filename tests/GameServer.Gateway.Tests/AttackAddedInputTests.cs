@@ -178,6 +178,16 @@ public sealed class AttackAddedInputTests : IDisposable
         var weapon = Game.WeaponFor(conn);
         Assert.Equal("One Hand Sword", weapon.ItemClass);
         Assert.Equal(1, weapon.LocalSources!["local_varunastra_weapon_counts_as_all_1h_melee_weapon_types"]);
+        void CheckClawHit(double factor)
+        {
+            var hand = Game.WeaponFor(conn);
+            var modifiers = new Dictionary<uint, int>();
+            var physical = Game.AttackHit(hand, modifiers, melee: true, accuracy: new(0))[DamageType.Physical];
+            Assert.True(physical.Max > 0);
+            modifiers[Key("claw_damage_+%")] = 100;
+            Assert.Equal(physical.Scale(factor), Game.AttackHit(hand, modifiers, melee: true, accuracy: new(0))[DamageType.Physical]);
+        }
+        CheckClawHit(2);
         var raw = SupportedAttackDamage.Raw(weapon, Get, new(Game.PlayerAccuracy(conn)));
         Assert.Equal(new DamageRange(1, 19), raw[DamageType.Lightning]);
         Assert.Equal(new DamageRange(5, 11), raw[DamageType.Fire]);
@@ -226,6 +236,7 @@ public sealed class AttackAddedInputTests : IDisposable
         { Sockets = [new(SocketColour.White, Make("Double Strike")), new(SocketColour.White, Make("Nightblade Support"))], Links = [2] });
         var doubleStrike = Game.GemSkillEffects(conn).Single(g => g.Name == "Double Strike");
         items.Change(PlayerInventories.Weapon1, main.Id, _ => ItemCatalog.Create(Program.Items.ByHash(sword.TypeHash)!));
+        CheckClawHit(1);
         Assert.Empty(Game.SupportedSkill(conn, doubleStrike.Id).Supports);
         Assert.NotNull(Game.WeaponRestricted(conn, Program.Items.GemEffects(Make("Cobra Lash")).First()));
         Assert.Equal(swordContact, Game.AttackContactDelay(conn, 1, approach: false));

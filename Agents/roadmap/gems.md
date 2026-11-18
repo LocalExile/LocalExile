@@ -69,6 +69,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
+  The CWDT level gate covers equipment-granted actives. Native trigger behaviour on those items remains open.
 - **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
   repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
   remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
