@@ -46,6 +46,9 @@ static class VendorsFeature
             bought = rolled with { Price = bought.Price };
             if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.Cursor) row = null;
         }
+        // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
+        else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
+        { await conn.Commands!.Reply("Talk to the gambler again to gamble."); return; }
         var purchase = ItemMoves.PurchaseVendor(items,
             shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(conn),
             bought,catalog,ShapeOf,Consume,row,x,y);
