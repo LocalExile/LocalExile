@@ -15,6 +15,12 @@ else that needs the lock waits behind it.
   to that gathering (`ItemConditionFlags`, the `Requalify…` steps, the `With…` chain) is paid on every call, hit or not.
   A check there remembers its answer for the inputs it was worked out from (`Game.PlainItemSum`, `WornItemSum`,
   `WornGrantsFor`, `SelfCurseConditionInputs`). A check that also updates state still runs every time: do not throttle it.
+- **A new condition or stat source on that path**: (1) to learn what the worn items carry, read `Game.PlainItemSum`
+  (one item) or `WornItemSum` (a set), never `ItemModStats.Sum`; (2) remember any other answer that is a pure function
+  of its inputs, compared by what it was worked out from (items by reference: they are immutable records), in a
+  `RuleTable` so it empties with the module; (3) take the equipment and the active items the caller already has
+  instead of reading them again; (4) do not call `CharacterStatSources` to find out whether the character has the
+  feature's item when the lookup that is running can hand that over.
 - **The guard** is the Gateway test `A_stat_sources_lookup_with_nothing_changed_sums_no_item_mods`: an unchanged lookup
   calls `ItemModStats.Sum` zero times and allocates within a budget. Raise the budget only with the measurement below.
 - **Measure a change to player stat building before and after**: `live.ps1 -Release` with `Game_TRACE=lag,latency`, a
