@@ -25,7 +25,7 @@ public static class SacredGrove
     public const string LevelMoreLife = "harvest_level_scaling_life_+%_final";
     /// <summary>The monster stat the Doubling scarab's map_harvest_monster_life_+%_final_from_sextant gives.</summary>
     public const string SextantMoreLife = "harvest_monster_life_+%_final_from_sextant";
-    static readonly string[] FeatureRows = ["HarvestEncounter", "HarvestEncounterMemoryLine"];
+    internal static readonly string[] FeatureRows = ["HarvestEncounter", "HarvestEncounterMemoryLine"];
 
     public enum Phase { Idle, Running, Done, Withered }
 

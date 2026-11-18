@@ -44,8 +44,7 @@ public static class ServerLevels
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
         /// <summary>The cell rectangles (x0, y0, x1, y1; end exclusive) of the records an ExtraTerrainFeatures row added
-        /// as a sub-area (<see cref="DoodadRecord.FeatureWorldArea"/>, the Sacred Grove beside a map): a sub-area an
-        /// ExtraTerrainFeatures row adds is that row's world area; the map's population stays out.</summary>
+        /// as a sub-area (<see cref="DoodadRecord.FeatureWorldArea"/>, the Sacred Grove beside a map).</summary>
         public IReadOnlyList<(int X0, int Y0, int X1, int Y1)> FeatureAreas { get; init; } = [];
         /// <summary>Every area transition object of the layout with its role from its room's graph node
         /// (<see cref="AreaExits"/>): what <see cref="AreaTransitionCatalog"/> creates.</summary>
@@ -338,7 +337,7 @@ public static class ServerLevels
                     || t.StartsWith(LabyrinthTrials.StatueFolder, StringComparison.Ordinal)),
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
-                PackRooms = AreaPopulation.PackRooms(result.Records.Where(r => r.FeatureWorldArea < 0)),
+                PackRooms = AreaPopulation.PackRooms(result.Records),
                 FeatureAreas = [.. result.Records.Where(r => r.FeatureWorldArea >= 0).Select(r => (r.X * 23, r.Y * 23, (r.X + r.W) * 23, (r.Y + r.H) * 23))],
             };
         }

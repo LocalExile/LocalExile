@@ -202,6 +202,13 @@ public static class GameEvents
     /// answers does nothing.</summary>
     public static readonly GameEvent<Func<NpcOption, Task<bool>>> NpcOption = new();
 
+    /// <summary>Whether this subscriber fills the sub-area of an ExtraTerrainFeatures row (by its Id). A gate the layout links
+    /// to such a sub-area (<see cref="AreaTransitionObject.Feature"/>) stands only where a subscriber answers true.</summary>
+    public static readonly GameEvent<Func<ClientState, string, bool>> FeatureFilled = new();
+
+    /// <summary>Whether a subscriber of the connection's league fills the row's sub-area (<see cref="FeatureFilled"/>).</summary>
+    public static bool FillsFeature(ClientState conn, string row) => FeatureFilled.For(conn).Any(run => run(conn, row));
+
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
 

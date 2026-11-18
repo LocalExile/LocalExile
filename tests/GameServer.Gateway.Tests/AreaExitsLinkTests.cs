@@ -38,6 +38,7 @@ public class AreaExitsLinkTests
 
         Assert.Equal(ExitKind.Teleport, exits[0].Kind);
         Assert.Equal(ExitKind.Teleport, exits[1].Kind);
+        Assert.Equal("X", exits[0].Feature);
         Assert.True(exits[0].Target is { X: >= 230 and < 322, Y: >= 0 and < 92 }, $"map gate lands at {exits[0].Target}");
         Assert.True(exits[1].Target is { X: >= 0 and < 92, Y: >= 0 and < 92 }, $"grove gate lands at {exits[1].Target}");
         Assert.Equal(ExitKind.Unused, exits[2].Kind);

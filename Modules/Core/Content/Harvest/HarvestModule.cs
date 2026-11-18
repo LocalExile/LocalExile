@@ -26,6 +26,7 @@ public sealed class HarvestModule : IModule
             if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
                 _states.GetOrCreateValue(player).Station = id;
         });
+        GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, SacredGrove.Enter);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => SacredGrove.Tick(conn));
