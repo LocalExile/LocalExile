@@ -1,0 +1,35 @@
+using GameServer.Modding;
+
+/// <summary>
+/// The game's systems in an area's own world (GameArea): added when the area starts (GameEvents.AreaStarted), or when the
+/// game module loads while areas run, with the module's lifetime as their source, and dropped from every area at its next
+/// frame when the module unloads. Each system is a function of the area, run in the area's frame.
+/// </summary>
+public static class AreaSetup
+{
+    public static void Load(IModuleContext module)
+    {
+        var source = module.Lifetime;
+        GameEvents.AreaStarted.Add(module.Manifest.Id, (area, conn) => Start(area, conn, source));
+        // Areas already running get this generation's systems at their next frame.
+        foreach (var (area, view) in AreaFrames.LiveAreas())
+            area.Defer(a => AreaFrames.StartRules(a, view));
+        module.Lifetime.Own(new Removal(source));
+    }
+
+    static void Start(GameArea area, ClientState conn, IModuleLifetime source)
+    {
+        // A reload reaches an area that already has this module's systems from an earlier start.
+        if (area.Systems.All.Any(s => ReferenceEquals(s.Source, source))) return;
+        MonsterRegeneration.Start(area, conn, source);
+        Console.WriteLine($"[area] {conn.Layout.Id}: {area.Systems.All.Count(s => ReferenceEquals(s.Source, source))} game system(s) in the area's world");
+    }
+
+    sealed class Removal(IModuleLifetime source) : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var (area, _) in AreaFrames.LiveAreas()) area.Defer(a => a.Drop(source));
+        }
+    }
+}

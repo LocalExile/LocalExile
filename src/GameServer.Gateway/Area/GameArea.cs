@@ -20,6 +20,11 @@ public sealed class GameArea(ulong seed)
     AreaTimers? timers;
 
     readonly Dictionary<(Type, object), (object Store, object? Source)> stores = [];
+    readonly System.Collections.Concurrent.ConcurrentQueue<Action<GameArea>> deferred = new();
+
+    /// <summary>Runs <paramref name="work"/> at the start of the area's next frame, on its frame (any thread may ask): a
+    /// module's setup or removal, what another area or a service sends this one.</summary>
+    public void Defer(Action<GameArea> work) => deferred.Enqueue(work);
     [ThreadStatic] static GameArea? stepping;
 
     /// <summary>The frame being stepped (the area's frame count).</summary>
@@ -51,6 +56,7 @@ public sealed class GameArea(ulong seed)
         try
         {
             (Frame, Time) = (frame, time);
+            while (deferred.TryDequeue(out var work)) work(this);
             Commands.Apply(this);
             Systems.Run(this, AreaPhase.Input, AreaPhase.Input);
             Timers.Update(frame);

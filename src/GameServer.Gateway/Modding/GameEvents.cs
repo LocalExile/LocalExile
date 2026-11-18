@@ -174,6 +174,11 @@ public static class GameEvents
     /// <summary>Every player tick (about 4 a second while the player is in an area and not paused), with the game seconds since the last one.</summary>
     public static readonly GameEvent<Func<ClientState, double, Task>> Tick = new();
 
+    /// <summary>An area's own world (GameArea) was made, or a module loaded while it runs: add the rules' systems, stores,
+    /// events and timers to it, with the module's lifetime as their source (GameArea.Drop removes them when it unloads). The
+    /// connection is the area's first player's, for its league and the area's data; keep nothing of it but the area's.</summary>
+    public static readonly GameEvent<Action<GameArea, ClientState>> AreaStarted = new();
+
     /// <summary>The player's area is ready: the client sent "area generated", and the area's monsters and objects are placed.</summary>
     public static readonly GameEvent<Func<ClientState, Task>> AreaGenerated = new();
 

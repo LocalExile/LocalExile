@@ -58,6 +58,20 @@ public partial class Program
         SendRecords(conn, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.World).Select(r => r.Object!).Distinct().ToArray(),
             _ => batch, still, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.Create).Select(r => r.Object!).ToArray());
 
+    /// <summary>One of the area's records (GameArea.Output) for this connection's player: a record about an object goes, on a
+    /// lockstep client, into the frame once the client has the object (as SendWorld); anything else goes out at once.</summary>
+    public static async Task SendAreaRecord(ClientState conn, AreaOutput.Record record)
+    {
+        var wire = conn.Wire;
+        if (record.Object is uint id && conn.LockstepClient && record.Bytes.Length >= 12)
+        {
+            var order = new WorldOrder(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(record.Bytes.AsSpan(6)),
+                System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(record.Bytes.AsSpan(10)));
+            await SendWorld(conn, conn.WorldOutput.PublishedObject(id), order, () => record.Bytes, record.Log);
+        }
+        else await Send(wire.Remote, wire.Stream, wire.Ciphers, record.Bytes, record.Log);
+    }
+
     public static Task<bool> SendWorld(ClientState conn, WorldObject target, WorldOrder order,
         Func<byte[]?> atGate, string? log = null, Func<bool>? still = null) =>
         SendRecords(conn, [target], _ => atGate() is { } bytes ? new(OutputRecord.World(target, order, bytes, log)) : null, still);
@@ -101,8 +115,7 @@ public partial class Program
         finally { gate.Release(); }
     }
 
-    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next,
-        IReadOnlyList<AreaOutput.Record>? area = null)
+    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
     {
         var wire = conn.Wire;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
@@ -127,15 +140,9 @@ public partial class Program
                 bytes += packet.Bytes.Length;
                 await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
             }
-            // The area's own records for this player (GameArea.Output), after the connection's.
-            foreach (var record in area ?? [])
-            {
-                bytes += record.Bytes.Length;
-                await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, record.Bytes, record.Log);
-            }
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
-            conn.Frames.Wrote(frame.Packets.Count + (area?.Count ?? 0), bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
+            conn.Frames.Wrote(frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
             return true;
         }
         catch { if (committed) FailWorldOutput(conn); throw; }

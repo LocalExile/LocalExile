@@ -93,9 +93,26 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     /// every frame after the input phase, before the loops. Its players are its members' player entities.</summary>
     public GameArea? Area { get; private set; }
 
-    /// <summary>A new area's world was made: the rules add their systems, stores and handlers to it. Raised on the joining
-    /// connection's task, before the area's first step.</summary>
-    public static event Action<GameArea, ClientState>? AreaStarted;
+    static readonly List<WeakReference<AreaFrames>> live = [];
+
+    /// <summary>The areas whose world runs now, with their view (AreaFrames.View): a module that loads adds its systems to
+    /// them (GameArea.Defer, at their next frame).</summary>
+    public static (GameArea Area, ClientState View)[] LiveAreas()
+    {
+        lock (live)
+        {
+            live.RemoveAll(w => !w.TryGetTarget(out _));
+            return [.. live.Select(w => w.TryGetTarget(out var f) ? f : null).OfType<AreaFrames>()
+                .Where(f => f.Area is not null && f.View is not null).Select(f => (f.Area!, f.View!))];
+        }
+    }
+
+    /// <summary>Asks the rules of <paramref name="conn"/>'s league to set up <paramref name="area"/> (GameEvents.AreaStarted).</summary>
+    public static void StartRules(GameArea area, ClientState conn)
+    {
+        foreach (var (owner, run) in GameEvents.AreaStarted.Subscribers(conn))
+            GameEventOwners.Guard(owner, nameof(GameEvents.AreaStarted), () => run(area, conn));
+    }
 
     /// <summary>The frame time for the loops: the last boundary stepped while the frames run, else the Clock.</summary>
     public double Now(ClientState conn) => Running && !double.IsNaN(Time) ? Time : conn.Clock.Elapsed.TotalSeconds;
@@ -135,7 +152,11 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
             GameArea? started = null;
             lock (gate)
                 if (Area is null) Area = started = new GameArea(conn.Seed);
-            if (started is not null) AreaStarted?.Invoke(started, conn);
+            if (started is not null)
+            {
+                lock (live) live.Add(new(this));
+                started.Defer(a => StartRules(a, conn));
+            }
             lock (gate)
             {
                 if (conn.Closed || members.Any(m => ReferenceEquals(m.Conn, conn))) return;
@@ -277,14 +298,14 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                         // world ends: a slow step holds the client's world (the "slideshow": it neither moves nor walks on old
                         // orders), and the frames held go out together, which the client plays up to 5 × as fast (07 §6).
                         if (!held && m.Conn.LockstepClient && m.Conn.Work.Busy) { held = true; await HoldFrames(m); }
-                        var shown = Area?.Output.Take(new EntityId(m.Conn.PeerId));
-                        if (await Guard(m, () => Program.EndWorldFrame(m.Conn, (boundary, boundary + frame), shown)))
+                        if (await Guard(m, () => Program.EndWorldFrame(m.Conn, (boundary, boundary + frame))))
                         {
                             m.LastEnded = boundary;
                             if (!ended.Contains(m)) ended.Add(m);
                         }
                     }
                     await Input();
+                    await StepArea(boundary);
                     Step(boundary);
                 }
                 if (Program.GameLogicOrNull is { } rules)
@@ -382,25 +403,11 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     public void Step(double time, bool simulate = true)
     {
         List<Waiter> due = [];
-        GameArea? area;
-        (EntityId Id, bool In)[] changes;
         lock (gate)
         {
             if (!Running) return;
             Frame++;
             Time = time;
-            area = Area;
-            changes = PlayerChanges();
-        }
-        if (area is not null && simulate)
-        {
-            foreach (var (id, joined) in changes)
-                if (joined) area.Entities.Add(id, EntityKind.Player); else area.Entities.Remove(id);
-            try { area.Step(Frame, time); }
-            catch (Exception ex) { Console.WriteLine($"[area] frame {Frame} failed: {ServerLog.Describe(ex)}"); }
-        }
-        lock (gate)
-        {
             stepStarted = Stopwatch.GetTimestamp();
             contentionAtStep = Monitor.LockContentionCount;
             Array.Clear(roleMs);
@@ -448,6 +455,41 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
             activeTotal = 0;
             settled = null;
         }
+    }
+
+    /// <summary>The area's world steps the coming frame (its players first follow the members), and what it wrote for each
+    /// player is admitted at once, so it opens the frame that starts at <paramref name="time"/>, before anything else sent
+    /// in it.</summary>
+    async Task StepArea(double time)
+    {
+        GameArea? area;
+        (EntityId Id, bool In)[] changes;
+        Member[] now;
+        lock (gate)
+        {
+            if (!Running || Area is null) return;
+            area = Area;
+            changes = PlayerChanges();
+            now = [.. members];
+        }
+        try
+        {
+            foreach (var (id, joined) in changes)
+                if (joined) area.Entities.Add(id, EntityKind.Player); else area.Entities.Remove(id);
+            area.Step(Frame + 1, time);
+        }
+        catch (Exception ex) { Console.WriteLine($"[area] frame {Frame + 1} failed: {ServerLog.Describe(ex)}"); }
+        foreach (var m in now)
+        {
+            var records = area.Output.Take(new EntityId(m.Conn.PeerId));
+            if (records.Count == 0) continue;
+            await Guard(m, async () =>
+            {
+                foreach (var record in records) await Program.SendAreaRecord(m.Conn, record);
+                return true;
+            });
+        }
+        area.Output.Clear();
     }
 
     // The members that joined or left since the last step, as the area's player entities.

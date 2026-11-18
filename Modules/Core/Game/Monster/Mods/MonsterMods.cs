@@ -217,55 +217,13 @@ public static partial class Game
         return factor;
     }
 
-    // Monsters with life regeneration (of the Hydra) regain life: every 0.5 s the server adds it and sends the new life
-    // (0x1b1) of each one that changed, as it does for hits.
-    public static async Task RunMonsterRegeneration(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
-    {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
-        const int StepMs = 500;
-        double last = updates.Schedule.Now(conn);
-        try
-        {
-            while (PlayerUpdatesCurrent(conn, updates))
-            {
-                await updates.Schedule.Wait(PlayerUpdateRole.MonsterRegeneration, StepMs, updates.Stop.Token);
-                double now = updates.Schedule.Now(conn), seconds = now - last;
-                last = now;
-                if (conn.Paused || seconds <= 0) continue;
-                List<(uint Id, uint Life)> changed;
-                using (ProjectileMutation(conn))
-                {
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    changed = RegenerateConnectionMonsters(conn, now, seconds);
-                }
-                // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
-                // revive the monster on the client.
-                foreach (var (id, life) in changed)
-                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life), null,
-                        still: () => { lock (conn.Monsters) return RegenStillCurrent(conn.Monsters, id, life); });
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            // The connection closed while sending.
-        }
-    }
+    // Monsters with life regeneration regain life in the area's frame (MonsterRegeneration).
 
     /// <summary>Whether a regenerated life is still the monster's when its 0x1b1 goes out: alive and unchanged.</summary>
     public static bool RegenStillCurrent(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, uint life) =>
         monsters.TryGetValue(id, out var m) && !m.Dead && m.Life == life;
 
     public const string EnemyRegenerationOnHit = "enemy_life_regeneration_rate_+%_for_4_seconds_on_hit";
-
-    /// <summary>The connection's regeneration step ending at <paramref name="now"/>, with the player's
-    /// <see cref="EnemyRegenerationOnHit"/> (Devout of Ryslatha, Pools.EnemyRegenerationOnHitPct) on the enemies it hit in
-    /// the last 4 s. The client does not step a monster's life from its regeneration stat (no life_recovery_per_minute is
-    /// sent: re/recovery-timing.md), so the 0x1b1 updates alone show it.</summary>
-    public static List<(uint Id, uint Life)> RegenerateConnectionMonsters(ClientState conn, double now, double seconds)
-    {
-        int onHit = now - seconds - conn.LastEnemyHitAt <= RecentlySeconds ? conn.Pools.EnemyRegenerationOnHitPct : 0;
-        using (ProjectileMutation(conn)) return RegenerateMonstersLocked(conn.Monsters, seconds, now, onHit);
-    }
 
     /// <summary>One regeneration step over the living, damaged monsters (under the Monsters lock): the ones whose life
     /// changed, with their new life. The part of the step within 4 s of the player's last hit on a monster regenerates at
