@@ -71,18 +71,22 @@ public static class StrongboxMods
             have.Add(mod);
             families.UnionWith(mod.Families);
             if (mod.GenerationType == 1) prefixes++; else suffixes++;
-            var item = mod.Roll(ModSection.Explicit, rng);
-            if (effect != 0)
-                item = item with
-                {
-                    Values = [.. item.Values.Select((v, i) => mod.RangeAt(i) is var (min, max) && min != max
-                        ? (int)Math.Clamp((long)v * Math.Max(0, 100 + effect) / 100, int.MinValue, int.MaxValue) : v)],
-                };
-            result.Add(item);
+            result.Add(Scaled(mod, mod.Roll(ModSection.Explicit, rng), effect));
         }
         // Prefixes first, as an item lists them.
         return [.. result.OrderBy(m => catalog.ByHash(m.Hash)?.GenerationType ?? 0)];
     }
+
+    /// <summary><c>map_strongbox_mod_effect_+%</c> on a rolled mod: its ranged values scaled.</summary>
+    static ItemMod Scaled(ModCatalog.Mod mod, ItemMod item, int effect) => effect == 0 ? item : item with
+    {
+        Values = [.. item.Values.Select((v, i) => mod.RangeAt(i) is var (min, max) && min != max
+            ? (int)Math.Clamp((long)v * Math.Max(0, 100 + effect) / 100, int.MinValue, int.MaxValue) : v)],
+    };
+
+    /// <summary>The mods with their values rolled again (a Divine Orb), scaled by the mod effect.</summary>
+    public static List<ItemMod> Reroll(ModCatalog catalog, IReadOnlyList<ItemMod> mods, MapMods stat, Random rng) =>
+        [.. mods.Select(m => catalog.ByHash(m.Hash) is { } mod ? Scaled(mod, mod.Roll(ModSection.Explicit, rng), stat.Get("map_strongbox_mod_effect_+%")) : m)];
 
     /// <summary>The rarity's most mods (the Rarity table's MaxMods), 0 for normal.</summary>
     public static int MaxMods(byte rarity) => Counts.Value.TryGetValue(rarity, out var l) ? l.Max : 0;

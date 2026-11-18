@@ -36,6 +36,31 @@ public static class StrongboxLoot
         ["torment"] = "Torment", ["ultimatum"] = "Ultimatum",
     };
 
+    /// <summary>The unique families a unique box's mods add one of, by stat: the warband caches' uniques and the Strange
+    /// Barrel's poison uniques and Weylam's War Chest's pirate uniques, as poedb lists them (the client data names no
+    /// family: https://poedb.tw/us/Mutewind_Cache, …/Redblade_Cache, …/Brinerot_Cache, …/Renegades_Cache,
+    /// …/Strange_Barrel; Weylam's from …/Weylams_War_Chest's loot table, read as its pirate uniques).</summary>
+    static readonly (string Stat, HashSet<string> Names)[] UniqueFamilies =
+    [
+        ("chest_drop_additional_cold_warband_uniques", ["Mutewind Pennant", "Mutewind Seal", "Mutewind Whispersteps"]),
+        ("chest_drop_additional_fire_warband_uniques", ["Redblade Band", "Redblade Tramplers", "Redblade Banner"]),
+        ("chest_drop_additional_lightning_warband_uniques", ["Brinerot Flag", "Brinerot Whalers", "Brinerot Mark"]),
+        ("chest_drop_additional_chaos_warband_uniques", ["The Pariah", "Steppan Eard", "Broken Faith"]),
+        ("chest_number_of_additional_spider_uniques_to_drop", ["Mark of the Doubting Knight", "Mortem Morsu", "Snakebite",
+            "The Consuming Dark", "Bino's Kitchen Knife", "Dendrobate", "The Wasp Nest", "Coated Shrapnel", "Taproot",
+            "The Embalmer", "Coralito's Signature"]),
+        ("chest_number_of_additional_pirate_uniques_to_drop", ["Mao Kun", "Wheel of the Stormsail", "The Princess",
+            "Fairgraves' Tricorne", "Roth's Reach", "Rotgut"]),
+    ];
+
+    /// <summary>A divination card's reward as world.db's divination_card_rewards gives it.</summary>
+    public sealed record CardReward(string Card, string Kind, bool Corrupted);
+
+    static IReadOnlyList<CardReward> CardRewards() => GameData.Store is not { } store ? [] :
+        [.. store.LoadRows("divination_card_rewards", "card_id")
+            .Where(r => Convert.ToInt64(r["enabled"]) != 0)
+            .Select(r => new CardReward((string)r["card_id"]!, (string)r["reward_kind"]!, Convert.ToInt64(r["corrupted"]) != 0))];
+
     /// <param name="boxStat">A stat of the box's own mods (its implicits and rolled explicits).</param>
     /// <param name="corrupted">A Vaal Orb corrupted the box: its contents drop corrupted (the items that can be; stackable
     /// currency, cards and scarabs do not). Only the Corrupted flag is set: no corruption implicit or outcome is rolled.</param>
@@ -53,7 +78,7 @@ public static class StrongboxLoot
         int count = Math.Max(1, (int)Math.Floor(quantity) + (rng.NextDouble() < quantity - Math.Floor(quantity) ? 1 : 0));
         // The box's "more rarity" on top of its hidden rarity: one increased value for the drop table.
         double moreRarity = 1 + boxStat("chest_item_rarity_+%_final_from_mod") / 100.0;
-        int increasedRarity = (int)Math.Round((100 + boxStat("chest_hidden_item_rarity_+%")) * moreRarity) - 100;
+        int increasedRarity = (int)Math.Round((100 + boxStat("chest_hidden_item_rarity_+%") + boxStat("chest_item_rarity_+%")) * moreRarity) - 100;
         var chances = ItemDrops.WithIncreasedRarity(ItemDrops.RarityChances(MonsterRarity.Rare), increasedRarity, rules.EquipmentRarityMultiplier);
         var result = new List<ItemDrops.Drop>();
         var gems = box.Kind == Contents.Gem ? GemSources.DropPool(catalog) : null;
@@ -63,6 +88,8 @@ public static class StrongboxLoot
             Contents.Armour => Bases(t => ArmourClasses.Contains(t.Class)),
             Contents.Weapon => Bases(t => t.Components.Contains("Weapon")),
             Contents.Jewellery => Bases(t => JewelleryClasses.Contains(t.Class)),
+            Contents.Jewel => [.. catalog.All.Where(t => ItemDrops.Droppable(t) && t.DropLevel <= level && t.Class is "Jewel" or "AbyssJewel")],
+            Contents.Flask => [.. catalog.All.Where(t => ItemDrops.Droppable(t) && t.DropLevel <= level && t.Class.EndsWith("Flask", StringComparison.Ordinal))],
             Contents.Gem => [.. catalog.All.Where(t => t.Supported && t.DropLevel <= level && gems!.Contains(t.Row)
                 && (!supportsOnly || t.Class == "Support Skill Gem"))],
             _ => [],
@@ -74,7 +101,9 @@ public static class StrongboxLoot
             : [];
         // "All contained Scarabs are the same type" (Operative's): one scarab type for the box.
         ItemCatalog.BaseType? sameScarab = null;
-        if (box.Kind == Contents.General) result.AddRange(drops.Container(level, count, increasedRarity, rng));
+        // "Contains no regular drops" (the unique boxes that hold only their own contents).
+        if (boxStat("chest_no_regular_drops") != 0) { }
+        else if (box.Kind == Contents.General) result.AddRange(drops.Container(level, count, increasedRarity, rng));
         else
             for (int i = 0; i < count; i++)
                 if (One() is { } drop) result.Add(drop);
@@ -88,6 +117,20 @@ public static class StrongboxLoot
         int uniques = boxStat("chest_drop_additional_unqiue_items"), poolUniques = boxStat("chest_drop_additional_number_of_uniques_of_drop_pool_types");
         for (int i = 0; i < uniques; i++) if (Unique(_ => true) is { } d) result.Add(d);
         for (int i = 0; i < poolUniques; i++) if (Unique(KindClass) is { } d) result.Add(d);
+        // The unique boxes' own contents: a family of uniques, unique maps, rare Maraketh weapons.
+        for (int i = 0; i < boxStat("chest_number_of_additional_kaom_uniques_to_drop"); i++)
+            if (Unique(_ => true, u => u.Name.StartsWith("Kaom's", StringComparison.Ordinal)) is { } d) result.Add(d);
+        foreach (var (stat, names) in UniqueFamilies)
+            for (int i = 0; i < boxStat(stat); i++)
+                if (Unique(_ => true, u => names.Contains(u.Name)) is { } d) result.Add(d);
+        for (int i = 0; i < boxStat("chest_drop_additional_unique_maps"); i++)
+            if (Unique(t => t.Class == "Map") is { } d) result.Add(d);
+        for (int i = 0; i < boxStat("chest_drop_additional_rare_maraketh_weapons"); i++)
+            if (Equipment(Bases(t => t.Components.Contains("Weapon") && t.Tags.Contains("maraketh")), ItemRarity.Rare) is { } d) result.Add(d);
+        // Diviner's suffixes: cards whose reward is a unique item, a corrupted item, or currency (divination_card_rewards).
+        AddCards(boxStat("chest_drop_additional_unique_item_divination_cards"), r => r.Kind == "unique");
+        AddCards(boxStat("chest_drop_additional_corrupted_item_divination_cards"), r => r.Corrupted);
+        AddCards(boxStat("chest_drop_additional_currency_item_divination_cards"), r => r.Kind == "currency");
         var flasks = catalog.All.Where(t => t.Supported && t.DropLevel <= level && t.Class == "UtilityFlask").ToArray();
         for (int i = 0; i < boxStat("chest_drops_additional_utility_flasks") && flasks.Length > 0; i++)
         {
@@ -200,14 +243,30 @@ public static class StrongboxLoot
             return new(item, type);
         }
 
-        ItemDrops.Drop? Unique(Func<ItemCatalog.BaseType, bool> kind)
+        // A unique of these bases (and names) by its weight; one is certain when any qualifies (the weights are absolute,
+        // so PickUnique may decline: then one of the pool at random).
+        ItemDrops.Drop? Unique(Func<ItemCatalog.BaseType, bool> kind, Func<UniqueCatalog.Definition, bool>? named = null)
         {
             var uniqueCatalog = UniquesFor(conn);
-            var pool = uniqueCatalog.All.Where(u => !u.EncounterOnly && catalog.Find(u.BaseTypeId) is { } t
-                && t.DropLevel <= level && ItemDrops.Droppable(t) && kind(t)).ToArray();
-            if (drops.PickUnique(pool, rng) is not { } chosen || uniqueCatalog.Create(chosen, rng) is not { } item
+            var pool = uniqueCatalog.All.Where(u => (named is null ? !u.EncounterOnly : named(u)) && catalog.Find(u.BaseTypeId) is { } t
+                && (named is not null || t.DropLevel <= level) && ItemDrops.Droppable(t) && kind(t)).ToArray();
+            if (pool.Length == 0) return null;
+            var chosen = drops.PickUnique(pool, rng) ?? (named is null ? null : pool[rng.Next(pool.Length)]);
+            if (chosen is null || uniqueCatalog.Create(chosen, rng) is not { } item
                 || catalog.ByHash(item.TypeHash) is not { } type) return null;
             return new(item with { ItemLevel = (byte)level, Identified = false }, type);
+        }
+
+        void AddCards(int count, Func<CardReward, bool> wanted)
+        {
+            if (count <= 0) return;
+            var pool = CardRewards().Where(wanted).Select(r => catalog.Find(r.Card))
+                .OfType<ItemCatalog.BaseType>().Where(t => t.Supported && t.DropLevel <= level).ToArray();
+            for (int i = 0; i < count && pool.Length > 0; i++)
+            {
+                var type = pool[rng.Next(pool.Length)];
+                result.Add(new(ItemCatalog.Create(type) with { StackSize = 1 }, type));
+            }
         }
 
         // The box kind's own classes, for "additional Unique Items" of its drop pool types.

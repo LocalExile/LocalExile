@@ -196,5 +196,8 @@ writes it in Animated. The HardMode rows (`…HardMode`) have no `.ot`: their Ch
 Live (2026-11-17): a box created with ObjectMagicProperties flags `0x08` (identified) shows its name alone; without
 it the nameplate adds a red "Unidentified" line. A box's rarity and mods are written as a monster's (flags: rarity
 bits 0–2, `0x08`, `0x20` for the explicit list; then the list; live: a rare box shows its mod lines in yellow).
-Removed and created again with `opened` = 1 it shows opened with no minimap marker. A currency used on it is C→S 0x74 ([13](13-items.md)).
+Removed and created again with `opened` = 1 it shows opened with no minimap marker.
+A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
+UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
+and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
 Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.

@@ -32,6 +32,8 @@ public static partial class MapStrongboxes
         public bool Corrupted { get; init; }
         /// <summary>Corrupted by a Vaal Orb: its unstackable contents drop corrupted.</summary>
         public bool VaalOrb { get; init; }
+        /// <summary>A unique box's UniqueChests Id (<see cref="StrongboxCatalog.Uniques"/>); its mods are in <see cref="Mods"/>.</summary>
+        public string? Unique { get; init; }
 
         [System.Text.Json.Serialization.JsonIgnore]
         public IReadOnlyList<ItemMod> Explicits => [.. Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))];
@@ -39,6 +41,11 @@ public static partial class MapStrongboxes
 
     /// <summary>A rolled mod as the box keeps it: its Mods.dat HASH16 and its values.</summary>
     public sealed record RolledMod(ushort Hash, int[] Values);
+
+    /// <summary>A box's chance to be unique, in percent, before <c>map_strongboxes_chance_to_be_unique_+%</c>. From a sample:
+    /// poedb's 2016 count of 2218 boxes in tier 13+ maps, 14 unique (0.6%), which poedb notes may be out of date; the
+    /// client data gives no rate.</summary>
+    public const double UniqueChance = 0.6;
 
     static RolledMod[] Kept(IEnumerable<ItemMod> mods) => [.. mods.Select(m => new RolledMod(m.Hash, [.. m.Values]))];
 
@@ -58,7 +65,7 @@ public static partial class MapStrongboxes
         MapScarabPacks.RollFragmentCount(request, CountStat, Random.Shared);
         if (opening.Mods.Get(CountStat) > 0)
             request.ContentWarnings.Add(("Ambush.Affixes",
-                $"area={opening.Area.Id} content=Ambush: display-only box mods (traps, ground effects, curses, explosions, extra summons) and unique strongboxes remain unsupported"));
+                $"area={opening.Area.Id} content=Ambush: display-only box mods (the trap, spell and curse daemons, skeletons, revives, monster streams, rogue exiles) remain unsupported"));
     }
 
     /// <summary>The area level: the map's, else the campaign area's.</summary>
@@ -185,12 +192,30 @@ public static partial class MapStrongboxes
         var boxes = new List<Box>();
         int level = AreaLevel(conn);
         var (count, roll) = Count(conn, level);
-        if (count <= 0) return boxes;
+        if (count <= 0)
+        {
+            Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}: Ambush roll {roll} → 0");
+            return boxes;
+        }
         var mods = AreaMods(conn);
         var random = new Random(unchecked((int)(conn.Seed ^ 0x53544258)));
         bool hardMode = LeagueFor(conn).HardMode;
         bool corrupted = mods.Get("map_strongboxes_are_corrupted") != 0;
+        var catalog = ItemsFor(conn).Mods;
+        double unique = UniqueChance * Math.Max(0, 100 + mods.Get("map_strongboxes_chance_to_be_unique_+%")) / 100.0;
         foreach (var (x, y) in Positions(conn.Layout, conn.Seed, count))
+        {
+            // map_area_contains_unique_strongbox: the area's first box is unique.
+            bool forced = boxes.Count == 0 && mods.Get("map_area_contains_unique_strongbox") != 0;
+            if ((forced || random.NextDouble() * 100 < unique) && StrongboxCatalog.RollUnique(level, random) is { } special)
+            {
+                boxes.Add(new(conn.Instance.World.NewMonsterId(), boxes.Count, x, y, special.Type.Id)
+                {
+                    Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted,
+                    Mods = Kept(special.Unique.ModRows.Select(r => catalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
+                });
+                continue;
+            }
             if (Pick(level, hardMode, mods, random) is { } type)
             {
                 byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
@@ -200,12 +225,13 @@ public static partial class MapStrongboxes
                     Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted,
                 });
             }
+        }
         Console.WriteLine($"[map-content] strongboxes area={conn.Layout.Id} level={level}{(hardMode ? " (HardMode weights)" : "")}: " +
             $"Ambush roll {roll} → {count}; placed {boxes.Count}" + string.Concat(boxes.Select(b => $"; {Label(conn, b)} 0x{b.Id:x} at ({b.X}, {b.Y})")));
         return boxes;
     }
 
-    static readonly string[] RarityNames = ["Normal", "Magic", "Rare"];
+    static readonly string[] RarityNames = ["Normal", "Magic", "Rare", "Unique"];
 
     /// <summary>The box for the log: its rarity, type and mods.</summary>
     static string Label(ClientState conn, Box box)
@@ -213,7 +239,8 @@ public static partial class MapStrongboxes
         var catalog = ItemsFor(conn).Mods;
         string mods = string.Join(", ", box.Mods.Select(m => catalog.ByHash(m.Hash) is { } mod
             ? $"{mod.Id}[{string.Join("/", m.Values)}]" : $"0x{m.Hash:x4}"));
-        return $"{RarityNames[Math.Min(box.Rarity, (byte)2)]}{(box.Corrupted ? " corrupted" : "")} {box.Type}" + (mods.Length > 0 ? $" {{{mods}}}" : "");
+        string name = box.Unique is { } unique ? $"{StrongboxCatalog.FindUnique(unique)?.Name ?? unique} ({box.Type})" : box.Type;
+        return $"{RarityNames[Math.Min(box.Rarity, (byte)3)]}{(box.Corrupted ? " corrupted" : "")} {name}" + (mods.Length > 0 ? $" {{{mods}}}" : "");
     }
 
     static async Task Present(ClientState conn, Box box, bool replace = false)
@@ -226,7 +253,8 @@ public static partial class MapStrongboxes
         await SendWorldCreate(remote, stream, ciphers, conn, box.Id,
             InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
                 StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase == 2, box.Rarity,
-                    box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null)),
+                    box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null, null,
+                    box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null)),
             $"strongbox 0x{box.Id:x} {Label(conn, box)} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
         conn.SetBlocker(box.Id, box.X, box.Y, 1);
@@ -321,7 +349,14 @@ public static partial class MapStrongboxes
             if (line.Mod.Stats.Any(s => s.Id == "summoned_monster_rarity"))
                 groups.Add((StrongboxMods.Value(line, "number_of_packs_to_summon"), StrongboxMods.Value(line, "number_of_monsters_to_summon"),
                     (MonsterRarity)Math.Clamp(StrongboxMods.Value(line, "summoned_monster_rarity"), 0, 2)));
-        if (groups.Count == 0) groups.Add((3, 0, MonsterRarity.Normal));
+        // A warband cache's warband (chest_display_summons_<element>_warband).
+        var warband = new List<AreaPopulation.Spawn>();
+        foreach (var line in StrongboxMods.Lines(ItemsFor(conn).Mods, type, box.Explicits))
+            foreach (var (stat, id) in Warbands)
+                if (StrongboxMods.Value(line, stat) > 0) warband.AddRange(Warband(conn, id, box, random));
+        // No mod summons anything the server spawns (the stream daemons: a Strange Barrel's spiders, Weylam's pirates,
+        // the Renegades' warband, which has no WarbandsPackMonsters row): the implicit three normal packs stand in.
+        if (groups.Sum(g => g.Packs + g.Monsters) == 0 && warband.Count == 0) groups = [(3, 0, MonsterRarity.Normal)];
         if (mods.Get("map_strongboxes_additional_pack_chance_%") is int extra and > 0 && random.Next(100) < extra)
             groups.Add((1, 0, MonsterRarity.Normal));
         if (first && mods.Get("map_first_strongbox_contains_x_additional_rare_monsters") is int rares and > 0)
@@ -358,7 +393,50 @@ public static partial class MapStrongboxes
         var spawns = AreaPopulation.AtPacks(plans, (x, y) => conn.Layout.WalkableFor(x, y, 1),
             row => Monsters.Find(row.ToString()) is { Supported: true }, random.Next(), MapModsOf(conn)?.PackSizeFactor ?? 1, occupied);
         spawns.AddRange(singles.Where(s => Monsters.Find(s.Variety.ToString()) is { Supported: true }));
+        spawns.AddRange(warband);
         return spawns;
+    }
+
+    static readonly (string Stat, string Warband)[] Warbands =
+    [
+        ("chest_display_summons_fire_warband", "WarbandsFire1"), ("chest_display_summons_cold_warband", "WarbandsCold1"),
+        ("chest_display_summons_lightning_warband", "WarbandsLightning1"),
+    ];
+
+    /// <summary>A warband around the box: a WarbandsPackNumbers row for the area level by its SpawnChance, its count of each
+    /// tier (each with its chance; the grunts always), each member a random variety of that tier's WarbandsPackMonsters
+    /// list. The leader tier is rare and the elites magic: OUR choice, the tables give no rarity.</summary>
+    static List<AreaPopulation.Spawn> Warband(ClientState conn, string id, Box box, Random random)
+    {
+        var result = new List<AreaPopulation.Spawn>();
+        if (ClientTables.TableOrEmpty("WarbandsPackMonsters").Where(r => r.Text("Id") == id).ToArray() is not [var monsters, ..]) return result;
+        int level = AreaLevel(conn);
+        var rows = ClientTables.TableOrEmpty("WarbandsPackNumbers")
+            .Where(r => level >= r.Int("MinLevel") && level <= r.Int("MaxLevel") && r.Int("SpawnChance") > 0).ToArray();
+        if (rows.Length == 0) return result;
+        int roll = random.Next(rows.Sum(r => r.Int("SpawnChance")));
+        var numbers = rows.First(r => (roll -= r.Int("SpawnChance")) < 0);
+        var tiers = new (string Count, string? Chance, string Varieties, MonsterRarity Rarity)[]
+        {
+            ("Tier4Number", "__col5", "Tier4_MonsterVarietiesKeys", MonsterRarity.Rare),
+            ("Tier3Number", "__col7", "Tier3_MonsterVarietiesKeys", MonsterRarity.Magic),
+            ("Tier2Number", "__col9", "Tier2_MonsterVarietiesKeys", MonsterRarity.Normal),
+            ("Tier1Number", null, "Tier1_MonsterVarietiesKeys", MonsterRarity.Normal),
+        };
+        int spot = 0;
+        foreach (var (countColumn, chance, column, rarity) in tiers)
+        {
+            var varieties = monsters.Ints(column).Where(v => Monsters.Find(v.ToString()) is { Supported: true }).ToArray();
+            int count = numbers.Int(countColumn);
+            if (varieties.Length == 0 || count <= 0 || chance is not null && random.Next(100) >= numbers.Int(chance)) continue;
+            for (int i = 0; i < count; i++)
+            {
+                double angle = spot++ * 2.399963229728653;
+                var (x, y) = conn.Layout.Near((box.X + (int)Math.Round(Math.Cos(angle) * 8), box.Y + (int)Math.Round(Math.Sin(angle) * 8)));
+                result.Add(new(varieties[random.Next(varieties.Length)], x, y, rarity, id));
+            }
+        }
+        return result;
     }
 
     public static bool ClosesAgain(int chance, Random random) => random.Next(100) < chance;

@@ -109,15 +109,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   a separate object lifetime; their buffs accept shrine effect and duration modifiers. Apparition Scarabs are refused
   before payment because the Conqueror apparition skills are not implemented.
 
-- Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats, the type a
-  Strongboxes row by weight and the area and atlas stats (live: opened in The Crossroads, The Riverways and a Geode
-  map). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods (not tried live); the content,
-  item and guard mods act. Display only: Summons Skeletons, Rogue Exile, Revive, the stream of monsters, gems with
-  experience, the three Diviner's card suffixes and the trap, ground, curse and explosion mods; and the atlas's
-  `map_strongbox_scarab_more_likely_%`. The loot drops once the guards are dead (any connection in the instance), and a
-  box may close once to be opened again. Currency changes a closed box (C→S 0x74); a Vaal Orb locks it and its
-  contents drop corrupted (flag only). Our own: `__col2` as the item count, Jumbled Abundance's one-in-four strongboxes.
-  Unique boxes are not implemented. Source: `Modules/Core/Game/World/MapStrongboxes.cs` (with the Ambush scarabs);
+- Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
+  add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
+  a Geode map, Act 9). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are unique
+  (UniqueChests by weight, our 0.6% from poedb's old sample, with the area's unique chance; live: Strange Barrel,
+  Redblade Cache). The content, item and guard mods act; warband caches bring their warband. Display only: the trap,
+  spell and curse daemons (Ice Nova, Freeze, Ignite, the storms, Caustic Ground, explosions, corpse detonation, the
+  Vaal skills, the random curse), Summons Skeletons, Revive, the monster streams (Rallying, the Strange Barrel's
+  spiders, Weylam's pirates, Deshret's sandstorm, Ashes' spirits; three normal packs stand in when nothing else
+  guards), Kaom's totems, Rogue Exile, gems with experience, Deshret's animated weapons, and the atlas's
+  `map_strongbox_scarab_more_likely_%`. The loot drops once the guards are dead. Currency changes a closed box (C→S
+  0x74), Annulment and Divine included; a Vaal Orb locks it and its contents drop corrupted (flag only); unique boxes
+  take none (our choice). Our own: `__col2` as the item count, Jumbled Abundance's one-in-four strongboxes.
+  Source: `Modules/Core/Game/World/MapStrongboxes.cs` (with the Ambush scarabs);
   [03](../docs/protocol/03-area-and-world.md#strongbox-objects-metadatachestsstrongboxes).
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The

@@ -24,6 +24,10 @@ public sealed class StrongboxTests
         var rare = Use(magic, CurrencyEffects.RegalOrb).Box!;
         Assert.Equal(2, rare.Rarity);
         Assert.Equal(magic.Mods.Length + 1, rare.Mods.Length);
+        var annulled = Use(rare, CurrencyEffects.OrbOfAnnulment).Box!;
+        Assert.Equal(rare.Mods.Length - 1, annulled.Mods.Length);
+        Assert.All(annulled.Mods, m => Assert.Contains(rare.Mods, r => r.Hash == m.Hash));
+        Assert.Equal(rare.Mods.Select(m => m.Hash), Use(rare, CurrencyEffects.DivineOrb).Box!.Mods.Select(m => m.Hash));
         var scoured = Use(rare, CurrencyEffects.OrbOfScouring).Box!;
         Assert.Equal(0, scoured.Rarity);
         Assert.Empty(scoured.Mods);
@@ -32,5 +36,22 @@ public sealed class StrongboxTests
         Assert.True(corrupted.Corrupted && corrupted.VaalOrb);
         Assert.Equal("the box is corrupted", Use(corrupted, CurrencyEffects.ChaosOrb).Why);
         Assert.Equal("the box is open", Use(normal with { Phase = 1 }, CurrencyEffects.OrbOfTransmutation).Why);
+    }
+
+    // A unique box is a UniqueChests row on its strongbox: rarity 3, its own model and its Words name on the wire.
+    [Fact]
+    public void Unique_strongboxes_come_from_the_unique_chests()
+    {
+        var kaom = StrongboxCatalog.FindUnique("KaomsCache")!;
+        Assert.Equal("Kaom's Cache", kaom.Name);
+        var type = StrongboxCatalog.All.Single(t => t.Row == kaom.ChestRow);
+        Assert.Equal("Metadata/Chests/StrongBoxes/Armory", type.Id);
+        Assert.DoesNotContain(StrongboxCatalog.Uniques, u => u.Id.StartsWith("Grandmaster", StringComparison.Ordinal));
+        Assert.All(Enumerable.Range(0, 50), i => Assert.True(StrongboxCatalog.RollUnique(30, new Random(i))!.Value.Unique.MinLevel <= 30));
+        var plain = StrongboxCatalog.Blob(type, 100, 100, false, false, 3, type.Mods, null, null);
+        var named = StrongboxCatalog.Blob(type, 100, 100, false, false, 3, type.Mods, null, kaom);
+        Assert.NotEqual(plain, named);
+        var word = BitConverter.GetBytes(kaom.NameWord);
+        Assert.True(named.AsSpan().IndexOf(word) >= 0 || named.AsSpan().IndexOf(word.Reverse().ToArray()) >= 0);
     }
 }

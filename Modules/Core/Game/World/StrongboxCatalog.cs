@@ -23,7 +23,7 @@ public static class StrongboxCatalog
 
     /// <summary>What a box drops: from its Chests tags (armour, weapon, jewellery, gem, map, divination_card, scarab), else
     /// from its id (Arcanist: currency, Artisan: quality currency), else the general container table.</summary>
-    public enum Contents { General, Currency, QualityCurrency, Armour, Weapon, Jewellery, Gem, Map, Card, Scarab }
+    public enum Contents { General, Currency, QualityCurrency, Armour, Weapon, Jewellery, Gem, Map, Card, Scarab, Jewel, Flask }
 
     static readonly Lazy<IReadOnlyList<Definition>> Data = new(Load);
     public static IReadOnlyList<Definition> All => Data.Value;
@@ -76,6 +76,8 @@ public static class StrongboxCatalog
         : tags.Contains("map") ? Contents.Map
         : tags.Contains("divination_card") ? Contents.Card
         : tags.Contains("scarab") ? Contents.Scarab
+        : tags.Contains("jewel") ? Contents.Jewel
+        : tags.Contains("flask") ? Contents.Flask
         : id.Contains("/Arcanist", StringComparison.Ordinal) ? Contents.Currency
         : id.Contains("/Artisan", StringComparison.Ordinal) ? Contents.QualityCurrency
         : Contents.General;
@@ -101,9 +103,53 @@ public static class StrongboxCatalog
 
     public static byte[] Blob(Definition type, int x, int y, bool started, bool opened, byte rarity = 0,
         IReadOnlyList<ItemMod>? mods = null, IReadOnlyList<(uint Key, int Value)>? stats = null) =>
-        new QuestObject(x, y, type.Components, Model: type.Model, Opened: opened)
+        Blob(type, x, y, started, opened, rarity, mods, stats, null);
+
+    /// <param name="unique">A unique box: its own model, and its name (Words) in ObjectMagicProperties.</param>
+    public static byte[] Blob(Definition type, int x, int y, bool started, bool opened, byte rarity,
+        IReadOnlyList<ItemMod>? mods, IReadOnlyList<(uint Key, int Value)>? stats, UniqueBox? unique) =>
+        new QuestObject(x, y, type.Components, Model: unique?.Model ?? type.Model, Opened: opened)
         {
             StateMachine = type.States?.Set("started", started ? 1 : 0).Set("opened", opened ? 1 : 0),
             Mods = mods ?? type.Mods, Rarity = rarity, Stats = stats ?? [],
+            NameWords = unique is null ? [] : [unique.NameWord],
         }.Blob();
+
+    /// <summary>A unique strongbox (UniqueChests): its name (a Words row's HASH32), its own model, the area level from which
+    /// it spawns, its weight among the unique boxes, the strongbox it is (its Chests row), and its mods.</summary>
+    public sealed record UniqueBox(int Row, string Id, string Name, uint NameWord, string Model, int MinLevel, int Weight,
+        int ChestRow, IReadOnlyList<int> ModRows);
+
+    static readonly Lazy<IReadOnlyList<UniqueBox>> UniqueData = new(LoadUniques);
+    /// <summary>The unique strongboxes that spawn (SpawnWeight above 0) on a strongbox type the server creates.</summary>
+    public static IReadOnlyList<UniqueBox> Uniques => UniqueData.Value;
+    public static UniqueBox? FindUnique(string id) => Uniques.FirstOrDefault(u => u.Id == id);
+
+    static IReadOnlyList<UniqueBox> LoadUniques()
+    {
+        if (!ClientTables.Has("UniqueChests") || !ClientTables.Has("Words")) return [];
+        var words = ClientTables.Table("Words").ToArray();
+        var result = new List<UniqueBox>();
+        foreach (var row in ClientTables.Table("UniqueChests"))
+        {
+            if (row.IntOrNull("SpawnWeight") is not int weight || weight <= 0 || row.IntOrNull("ChestsKey") is not int chest
+                || All.All(t => t.Row != chest) || row.IntOrNull("WordsKey") is not int word || (uint)word >= words.Length) continue;
+            result.Add(new(row.Index, row.Text("Id") ?? "", words[word].Text("Text") ?? "", words[word].UInt("HASH32"),
+                row.Text("AOFile") ?? "", row.IntOrNull("MinLevel") ?? 0, weight, chest, row.Ints("ModsKeys")));
+        }
+        return result;
+    }
+
+    /// <summary>A unique box for this area level by weight, among those whose strongbox's level range holds it.</summary>
+    public static (UniqueBox Unique, Definition Type)? RollUnique(int level, Random random)
+    {
+        var pool = Uniques.Where(u => level >= u.MinLevel)
+            .Select(u => (Unique: u, Type: All.First(t => t.Row == u.ChestRow)))
+            .Where(p => level >= p.Type.MinLevel && level <= p.Type.MaxLevel).ToArray();
+        long total = pool.Sum(p => (long)p.Unique.Weight);
+        if (total == 0) return null;
+        long roll = random.NextInt64(total);
+        foreach (var p in pool) if ((roll -= p.Unique.Weight) < 0) return p;
+        return pool[^1];
+    }
 }

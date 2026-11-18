@@ -65,6 +65,8 @@ public static partial class MapStrongboxes
         if (box.Phase != 0) return (null, "the box is open");
         if (box.Corrupted) return (null, "the box is corrupted");
         if (!type.Rollable) return (null, "the box cannot be modified");
+        // OUR choice: no source says what currency does to a unique box; it keeps its fixed mods.
+        if (box.Unique is not null) return (null, "a unique box takes no currency");
         var mods = box.Explicits;
         (Box?, string?) With(byte rarity, IReadOnlyList<ItemMod> rolled) => (box with { Rarity = rarity, Mods = Kept(rolled) }, null);
         static (Box?, string?) Fail(string why) => (null, why);
@@ -92,6 +94,16 @@ public static partial class MapStrongboxes
                 var more = StrongboxMods.Add(catalog, type, mods, 2, 1, level, stat, rng);
                 return more.Count > mods.Count ? With(2, more) : Fail("no room for another mod");
             }
+            case CurrencyEffects.OrbOfAnnulment:
+            {
+                if (mods.Count == 0) return Fail("the box has no mod to remove");
+                int removed = rng.Next(mods.Count);
+                return With(box.Rarity, [.. mods.Where((_, i) => i != removed)]);
+            }
+            case CurrencyEffects.DivineOrb:
+                return mods.Count == 0 ? Fail("the box has no mod to reroll") : With(box.Rarity, StrongboxMods.Reroll(catalog, mods, stat, rng));
+            // A box's implicits have fixed values (every Chests mod's range is one value): nothing to reroll.
+            case CurrencyEffects.BlessedOrb: return Fail("the box's implicit has no range");
             case CurrencyEffects.OrbOfScouring:
                 return box.Rarity == 0 ? Fail("already a normal box") : With(0, []);
             // A Vaal Orb corrupts the box: no currency changes it again (the Vaal Orb's own text), and its contents drop
