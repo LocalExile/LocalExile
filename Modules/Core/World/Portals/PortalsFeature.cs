@@ -259,7 +259,7 @@ static class PortalsFeature
             try
             {
                 var (r, s, c) = visitor.Wire;
-                await RemoveMapPortals(r, s, c, visitor);
+                await RemoveMapPortals(r, s, c, visitor, run);
                 if (visitor == conn) await Send(r, s, c, InstanceChat.ChatLine(why), $"0x0017 chat line \"{why}\"");
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // Another visitor disconnected.
