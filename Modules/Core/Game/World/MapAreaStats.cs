@@ -1,9 +1,13 @@
+using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
+
 /// <summary>
 /// The area stats a map instance is played with (InstanceEvents.AreaStats; S→C 0x1d's first stat list, which the client
 /// copies to the world stats and its level generator reads): composed from the league, the map item and the device's
-/// fragments, the character's atlas tree and per-tier constants, as the server's map loads carry them:
-/// area = atlas + fragments (unscaled) + explicit map mods × (100 + e) / 100 truncated each + implicits (unscaled)
-/// + derived counts + the tier block + league blocks, e = the atlas's map_mod_effect_+%_for_non_unique_maps.
+/// fragments, the character's active atlas preset and per-tier constants, as the server's map loads carry them:
+/// area = atlas (AtlasStats.Compose) + fragments (unscaled) + explicit map mods × (100 + e) / 100 truncated each
+/// + implicits (unscaled) + derived counts + the tier block + league blocks, e = AtlasStats.ModEffect. The rarity-gated
+/// pack counts and Meticulous Appraiser's quantity are resolved in the list, so its readers need no rules.
 /// Not composed: the account's constants (atlas completion bonus, voidstone, Maven, astrolabe, uber map unlocks), the
 /// activated atlas node, the boss option and the server's own rolls (Beyond, the influence type, a corrupted map's
 /// random notables).
@@ -28,18 +32,14 @@ public static partial class Game
     {
         bool deepwater = request.League?.Contains("Deepwater", StringComparison.OrdinalIgnoreCase) == true;
         if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
-        // The atlas: the first preset that holds nodes, its node stats and the families its nodes belong to.
+        // The atlas: the active preset's nodes (HardMode vectors in a HardMode league), composed by the tree's rules.
         var presets = CharacterSaves.Load(map.Owner)?.AtlasPassivePresets ?? [];
-        int preset = presets.FindIndex(p => p.Count > 0);
-        var atlas = new Dictionary<uint, int>();
-        var families = new HashSet<string>(StringComparer.Ordinal);
-        if (preset >= 0)
-            foreach (ushort id in presets[preset])
-                if (AtlasPassiveNodes.Find(id) is { } node)
-                {
-                    foreach (var (key, value) in node.Stats) atlas[key] = atlas.GetValueOrDefault(key) + value;
-                    if (node.Id.Split('_') is { Length: > 1 } parts) families.Add(parts[1]);
-                }
+        int preset = AtlasActivePreset(map.Owner, presets);
+        var catalog = ServerLeagues.Resolve(null, request.League, LeagueCatalog.Startup).HardMode
+            ? HardModeAtlasPassives.Value : AtlasPassiveNodes;
+        var nodes = preset >= 0 ? presets[preset].Distinct().Select(id => catalog.Find(id)).OfType<AtlasPassives.Node>().ToList() : [];
+        var families = nodes.Select(AtlasStats.Family).Where(f => f.Length > 0).ToHashSet(StringComparer.Ordinal);
+        var atlas = AtlasStats.Compose(nodes);
         return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater);
     }
 
@@ -60,7 +60,7 @@ public static partial class Game
         if (mods is null) return stats;
         foreach (var (key, value) in atlas) stats[key] = stats.GetValueOrDefault(key) + value;
         if (preset >= 0) Add("map_active_atlas_passive_tree_index", preset + 1);
-        int effect = mods.MapRarity != GameServer.Core.Protocol.Instance.ItemRarity.Unique && Stats.Key("map_mod_effect_+%_for_non_unique_maps") is uint effectKey ? stats.GetValueOrDefault(effectKey) : 0;
+        int effect = AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
         // Each explicit mod's values scaled by the mod effect and truncated on their own; implicits and fragments unscaled.
         foreach (var mod in mods.ExplicitMods)
             foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
@@ -69,6 +69,20 @@ public static partial class Game
         // Older modules construct a flat MapMods. Preserve their stats when there is no breakdown to compose.
         if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
             foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        // "Your Rare Maps contain …" (no area text): only on a map of that rarity, as the plain count.
+        foreach (var (rarity, kind) in new[] { (ItemRarity.Rare, "rare"), (ItemRarity.Magic, "magic"), (ItemRarity.Normal, "normal") })
+            if (Stats.Key($"map_contains_x_additional_{kind}_packs_if_{kind}") is uint key && stats.Remove(key, out int value)
+                && mods.MapRarity == rarity && value != 0)
+                Add($"map_contains_x_additional_{kind}_packs", value);
+        // Meticulous Appraiser: the quantity modifiers apply to rarity instead, at 300%.
+        if (Stats.Key("map_item_drop_quantity_instead_applies_to_map_item_drop_rarity_at_3_times_value") is uint appraiser
+            && stats.GetValueOrDefault(appraiser) != 0)
+        {
+            int quantity = 0;
+            foreach (string id in new[] { "map_item_drop_quantity_+%", "map_implicit_item_drop_quantity_+%", "map_unscaled_item_drop_quantity_+%" })
+                if (Stats.Key(id) is uint key && stats.Remove(key, out int value)) quantity += value;
+            Add("map_item_drop_rarity_+%", 3 * quantity);
+        }
         // The derived counts.
         Set("map_rarity", (int)mods.MapRarity);
         Set("map_number_of_explicit_mods", mods.ExplicitMods.Count);

@@ -40,10 +40,10 @@ public static partial class Game
     {
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
-        double previousFreeze = conn.ElementalAilments.FreezeUntil(now);
+        double previousFreeze = conn.ElementalAilments.FreezeStatusUntil(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         apply(conn.ElementalAilments);
-        if (conn.ElementalAilments.FreezeUntil(now) > previousFreeze)
+        if (conn.ElementalAilments.FreezeStatusUntil(now) > previousFreeze)
             conn.RecentEvents.Record(StatConditions.BeenFrozen, now);
         QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         PlayerAilmentsChangedLocked(conn, previousAction, now);
