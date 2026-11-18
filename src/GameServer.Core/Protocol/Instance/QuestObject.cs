@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Login;
+
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
@@ -23,15 +25,11 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     /// <summary>Suppress the object's own map marker without removing its model or interaction.</summary>
     public bool HideMinimapIcon { get; init; }
-    /// <summary>ObjectMagicProperties' identified flag (u16 0x08) on an object without mods: without it the client's
-    /// nameplate adds an "Unidentified" line under the name (03-area-and-world.md, shrine objects). Off by default.
-    /// With <see cref="Mods"/> it is not read: that path always writes identified (the client reads the explicit list
-    /// only of an identified object).</summary>
-    public bool Identified { get; init; }
-    /// <summary>ObjectMagicProperties' rarity (flags bits 0-2, as a monster's: 0 normal, 1 magic, 2 rare). 0 by default.</summary>
-    public byte Rarity { get; init; }
     public StateMachineData? StateMachine { get; init; }
     public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
+    public byte Rarity { get; init; }
+    public bool Identified { get; init; } = true;
+    public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = [];
     /// <summary>Base-data script variables containing one entity reference (141dedf80 / 141dfe5a0, type 1).</summary>
     public IReadOnlyDictionary<uint, uint> EntityVariables { get; init; } = new Dictionary<uint, uint>();
 
@@ -70,12 +68,22 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Animated": if (Model is null) w.U8(0); else w.U8(1).WStr32(Model); break;
                 case "Transitionable": w.U8((byte)(Math.Max((byte)1, TransitionState) & 0x7f)); break;
                 case "Chest": w.U8((byte)(Opened ? 1 : 0)).U8(0).U8(0); break;
-                case "Stats": w.U8(0).U32(0).U32(0).U8(0); break;
+                case "Stats":
+                    w.U8(0).U32(0).U32(0);
+                    var stats = new LoginWriter();
+                    InstanceProtocol.CompactUInt(stats, (uint)Stats.Count);
+                    foreach (var (key, value) in Stats)
+                    {
+                        InstanceProtocol.CompactUInt(stats, key);
+                        InstanceProtocol.CompactInt(stats, value);
+                    }
+                    foreach (byte b in stats.ToArray()) w.U8(b);
+                    break;
                 // Stationary initially; the server drives the rail with MoveTo (as for the Labyrinth's roombas).
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties":
-                    if (Mods.Count == 0) w.U16((ushort)(Rarity & 7 | (Identified ? MagicProperties.Identified : 0))).U8(0).U8(0);
-                    else { MagicProperties.Write(w, Rarity, true, Mods, []); w.U8(0); }
+                    if (Mods.Count == 0 && Rarity == 0) w.U16(0).U8(0).U8(0);
+                    else { MagicProperties.Write(w, Rarity, Identified, Mods, []); w.U8(0); }
                     break;
                 case "StateMachine": StateMachine!.Write(w); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;
