@@ -1,5 +1,5 @@
 // Named roles share one generation claim, while retaining each loop's existing cadence.
-public enum PlayerUpdateRole { Recovery, Player, MonsterAi, MonsterRegeneration, LivingCollisions, Charges, Fortification, Rage, FlaskCharges, FlaskGrounds, MonsterAction, Tour, Minions, Footsteps }
+public enum PlayerUpdateRole { Recovery, Player, MonsterAi, MonsterRegeneration, LivingCollisions, Charges, Fortification, Rage, FlaskCharges, FlaskGrounds, MonsterAction, Tour, Minions, Footsteps, Projectiles }
 public interface IPlayerUpdateSchedule
 {
     double Now(ClientState conn);
@@ -14,8 +14,9 @@ public sealed partial class ClientState
     public double FootstepRun;
     public readonly Dictionary<uint, double> TemporarySkillEffects = [];
     public ConnectionWorker PlayerUpdatesWorker { get; } = new("player-updates");
-    /// <summary>The frame clock the player update loops wait on (Program.RunWorldFrames drives it).</summary>
-    public AreaFrames Frames { get; } = new();
+    /// <summary>The area's frames the player update loops wait on: the instance's, or this connection's own outside one.</summary>
+    public AreaFrames Frames => Instance?.World.Frames ?? LazyInitializer.EnsureInitialized(ref ownFrames, () => new AreaFrames(() => Clock));
+    AreaFrames? ownFrames;
 
     public void RetirePlayerUpdates()
     {

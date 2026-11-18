@@ -28,6 +28,11 @@ public sealed class InstanceWorld
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
 
+    /// <summary>The instance's frames: one driver ends every connection's frames and steps every connection's loops on the
+    /// Clock's grid, while someone is here (AreaFrames).</summary>
+    public AreaFrames Frames => LazyInitializer.EnsureInitialized(ref frames, () => new AreaFrames(() => Clock));
+    AreaFrames? frames;
+
     /// <summary>The connection whose Escape menu stopped the Clock (Connection.SetPaused), until its pause ends. Under the
     /// Monsters lock.</summary>
     public ClientState? PausedBy;
@@ -57,8 +62,8 @@ public sealed class InstanceWorld
     /// <summary>The area's packs were placed (or restored): a later connection places none.</summary>
     public bool Populated;
 
-    /// <summary>The connection whose loops step the monsters (AI, collisions, wake zone) until the instance runs them itself:
-    /// the first in, then whoever is still here.</summary>
+    /// <summary>The connection the monsters' walks were last built for: the area's view (AreaFrames.View), whose loops step
+    /// them in the area's frame; before the frames start, the first one in.</summary>
     public ClientState? Runner;
 }
 

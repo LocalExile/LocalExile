@@ -23,7 +23,7 @@ public static partial class Game
         public double ResourceNow(ClientState conn) => ProjectileWorldTime(conn);
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
         public Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) =>
-            frames?.Frames.Wait(role, milliseconds, stopping) ?? Task.Delay(milliseconds, stopping);
+            frames?.Frames.Wait(frames, role, milliseconds, stopping) ?? Task.Delay(milliseconds, stopping);
     }
     public static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
     public static bool CurrentGameWork => QuestKillCommitOutput is not null

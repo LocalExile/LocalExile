@@ -62,93 +62,22 @@ public partial class Program
         Func<byte[]?> atGate, string? log = null, Func<bool>? still = null) =>
         SendRecords(conn, [target], _ => atGate() is { } bytes ? new(OutputRecord.World(target, order, bytes, log)) : null, still);
 
-    // Differs from GGG: its server steps its world in frames, so a frame is a tick of the simulation. Ours walks on the
-    // clock, so frames are laid over it: frame n ends n × FrameMs after the first, and a frame missed by a late timer goes
-    // out at once instead of being lost, which keeps every frame start on the conn.Clock timeline the walks use (a free
-    // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
-    // Escape menu's pause, and so do the frames.
     // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
     // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
-    // predictive one ignores 0x2b7 (07 §6).
-    // The frames last as long as the connection. What the game does at a frame end is asked of the rules loaded then, so
-    // after a game module reload the new rules take over at the next frame and nothing here keeps the old ones: the loop
-    // also runs on an execution context of its own, since the caller's async-local values (the game module's) would ride
-    // along for the connection's life.
+    // predictive one ignores 0x2b7 (07 §6). The area's driver (AreaFrames) ends them for every connection in the area at
+    // once. What the game does at a frame end is asked of the rules loaded then, so after a game module reload the new
+    // rules take over at the next frame; the driver runs on an execution context of its own, since the caller's async-local
+    // values (the game module's) would ride along for the area's life.
     public static void StartWorldFrames(string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
     {
         if (ExecutionContext.IsFlowSuppressed())
         {
-            _ = Task.Run(() => RunWorldFrames(remote, stream, ciphers, conn));
+            _ = Task.Run(() => conn.Frames.Join(remote, stream, ciphers, conn));
             return;
         }
         using (ExecutionContext.SuppressFlow())
-            _ = Task.Run(() => RunWorldFrames(remote, stream, ciphers, conn));
-    }
-
-    static async Task RunWorldFrames(string remote, System.Net.Sockets.NetworkStream stream,
-        GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn)
-    {
-        try
-        {
-            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
-            double frame = FrameMs / 1000d, first = await BeginWorldFrames(conn, frame);
-            long ended = 0, pausedStep = 0;
-            conn.Frames.Start();
-            while (!conn.Closed)
-            {
-                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later. The player
-                // update loops still step once a frame length of real time (they see the pause and do nothing).
-                if (conn.Paused)
-                {
-                    if (conn.LockstepClient) await EndPausedFrame(conn);
-                    await Task.Delay(Math.Max(1, FrameMs / 3));
-                    if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= FrameMs)
-                    {
-                        pausedStep = Stopwatch.GetTimestamp();
-                        conn.Frames.Step(conn.Clock.Elapsed.TotalSeconds);
-                    }
-                    continue;
-                }
-                // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of
-                // a frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
-                double wait = first + (ended + 1) * frame - conn.Clock.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                if (now < first + (ended + 1) * frame) continue;
-                // Lockstep: the frame ends once the server's running work is done (ServerWork), as a step of GGG's world
-                // ends: a slow step holds the client's world (the "slideshow": it neither moves nor walks on old orders),
-                // and the frames held go out together, which the client plays up to 5 × as fast (07 §6).
-                if (conn.LockstepClient && conn.Work.Busy)
-                {
-                    await HoldFrames(remote, conn);
-                    now = conn.Clock.Elapsed.TotalSeconds;
-                }
-                if (await EndWorldFramesThrough(conn, first, frame, ended, now) is not { } completed) return;
-                ended = completed;
-                if (GameLogicOrNull is { } rules) await rules.WorldFrameEnded(remote, stream, ciphers, conn, first + ended * frame);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
-        {
-        }
-        finally { conn.Frames.Stop(); }
-    }
-
-    // Work longer than this lets the frames go on (logged): no step of ours should take it, and a client held longer looks hung.
-    static readonly TimeSpan MaxFrameHold = TimeSpan.FromSeconds(2);
-
-    static async Task HoldFrames(string remote, ClientState conn)
-    {
-        long from = Stopwatch.GetTimestamp();
-        string? doing = conn.Work.Handling;
-        bool done = true;
-        try { await conn.Work.Idle.WaitAsync(MaxFrameHold); }
-        catch (TimeoutException) { done = false; }
-        double ms = Stopwatch.GetElapsedTime(from).TotalMilliseconds;
-        if (!done || ms >= 100)
-            Console.WriteLine($"[frames] {remote} held {ms:0} ms by the server's work ({doing ?? "no message"})" +
-                (done ? "" : ": still running, the frames go on"));
+            _ = Task.Run(() => conn.Frames.Join(remote, stream, ciphers, conn));
     }
 
     public static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
@@ -170,23 +99,6 @@ public partial class Program
             }
         }
         finally { gate.Release(); }
-    }
-
-    public static async Task<long?> EndWorldFramesThrough(ClientState conn, double first, double frameSeconds,
-        long ended, double now)
-    {
-        if (conn.Closed || conn.WorldOutput.Closed) return null;
-        for (; first + (ended + 1) * frameSeconds <= now; ended++)
-        {
-            // The frame ends after the loops stepped at its start have run (AreaFrames), and the next step's records go
-            // out in the frame that starts at its boundary.
-            await conn.Frames.Settle();
-            double boundary = first + (ended + 1) * frameSeconds;
-            if (!await EndWorldFrame(conn, (boundary, first + (ended + 2) * frameSeconds)))
-                return conn.Closed || conn.WorldOutput.Closed ? null : ended;
-            conn.Frames.Step(boundary);
-        }
-        return ended;
     }
 
     public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
@@ -216,7 +128,7 @@ public partial class Program
             }
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
-            conn.Frames.Wrote(wire.Remote, frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
+            conn.Frames.Wrote(frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
             return true;
         }
         catch { if (committed) FailWorldOutput(conn); throw; }
@@ -228,7 +140,7 @@ public partial class Program
     /// records, 0x2b7, then 0x2b8 back to the frame length). The client runs a frame its time already covers at once, and
     /// a 0 ms frame is covered by no time at all (0x14218a2a0), so its records apply and the world does not move. Not on
     /// the frame timeline: it ends no frame of the clock's.</summary>
-    static async Task EndPausedFrame(ClientState conn)
+    public static async Task EndPausedFrame(ClientState conn)
     {
         var wire = conn.Wire;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));

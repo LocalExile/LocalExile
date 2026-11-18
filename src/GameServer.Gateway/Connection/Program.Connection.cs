@@ -346,11 +346,15 @@ public partial class Program
         // From here every continuation of the handlers counts as the server's work while it runs (lockstep frames wait for it).
         SynchronizationContext.SetSynchronizationContext(new ServerWorkContext(conn.Work));
         ClientInbox.Batch? handling = null;
+        // The input phase of the area's frame (AreaFrames.Turn): the batches run at the start of the next frame, after the
+        // frames end and before the loops step, one connection after another; the turn is held while more are queued.
+        AreaFrames.InputTurn? turn = null;
         try
         {
             await foreach (var batch in inbox.ReadAllAsync())
             {
                 if (conn.Closed) break;
+                turn ??= await conn.Frames.Turn(conn);
                 handling = batch;
                 conn.Work.Handling = string.Join(", ", batch.Messages.Select(m => $"0x{m.Id:x4}"));
                 long start = Stopwatch.GetTimestamp();
@@ -362,6 +366,7 @@ public partial class Program
                     if (id == GameServer.Core.Protocol.Instance.InstanceProtocol.AreaGeneratedId)
                         conn.Performance.AreaLoaded(remote, conn.Layout.Id, start);
                 conn.Performance.MaybeLog(remote, inbox.PendingBatches);
+                if (inbox.PendingBatches == 0) { turn.Dispose(); turn = null; }
                 var took = Stopwatch.GetElapsedTime(start);
                 if (took > ClientInbox.SlowAfter)
                 {
@@ -378,6 +383,7 @@ public partial class Program
             Console.WriteLine($"[gateway] {remote} error{ids}: {ServerLog.Describe(ex)}");
             if (ex is not (IOException or ObjectDisposedException)) conn.Packets.Print(remote, "before the handler error");
         }
+        finally { turn?.Dispose(); }
         inbox.Complete();
         inbox.DiscardPending();
         lock (conn.Monsters)
