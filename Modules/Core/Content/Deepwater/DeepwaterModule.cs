@@ -39,17 +39,9 @@ public sealed class DeepwaterModule : IModule
     // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
     // a null check).
     static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules"));
-    // DeepwaterRules (ClientDeepwater) only where the client builds the DeepwaterPlugin terrain plugin (WorldAreas
-    // TerrainPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage): its per-frame update (0x1416851b0) looks the plugin up
-    // (0x141685030) without a null check, so anywhere else the client closes about 2 s after it is added (live 2026-11-18,
-    // The Sovereign and The Twilight Strand).
-    static readonly Lazy<byte?> EncounterRules = new(() => Ruleset("DeepwaterRules"));
-    static readonly Lazy<HashSet<string>> PluginAreas = new(() =>
-    {
-        int? plugin = ClientTables.TableOrEmpty("TerrainPlugins").FirstOrDefault(r => r.Text("Id") == "DeepwaterPlugin") is { Table: not null } row ? row.Index : null;
-        return plugin is null ? [] : [.. ClientTables.TableOrEmpty("WorldAreas")
-            .Where(r => r.LongOrNull("TerrainPlugin") == plugin).Select(r => r.Text("Id") ?? "")];
-    });
+    // Row 171 DeepwaterRules (ClientDeepwater) is not sent: its per-frame update (0x1416851b0) looks the DeepwaterPlugin
+    // terrain plugin up (0x141685030) without a null check, and the client closed about 2 s after it on The Sovereign and
+    // The Twilight Strand. Whether the encounter areas have that plugin is unchecked (Agents/docs/protocol/03 §8).
 
     static byte? Ruleset(string id) =>
         ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
@@ -78,16 +70,11 @@ public sealed class DeepwaterModule : IModule
         // server's extra terrain feature roll for Deepwater encounters read).
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);
         InstanceEvents.AreaStats.Add(id, _ => Stats.Key("map_deepwater_league") is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
-        // The hub's ruleset (172 only), or the encounters' (171), before the area's objects.
+        // The hub's ruleset (172 only) before the area's objects.
         GameEvents.EnterMessages.Add(id, conn =>
-        {
-            string area = PlayerOf(conn).AreaId;
-            var messages = new List<(string Log, byte[] Message)>();
-            if (area == HubId && HubRules.Value is { } hub) messages.Add(($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub)));
-            if (PluginAreas.Value.Contains(area) && EncounterRules.Value is { } rules)
-                messages.Add(($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules)));
-            return messages;
-        });
+            PlayerOf(conn).AreaId == HubId && HubRules.Value is { } hub
+                ? [($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub))]
+                : []);
         // C→S 0x183: the World panel's Deepwater pin (enabled by the league category, disabled on The Sovereign itself).
         GameEvents.Packet(InstanceWaypoints.VisitDeepwaterHubId).Add(id, async (conn, bytes) =>
         {

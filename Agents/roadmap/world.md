@@ -112,22 +112,19 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   171 DeepwaterRules and 172 DeepwaterHubRules, the hub DeepwaterHub "The Sovereign" (area type 53), the encounter
   areas DeepwaterEncounter and DeepwaterEncounterVoyage with the biomes DeepwaterSandy, CoralForest, CoralReef and
   ThermalVents (never shipped), and the `Deepwater*` tables.
-  The Deepwater module sends the category and `map_deepwater_league`, answers the Deepwater pin (0x183), `/boat` and the
-  Coast's rowboat, and gives the hub ruleset 172, its stash and guild stash
-  ([status](../status/hideouts-and-maps.md), [16](../docs/protocol/16-waypoints.md)).
-  Ruleset 171 is sent only in DeepwaterEncounter and DeepwaterEncounterVoyage (not checked live): anywhere else the
-  client closes about 2 s after it (live 2026-11-18, The Sovereign and The Twilight Strand), see
-  [03](../docs/protocol/03-area-and-world.md) §8. ValerieTutorial (Coast, deck) and Vesper (below deck, hidden until
-  DeepwaterValVesperFlameGiven) are created; Valerie (NPCs 789) waits for the flag that ends the tutorial, which the
-  client data does not name.
-  The ruleset messages are in [03](../docs/protocol/03-area-and-world.md) §8. Not decoded: S→C 0x1e and the chart
-  item's `DeepwaterChart` component.
+  What works is in the [status](../status/hideouts-and-maps.md) ("The Sovereign").
+  Ruleset 171 crashes the client where the DeepwaterPlugin is missing and is not sent yet
+  ([03](../docs/protocol/03-area-and-world.md) §8). Valerie (NPCs 789) waits for the flag that ends the tutorial, which
+  the client data does not name. The boat gates are written as plain AreaTransitions, so the client highlights them on
+  hover (Boat_AreaTransition_Animate has `no_highlight`).
+  Not decoded: S→C 0x1e and the chart item's `DeepwaterChart` component.
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
   1. Encounter levels and the biome grid: generate DeepwaterEncounter from a chart's biome and room shape
      (DeepwaterRooms, DeepwaterConnectionStrings' direction bits, the "Deepwater (2)" item of
-     [server-side level generation](#server-side-level-generation)), and the server data the client needs to build it.
+     [server-side level generation](#server-side-level-generation)), and the server data the client needs to build it;
+     then send ruleset 171 there once a live entry shows the client keeps it.
   2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
      already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
      then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
@@ -142,7 +139,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   5. Progression: Maiden Voyage, The Spirit Flame and Turning the Tide (Quest 209-211) with Valerie's variant per
      stage (her `ValeriePlacer*` markers), the Deepwater Fairgraves and the Allflame on The Ship Graveyard, Velka;
      league quest flag 1834 DeepwaterBoatUnlocked only after the first boarding (the Gateway gives it to everyone
-     today), `/boat` refused before it, and the below-deck stash and crafting bench.
+     today), the pin and `/boat` gated on 1834 instead of QuestFlags 3556, and the below-deck stash and crafting bench.
 - **Done when:** an Allflame character takes Valerie's chart, completes a Chart and a Voyage, and crafts with Vesper.
 
 ### Vaal Vessels

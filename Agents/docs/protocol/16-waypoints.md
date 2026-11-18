@@ -151,8 +151,7 @@ teleports between the deck and below deck.
 
 **Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
 (`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,
-ChayulaLeague) it creates one 12 cells from the spawn (The Sovereign's deck tile places `DeepwaterHubBoat_waypoint`, but
-the Gateway sends it only once DeepwaterHub is in server_level_areas). The client draws them unlit: without a bit it lights a
+ChayulaLeague) it creates one 12 cells from the spawn. The client draws them unlit: without a bit it lights a
 waypoint only for its own list of area types (`0x141fe3950`, mask `0x3e602108080008`: 3, 19, 27, 32, 37, 41, 45, 46,
 49-53), and both the object's creation (`0x14216c880`) and every 0x4c (`0x1421523a8` → `0x14214b340`) take the
 state from it (0 idle, 1 `waypointeffect_prestartidle`, 2 activation). Delve_Hub is type 15: none of the StateMachine

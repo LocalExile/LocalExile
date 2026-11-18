@@ -688,6 +688,9 @@ entries, tile hash 1294234863, all 4 134 draws up to the doodads, every room of 
   `.ao`, which is no file (one missing and one extra object at (347, 485); fixed, [08](../protocol/08-area-transitions.md)
   §5). Its two boat gates (`Deepwater/Boat_AreaTransition_Animate`) are room lines, which the recorder's tile-object
   hook (`0x142047e30`) never sees.
+- **Category 59** (the Deepwater topologies): The Coast's tile hash matched the client's at seed 1560159699. The Ship
+  Graveyard and its Cave are not compared yet, nor The Coast's grids, doodads and transitions; The Ship Graveyard's
+  seed 1 at 59 stops on mismatching ground types, so a replacement seed is played.
 - Not ported: turned subgraphs (orientation ≠ 0), the pool's
   rows in a `.tgr` subgraph's special nodes, sub-area records beside a `.tgr` primary (§3), and the rest of
   `0x14204c040` (oversize-feature / telepad-injector records).

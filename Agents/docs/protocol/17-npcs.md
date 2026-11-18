@@ -77,11 +77,18 @@ NPC is removed and created again there).
 
 The league hubs have NPCs of their own (`NpcCatalog.Towns`): Niko in the Mine Encampment, Einhar in the Menagerie
 (495, 485, 290°; the hideout row `EinharHideout`, because `EinharMenagerie` has no `.ot` in the GGPK and the client
-drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Dannig,
-Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
-Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
-been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
+drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, Johan, Tujen, Gwennen, Rog, Sonja and
+Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour. Kingsmarch, the Rogue
+Harbour and the Monastery have not been placed live yet: their NPCs, stash and guild stash are offsets from the arrival
+(`StashCatalog.FromArrival`).
+Kingsmarch's Dannig, Faustus and Isla and the Monastery's Ailith (`ChayulaFarmerHub`) have Functions or ControlZone and
+are left out until they are placed live.
 Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`).
+
+The Allflame NPCs (`Deepwater` module): Valerie's "Ready for Adventure?" (NPCTalk 3932) needs QuestFlags 3551
+DeepwaterNPCSeen and is hidden by 3552, which it sets. hub.arm's Valerie lines (x 84-97) lie off the walkable deck; the
+server-only `ValeriePlacer*` markers are where the real server moved her, and which marker each stage used is unknown
+(the Gateway uses ValeriePlacerOne).
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off

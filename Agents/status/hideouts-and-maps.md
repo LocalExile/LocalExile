@@ -175,20 +175,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Monastery of the Keepers pins lead to their hubs, which have a clickable waypoint back, a stash, a guild stash and
   their NPCs (Einhar, Divinia, the Kingsmarch villagers, the Heist crew, Ailith; Einhar also in every hideout).
   The hub waypoints stay unlit (client area-type rule).
-  In the Allflame leagues the Deepwater Coast's rowboat leads to The Sovereign once the character has QuestFlags 3552
-  DeepwaterNPCIntroductionSeen, and after that first visit (3556) the Deepwater pin and `/boat` do too; the hub has its
-  ruleset and its deck stash and guild stash. ValerieTutorial stands on the Coast (coming near sets 3551, her "Ready for
-  Adventure?" sets 3552) and on the deck at ValeriePlacerOne (her hub.arm lines lie off the walkable deck; which placer
-  each stage uses is unsourced), Vesper below deck (hidden by her StateMachine). The Gateway generates the hub
-  (server_level_areas): the player arrives on the deck, with its waypoint and the boat gates between the deck and
-  below deck. All verified live 2026-11-18 with a new Allflame character, the Coast reached with `/goto`. The boat
-  gates are plain AreaTransitions, so the client highlights them on hover (Boat_AreaTransition_Animate has
-  `no_highlight`).
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
   Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
+- **The Sovereign (Allflame leagues):** after Valerie's introduction on the Deepwater Coast, its rowboat leads to The
+  Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
+  The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
+  Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

@@ -138,16 +138,14 @@ public sealed class NpcCatalog
         [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharHideout", 495, 485, 290 * MathF.PI / 180)],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
         // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place.
+        // live with /npc_place. Dannig, Faustus and Isla (Functions or ControlZone, which NpcObject now writes) come back
+        // with their live placement: their offsets are unchecked, and VillageFaustus has no currency exchange.
         [StashCatalog.Kingsmarch] =
         [
             new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageDannig", -14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFaustus", 14, 6, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageIsla", -14, 6, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
             new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
         ],
@@ -169,9 +167,8 @@ public sealed class NpcCatalog
             new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
             new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
         ],
-        // The Monastery of the Keepers (ChayulaLeague): Ailith by the arrival (an offset, StashCatalog.FromArrival), to be
-        // placed live with /npc_place.
-        [StashCatalog.ChayulaHub] = [new("Metadata/NPC/League/Chayula/ChayulaFarmerHub", 0, -16, 4.0f)],
+        // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
+        // (/npc_place); an offset from the arrival is a guess.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 

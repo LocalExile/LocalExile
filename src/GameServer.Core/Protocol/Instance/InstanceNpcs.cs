@@ -253,10 +253,6 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
 
     static readonly HashSet<string> Supported = [.. BaseComponents, "Transitionable", "StateMachine", "Stats", "Functions", "ControlZone"];
 
-    /// <summary>The Stats component's pairs (types whose .ot adds Stats); empty by default, as the type's own stats are
-    /// the server's.</summary>
-    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); }
-
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
         components.Contains("NPC") && components.All(c => Supported.Contains(c) && (c != "StateMachine" || haveStateMachine));
@@ -288,8 +284,9 @@ public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Compo
                 case "MinimapIcon": w.U8(0); break;
                 case "Transitionable": w.U8((byte)(TransitionState & 0x7f)); break;
                 case "StateMachine": StateMachine!.Write(w); break;
-                // As a monster's (ClientInternalStats 0x1421c98b0): compact count + pairs, u32, f32, u8.
-                case "Stats": w.Stats(Stats).U32(0).U32(0).U8(0); break;
+                // As a monster's (ClientInternalStats 0x1421c98b0): compact count + pairs, u32, f32, u8. Empty: the
+                // type's own stats are the server's.
+                case "Stats": w.Stats(null).U32(0).U32(0).U8(0); break;
                 // BaseEvents, Functions, ControlZone: no data.
             }
         }

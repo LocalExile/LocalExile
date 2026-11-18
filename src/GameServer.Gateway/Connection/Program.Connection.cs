@@ -110,7 +110,8 @@ public partial class Program
                 var areaRequest = new AreaStatsRequest(characterName, resolved.League, areaHash, map);
                 var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
                 // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
-                int leagueCategory = InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest);
+                // Composed by the instance's first connection, as the area stats.
+                int leagueCategory = instance.LeagueCategory(() => InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest));
                 // The client generates the area at the seed, level, stats and category of 0x1d: a seed the Gateway can generate too.
                 uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory);
                 var layout = AreaLayouts.For(areaHash, seed);

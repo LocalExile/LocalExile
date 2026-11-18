@@ -76,6 +76,15 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
     }
 
+    int? _leagueCategory;
+
+    /// <summary>The league category the instance is played in (InstanceEvents.LeagueCategory), composed by its first
+    /// connection and kept with <see cref="AreaStats"/>: the seed and the generated level depend on it.</summary>
+    public int LeagueCategory(Func<int> compose)
+    {
+        lock (_areaStatsGate) return _leagueCategory ??= compose();
+    }
+
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
     public IReadOnlyDictionary<uint, int>? KeptAreaStats
     {

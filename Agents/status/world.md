@@ -198,12 +198,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   at, not its WorldAreas level (2026-11-01). Before, a tier-16 Chateau (WorldAreas 71) took another topology than the
   client's, so the player spawned outside the client's layout (a black screen), and seeds the client cannot build
   were played.
-  The Allflame leagues play every area in league category 59 with `map_deepwater_league` (0x1d, Deepwater module):
-  The Coast, The Ship Graveyard and its Cave take their Deepwater topologies, generated at the same category. The
-  client's 0x7d tile hash matched the port's for The Coast at 59 (seed 1560159699) and for The Sovereign (live
-  2026-11-18); The Ship Graveyard and its Cave at 59, and the walk grid, doodads and transitions (which the tile hash
-  does not cover), are not checked yet. The Ship Graveyard's seed 1 at 59 stops on mismatching ground types, so
-  another seed is played.
+  The Allflame leagues play every area in league category 59 ([011](../docs/re/011-level-generation.md) §3): The Coast,
+  The Ship Graveyard and its Cave are generated in their Deepwater topologies.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
