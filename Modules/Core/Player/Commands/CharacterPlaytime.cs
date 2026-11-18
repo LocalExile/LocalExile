@@ -26,50 +26,62 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
     {
         if (!conn.PlayerSent) return;
         Begin(conn);
-        lock (sessions)
-            if (sessions.TryGetValue(conn, out var session) && now() - session.At >= 30) Save(session);
+        Session? session;
+        lock (sessions) sessions.TryGetValue(conn, out session);
+        if (session is not null && now() - session.At >= 30) Save(session);
     }
 
-    static double Saved(string name) => double.TryParse(CharacterSaves.ModuleData(name, SaveKey),
-        NumberStyles.Float, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value) && value >= 0 ? value : 0;
+    static double Parse(string? text) => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double value)
+        && double.IsFinite(value) && value >= 0 ? value : 0;
+
+    static double Saved(string name) => Parse(CharacterSaves.ModuleData(name, SaveKey));
 
     public double Seconds(ClientState conn)
     {
         Begin(conn);
-        lock (sessions)
-            return sessions.TryGetValue(conn, out var session)
-                ? Saved(session.Character) + Math.Max(0, now() - session.At)
-                : conn.Character is { } name ? Saved(name) : 0;
+        Session? session;
+        lock (sessions) sessions.TryGetValue(conn, out session);
+        if (session is null) return conn.Character is { } name ? Saved(name) : 0;
+        lock (session) return Saved(session.Character) + Math.Max(0, now() - session.At);
     }
 
+    // The write rewrites the whole save (16 ms for 400 items): only this character's lock is held, never every player's.
     void Save(Session session)
     {
-        double at = now(), elapsed = Math.Max(0, at - session.At);
-        if (elapsed <= 0) return;
-        Saves.Atomically(() => CharacterSaves.ChangeModuleData(session.Character, SaveKey,
-            _ => (Saved(session.Character) + elapsed).ToString("R", CultureInfo.InvariantCulture)));
-        session.At = at;
+        lock (session)
+        {
+            double at = now(), elapsed = Math.Max(0, at - session.At);
+            if (elapsed <= 0) return;
+            Saves.Atomically(() => CharacterSaves.ChangeModuleData(session.Character, SaveKey,
+                current => (Parse(current) + elapsed).ToString("R", CultureInfo.InvariantCulture)));
+            session.At = at;
+        }
     }
 
     public void End(ClientState conn)
     {
-        lock (sessions)
-            if (sessions.TryGetValue(conn, out var session)) { Save(session); sessions.Remove(conn); }
+        Session? session;
+        lock (sessions) sessions.Remove(conn, out session);
+        if (session is not null) Save(session);
     }
 
     public void Dispose()
     {
+        Session[] open;
         lock (sessions)
         {
             retired = true;
-            foreach (var session in sessions.Values) Save(session);
+            open = [.. sessions.Values];
             sessions.Clear();
         }
+        foreach (var session in open) Save(session);
     }
 
     public static string Describe(double seconds)
     {
         long whole = (long)Math.Min(Math.Max(0, seconds), long.MaxValue / 2);
-        return $"You have played this character for {whole / 86400} days, {whole / 3600 % 24} hours, {whole / 60 % 60} minutes and {whole % 60} seconds.";
+        static string Unit(long n, string name) => $"{n} {name}{(n == 1 ? "" : "s")}";
+        // BackendErrors PlayedTime: "You have played for {0}."
+        return $"You have played for {Unit(whole / 86400, "day")}, {Unit(whole / 3600 % 24, "hour")}, {Unit(whole / 60 % 60, "minute")} and {Unit(whole % 60, "second")}.";
     }
 }
