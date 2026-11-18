@@ -285,7 +285,25 @@ public static partial class Game
     /// clip by zero); on a predictive client the AI stops the monster instead, and on a lockstep client nothing stops it,
     /// the estimate's walk included (07 §6). Under the Monsters lock.
     /// </summary>
-    public static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
+    public static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now) =>
+        [.. AreaAilmentChangesLocked(conn, now).Select(c => (ForObserver(c.Packet, conn), c.Log))];
+
+    /// <summary>A monster's buff (0x1c1) as one player's client is to see it: its source, a player by their PeerId (0 for
+    /// none), is the local player there (PlayerId) when it is them, and when none is known, as it always was before
+    /// ailments kept their source; any other player stays as the others know them. Other messages go as they are.</summary>
+    public static byte[] ForObserver(byte[] packet, ClientState observer)
+    {
+        if (packet.Length < 20 || (ushort)(packet[0] << 8 | packet[1]) != InstanceEntities.AddBuffId) return packet;
+        uint source = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(16));
+        if (source != 0 && source != observer.PeerId) return packet;
+        var copy = (byte[])packet.Clone();
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(16), PlayerId);
+        return copy;
+    }
+
+    /// <summary><see cref="MonsterAilmentChangesLocked"/> for the whole area: each ailment buff names its source by PeerId
+    /// (0 for none), for <see cref="ForObserver"/> to show to each player.</summary>
+    public static List<(byte[] Packet, string Log)> AreaAilmentChangesLocked(ClientState conn, double now)
     {
         ProliferateLocked(conn, now);
         var packets = new List<(byte[], string)>();
@@ -306,10 +324,10 @@ public static partial class Game
                 && m.Effects["action_speed_-%"] == 0 && a.WalkFactor == 1 && a.SentActionSpeed == 0 && !m.MaimedMovementShown) continue;
             if (!elementalIdle)
             {
-                foreach (var (kind, removed, added, magnitude) in a.Present(now))
+                foreach (var (kind, removed, added, magnitude, source) in a.PresentWithSource(now))
                 {
                     if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now), source), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
                 }
             }
             double action = MonsterActionFactor(m, now, freeze: false);
@@ -371,8 +389,8 @@ public static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
-        InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
+    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0, uint source = PlayerId) =>
+        InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), source, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);
     public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,

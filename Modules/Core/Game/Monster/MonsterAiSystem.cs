@@ -120,6 +120,7 @@ public static partial class Game
     {
         AreaUpdateContext.Value = updates;
         Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, updates);
+        Program.ActingPlayer.Value = conn;
         try { await work(); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException) { }
         catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} area AI work failed: {ServerLog.Describe(ex)}"); }

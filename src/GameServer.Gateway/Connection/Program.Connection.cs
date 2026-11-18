@@ -15,6 +15,11 @@ public partial class Program
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
+    /// <summary>The player whose work this is: set by their handlers (RunHandlers) and the loops and tasks run as theirs,
+    /// and flows into what those start. What a player causes in the area can name them as its source by it (a monster's
+    /// ailment); the area's own systems run with none.</summary>
+    public static readonly AsyncLocal<ClientState?> ActingPlayer = new();
+
     public static void SaveUnsavedProgressNow(string? why)
     {
         try
@@ -345,6 +350,7 @@ public partial class Program
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
         // From here every continuation of the handlers counts as the server's work while it runs (lockstep frames wait for it).
         SynchronizationContext.SetSynchronizationContext(new ServerWorkContext(conn.Work));
+        ActingPlayer.Value = conn;
         ClientInbox.Batch? handling = null;
         // The input phase of the area's frame (AreaFrames.Turn): the batches run at the start of the next frame, after the
         // frames end and before the loops step, one connection after another; the turn is held while more are queued.

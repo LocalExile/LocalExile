@@ -756,7 +756,8 @@ public static partial class Game
             // The instance's ailments and walks are stepped once, by the connection that runs them (SharedMonsters.cs);
             // each monster's AI runs on its target player's connection (MonsterTargetsLocked below).
             bool runner = IsMonsterRunner(conn);
-            if (!conn.Paused && runner) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
+            // In an instance the area presents them, to every player (MonsterAilmentSystem.cs).
+            if (!conn.Paused && runner && !AreaRunsAilments(conn)) plan.Ailments.AddRange(MonsterAilmentChangesLocked(conn, now));
             if (!cadence.TryBeginStep(now, conn.AiEnabled && !conn.Paused && conn.PlayerLife > 0)) return plan;
             // Before any order replaces a walk: its steps since the last pass would go unchecked.
             if (runner) StepWalkers(conn, now);

@@ -18,6 +18,9 @@ public sealed class MonsterElementalAilments
         public int Spread { get; init; }
         // Within the Tempest's shock on the corpse, which came after the death (a spread copy of it did not).
         public bool OnKill { get; init; }
+        // The player who caused it, by their PeerId (Program.ActingPlayer when it landed); 0 when no player did. A spread
+        // copy keeps its source's.
+        public uint Source { get; init; }
     }
     readonly List<Effect> effects = [];
     double expiryRate = 1;
@@ -341,7 +344,8 @@ public sealed class MonsterElementalAilments
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).
         if (kind == Kind.Freeze) seconds = Math.Max(seconds, attacker("freeze_minimum_duration_X_ms") / 1000.0);
-        effect = effect with { Until = now + seconds / expiryRate };
+        effect = effect with { Until = now + seconds / expiryRate,
+            Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.PeerId ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
@@ -358,12 +362,16 @@ public sealed class MonsterElementalAilments
     /// <summary>The buffs to take off and put on so the client shows what applies at <paramref name="now"/>: a kind
     /// whose strongest magnitude changed is sent again (the old one removed first, on the same instance); expired effects
     /// are dropped.</summary>
-    public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now)
+    public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude)> Present(double now) =>
+        [.. PresentWithSource(now).Select(c => (c.Kind, c.Removed, c.Added, c.Magnitude))];
+
+    /// <summary><see cref="Present"/>, with the source (<see cref="Effect.Source"/>) of each kind's strongest effect.</summary>
+    public List<(Kind Kind, ushort? Removed, ushort? Added, int Magnitude, uint Source)> PresentWithSource(double now)
     {
         effects.RemoveAll(e => e.Until <= now);
         for (var kind = Kind.Chill; kind <= Kind.Shock; kind++)
             if (spread.TryGetValue(kind, out var copy) && copy.Until <= now) spread.Remove(kind);
-        var changes = new List<(Kind, ushort?, ushort?, int)>();
+        var changes = new List<(Kind, ushort?, ushort?, int, uint)>();
         foreach (var kind in Enum.GetValues<Kind>())
         {
             int magnitude = (int)Magnitude(kind, now);
@@ -371,7 +379,8 @@ public sealed class MonsterElementalAilments
             if (had ? old == magnitude : magnitude == 0) continue;
             if (magnitude > 0) shown[kind] = magnitude;
             else shown.Remove(kind);
-            changes.Add((kind, had ? Instance(kind) : null, magnitude > 0 ? Instance(kind) : null, magnitude));
+            uint source = magnitude > 0 ? Active(kind, now).MaxBy(e => e.Magnitude)?.Source ?? 0 : 0;
+            changes.Add((kind, had ? Instance(kind) : null, magnitude > 0 ? Instance(kind) : null, magnitude, source));
         }
         return changes;
     }

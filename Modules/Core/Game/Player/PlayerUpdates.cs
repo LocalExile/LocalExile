@@ -67,6 +67,7 @@ public static partial class Game
         var previous = Program.ProjectileOutputGuard.Value;
         Program.ProjectileOutputGuard.Value = () => PlayerUpdatesCurrent(conn, state);
         AreaUpdateContext.Value = state;
+        Program.ActingPlayer.Value = conn;
         try
         {
             var (remote, stream, ciphers) = conn.Wire;
