@@ -24,6 +24,10 @@ public static partial class Game
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
         public bool Moving, GolemSummonedRecently;
+        // The Energy Shield's conditions (full, recharging) and the enemy hits taken recently (RecentEnemyHits.Counter):
+        // found missing by rebuilding on every reuse and comparing (2026-11-18): stale up to a throttle window before.
+        public bool EnergyShieldFull, EnergyShieldRecharging;
+        public int HitsTakenRecently;
         public StatSourcesResult? StatSources;
         public Dictionary<uint, int>? Stats;
         public double Baseline;
@@ -48,8 +52,10 @@ public static partial class Game
         StatSourcesResult? statSources;
         long siphoningRevision;
         (int Endurance, int Frenzy, int Power) heldCharges;
+        int hitsTaken;
         lock (conn.Monsters)
         {
+            hitsTaken = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
             overrides = conn.PlayerStats.Count;
             // Reconcile source-owned charges before capturing the source identity or held standard charges.
             siphoningRevision = Game.SiphoningRevision(conn);
@@ -70,6 +76,8 @@ public static partial class Game
             Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
+            EnergyShieldFull = conn.EnergyShield.Full, EnergyShieldRecharging = conn.EnergyShield.Recharging,
+            HitsTakenRecently = hitsTaken,
         };
     }
 
@@ -94,6 +102,8 @@ public static partial class Game
         && a.IntimidatingCryMovement == b.IntimidatingCryMovement
         && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty
+        && a.EnergyShieldFull == b.EnergyShieldFull && a.EnergyShieldRecharging == b.EnergyShieldRecharging
+        && a.HitsTakenRecently == b.HitsTakenRecently
         && ReferenceEquals(a.StatSources, b.StatSources);
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
