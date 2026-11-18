@@ -60,5 +60,15 @@ public sealed class GuardSkillTests
         await Game.UseInstantSkill("test", f.Stream, f.Ciphers, f.Conn, gem.Id, 0, f.Conn.Walk.Position(now));
         Assert.Equal(mana, f.Conn.PlayerMana);
         Assert.Equal(limits.Minimum, charges.Effective(ChargeType.Endurance));
+
+        // Arcane Cloak has the Guard type but no guard buff here: a cast must not start one (with Steelskin's icon).
+        using var cloak = new MinionUtilityTests.Fixture();
+        cloak.Equip(("Arcane Cloak", 1));
+        var arcane = Game.GemSkillEffects(cloak.Conn).Single(g => Game.SkillsFor(cloak.Conn).EffectId(g.Effect) == "ArcaneCloak");
+        Assert.True(Game.TryBeginSkillCooldownUse(cloak.Conn, arcane.Id, arcane.Effect, Game.CooldownForSkill(cloak.Conn, arcane.Id),
+            false, () => cloak.Conn.ActionCount++, out var ticket));
+        await Game.CastGemSkill("test", cloak.Stream, cloak.Ciphers, cloak.Conn, arcane.Id, (100, 100), (100, 100),
+            cooldownUse: ticket);
+        Assert.Empty(Game.TriggeredGuardPresentation(cloak.Conn, cloak.Conn.Clock.Elapsed.TotalSeconds));
     }
 }

@@ -9,9 +9,6 @@ public static partial class Game
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
         public double Until, ReadyAt, RecoverySeconds;
-        /// <summary>The guard's cooldown recovery rate (1 + cooldown speed): the rate the client's bar counts with once
-        /// the buff ends. While the buff runs the bar entry is held at full (GuardCooldownEntry).</summary>
-        public double Recovery = 1;
         public int Percent, Remaining, Absorbed, Armour, Reflection;
         public double Physical = 1, Elemental = 1;
         public ushort Buff, Skill;
@@ -111,13 +108,6 @@ public static partial class Game
         }
     }
 
-    // Read-only: presentation code asks whether this guard's buff is running, and must not end it or send anything
-    // (EndTriggeredGuard does both).
-    public static bool GuardActiveFor(ClientState conn, ushort skill, double now) =>
-        TriggeredGuards.TryGetValue(conn, out var guard) && guard.Skill == skill && guard.Until > now
-        && guard.Epoch == conn.ProjectileEpoch && ReferenceEquals(guard.Rules, CombatLifetime)
-        && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0;
-
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
     internal static double GuardDuration(int baseMilliseconds, Func<string, int> player, Func<string, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds,
@@ -153,10 +143,11 @@ public static partial class Game
                 charges.State.Lose(ChargeType.Endurance, removable, charges.Limits(ChargeType.Endurance));
             guard.Remaining = removable;
             // The gem's 20% and the helmet enchantment's "increased Immortal Call duration per Endurance Charge
-            // removed" are the same increased duration, so they add (PoB's GemStatMap has both as INC).
+            // removed" are increased duration, added to the other increases (PoB SkillStatMap: Duration INC).
             int perChargeDuration = Get("buff_effect_duration_+%_per_removable_endurance_charge_limited_to_5")
                 + Get("immortal_call_buff_effect_duration_+%_per_removable_endurance_charge");
-            duration *= Math.Max(0, 1 + removable * perChargeDuration / 100d);
+            duration = GuardDuration(Own("base_skill_effect_duration"), name => GolemStat(player, name),
+                name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? removable * perChargeDuration : 0));
             guard.Physical = Math.Max(0, 1 + Own("mortal_call_physical_damage_taken_+%_final") / 100d)
                 * Math.Max(0, 1 + removable * Own("mortal_call_physical_damage_taken_per_endurance_charge_consumed_final_permyriad") / 10000d);
             guard.Elemental = Math.Max(0, 1 + Own("mortal_call_elemental_damage_taken_+%_final") / 100d)
@@ -171,7 +162,6 @@ public static partial class Game
         }
         guard.Until = now + duration;
         double recovery = Math.Max(0, 1 + Get("virtual_cooldown_speed_+%") / 100d + Own("base_cooldown_speed_+%") / 100d);
-        guard.Recovery = recovery;
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
         if (guard.Effect == "MoltenShell")

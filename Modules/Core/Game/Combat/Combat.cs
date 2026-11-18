@@ -1360,24 +1360,18 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(conn, gem.Effect))
         {
-            StartVaalImmortalCall(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, conn.Clock.Elapsed.TotalSeconds);
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            lock (conn.Monsters) StartVaalImmortalCall(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
-        // A guard skill cast from the skill bar: its buff starts here (a triggered one starts in its trigger's
-        // release). Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs). An instant
-        // cast passes guardStart, and the caller starts it after the instant action and its frozen cooldown entry, so
-        // the buff, its stats and its session records cannot take the send gate first.
-        if (gem.Name is not null && SkillsFor(conn).IsGuard(gem.Effect))
-        {
-            if (guardStart is null)
-                StartTriggeredGuard(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, conn.Clock.Elapsed.TotalSeconds);
-            QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Guard);
+        // A guard skill cast from the skill bar starts its buff in CastSelfBuff. An instant cast passes guardStart, and
+        // the caller starts it after the instant action, so the buff, its stats and its session records cannot take
+        // the send gate first. Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs).
+        if (gem.Name is not null && guardStart is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect)))
             return true;
-        }
-        // The other self buffs a player casts by hand (Phase Run, Blood Rage); a guard effect CastSelfBuff knows
-        // already took the guard path above.
+        // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
@@ -1426,7 +1420,7 @@ public static partial class Game
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        bool guard = gem.Name is not null && SkillsFor(conn).IsGuard(gem.Effect);
+        bool guard = gem.Name is not null && GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
         if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
@@ -1446,7 +1440,11 @@ public static partial class Game
         // The guard starts after the instant action, so the action's record carries no guard work before it and the
         // guard's one lock entry goes out right behind it (StartGuard publishes it).
         Action? guardStart = guard
-            ? () => StartTriggeredGuard(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId, conn.Clock.Elapsed.TotalSeconds)
+            ? () =>
+            {
+                var session = ProjectilesFor(remote, stream, ciphers, conn);
+                lock (conn.Monsters) StartTriggeredGuard(conn, session, skillId, conn.Clock.Elapsed.TotalSeconds);
+            }
             : null;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse,
                 guardStart: guardStart))

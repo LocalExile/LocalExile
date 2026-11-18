@@ -52,10 +52,13 @@ public static partial class Game
         int removable = charges.Converted(ChargeType.Endurance) ? 0
             : Math.Max(0, charges.Effective(ChargeType.Endurance) - limits.Minimum);
         if (removable > 0) charges.State.Lose(ChargeType.Endurance, removable, limits);
-        // Base 0.4 s, then 100..157% increased Buff Duration per Endurance Charge removed (the gem's own per-level stat,
-        // level 1..20), then the ordinary duration modifiers (wiki, Path of Building's Vaal Immortal Call rows).
-        double duration = GuardDuration(Own("base_skill_effect_duration"), name => GolemStat(player, name), Own)
-            * Math.Max(0, 1 + removable * Get("buff_effect_duration_+%_per_removable_endurance_charge") / 100d);
+        // Base 0.4 s with 100..157% increased duration per Endurance Charge removed (the gem's own per-level stat,
+        // level 1..20), added to the other increases (PoB SkillStatMap: Duration INC). Not a Guard skill: its Vaal and
+        // Buff types pick the scoped increases.
+        int perCharge = removable * Get("buff_effect_duration_+%_per_removable_endurance_charge");
+        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), name => GolemStat(player, name),
+            name => Own(name) + (name == SkillDurationModifiers.IncreasedDuration ? perCharge : 0),
+            DurationKinds(conn, gem.Effect));
         if (!VaalImmortalCalls.TryGetValue(conn, out var state) || !VaalImmortalCallCurrent(conn, state))
         {
             VaalImmortalCalls.Remove(conn);
