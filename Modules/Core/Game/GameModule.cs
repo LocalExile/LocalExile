@@ -70,7 +70,16 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapEssences.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapEssences.Describe);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapTorment.Opening);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, MapTorment.Enter);
+        GameEvents.Tick.Add(module.Manifest.Id, MapTorment.Tick);
+        GameEvents.Drops.Add(module.Manifest.Id, MapTorment.Drops);
+        GameEvents.Kill.Add(module.Manifest.Id, MapTorment.Kill);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapTorment.Leave(conn); return Task.CompletedTask; });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapTorment.PlayerStats);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, MapTorment.Describe);
         module.Lifetime.Own(MonsterModEffects.HandOverMore(Rules.AtlasMoreLife, Rules.AtlasMoreDamage));
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([MapTorment.LifeStat], [], [MapTorment.TaperStat]));
         // Secrets of Suffering's "Cannot Ignite, Chill, Freeze or Shock" and Stormblood's Sap and Brittle
         // (MonsterAlternateAilments).
         module.Lifetime.Own(MonsterElementalAilments.HandOverInflictProhibitions(Rules.SecretsOfSufferingProhibitions));
