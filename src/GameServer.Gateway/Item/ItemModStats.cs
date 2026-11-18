@@ -210,15 +210,20 @@ public static class ItemModStats
     }
     static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules>? LocalCatalogs;
 
-    public static Dictionary<string, int> Local(Item item, ModCatalog mods)
+    // Return a copy: callers merge their own values into these dictionaries.
+    public static Dictionary<string, int> Local(Item item, ModCatalog mods) => new(LocalCached(item, mods));
+
+    /// <summary>One local stat without Local's copy, for read-only checks on hot paths.</summary>
+    public static int LocalValue(Item item, ModCatalog mods, string name) => LocalCached(item, mods).GetValueOrDefault(name);
+
+    static Dictionary<string, int> LocalCached(Item item, ModCatalog mods)
     {
         // A replacement game supplies a new rule generation. Weak keys let its old load context be collected.
-        // Return a copy: callers merge their own values into these dictionaries.
         var game = Program.GameLogicOrNull;
         var rules = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods);
         var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
-        return new(cache.GetValue(item, current => new(SumValues(
-            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats);
+        return cache.GetValue(item, current => new(SumValues(
+            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats;
     }
 
     /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>

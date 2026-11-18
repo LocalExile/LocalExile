@@ -204,14 +204,20 @@ public static partial class Game
     {
         if (m.Effects["base_cannot_be_damaged"] > 0) return 0;
         var resistance = MonsterHitResistance(m, type, default, now);
+        double increasedTaken = type switch
+        {
+            DamageType.Physical => (double)m.Effects["physical_damage_taken_+%"] + MaimedPhysicalTaken(m, now),
+            DamageType.Fire => m.Effects["fire_damage_taken_+%"],
+            DamageType.Cold => m.Effects["cold_damage_taken_+%"],
+            DamageType.Lightning => m.Effects["lightning_damage_taken_+%"],
+            _ => 0,
+        };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
-            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type),
-                chaos: type == DamageType.Chaos);
-        // Pride's more damage, the Maim support's increased physical damage taken and Flesh and Stone's Blood Stance
-        // all apply to the physical part only.
+            * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+        // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
-            factor *= (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + MaimedPhysicalTaken(m, now) / 100.0)
-                * (1 + m.Effects["physical_damage_taken_+%"] / 100.0);
+            factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
         return factor;
     }
 

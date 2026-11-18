@@ -1182,7 +1182,9 @@ public static partial class Game
         }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
-        var pools = CharacterStats.For(classInfo, level, bonus);
+        int ResolveAccuracy(long basis, long increased) => PlayerAccuracyModifiers.Calculate(basis, increased,
+            (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore));
+        var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
         // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
         // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
@@ -1195,7 +1197,7 @@ public static partial class Game
             pools = CharacterStats.For(classInfo, level, bonus with
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
-            });
+            }, ResolveAccuracy);
         if (Stats.Key("spell_critical_strike_chance_+%") is uint poolSpellCritical && !devStats.ContainsKey(poolSpellCritical))
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
                 + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
