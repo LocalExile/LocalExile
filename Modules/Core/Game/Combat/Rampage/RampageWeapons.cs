@@ -32,7 +32,8 @@ public static partial class Game
             new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), emitter, 1,
                 new(job.Origin.X, job.Origin.Y), new(job.Origin.X + 100, job.Origin.Y))
             { Payload = new ProjectileOffense(packet, true, 10000, own.SpellCriticalChance, 150, job.Tier.Skill.Id)
-                { RampageEpoch = job.Epoch, RampageSkill = own, Effect = job.Tier.Skill.Row, Level = job.Level } });
+                { RampageEpoch = job.Epoch, RampageSkill = own, Effect = job.Tier.Skill.Row, Level = job.Level,
+                    NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(conn)) } });
     }
 
     static async Task AdvanceRampageWeapons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -104,7 +105,8 @@ public static partial class Game
                     new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), emitter, 1,
                         new(from.X, from.Y), new(to.X, to.Y))
                     { Payload = new ProjectileOffense(packet, false, accuracy, 500, 150, "Rampage bow")
-                        { RampageEpoch = swing.Plan.Epoch } });
+                        { RampageEpoch = swing.Plan.Epoch,
+                            NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(CharacterPlayerStats(conn)) } });
             }
             else
             {
