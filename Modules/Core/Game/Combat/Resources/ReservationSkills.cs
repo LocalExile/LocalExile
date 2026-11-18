@@ -49,11 +49,9 @@ public static partial class Game
     {
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
         int ms = ReservationStat(conn, aura, name);
-        return Math.Max(0, (ms > 0 ? ms : fallback) / 1000.0 * (1 + Get("skill_effect_duration_+%") / 100.0)
-            * Math.Max(0, 1 + Get("support_increased_duration_skill_effect_duration_+%_final") / 100.0)
-            * Math.Max(0, 1 + Get("support_reduced_duration_skill_effect_duration_+%_final") / 100.0));
+        return SkillDurationModifiers.Seconds(ms > 0 ? ms : fallback, n => GolemStat(player, n), n => GolemStat(skill.Stats, n),
+            DurationKinds(conn, aura.Effect));
     }
 
     static void ReservationHitLocked(ClientState conn, SpawnedMonster target)
@@ -134,13 +132,12 @@ public static partial class Game
     public sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
-    static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback)
+    // skill and player: the caller's own (a Herald proc runs per kill; the radius builds no stats of its own).
+    static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback, SupportedGem skill,
+        Dictionary<uint, int> player)
     {
-        var skill = SupportedSkill(conn, aura.SkillId);
-        var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
         int basis = ReservationStat(conn, aura, "active_skill_base_area_of_effect_radius");
-        return SkillArea.Radius(basis > 0 ? basis : fallback, Get, spell: false);
+        return SkillRadius(conn, basis > 0 ? basis : fallback, skill.Stats, spell: false, aura.Effect, player);
     }
 
     static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -183,7 +180,7 @@ public static partial class Game
             blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false);
             targetProfile = secondary;
         }
-        double radius = ReservationRadius(conn, aura, aura.EffectId == "TempestShield" ? 60 : 32);
+        double radius = ReservationRadius(conn, aura, aura.EffectId == "TempestShield" ? 60 : 32, skill, player);
         var candidates = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
             .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
@@ -255,10 +252,11 @@ public static partial class Game
             * Math.Max(0, 1 + (Get("dot_multiplier_+") + Get("fire_dot_multiplier_+")) / 100.0)
             * Math.Max(0, 1 + ReservationStat(conn, aura, "herald_of_ash_burning_damage_+%_final") / 100.0)
             * Math.Max(0, 1 + Get("delirium_aura_damage_over_time_+%_final") / 100.0);
-        double radius = ReservationRadius(conn, aura, 10);
+        double radius = ReservationRadius(conn, aura, 10, skill, player);
+        double burnSeconds = ReservationDuration(conn, aura, "base_skill_effect_duration", 4000);
         foreach (var (id, m) in conn.Monsters)
             if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } && Dist(m.Walk.Position(now), at) <= radius
-                && m.HeraldBurns.Add(now, dps, ReservationDuration(conn, aura, "base_skill_effect_duration", 4000)))
+                && m.HeraldBurns.Add(now, dps, burnSeconds))
             {
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
