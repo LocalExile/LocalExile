@@ -156,15 +156,20 @@ yet confirmed on screen).
   0xbf and the tree's 0x33 are sent back. `/add_refund_points <n>` remains a dev shortcut. Expansion nodes are still
   refused.
 - `/passives` lists the ordinary passive and refund points; `/reset_passives` refunds ordinary nodes (free).
-- **Keystone indication (3.29.3c client tables).** Most keystones have no `BuffDefinitions` row at all (Resolute
-  Technique, Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact, Lethe Shade,
-  Perfect Agony): they are pure stat modifiers with nothing to show. Elemental Overload has one
-  (`elemental_overload`, row 606) but it is `Invisible = 1`, its `BuffVisuals` row 586 has an icon and no EPK, and its
-  only granted flag is the stat `has_elemental_overload_buff` — no buff-bar icon, no skill-icon overlay, no character
-  effect. Its damage rides on `keystone_elemental_overload_damage_+%_final` (a non-public stat, like `in_blood_stance`),
-  and the 8-second window on `have_crit_in_past_8_seconds`; `elemental_overload_rotation_active` belongs to the unique
-  item's "every 16 seconds" variant, not the keystone. Ghost Dance's shrouds are a separate visible buff
-  (`ghost_dance_stacks`, ShowCount), Call to Arms' is `call_to_arms` ("Autoexertion").
+- **Keystone indication (3.29.3c client tables, poewiki).** Most keystones have no `BuffDefinitions` row at all
+  (Resolute Technique, Precise Technique, Pain Attunement, Magebane, Unwavering Stance, Arrow Dancing, Vaal Pact,
+  Lethe Shade, Perfect Agony): pure stat modifiers with nothing to show. Elemental Overload's window **is** indicated —
+  a diamond below the affected skill's icon on the skill bar (poewiki /wiki/Elemental_Overload) — but the client draws
+  it itself from the skill's critical hits: the wiki states the effect "is not a buff or a skill effect", and the
+  `elemental_overload` buff (row 606) is `Invisible = 1` with an icon but no EPK, its only granted flag the stat
+  `has_elemental_overload_buff`. So there is no buff-bar icon and nothing for the server to send for the indicator. Its
+  damage rides on `keystone_elemental_overload_damage_+%_final` (a non-public stat, like `in_blood_stance`) and the
+  8-second window on `have_crit_in_past_8_seconds`; `elemental_overload_rotation_active` belongs to the unique item's
+  "every 16 seconds" variant. The wiki's window is per-skill (and the activating critical strike does not benefit);
+  PoB models it as the global `Condition:HaveElementalOverload`, which is what the server follows — the activating
+  critical strike is excluded by construction, its damage being built before the crit is recorded. Ghost Dance's
+  shrouds are a separate visible buff (`ghost_dance_stacks`, ShowCount), Call to Arms' is `call_to_arms`
+  ("Autoexertion").
 
 ### Passive tree jewel sockets
 
