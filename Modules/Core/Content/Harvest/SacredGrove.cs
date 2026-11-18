@@ -73,6 +73,36 @@ public static class SacredGrove
         public Dictionary<uint, MonsterTag> Monsters { get; set; } = [];
         public int Activations { get; set; }
         public int Level { get; set; }
+        /// <summary>A replacement (<see cref="AddReplacement"/>) took the grove: it has no crops and holds Oshabi's
+        /// encounter (<see cref="OshabiEncounter"/>) instead.</summary>
+        public bool Heart { get; set; }
+    }
+
+    static Func<ClientState, HarvestStats, Random, bool>[] Replacements = [];
+    static readonly Lock ReplacementsLock = new();
+
+    /// <summary>Lets another module replace a map's Sacred Grove with Oshabi's encounter: <paramref name="roll"/> runs once
+    /// when the grove is built, before its crops, with the grove's stats and the area's own Random, and true replaces it.
+    /// Disposing the result removes the roll.</summary>
+    public static IDisposable AddReplacement(Func<ClientState, HarvestStats, Random, bool> roll)
+    {
+        lock (ReplacementsLock) Replacements = [.. Replacements, roll];
+        return new Removal(roll);
+    }
+
+    sealed class Removal(Func<ClientState, HarvestStats, Random, bool> roll) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (ReplacementsLock) Replacements = [.. Replacements.Where(r => r != roll)];
+        }
+    }
+
+    /// <summary>Where a replaced grove's soul tree stands: the centre of the grove's sub-area, on a walkable cell [G].</summary>
+    static (int X, int Y) HeartPoint(ClientState conn, ServerLevels.Level level)
+    {
+        var r = GroveRecords(level).First();
+        return conn.Layout.Near(((r.X * 2 + r.W) * 23 / 2, (r.Y * 2 + r.H) * 23 / 2));
     }
 
     sealed class Area
@@ -204,6 +234,12 @@ public static class SacredGrove
         var lines = level.RoomObjects.Where(o => o.Type.StartsWith(ObjectRoot, StringComparison.Ordinal)
             && (whole || rects.Any(r => o.X >= r.X0 && o.X < r.X1 && o.Y >= r.Y0 && o.Y < r.Y1))).ToList();
         var sites = Sites(lines, memoryLine);
+        if (!whole && Replacements is { Length: > 0 } replacements && replacements.Any(roll => roll(conn, stats, random)))
+        {
+            grove.Heart = true;
+            Console.WriteLine($"[harvest] grove area={conn.Layout.Id} level={areaLevel}: replaced by Oshabi's encounter, no crops");
+            return grove;
+        }
         if (tables.Level(areaLevel) is not { } values || sites.Count == 0)
         {
             Console.WriteLine($"[harvest] grove area={conn.Layout.Id}: {sites.Count} plot sites from {lines.Count} lines; no crops");
@@ -324,6 +360,13 @@ public static class SacredGrove
     public static async Task Enter(ClientState conn)
     {
         if (await Load(conn) is not { Grove: { } grove } area) return;
+        if (grove.Heart)
+        {
+            // A reload re-places it: the encounter's own saved state keeps its progress.
+            await OshabiEncounter.Place(conn, HeartPoint(conn, conn.Layout.Level!), grove.Level,
+                new(Altar: false, Rewards: true, Log: "Heart of the Grove"));
+            return;
+        }
         GroveObject[] objects;
         await area.Gate.WaitAsync();
         try { objects = [.. grove.Objects.Values]; }
