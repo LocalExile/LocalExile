@@ -96,13 +96,13 @@ public static class Charges
     /// the stats the panel's duration rows sum, PanelStats) plus <c>frenzy_charge_duration_+%_per_frenzy_charge</c> ×
     /// the frenzy charges held after the gain (<paramref name="held"/>); more is <c>power_charge_duration_+%_final</c>.
     /// Path of Building floors the result to whole seconds for its display; the game counts milliseconds, so this
-    /// floors to milliseconds.
+    /// floors to milliseconds. <paramref name="maximum"/>: the caller's maximum instead of the panel's (a module that
+    /// completes the maxima further).
     /// </summary>
-    public static Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0)
+    public static Limits LimitsOf(ChargeType type, Func<string, int> get, int held = 0, int? maximum = null)
     {
-        string virtualMaximum = VirtualMaximums[Index(type)];
-        int maximum = ChargePanelStats.Compute(get).First(r => r.Stat == virtualMaximum).Value;
-        int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get("minimum_frenzy_power_endurance_charges"), 0, maximum);
+        maximum ??= PanelMaximum(type, get);
+        int minimum = Math.Clamp(get(BaseMinimums[Index(type)]) + get("minimum_frenzy_power_endurance_charges"), 0, maximum.Value);
         int increased = get("charge_duration_+%") + get("base_charge_duration_+%") + type switch
         {
             ChargeType.Endurance => get("endurance_charge_duration_+%"),
@@ -111,7 +111,16 @@ public static class Charges
         };
         int more = type == ChargeType.Power ? get("power_charge_duration_+%_final") : 0;
         double ms = BaseDurationMs * Math.Max(0, 100 + increased) / 100.0 * Math.Max(0, 100 + more) / 100.0;
-        return new(maximum, minimum, (int)Math.Floor(ms));
+        return new(maximum.Value, minimum, (int)Math.Floor(ms));
+    }
+
+    // The panel's maximum of one type, without a lambda: LimitsOf runs on every stat lookup's condition flags.
+    static int PanelMaximum(ChargeType type, Func<string, int> get)
+    {
+        string virtualMaximum = VirtualMaximums[Index(type)];
+        foreach (var (stat, value) in ChargePanelStats.Compute(get))
+            if (stat == virtualMaximum) return value;
+        throw new InvalidOperationException(virtualMaximum);
     }
 
     /// <summary>One type's charges as an area change hands them on: how many were held and how much of their duration was

@@ -25,6 +25,8 @@ public class HarvestAndInnocenceTests
         Assert.True(rules.Exists(core, flag => flag == "a4q5-QuestComplete"));
         var form = Assert.Single(rules.FormsAfter(Act4Areas.Harvest, Act4Monsters.Malachai));
         Assert.Equal(Act4Monsters.Malachai2, form.Next);
+        Assert.Equal(70, rules.ThresholdOf(Act4Areas.Harvest, Act4Monsters.Malachai)?.LifePct);
+        Assert.Null(rules.ThresholdOf(Act4Areas.Harvest, Act4Monsters.Malachai2));
         Assert.Null(rules.SecondForm(Act4Areas.Harvest, Act4Monsters.Malachai));
         var layout = new AreaLayout(1, Act4Areas.Harvest, 100, 100, 5, 5, null, []);
         var instance = new InstanceState();
@@ -33,6 +35,16 @@ public class HarvestAndInnocenceTests
         var returning = new ClientState(layout, 1, 1) { Instance = instance };
         Assert.Equal((80, 75), returning.LaterFormPoints[form.Next]);
         Assert.Empty(new ClientState(layout, 1, 1) { Instance = new() }.LaterFormPoints);
+    }
+
+    [Fact]
+    public void Approximate_town_placements_move_to_floor_but_room_placements_keep_their_cell()
+    {
+        var layout = new AreaLayout(1, "test", 100, 100, 50, 50, (x, y) => x >= 50 && y == 50, []);
+        var placement = new NpcCatalog.Placement("TestNpc", 44, 50, 0);
+        Assert.Equal((50, 50), Game.TownNpcCell(layout, placement));
+        Assert.Equal((44, 50), Game.TownNpcCell(layout, placement with { FromRoom = true }));
+        Assert.Equal((44, 50), Game.TownNpcCell(layout with { Walkable = null }, placement));
     }
 
     [Fact]

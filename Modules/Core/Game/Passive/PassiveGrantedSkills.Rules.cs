@@ -237,7 +237,7 @@ public static partial class Game
             if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
                 || !conn.Passives.Contains(skill.Node) && !conn.MainAscendancy.Allocated.Contains(skill.Node)) return;
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
-        var area = MergeSkillStats(AreaPlayerStats(conn), own);
+        var area = SkillAreaStats(conn, own, skill.Effect);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,
             name => Stats.Key(name) is uint k ? area.GetValueOrDefault(k) : 0, spell: true);
         string? art = Art.Animated(PassiveGrantedSkills.ExplosionArtVariation, 0);

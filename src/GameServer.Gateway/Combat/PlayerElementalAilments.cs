@@ -14,6 +14,8 @@ public sealed class PlayerElementalAilments
         int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
     {
         public bool NeverFreeze { get; init; }
+        /// <summary>The source skill's own stats, for the rules that read more of them than the fields above.</summary>
+        public Func<string, int>? SourceStats { get; init; }
     }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
