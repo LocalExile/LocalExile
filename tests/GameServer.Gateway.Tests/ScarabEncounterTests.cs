@@ -24,7 +24,7 @@ public sealed class ScarabEncounterTests
         var mods = catalog.Of([slot], Program.Items.Mods);
         Assert.Equal(3, mods.Get("map_leaguestone_additional_shrines"));
         Dictionary<uint, int> Compose(MapMods input, Dictionary<uint, int>? atlas = null) =>
-            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1, false);
+            Game.ComposeMapAreaStats(input, 3, atlas ?? [], new HashSet<string>(), -1);
         var stats = Compose(mods);
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         int Base(IReadOnlyDictionary<uint, int> input) => ExtraTerrainFeatures.LeagueStruct(area with
