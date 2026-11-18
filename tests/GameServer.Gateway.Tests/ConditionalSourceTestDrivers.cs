@@ -212,6 +212,6 @@ static class ConditionalSourceTestDrivers
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         // UI built on entering caches the attributes (see SendPlayer): send them once more.
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
-            () => InstanceEntities.StatsUpdate(PlayerId, [.. BaseStats(conn)]), "0x01b3 player attributes");
+            () => InstanceEntities.StatsUpdate(PlayerId, [.. CharacterPlayerStats(conn).Select(p => (p.Key, p.Value))]), "0x01b3 player attributes");
     }
 }

@@ -8,7 +8,6 @@ public sealed class MonsterCurses(Action? changed = null)
     public readonly HashSet<string> PresentedStats = [];
     public int Version, PresentedVersion;
     Dictionary<string, int> stats = [];
-    MonsterModEffects? basis, cached;
     public int this[string name] => stats.GetValueOrDefault(name);
     public IReadOnlyDictionary<string, int> Stats => stats;
 
@@ -43,17 +42,8 @@ public sealed class MonsterCurses(Action? changed = null)
         foreach (var family in All.Values.GroupBy(c => c.Effect))
             foreach (var (key, value) in family.MaxBy(c => c.Stats.Sum(p => Math.Abs((long)p.Value)))!.Stats)
                 stats[key] = stats.GetValueOrDefault(key) + value;
-        basis = cached = null;
         Version++;
         changed?.Invoke();
-    }
-
-    public MonsterModEffects Effects(MonsterModEffects original)
-    {
-        if (stats.Count == 0) return original;
-        if (!ReferenceEquals(basis, original) || cached is null)
-        { basis = original; cached = original.Combine(stats); }
-        return cached;
     }
 }
 

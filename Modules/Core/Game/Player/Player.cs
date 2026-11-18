@@ -1556,12 +1556,7 @@ public static partial class Game
     public static HashSet<DamageType> PlayerImmunities(ClientState conn, IReadOnlyDictionary<uint, int>? prepared)
     {
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
-        var baseStats = new Dictionary<uint, int>();
-        if (prepared is null)
-        {
-            foreach (var (key, value) in BaseStats(conn)) baseStats[key] = value;
-            prepared = baseStats;
-        }
+        prepared ??= CharacterPlayerStats(conn);
         var result = DamageImmunities.From(name => Stats.Key(name) is uint key ? prepared.GetValueOrDefault(key) : 0);
         if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;

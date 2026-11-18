@@ -229,7 +229,7 @@ public static partial class Game
         return AttackAccuracyProfile.From(pools, stats, Stats, own, local);
     }
 
-    // What /set_stat set, then the class's attributes and pools and the passives' stats for the stats it did not set.
+    // The player's stats (PlayerStatSteps.cs): in an area's frames the stat graph's last step.
     public static Dictionary<uint, int> CharacterPlayerStats(ClientState conn)
     {
         // Temporary lag instrumentation: how often the full stat build runs and what it costs (per connection).
@@ -293,65 +293,6 @@ public static partial class Game
     {
         return DamageStats.Conversion(CharacterPlayerStats(conn),
             effectRow >= 0 ? SkillsFor(conn).EffectStats(effectRow, level) : [], Stats, attack);
-    }
-
-    // The character's own stats: the class's attributes and the pools (ClassAttributes), then every other stat of the
-    // allocated passives, summed (increased life and the attributes are already in the pools; the rest, such as increased
-    // spell damage, the client only shows).
-    public static IEnumerable<(uint, int)> BaseStats(ClientState conn)
-    {
-        var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
-        {
-            Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn),
-            FireResistance = Resistance(conn, DamageType.Fire), ColdResistance = Resistance(conn, DamageType.Cold),
-            LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
-        })) if (seen.Add(k)) yield return (k, v);
-        List<ushort> nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives];
-        var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
-        IReadOnlyList<(uint Key, int Value)> siphoning;
-        lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, extra);
-        foreach (var (key, value) in siphoning)
-            extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
-        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
-            extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
-        AddGolemStats(conn, new PlainStatMap(extra));
-        AddSelfOfferingStats(conn, new PlainStatMap(extra));
-        int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
-        foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
-            if (Stats.Key(stat) is uint key) extra[key] = value;
-        if (conn.God)
-        {
-            foreach (var (stat, value) in GodStats)
-                if (Stats.Key(stat) is uint key) extra[key] = extra.GetValueOrDefault(key) + value;
-            // the final value the client shows: 100% of maximum life per second, per minute
-            if (Stats.Key("life_regeneration_rate_per_minute") is uint lr) extra[lr] = (int)Math.Min(int.MaxValue, (long)conn.Pools.Life * GodLifeRegenPctPerSecond / 100 * 60);
-        }
-        List<AuraCatalog.Aura> auras;
-        lock (conn.Monsters) auras = AffectingAuras(conn);
-        // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
-        int heraldEffectPct = RawDefault("herald_effect_on_self_+%");
-        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
-                     heraldEffectPct).Concat(MinionAuraStats(conn, auras)))
-            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
-        foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
-            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
-        IReadOnlyList<(uint Key, int Value)> catPhase;
-        lock (conn.Monsters)
-            catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
-                name => Stats.Key(name) is uint key
-                    ? extra.GetValueOrDefault(key)
-                    : 0);
-        foreach (var (k, v) in catPhase)
-            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
-        foreach (var (k, v) in AvianRawStatsLocked(conn, extra).Concat(CrabRawStatsLocked(conn, extra)))
-            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
-        // The subscribers' stats (GameEvents.Stats), added like /god's: the pools (life, mana) are not rebuilt from them.
-        if (GameEvents.Stats.Any)
-            foreach (var (stat, value) in GameEvents.RunStats(conn))
-                if (Stats.Key(stat) is uint key) extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
-        foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }
 
     // The class's attributes (Characters.dat BaseStrength / BaseDexterity / BaseIntelligence) as final stats: strength,
