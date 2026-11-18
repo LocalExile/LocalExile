@@ -168,10 +168,10 @@ not decoded.
 
 A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterRules (ClientDeepwater) looks up the
 `DeepwaterPlugin` terrain plugin every frame (`0x1416851b0` → `0x141685030`, which returns 0x28 when it is missing, with
-no null check). Sent on The Sovereign or The Twilight Strand, the client closed about 2 s later with no log line, so the
-Gateway does not send it. Unverified: that the encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin:
-DeepwaterEncounter, DeepwaterEncounterVoyage) have the plugin at world `+0xe0` without the server's 0x1d
-TerrainPluginState (`ExtraTerrainFeatures`), and that the real server sent row 171 there. The Sovereign takes row 172
+no null check). Sent on The Sovereign or The Twilight Strand, the client closed about 2 s later with no log line. The
+encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage) always have
+the plugin at world `+0xe0`, with or without the server's state (§1, extra data), so the Allflame module sends row 171
+there only, after 0x7d (not yet run on the client). Whether the real server did is unknown. The Sovereign takes row 172
 DeepwaterHubRules alone (no per-frame code). Row 171's area type 53 checks are for the Sovereign that the plugin adds
 inside an encounter as a secondary area (`0x141f32870`).
 
