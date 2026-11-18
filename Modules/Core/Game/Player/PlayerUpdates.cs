@@ -15,11 +15,15 @@ public sealed class PlayerUpdatesState(IModuleLifetime rules, IPlayerUpdateSched
 
 public static partial class Game
 {
-    sealed class PlayerUpdateSchedule : IPlayerUpdateSchedule
+    // The loops of a connection wait on its frames (AreaFrames): they wake at frame boundaries, one after another in
+    // PlayerUpdateRole order, and read the boundary's time. The shared default (no connection) is the Clock.
+    sealed class PlayerUpdateSchedule(ClientState? frames = null) : IPlayerUpdateSchedule
     {
-        public double Now(ClientState conn) => conn.Clock.Elapsed.TotalSeconds;
+        public double Now(ClientState conn) => frames is null ? conn.Clock.Elapsed.TotalSeconds : conn.Frames.Now(conn);
         public double ResourceNow(ClientState conn) => ProjectileWorldTime(conn);
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
+        public Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) =>
+            frames?.Frames.Wait(role, milliseconds, stopping) ?? Task.Delay(milliseconds, stopping);
     }
     public static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
     public static bool CurrentGameWork => QuestKillCommitOutput is not null
@@ -44,7 +48,9 @@ public static partial class Game
             if (conn.PlayerUpdatesState is not PlayerUpdatesState state || !PlayerUpdatesCurrent(conn, state))
             {
                 conn.RetirePlayerUpdates();
-                state = new(CombatLifetime!, PlayerUpdatesSchedule); conn.PlayerUpdatesState = state;
+                // Tests swap in a schedule of their own; the game's runs on the connection's frames.
+                state = new(CombatLifetime!, PlayerUpdatesSchedule is PlayerUpdateSchedule ? new PlayerUpdateSchedule(conn) : PlayerUpdatesSchedule);
+                conn.PlayerUpdatesState = state;
                 state.PendingStages = [.. conn.Monsters.Where(p => p.Value.StageRunning).Select(p => (p.Key, p.Value))];
             }
             if (!conn.PlayerUpdatesWorker.TryStart(conn, state.Rules, null, state, out long generation)) return;
@@ -64,20 +70,20 @@ public static partial class Game
         try
         {
             var (remote, stream, ciphers) = conn.Wire;
-            await Task.WhenAll(Drive(() => RunPlayerTick(remote, stream, ciphers, conn, state)),
-                Drive(() => RunResourceRecovery(remote, stream, ciphers, conn, state)),
-                Drive(() => RunMonsterAi(remote, stream, ciphers, conn, state)),
-                Drive(() => RunMonsterRegeneration(remote, stream, ciphers, conn, state)),
-                Drive(() => RunLivingCollisions(remote, stream, ciphers, conn, state)),
-                Drive(() => RunCharges(remote, stream, ciphers, conn, state)),
-                Drive(() => RunFortification(remote, stream, ciphers, conn, state)),
-                Drive(() => RunRage(remote, stream, ciphers, conn, state)),
-                Drive(() => RunFlaskChargeRegen(remote, stream, ciphers, conn, state)),
-                Drive(() => RunFlaskGrounds(remote, stream, ciphers, conn, state)),
-                Drive(() => RunPlayerMinions(remote, stream, ciphers, conn, state)),
-                Drive(() => RunFootstepSkills(remote, stream, ciphers, conn, state)),
-                Drive(() => ResumeBossStages(remote, stream, ciphers, conn, state)),
-                Drive(() => ContinueTour(remote, stream, ciphers, conn)));
+            await Task.WhenAll(Drive(PlayerUpdateRole.Player, () => RunPlayerTick(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Recovery, () => RunResourceRecovery(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.MonsterAi, () => RunMonsterAi(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.MonsterRegeneration, () => RunMonsterRegeneration(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.LivingCollisions, () => RunLivingCollisions(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Charges, () => RunCharges(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Fortification, () => RunFortification(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Rage, () => RunRage(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.FlaskCharges, () => RunFlaskChargeRegen(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.FlaskGrounds, () => RunFlaskGrounds(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Minions, () => RunPlayerMinions(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Footsteps, () => RunFootstepSkills(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Tour, () => ContinueTour(remote, stream, ciphers, conn)));
         }
         catch (OperationCanceledException) when (state.Stop.IsCancellationRequested) { }
         catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }
@@ -87,10 +93,11 @@ public static partial class Game
             Program.ProjectileOutputGuard.Value = previous;
             lock (conn.Monsters) conn.PlayerUpdatesWorker.Complete(state.Rules, null, state, state.Generation);
         }
-        async Task Drive(Func<Task> loop)
+        async Task Drive(PlayerUpdateRole role, Func<Task> loop)
         {
             try { await loop(); }
             catch { state.Stop.Cancel(); throw; }
+            finally { conn.Frames.Ended(role); }
         }
     }
 

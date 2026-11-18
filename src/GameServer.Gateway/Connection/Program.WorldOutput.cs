@@ -93,14 +93,21 @@ public partial class Program
         {
             await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
             double frame = FrameMs / 1000d, first = await BeginWorldFrames(conn, frame);
-            long ended = 0;
+            long ended = 0, pausedStep = 0;
+            conn.Frames.Start();
             while (!conn.Closed)
             {
-                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later.
+                // Paused, the Clock stands and no frame falls due: it looks again a third of a frame later. The player
+                // update loops still step once a frame length of real time (they see the pause and do nothing).
                 if (conn.Paused)
                 {
                     if (conn.LockstepClient) await EndPausedFrame(conn);
                     await Task.Delay(Math.Max(1, FrameMs / 3));
+                    if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= FrameMs)
+                    {
+                        pausedStep = Stopwatch.GetTimestamp();
+                        conn.Frames.Step(conn.Clock.Elapsed.TotalSeconds);
+                    }
                     continue;
                 }
                 // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of
@@ -125,6 +132,7 @@ public partial class Program
         catch (Exception ex) when (ex is IOException or ObjectDisposedException)
         {
         }
+        finally { conn.Frames.Stop(); }
     }
 
     // Work longer than this lets the frames go on (logged): no step of ours should take it, and a client held longer looks hung.
@@ -169,8 +177,15 @@ public partial class Program
     {
         if (conn.Closed || conn.WorldOutput.Closed) return null;
         for (; first + (ended + 1) * frameSeconds <= now; ended++)
-            if (!await EndWorldFrame(conn, (first + (ended + 1) * frameSeconds, first + (ended + 2) * frameSeconds)))
+        {
+            // The frame ends after the loops stepped at its start have run (AreaFrames), and the next step's records go
+            // out in the frame that starts at its boundary.
+            await conn.Frames.Settle();
+            double boundary = first + (ended + 1) * frameSeconds;
+            if (!await EndWorldFrame(conn, (boundary, first + (ended + 2) * frameSeconds)))
                 return conn.Closed || conn.WorldOutput.Closed ? null : ended;
+            conn.Frames.Step(boundary);
+        }
         return ended;
     }
 
@@ -192,10 +207,16 @@ public partial class Program
                 committed = true;
             }
             conn.TurnFrame();
+            long writing = Stopwatch.GetTimestamp();
+            int bytes = 0;
             foreach (var packet in frame.Packets)
+            {
+                bytes += packet.Bytes.Length;
                 await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
+            }
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);
             conn.WorldOutput.Written(frame.Births, frame.Removals, frameEnded: true);
+            conn.Frames.Wrote(wire.Remote, frame.Packets.Count, bytes, Stopwatch.GetElapsedTime(writing).TotalMilliseconds);
             return true;
         }
         catch { if (committed) FailWorldOutput(conn); throw; }

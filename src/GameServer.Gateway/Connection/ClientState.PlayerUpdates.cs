@@ -14,6 +14,8 @@ public sealed partial class ClientState
     public double FootstepRun;
     public readonly Dictionary<uint, double> TemporarySkillEffects = [];
     public ConnectionWorker PlayerUpdatesWorker { get; } = new("player-updates");
+    /// <summary>The frame clock the player update loops wait on (Program.RunWorldFrames drives it).</summary>
+    public AreaFrames Frames { get; } = new();
 
     public void RetirePlayerUpdates()
     {
