@@ -347,6 +347,11 @@ public sealed class ScarabEncounterTests
         MapEssences.Opening(essenceRequest);
         Assert.DoesNotContain(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
         Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("replica balance"));
+        var ambush = Request("ScarabStrongboxNew1");
+        ambush.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(ambush.Slots, Program.Items.Mods) };
+        MapScarabContent.Describe(ambush);
+        MapStrongboxes.Opening(ambush);
+        Assert.Empty(ambush.UnhandledContent);
         var terrors = Request("ScarabDomination4");
         MapScarabContent.Describe(terrors);
         MapScarabBosses.Opening(terrors);
