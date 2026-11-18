@@ -81,6 +81,7 @@ per line, flush stdin, and read one JSON result line. This retains the Frida att
 {"command":"command","text":"/pos","wait":0.5}
 {"command":"tp","target":"RhoaChest","index":2}
 {"command":"tp","x":120,"y":340}
+{"command":"act","kind":"walkTo","x":512,"y":740}
 {"command":"chat","text":"#hello"}
 {"command":"game:status"}
 ```
@@ -179,6 +180,106 @@ dotnet build
 (Get-Item src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll).VersionInfo.ProductVersion
 Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Algorithm SHA256
 ```
+
+## Walking with real input (act)
+
+`act` moves the character the way a player moves it, for an operator outside the client
+([ai-operator](ai-operator.md)); it is not a test shortcut:
+
+```json
+{"command":"act","kind":"walkTo","x":512,"y":740}
+```
+
+It clicks inside the client's own window through the no-focus route of `scripts/re/frida/drive-input.js`, so the
+client's own action code decides what the server is sent, and it reports what the client itself resolved. That is the
+opposite of `move`, which writes the C→S 0x25 itself so the client predicts nothing; `move` stays for tests that need
+a fixed packet.
+
+The result is a verdict, not an error: `{"reached":true,"cell":[512,740],"target":[512,740],"clicks":3,
+"predicted":[508,742],"order":[508,742],"elapsedMs":…}`; when it does not get there, `reached` is false and `reason`
+says why in a sentence an operator can act on (`blocked: 4 cells short of [512, 740] after 3 clicks`, `gave up …`),
+with the same fields. `clicks` counts the clicks it took, `predicted` is the cell the client resolved while aiming,
+`order` is the cell it resolved when the button went down (null if the client never asked for an action). Optional
+`tolerance` (cells, default 1), `timeout` (seconds, default 25) and `clicks` (budget, default 30).
+
+Nobody is teleported and no walk packet is written: the client's own order is the one that reaches the server, and
+`order` is the bridge's record of it.
+
+### What a click resolves to
+
+The client converts its cursor into a world point every frame and publishes it at `instance + 0xc7f4` (x) and
+`instance + 0xc7f8` (y) in world units; that pair is what its click asks for. The bridge reads it rather than guessing:
+
+- `0x140df5100 int *f(int out_cell[2], const float world_xy[2])` is the client's own world→cell conversion,
+  `out[i] = (int)rintf(world[i] * DAT_1436adb60)`, `DAT_1436adb60 = 0.092f` (1 cell = 10.8696 units, 23 cells = 250, the
+  tile size). It is a pure function — no entity, no map, no per-area state — so a probe calls it directly.
+- The per-frame pump `0x14011a070` calls `0x14011a610` unconditionally and that publishes the pair; there is no
+  left-button test in it, so moving the cursor without clicking already updates what a click would walk to. That is
+  what makes aiming free, and why `GetForegroundWindow` must answer the session window (the block producer upstream is
+  gated on it; `scripts/re/frida/drive-input.js` keeps that hook for the same reason).
+- `0x1421660b0` is where the client asks for the action, and its fourth argument points at the cell it resolved — the
+  bridge's own record that the client aimed.
+- One click saturates: the target is `player_world + R(yaw)·v̂·(min(|v|,1)·150 + 30)` world units, so it reaches about
+  16.6 cells. `walkTo` therefore aims, clicks, waits for that walk to end and aims again — aiming straight at a far cell
+  only saturates, so it aims at a waypoint one click away and repeats.
+
+### Acting on objects: useSkill, loot, interact
+
+```json
+{"command":"act","kind":"useSkill","x":352,"y":1327,"target":134217965}
+{"command":"act","kind":"loot","x":351,"y":1327,"object":1048576}
+{"command":"act","kind":"interact","x":388,"y":231,"object":8192}
+```
+
+All three name the **cell** the thing stands on; `target`/`object` is the server's id. The bridge aims the press the
+way a person does, and every point it tries comes from the client's own readback: first the pixel the client draws the
+object at (`game:objects`, the client's own projection, whose ids for monsters are the server's), then the pixel of its
+floating label (a ground item and an NPC answer only on their label; the label has no id, so it is matched to the
+object by its cell), and only then the cell under the cursor, pressed and lifted a few pixels at a time — labels sit
+above the body. A press counts as the action when the order it produced names the object that was asked for. `slot`
+picks what presses: `0` is the left button (move and the default attack, which is the game's own layout), `1`-`5` are
+the bar's Q/W/E/R/T; `frames` (default 3) is how many frames the press is held across, because the client reads the
+button per frame.
+
+The answer says what the client's own pick named and which order it produced, so the caller can tell a real action from
+a walk:
+
+```json
+{"ok":true,"kind":"loot","cell":[351,1327],"resolved":[350,1327],"target":1048576,"pressed":[345,284],
+ "attempts":1,"how":"label","tried":["drawn","label"],"sent":true,
+ "order":{"cell":[0,0],"object":1048576,"walk":false,"from":"0x7ff6d13a8a8b"}}
+```
+
+`order.object` is the id the client put in the packet, `order.cell` is the cell it named (0,0 for an object), `order.walk`
+says whether the press came from the walk sender, and `order.from` is the caller's return address (the walk path is
+`0x14012461e`; the others are the skill paths). `tried` is every aiming mode that was pressed before one worked, so a
+failure reads without guessing.
+
+Every kind fails with a sentence instead of a silent retry. The three that matter to an operator are: the order came
+back aimed at the ground (`the click landed on the ground instead of on an object`), the order named a *different*
+object (`the click named object N instead of M: something else is drawn over it`), and the click reached only part of
+the way (`the closest the cursor reaches is …, N cells short of …; a click reaches about 16 cells, so walk closer
+first`). The client's drawn pixel and label are only available while its window is the focused one, so a caller that
+wants them has to keep the game in front.
+
+Live, on the 3.29.3c release build: a left click on a ground item sent `<= 0x0024` with the item's id and the ground
+lost it; a left click on the town's area transition sent its id and the character changed area; a left click on a
+monster under a wand sent `0x0102` (the default attack) on the monster's id and the server's projectile recorded
+`damage=7 life=16/23`. None of those writes a packet itself.
+
+### Seeing the screen without taking the focus
+
+```json
+{"command":"game:screen","out":"logs/client-screen.png","timeout":8}
+```
+
+Saves the client's own frame to a PNG and answers `{path, bytes}` (`400 ms` or so). It asks DWM for the window's
+composited surfaces through Windows Graphics Capture (the `windows-capture` package), which is the only way that
+works on this client: `PrintWindow` returns the title bar and a **black** client area, and an ordinary screen grab
+returns whatever window is on top — measured on the 3.29.3c release build, with the game neither focused nor the
+foreground window, 804x647, one frame in 0.3 s. So the client can be looked at while a person keeps using the machine,
+and the death panel, a tooltip or a vendor window can be read from a picture instead of guessed at. A minimised window
+draws nothing and the call says so.
 
 ## Targeted development interactions
 

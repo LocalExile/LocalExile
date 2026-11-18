@@ -31,6 +31,12 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
     double beamUntil, beamNextTick;
     (int X, int Y) beamAt;
     MonsterAttack? beamTick;
+    // The beam itself: a ServerBeamEffect object stretched from where he stood to the mark, alive for BeamSeconds.
+    // CelestialBeamArt is only the source rig of the skill's mesh (celestialbeam.sm), so spawning it as an effect draws
+    // that mesh un-stretched, a ball; the client's own beam object is the thing that draws a beam between two points.
+    (int X, int Y) beamFrom;
+    uint beamObject;
+    double beamShowAt, beamHideAt;
     // A threshold's intermission: the shield, the blink to the middle, then three bullet-hell rings.
     bool intermission;
     int waves;
@@ -38,6 +44,13 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
 
     protected override async Task Ticks(ClientState conn, double now)
     {
+        if (beamShowAt > 0 && now >= beamShowAt) { beamShowAt = 0; beamObject = await ShowBeam(conn); }
+        if (beamObject != 0 && now >= beamHideAt)
+        {
+            var gone = beamObject;
+            beamObject = 0;
+            await All(InstanceProtocol.RemoveObject(gone));
+        }
         if (beamTick is null || now >= beamUntil || now < beamNextTick) return;
         beamNextTick = now + 0.5;
         if (now >= beamUntil) { beamTick = null; return; }
@@ -66,7 +79,9 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
             await Beam(conn, player, now);
             return;
         }
-        if (now >= nextFlicker && distance is > 14 and < 70)
+        // The slam needs no stand-off: the melee above already takes every distance it can reach, so whatever gets here
+        // is out of his arms. The old "> 14" bound was never reachable (melee keeps him at 13) and kept the skill shut.
+        if (now >= nextFlicker && distance < 70)
         {
             nextFlicker = now + 19;
             await FlickerSlam(conn, player, now);
@@ -94,20 +109,58 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         }
     }
 
-    /// <summary>The Celestial Beam: the Shaper casts, and the ground where the player stood burns for three seconds on a
-    /// 0.5 s tick, its damage the skill's own fire/cold/lightning degen over that half second.</summary>
+    /// <summary>The Celestial Beam: the Shaper charges for <see cref="BeamChargeSeconds"/>, the server's beam stands where
+    /// the player stood for <see cref="BeamSeconds"/>, and the ground then burns for three seconds on a 0.5 s tick, its
+    /// damage the skill's own fire/cold/lightning degen over that half second.</summary>
     async Task Beam(ClientState conn, (int X, int Y) at, double now)
     {
         var dot = AtlasBosses.DamageOverTime(conn, AtlasBosses.CelestialBeamEffect, boss.Level);
         beamAt = conn.Layout.Near((at.X, at.Y));
-        beamUntil = now + 3;
-        beamNextTick = now + 0.6;
+        beamUntil = now + BeamChargeSeconds + BeamSeconds + BeamBurnSeconds;
+        beamNextTick = now + BeamChargeSeconds;
         beamTick = dot.MaxTotal <= 0 ? null : new MonsterAttack(
             AtlasBosses.Skill(Variety, AtlasBosses.CelestialBeamEffect), 0.5, 0, dot.Scale(0.5))
         { Spell = true, Scripted = true };
-        Swing(conn, AtlasBosses.CelestialBeamEffect);
-        await Effect(conn, beamAt, AtlasBosses.CelestialBeamArt, 3.6, 1.6f);
+        // The pose without the skill: 0x1b2 kind 0 plays the rig's own beam_start clip by index, which the client cannot
+        // pair with the skill's art. Sending the skill's action (0x1ab) instead draws that art as well, and it is a whole
+        // second beam, wherever and whenever ours is (live 2026-11-13). The clip spends nearly all of its 2.5 s charging,
+        // so it plays faster to charge for the skill's own second, and the server's rig is the beam itself.
+        lock (conn.Monsters) busyUntil = Math.Max(busyUntil, now) + BeamChargeSeconds + BeamSeconds;
+        if (AtlasBosses.ClipFor(conn, Variety, AtlasBosses.CelestialBeamEffect) is { Index: < uint.MaxValue } clip)
+            await All(InstanceProtocol.AnimationUpdate(id, 0, clip.Index,
+                (float)Math.Clamp(clip.LengthMs / 1000.0 / BeamChargeSeconds, 0.1, 10)));
+        beamFrom = boss.Walk.Position(now);
+        beamShowAt = now + BeamChargeSeconds;
+        beamHideAt = beamShowAt + BeamSeconds;
     }
+
+    /// <summary>Draws the beam with the client's own beam object (<c>Metadata/Effects/ServerBeamEffect</c>): it stretches
+    /// the MiscBeams row's art between the two ends, which is what the skill's class does for the mesh CelestialBeamArt
+    /// points at. The end stays a world point (no object to follow), so the beam holds still where it landed.</summary>
+    async Task<uint> ShowBeam(ClientState conn)
+    {
+        uint beam;
+        lock (conn.Monsters) beam = conn.TakeObjectId();
+        await All(InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
+            new BeamEffectObject(beamFrom.X, beamFrom.Y, id, beamAt.X * BeamEffectObject.WorldPerCell,
+                beamAt.Y * BeamEffectObject.WorldPerCell, 0, BeamRow).Blob()));
+        await All(InstanceProtocol.EnterWakeZone(beam));
+        return beam;
+    }
+
+    /// <summary>The MiscBeams row the beam is drawn with: <c>ElderGuardianLightningBeam</c> (76,
+    /// <c>.../ElderGuardian/LightningGuardian/arenabeam.ao</c>), the gold lightning column of the same family as the
+    /// Celestial Beam. The skill's own mesh has no MiscBeams row of its own (the skill class stretches it itself).</summary>
+    const ushort BeamRow = 76;
+
+    /// <summary>How long the Shaper charges before the beam lands (the skill's own cast second).</summary>
+    const double BeamChargeSeconds = 1.0;
+
+    /// <summary>How long the beam stands where the cast lands.</summary>
+    const double BeamSeconds = 2.5;
+
+    /// <summary>How long the beam's ground keeps burning after the beam itself ends.</summary>
+    const double BeamBurnSeconds = 3;
 
     /// <summary>The flicker slam: the Shaper vanishes, reappears beside the player and slams the ground (a 9 unit area,
     /// its physical damage 1.4x the melee's).</summary>

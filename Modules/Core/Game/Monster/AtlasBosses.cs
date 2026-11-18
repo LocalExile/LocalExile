@@ -120,6 +120,13 @@ static class AtlasBosses
         new("Metadata/Projectiles/ShaperBulletHellProjectile", 375, false, 3) { Count = 12, SpreadRadians = Math.Tau };
     internal static SkillCatalog.MonsterProjectileInfo DoomShot { get; } =
         new("Metadata/Projectiles/ElderProjectileDoom", 600, false, 2);
+    // The accelerating projectiles: the Shaper's three celestial orbs. Projectiles.dat's ShaperProjectile starts at 5
+    // units/s and the skill's own acceleration stat speeds it up; this server flies a projectile at a constant speed,
+    // so the row's starting figure left the orbs standing where they were fired until they expired (live 2026-11-13).
+    // 300 units/s (30 cells/s) is the speed the orb covers its flight at, and the ACT pool it plays from is the
+    // variety's SpellProjectileCold (its spellcast2 clip). Without a shot named here the skill created none at all.
+    internal static SkillCatalog.MonsterProjectileInfo AcceleratingShot { get; } =
+        new("Metadata/Projectiles/ShaperProjectile", 300, false, 4) { Count = 3, AnimationKey = "SpellProjectileCold" };
 
     internal static bool IsShaper(MonsterCatalog.Variety? variety) => variety?.Id is Shaper or ShaperUberElder;
     internal static bool IsElder(MonsterCatalog.Variety? variety) => variety?.Id is Elder or ElderUber;
@@ -231,6 +238,9 @@ static class AtlasBosses
         else if (damage.MaxTotal <= 0 && effect is not (CelestialBeamEffect or SiphonEffect))
             damage = DamagePacket.Of(DamageType.Physical, min, max);
         double seconds = melee ? Math.Max(0.3, variety.AttackMs / 1000.0) : Math.Max(0.3, catalog.CastTimeMs(effect) / 1000.0);
+        // The action's attack time cuts the clip the client plays: a cast whose row reports 1 s stops the beam's 2.5 s
+        // beam_start a second in, so a skill with its own clip plays for the clip's whole length.
+        if (!melee && ClipFor(conn, variety, effect) is { LengthMs: > 0 } clip) seconds = clip.LengthMs / 1000.0;
         double reach = melee ? variety.AttackRange : 45;
         if (melee && swing is not null) return swing with { SkillId = Skill(variety, effect), Scripted = true };
         var projectile = ProjectileFor(conn, effect);
@@ -249,8 +259,29 @@ static class AtlasBosses
     internal static SkillCatalog.MonsterProjectileInfo? ProjectileFor(ClientState conn, int effect) => effect switch
     {
         BulletHellEffect => BulletHellShot,
+        AcceleratingProjectilesEffect => AcceleratingShot,
         DoomProjectileEffect => DoomShot,
         _ => Game.SkillsFor(conn).MonsterProjectile(effect),
+    };
+
+    /// <summary>
+    /// The clip the client plays for one of the boss's skills, from the variety's ACT pool for the skill's animation
+    /// key (client.db monster_contact_clips). Null when the variety has no pool for that key, which is most of them: the
+    /// client then animates the action by itself. The clip matters because the action's attack time cuts it: the
+    /// Shaper's beam clip is 2.5 s (beam_start), so the 1 s cast time its row reports stopped the beam a second in
+    /// (live 2026-11-13).
+    /// </summary>
+    internal static SkillCatalog.MonsterClipContact? ClipFor(ClientState conn, MonsterCatalog.Variety variety, int effect) =>
+        AnimationKey(effect) is { } key ? Game.SkillsFor(conn).MonsterContact(variety.Id, key, 0xffff) : null;
+
+    /// <summary>The ACT animation key a skill plays: the key of the variety's clip pool for it, which the client reads
+    /// from the skill's own action type (SpellAreaOfEffectCold is the beam's, SpellProjectileCold the projectile
+    /// cast's). Null for the skills nobody has looked up a pool for.</summary>
+    static string? AnimationKey(int effect) => effect switch
+    {
+        CelestialBeamEffect => "SpellAreaOfEffectCold",
+        AcceleratingProjectilesEffect => "SpellProjectileCold",
+        _ => null,
     };
 
     /// <summary>A degen skill's damage from its own stat set: the base fire/cold/lightning/physical/chaos

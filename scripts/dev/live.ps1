@@ -1,4 +1,4 @@
-﻿# One run against the official client (see Agents/GettingStarted.md):
+# One run against the official client (see Agents/GettingStarted.md):
 #   checks the one-time setup, stops this checkout's servers and patched client, builds Auth, Patch and Gateway,
 #   starts all three (logs in logs/live-*.log) and launches Client/Game.patched.exe through the local patching server.
 #   The previous run's logs move to logs/archive/<time>/ (the newest 10 full runs are kept), and the Gateway writes each
@@ -727,7 +727,8 @@ if (-not $NoClient -and -not $stack.Base) {
 $serverEnv = @{
     Game_PATCH_TCP_PORT = "$($stack.Ports.patch)"; Game_LOGIN_PORT = "$($stack.Ports.login)"
     Game_AUTH_CONTROL_PORT = "$($stack.Ports.control)"; Game_GATEWAY_PORT = "$($stack.Ports.gateway)"
-    Game_PATCH_URL = if ($env:Game_PATCH_URL -and -not $stack.Base) { $env:Game_PATCH_URL } else { "http://127.0.0.1:$($stack.Ports.patchWeb)" }
+    # Without a port base, localexile.conf's Patch.WebUrl decides (its default is this same URL); with one, the base does.
+    Game_PATCH_URL = if ($env:Game_PATCH_URL) { $env:Game_PATCH_URL } elseif ($stack.Base) { "http://127.0.0.1:$($stack.Ports.patchWeb)" } else { $null }
     Game_PATCH_WEB_ROOT = if ($stack.Base) { $null } else { $env:Game_PATCH_WEB_ROOT }
     Game_PACKET_DUMPS = if ($env:Game_PACKET_DUMPS) { $env:Game_PACKET_DUMPS } else { Join-Path 'logs' 'packets' }
     Game_HOT_RELOAD_LOG = if ($Watch) { Join-Path $out 'live-gateway.err' } else { $null }

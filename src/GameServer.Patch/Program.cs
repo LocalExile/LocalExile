@@ -67,7 +67,7 @@ var app = builder.Build();
 
 int patchTcpPort = GameServer.Core.ServerConfig.PatchPort;
 var config = PatchServerConfig.From(Environment.GetEnvironmentVariable, listenUrl, passthroughFlag);
-_ = Task.Run(() => ServePatchProtocol(patchTcpPort, config.WebRoot, config.BackupWebRoot));
+_ = Task.Run(() => ServePatchProtocol(GameServer.Core.ServerConfig.PatchBind, patchTcpPort, config.WebRoot, config.BackupWebRoot));
 
 string cdnBase = config.CdnBase;
 string gatewayList = LoadGatewayList();
@@ -141,11 +141,11 @@ app.Run();
 return 0;
 
 // Answers with the GGPK's root hash, so the client's local data always looks current.
-static async Task ServePatchProtocol(int port, string webRoot, string backupWebRoot)
+static async Task ServePatchProtocol(IPAddress bind, int port, string webRoot, string backupWebRoot)
 {
-    var listener = new TcpListener(IPAddress.Loopback, port);
+    var listener = new TcpListener(bind, port);
     listener.Start();
-    Console.WriteLine($"[patch] patching protocol on tcp/{port}, web root={webRoot}, backup={backupWebRoot}");
+    Console.WriteLine($"[patch] patching protocol on tcp/{bind}:{port}, web root={webRoot}, backup={backupWebRoot}");
     while (true)
     {
         using var tcp = await listener.AcceptTcpClientAsync();

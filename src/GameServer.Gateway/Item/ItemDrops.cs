@@ -5,7 +5,8 @@ using GameServer.Core;
 /// What a dying monster drops, rolled in stages like the game's (Agents/docs/protocol/15-progression.md §3); the numbers
 /// are our own, chosen to feel like it, until the game's are known:
 /// 1. How many items: normal monsters 1 at 35%, magic 1–2, rare 2–4, unique 4–6, times the item quantity (a league's,
-///    a mod's, the player's increased quantity).
+///    a mod's, the player's increased quantity); a league's or mod's currency multiplier then rolls that many times as
+///    much currency again (<see cref="ExtraCurrency"/>), on top of what the kill's own rolls made.
 /// 2. For each, what kind: currency (35%: <see cref="Currency"/>'s weights, from Scrolls of Wisdom down to a Mirror), a
 ///    gem (4%: an obtainable gem whose DropLevel the monster's level meets, unlevelled like a vendor's), a life or mana
 ///    flask (8%) or equipment (53%).
@@ -98,7 +99,8 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     private readonly Lazy<Pools> _pools = new(() => Build(catalog, folder, hardMode, league));
 
     // The uniques by base type Id, for the catalogue they were built from (the database may replace it while running).
-    sealed record UniqueIndex(IReadOnlyList<UniqueCatalog.Definition> From, Dictionary<string, List<UniqueCatalog.Definition>> ByBase);
+    sealed record UniqueIndex(IReadOnlyList<UniqueCatalog.Definition> From, Dictionary<string, List<UniqueCatalog.Definition>> ByBase,
+        IReadOnlyList<UniqueCatalog.Definition> WorldPool);
     volatile UniqueIndex? _uniques;
 
     public sealed record Drop(Item Item, ItemCatalog.BaseType Type);
@@ -208,17 +210,24 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             SystemSettings.Default.DropMultiplier("unique_rarity"));
         var result = new List<Drop>();
         for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
-            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng, uniqueFromWorldPool: false, uniqueItemLevel: null) is { } drop) result.Add(drop);
         return result;
     }
 
     /// <summary>The items a monster of this level and rarity drops (possibly none). The quantity multiplier scales how
     /// many: each of the monster's rolls happens floor(multiplier) times, and once more with the fraction's chance (below
-    /// 1, that chance alone: HardMode's 0.2). The rarity multiplier scales every rarity chance, as increased rarity does.
+    /// 1, that chance alone: HardMode's 0.2). The rarity multiplier scales every rarity chance, as increased rarity does,
+    /// from <paramref name="chances"/> when it is given and the monster's own otherwise. The currency multiplier rolls
+    /// that many times as much currency again on top of the kill's own, each its own pick (gold is its own, and has its
+    /// own multiplier; below 1 it adds nothing, since the drop path never takes a roll away). A unique roll the rolled base has none of
+    /// its own for takes one of the world's uniques when <paramref name="uniqueFromWorldPool"/> is set — the pool the game
+    /// drops, a boss's own left out, whatever the monster's level — and falls back to rare as the game does otherwise.
+    /// <paramref name="uniqueItemLevel"/> gives a unique the kill drops that item level instead of the monster's.
     /// In a map (<paramref name="mapTier"/> &gt; 0) the kill also rolls the base card and scarab chances from
     /// <c>drop_card_chance_pct</c>/<c>drop_scarab_chance_pct</c>, scaled by the quantity multiplier.</summary>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0,
-        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0)
+        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0,
+        Chances? chances = null, double currencyMultiplier = 1, bool uniqueFromWorldPool = false, int? uniqueItemLevel = null)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -230,7 +239,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             MonsterRarity.Unique => rng.Next(4, 7),
             _ => rng.NextDouble() < 0.35 ? 1 : 0,
         };
-        var chances = WithIncreasedRarity(RarityChances(rarity), increasedRarity,
+        var rolled = WithIncreasedRarity(chances ?? RarityChances(rarity), increasedRarity,
             rarityMultiplier * SystemSettings.Default.DropMultiplier("unique_rarity"));
         var drops = new List<Drop>();
         for (int i = 0; i < count; i++)
@@ -238,7 +247,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             // No draw for a whole multiplier, so the ordinary 1 rolls exactly as before.
             int times = whole + ((quantity < 1 || part > 0) && rng.NextDouble() < part ? 1 : 0);
             for (int r = 0; r < times; r++)
-                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), chances, rng) is { } d) drops.Add(d);
+                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), rolled, rng, uniqueFromWorldPool, uniqueItemLevel) is { } d) drops.Add(d);
         }
         if (mapTier > 0)
         {
@@ -247,8 +256,54 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             if (MapExtra("drop_card_chance_pct", quantity, rng) && Card(rng, monsterLevel) is { } card)
                 drops.Add(card);
         }
+        if (currencyMultiplier is > 1 && double.IsFinite(currencyMultiplier))
+            ExtraCurrency(drops, count * quantity * CurrencyShare(monsterLevel) * (currencyMultiplier - 1),
+                monsterLevel, monsterLevel + ItemLevelBonus(rarity), rng);
         return drops;
     }
+
+    /// <summary>The currency a subscriber's multiplier asks for on top of the kill's own: that many more currency items,
+    /// each picked and dropped on its own, so the ground gets more piles rather than one pile grown. Nothing else changes:
+    /// the other kinds keep their weights, so this adds currency without taking the equipment's or a gem's place. Gold is
+    /// not among them: it is its own drop, scaled by its own multiplier.</summary>
+    void ExtraCurrency(List<Drop> drops, double extra, int level, int itemLevel, Random rng)
+    {
+        if (extra <= 0) return;
+        var eligible = _pools.Value.Currency.Where(c => c.Type.DropLevel <= level).ToList();
+        if (eligible.Count == 0) return;
+        int whole = (int)Math.Min(Math.Floor(extra), int.MaxValue);
+        double part = extra - Math.Floor(extra);
+        for (int i = 0; i < whole; i++)
+            if (CurrencyPick(eligible, itemLevel, rng) is { } drop) drops.Add(drop);
+        if (part > 0 && rng.NextDouble() < part && CurrencyPick(eligible, itemLevel, rng) is { } one) drops.Add(one);
+    }
+
+    // One extra currency item, made as <see cref="RollOne"/> makes its own: the pool's weighted pick, one on the ground.
+    Drop? CurrencyPick(List<(ItemCatalog.BaseType Type, double Weight)> eligible, int itemLevel, Random rng)
+    {
+        if (Pick(eligible, rng) is not { } type) return null;
+        var (sockets, links) = catalog.DropSockets(type, itemLevel, rng);
+        return new Drop(ItemCatalog.Create(type, sockets, links, random: rng) with
+        {
+            ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100),
+            StackSize = 1,
+        }, type);
+    }
+
+    /// <summary>How often one of a kill's item rolls comes out currency (<see cref="KindWeights"/>, and none of them
+    /// eligible at this level gives none): what a currency multiplier's extra picks scale.</summary>
+    double CurrencyShare(int level)
+    {
+        if (!_pools.Value.Currency.Any(c => c.Type.DropLevel <= level)) return 0;
+        var (currency, gems, flasks, equipment) = KindWeights();
+        double total = currency + gems + flasks + equipment;
+        return total <= 0 ? 0 : Math.Clamp(currency / total, 0, 1);
+    }
+
+    /// <summary>The weights one item roll picks its kind against, after the system settings' own multipliers.</summary>
+    static (double Currency, double Gems, double Flasks, double Equipment) KindWeights() => (
+        0.35 * SystemSettings.Default.DropMultiplier("currency"), 0.04 * SystemSettings.Default.DropMultiplier("gems"),
+        0.08 * SystemSettings.Default.DropMultiplier("flasks"), 0.53 * SystemSettings.Default.DropMultiplier("equipment"));
 
     /// <summary>Our own base chance (percent per kill, scaled by item quantity) until the game's is known; the map
     /// device's own card/scarab stats stay separate.</summary>
@@ -385,13 +440,10 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     // One item: its kind, for equipment its slot and base, then its rarity (the class summary's stages 2 to 4).
-    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng)
+    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng, bool uniqueFromWorldPool, int? uniqueItemLevel)
     {
         var pools = _pools.Value;
-        double currencyWeight = 0.35 * SystemSettings.Default.DropMultiplier("currency");
-        double gemWeight = 0.04 * SystemSettings.Default.DropMultiplier("gems");
-        double flaskWeight = 0.08 * SystemSettings.Default.DropMultiplier("flasks");
-        double equipmentWeight = 0.53 * SystemSettings.Default.DropMultiplier("equipment");
+        var (currencyWeight, gemWeight, flaskWeight, equipmentWeight) = KindWeights();
         double totalWeight = currencyWeight + gemWeight + flaskWeight + equipmentWeight;
         if (totalWeight <= 0) return null;
         double kind = rng.NextDouble() * totalWeight;
@@ -420,7 +472,13 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         {
             // Magic, rare and unique items drop unidentified (a Scroll of Wisdom identifies them, C→S 0x71).
             bool rolledUnique = rng.NextDouble() < chances.Unique;
-            if (rolledUnique && Unique(type, itemLevel, rng) is { } unique)
+            // A unique's own item level is a subscriber's to set (a random one, say); the monster's is the server's.
+            int at = uniqueItemLevel ?? itemLevel;
+            var unique = rolledUnique ? Unique(type, at, rng) : null;
+            // The base has none of its own: a subscriber's roll takes one of the world's uniques, whatever the monster's
+            // level, rather than the rare the game makes of it.
+            if (unique is null && rolledUnique && uniqueFromWorldPool) unique = WorldUnique(at, rng);
+            if (unique is not null)
             {
                 // The unique's own base row (an Id can name another row than the one rolled).
                 item = unique with { Identified = false };
@@ -437,7 +495,27 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     Item? Unique(ItemCatalog.BaseType type, int level, Random rng)
     {
         if (uniques is null) return null;
-        var all = uniques.All;
+        var index = Index(uniques.All);
+        if (!index.ByBase.TryGetValue(type.Id, out var candidates) || PickUnique(candidates, rng) is not { } chosen) return null;
+        return uniques.Create(chosen with { ItemLevel = (byte)Math.Clamp(level, 1, 100) }, rng);
+    }
+
+    /// <summary>One of the world's uniques, for a roll the base of which has none of its own (<see cref="Roll"/>'s
+    /// <c>uniqueFromWorldPool</c>): the pool the game drops, a boss's own left out, whatever the monster's level the
+    /// dropped base would need. The same weighted pick as a base's own, so the rarer ones stay rarer.</summary>
+    Item? WorldUnique(int itemLevel, Random rng)
+    {
+        if (uniques is null) return null;
+        var candidates = Index(uniques.All).WorldPool;
+        return candidates.Count > 0 && PickUnique(candidates, rng) is { } chosen
+            ? uniques.Create(chosen with { ItemLevel = (byte)Math.Clamp(itemLevel, 1, 100) }, rng)
+            : null;
+    }
+
+    // The uniques by the base that can roll them, and every unique any base can supply, built once from the catalog and
+    // the drop pools. Rebuilt when the catalog's list is a new one (a module reload).
+    UniqueIndex Index(IReadOnlyList<UniqueCatalog.Definition> all)
+    {
         var index = _uniques;
         if (index is null || !ReferenceEquals(index.From, all))
         {
@@ -448,10 +526,16 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
                 if (!byBase.TryGetValue(definition.BaseTypeId, out var list)) byBase[definition.BaseTypeId] = list = [];
                 list.Add(definition);
             }
-            _uniques = index = new(all, byBase);
+            // The world's uniques: every one of a base the game drops, whatever the monster's level, and so without the
+            // encounter-only ones (a boss's own drop), which ByBase already leaves out. Built from the same pools the
+            // base roll uses, so a base the game never drops is not in here either.
+            var worldPool = new List<UniqueCatalog.Definition>();
+            foreach (var bases in _pools.Value.Equipment.Values)
+                foreach (var type in bases)
+                    if (byBase.TryGetValue(type.Id, out var definitions)) worldPool.AddRange(definitions);
+            _uniques = index = new(all, byBase, worldPool);
         }
-        if (!index.ByBase.TryGetValue(type.Id, out var candidates) || PickUnique(candidates, rng) is not { } chosen) return null;
-        return uniques.Create(chosen with { ItemLevel = (byte)Math.Clamp(level, 1, 100) }, rng);
+        return index;
     }
 
     /// <summary>One of a base's uniques by weight, or null. The weights are absolute: while a base's add up to less than 1

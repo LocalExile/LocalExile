@@ -32,10 +32,17 @@ static class ServerConfigDefaults
 #        own setting names 12995: change it only for a second stack.
 #        Default: 12995 [Game_PATCH_TCP_PORT]
 #
+#    Patch.BindAddress
+#        The address the patching protocol listens on. The client of this machine
+#        reaches 127.0.0.1; a client on another machine over a VPN needs this
+#        machine's address there, and Patch.WebUrl naming that address too.
+#        Default: 127.0.0.1 [Game_PATCH_BIND]
+#
 #    Patch.WebUrl
 #        The address and port of the patch web server (gateway_list.txt).
 #        Default: http://127.0.0.1:8080 [Game_PATCH_URL]
 
+Patch.BindAddress = 127.0.0.1
 Patch.Port = 12995
 Patch.WebUrl = http://127.0.0.1:8080
 

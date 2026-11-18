@@ -18,6 +18,12 @@ static partial class Sirus
             await All(actor, InstanceProtocol.ActionStarted(actor, from.X, from.Y, to.X, to.Y, 0x2909,
                 c.NextActionSequence(), 0x0408), true);
         }
+        // How long the laboratory confrontation takes, in seconds (the original run is 58). SIRUS_INTRO_SECONDS=0 skips
+        // it: the lines do not play and the fight starts at once. A setting, not a chat command, so the module keeps no
+        // development commands of its own.
+        static readonly double IntroSeconds =
+            double.TryParse(Environment.GetEnvironmentVariable("SIRUS_INTRO_SECONDS"), out var secs) ? secs : 58;
+        static readonly double IntroFactor = IntroSeconds / 58;
         static readonly (double At, ushort Line, ushort Speaker)[] IntroLines =
         [
             (0, 5643, 407), (7, 5381, 416), (11, 5644, 407), (14, 5645, 407), (18, 5646, 407),
@@ -51,6 +57,10 @@ static partial class Sirus
         }
         async Task Intro(ClientState c, ClientState target, double now)
         {
+            // Skipping the confrontation skips all of it, the walk to the trigger included. It used to skip only the
+            // voiced lines, so the fight still waited for the player to step into the room - and a look at the boss that
+            // was meant to start at once took the two minutes of the scene anyway.
+            if (IntroSeconds <= 0) { c.Instance.SetState(Flag("IntroDone")); stage = 2; return; }
             if (scene.Trigger is not { } trigger)
             {
                 c.Instance.SetState(Flag("IntroDone")); stage = 2; return;
@@ -65,7 +75,7 @@ static partial class Sirus
                 await MoveAlly(c, zana, (trigger.X - 40, trigger.Y - 8), now);
                 Console.WriteLine("[Sirus] laboratory confrontation begins");
             }
-            while (introBeat < IntroLines.Length && now - introAt >= IntroLines[introBeat].At)
+            while (IntroFactor > 0 && introBeat < IntroLines.Length && now - introAt >= IntroLines[introBeat].At * IntroFactor)
             {
                 var line = IntroLines[introBeat++]; await Voice(line.Line, line.Speaker);
                 if (line.Line == 5646)
@@ -83,7 +93,7 @@ static partial class Sirus
                 if (line.Line == 5650)
                     await All(introSirus, InstanceProtocol.AnimationUpdate(introSirus, 0, 2, 1));
             }
-            if (now - introAt < 58) return;
+            if (now - introAt < 58 * IntroFactor) return;
             c.Instance.SetState(Flag("IntroDone")); stage = 2;
             await Remove(introSirus);
             foreach (var p in Present)
