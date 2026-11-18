@@ -1344,6 +1344,10 @@ public static partial class Game
             return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await ActivateVaalAura(remote, stream, ciphers, conn, skillId, Current);
+        if (gem.Name is not null && vaalUse is not null && SkillsFor(conn).EffectId(gem.Effect) == "VaalHaste")
+            return await ActivateVaalHaste(remote, stream, ciphers, conn, skillId, Current);
+        if (gem.Name is not null && IsBlessing(SupportedSkill(conn, skillId)))
+            return ScheduleBlessing(remote, stream, ciphers, conn, skillId, recoveryGeneration, Current);
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1605,9 +1609,22 @@ public static partial class Game
         return true;
     }
 
-    public static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
-        AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect),
-            aura.AffectsSelf ? null : (byte?)0);
+    public static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) => AuraBuffs(aura, null);
+
+    static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura, double? seconds)
+    {
+        if (seconds is not double duration)
+        {
+            foreach (var packet in AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect), aura.AffectsSelf ? null : (byte?)0)) yield return packet;
+            yield break;
+        }
+        if (aura.SourceBuff is ushort source)
+            yield return InstanceEntities.AddBuff(PlayerId, source, aura.BuffRow, PlayerId, aura.SkillId,
+                auraSource: true, displayState: 0);
+        yield return InstanceEntities.AddBuff(PlayerId, aura.Buff, aura.BuffRow, PlayerId, aura.SkillId,
+            u68: BitConverter.SingleToUInt32Bits((float)duration),
+            activeSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null);
+    }
 
     public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string name)
@@ -1703,6 +1720,9 @@ public static partial class Game
             return ScheduleLightningStrike(remote, stream, ciphers, conn, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted);
+        if (IsSmite(gem.Effect))
+            return ScheduleSmite(remote, stream, ciphers, conn, skillId, gem, from, to, targetId,
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
         var supported = SupportedSkill(conn, skillId);
         int seals = UnleashSeals(conn, skillId, supported, ProjectileWorldTime(conn), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, "support_spell_rapid_fire_repeat_use_damage_+%_final") / 100d);
@@ -2118,7 +2138,8 @@ public static partial class Game
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
-        var centre = wave || SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam" ? from
+        var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+            : wave || SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam" ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
@@ -2146,7 +2167,7 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null)
+        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
             using (ProjectileMutation(conn, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
@@ -2307,7 +2328,7 @@ public static partial class Game
                         var shield = spell ? null : ShieldWeapon(conn, skillId);
                         var sourceWeapon = shield ?? WeaponFor(conn);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
-                        if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem)
+                        if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
                             is not { } capturedInputs) break;
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
                         // before the shared hit and ailment ancestry, so increases, more multipliers and prohibition
