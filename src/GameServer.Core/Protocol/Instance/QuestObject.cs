@@ -28,6 +28,8 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     public StateMachineData? StateMachine { get; init; }
     public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
     public byte Rarity { get; init; }
+    /// <summary>ObjectMagicProperties' name as Words.dat HASH32 parts (flags bit 8), as a unique item's or monster's. Empty by default.</summary>
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
     public bool Identified { get; init; } = true;
     public IReadOnlyList<(uint Key, int Value)> Stats { get; init => field = Owned.List(value); } = [];
     /// <summary>Base-data script variables containing one entity reference (141dedf80 / 141dfe5a0, type 1).</summary>
@@ -83,7 +85,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
                 case "Movement": w.U8(0).I32(GridX).I32(GridY).U32(0).U32(0).U32(0).U32(0).U8(0).U8(0); break;
                 case "ObjectMagicProperties":
                     if (Mods.Count == 0 && Rarity == 0) w.U16(0).U8(0).U8(0);
-                    else { MagicProperties.Write(w, Rarity, Identified, Mods, []); w.U8(0); }
+                    else { MagicProperties.Write(w, Rarity, Identified, Mods, NameWords); w.U8(0); }
                     break;
                 case "StateMachine": StateMachine!.Write(w); break;
                 case "TriggerableBlockage": if (Blocked) w.U8(1).U8(0); else w.U8(0); break;

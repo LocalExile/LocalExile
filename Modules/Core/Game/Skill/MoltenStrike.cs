@@ -295,7 +295,7 @@ public static partial class Game
                 targets.Add((eid, em, true));
 
             var splashMore = new Dictionary<uint, double>();
-            var merged = SupportedStats(conn, skillId);
+            var merged = SkillAreaStats(conn, SupportedSkill(conn, skillId).Stats, gem.Effect);
             int SplashStat(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
             if (targets.Count > 0 && MeleeSplash.Settings(SplashStat) is { } splash)
                 foreach (var (_, strikeMonster, _) in targets.ToArray())
@@ -335,6 +335,7 @@ public static partial class Game
             bleed = RepeatAilment(bleed, repeatMore);
             poison = RepeatAilment(poison, repeatMore);
             var criticalTrigger = CaptureCriticalTriggerSource(conn, skillId);
+            var meleeKillTrigger = CaptureMeleeKillTriggerSource(conn, skillId);
             bool fortificationGranted = false;
             bool rageGranted = false;
             var hitOrigins = new List<ProjectileVector>();
@@ -359,7 +360,7 @@ public static partial class Game
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
-                        .RollOutgoingHit(contactHit, Random.Shared)), now);
+                        .ForWeapon(local).RollOutgoingHit(contactHit, Random.Shared)), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
@@ -393,6 +394,8 @@ public static partial class Game
 
                 if (isStrikeTarget) hitOrigins.Add(ProjectileSession.Vector(mAt));
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
+                if (hit.Life == 0) ReleaseMeleeKillTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
+                    meleeKillTrigger, true, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
@@ -496,7 +499,7 @@ public static partial class Game
                 Ignite = RepeatAilment(shot.Ignite, damageScale), Bleed = RepeatAilment(shot.Bleed, damageScale),
                 Poison = RepeatAilment(shot.Poison, damageScale) };
 
-        var areaStats = MergeSkillStats(AreaPlayerStats(conn), own);
+        var areaStats = SkillAreaStats(conn, own, gem.Effect);
         int AreaGet(string name) => name == SkillArea.BaseIncreased
             ? (Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0) + (Stats.Key("molten_strike_radius_+%") is uint mk ? areaStats.GetValueOrDefault(mk) : 0)
             : Stats.Key(name) is uint ak ? areaStats.GetValueOrDefault(ak) : 0;

@@ -58,6 +58,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapStrongboxes.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapStrongboxes.Use);
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => MapStrongboxes.Tick(conn));
+        GameEvents.ChestsOpened.Add(module.Manifest.Id, MapStrongboxes.OpenNear);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, MapStrongboxes.CurseStats);
+        GameEvents.Packet(GameServer.Core.Protocol.Instance.InstanceItems.UseItemOnObjectId).Add(module.Manifest.Id, MapStrongboxes.UseItemOn);
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
@@ -240,6 +243,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(conn);
         Rules.ForgetVitalsAdmission(conn);
+        Rules.ForgetSourceValues(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(conn);
     }

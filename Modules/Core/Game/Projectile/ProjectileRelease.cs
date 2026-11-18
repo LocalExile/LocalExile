@@ -297,8 +297,10 @@ public static partial class Game
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
-        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1)
+        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
+        (int X, int Y)? from = null)
     {
+        // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
         // equipment/requirements/support walk for every field while holding the combat lock.
@@ -318,7 +320,7 @@ public static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
-        var at = totem?.At ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+        var at = totem?.At ?? from ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
@@ -338,7 +340,7 @@ public static partial class Game
         // (3.29.3c Positioned trace: player (391,352), every bolt starts (388,352) aimed left).
         double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
-        if (totem is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        if (totem is null && from is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
             (target - origin).Length, toTarget: rain) };
         // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
@@ -372,9 +374,9 @@ public static partial class Game
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsGroundCriticalChance = SupportedCriticalChanceVsGround(conn, skillId, release: true),
-            ActualCaster = totem is null ? null : TotemCasterStats(player),
+            ActualCaster = totem is null ? null : TotemCasterStats(player), FromTotem = totem is not null,
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
-            SkillStats = new Dictionary<uint, int>(own),
+            SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(conn, hitInputs,
                 AddedEffectiveness(conn, gem.Effect, gem.Level), local: local,
                 bow: !spell && WeaponProfileFor(conn, activeSet: true).Bow),
@@ -387,7 +389,7 @@ public static partial class Game
             ImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local),
             CriticalImpaleSettings = ImpaleStats.From(player, Stats, !spell, own, local, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(conn, skillId), CriticalRoll = criticalRoll,
-            Leech = HitLeechSources(player, !spell, own, local),
+            Leech = HitLeechSources(player, !spell, own, local), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(conn, skillId, NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand))),

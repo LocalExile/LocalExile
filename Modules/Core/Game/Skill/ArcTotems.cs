@@ -47,6 +47,7 @@ public static partial class Game
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
                     blind: blind);
+            OwnedKillLocked(m, accepted.Life);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }
 

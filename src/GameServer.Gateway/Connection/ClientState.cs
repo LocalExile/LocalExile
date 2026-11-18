@@ -357,6 +357,44 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // By (the player's PeerId, the aura's BuffDefinitions row): each client's buff instance of each player's enemy aura.
     public readonly Dictionary<(uint Peer, ushort Definition), ushort> PlayerAuras = [];
     public (int All, int Elemental, int Physical) TakenFromPlayer;
+    // Values and timed marks each player keeps on it, by (the player's PeerId, a key the rules name): a party shares its
+    // monsters, so each source sets and clears only its own entries and never another participant's. Guarded by the
+    // Monsters lock.
+    readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
+    readonly Dictionary<(uint Source, string Key), double> sourceMarks = [];
+    /// <summary>Whether any source keeps a value on it.</summary>
+    public bool HasSourceValues => sourceValues.Count > 0;
+    /// <summary>Every source's value of <paramref name="stat"/> on it.</summary>
+    public IEnumerable<(uint Source, int Value)> SourceValues(string stat)
+    {
+        foreach (var ((source, key), value) in sourceValues) if (key == stat) yield return (source, value);
+    }
+    /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
+    public void SetSourceValue(uint source, string stat, int value)
+    {
+        if (value == 0) { if (sourceValues.Count > 0) sourceValues.Remove((source, stat)); }
+        else sourceValues[(source, stat)] = value;
+    }
+    /// <summary>Marks <paramref name="key"/> as <paramref name="source"/>'s until <paramref name="until"/> (the later
+    /// of this and an earlier mark).</summary>
+    public void MarkSource(uint source, string key, double until)
+    {
+        if (until > sourceMarks.GetValueOrDefault((source, key), double.NegativeInfinity)) sourceMarks[(source, key)] = until;
+    }
+    /// <summary>Whether <paramref name="source"/>'s mark of <paramref name="key"/> runs at <paramref name="now"/>.</summary>
+    public bool SourceMarked(uint source, string key, double now) =>
+        sourceMarks.TryGetValue((source, key), out double until) && until > now;
+    /// <summary>Every source's mark of <paramref name="key"/> on it, expired ones included.</summary>
+    public IEnumerable<(uint Source, double Until)> SourceMarks(string key)
+    {
+        foreach (var ((source, k), until) in sourceMarks) if (k == key) yield return (source, until);
+    }
+    /// <summary>Removes every value and mark <paramref name="source"/> keeps on it (the source left the instance).</summary>
+    public void ForgetSource(uint source)
+    {
+        foreach (var key in sourceValues.Keys.Where(k => k.Source == source).ToList()) sourceValues.Remove(key);
+        foreach (var key in sourceMarks.Keys.Where(k => k.Source == source).ToList()) sourceMarks.Remove(key);
+    }
     // Pride's more Physical Damage taken, ramped by the time this monster has stayed in the aura (EnemyDebuffsTick).
     public double PrideSince = double.NaN;
     public double PridePhysicalMore;

@@ -44,8 +44,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
-  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
-  drop factors act ([maps](../docs/game/maps.md); offline only).
+  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage, the map's card and scarab
+  drop factors and the scarab-type weights (ScarabTypes: the Carapaces' `MoreLikely`, `DisableDrops`) act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
@@ -103,6 +103,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
   and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
+  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

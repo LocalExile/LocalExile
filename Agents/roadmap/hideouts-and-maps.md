@@ -56,6 +56,7 @@ bench.
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: remaining scarab engines, Ambush affixes, Essence corruption/skills, Torment spirits' skills and
   Evolution/Apparitions (#505);
+  maps: remaining scarab engines, Essence corruption/skills and Evolution/Apparitions (#505);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).

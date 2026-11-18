@@ -8,7 +8,11 @@ public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
-        double now, string by, StunHit? stun = null) => CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+        double now, string by, StunHit? stun = null)
+    {
+        OwnedKillLocked(monster, hit.Life);
+        CommitAcceptedHitLocked(conn, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
+    }
 
     static void CommitAcceptedHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, bool playerKill, bool deferKill = false, StunHit? stun = null)
@@ -99,7 +103,7 @@ public static partial class Game
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, MapModsOf(conn)));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,

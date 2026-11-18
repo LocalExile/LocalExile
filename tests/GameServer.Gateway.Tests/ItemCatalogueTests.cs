@@ -118,4 +118,20 @@ public sealed class ItemCatalogueTests
         Assert.Null(rolls.Fracture(rare with { Influences = ItemInfluence.Shaper }, random));
         Assert.Null(rolls.Fracture(rare with { Synthesised = true }, random));
     }
+
+    [Fact]
+    public void Exceptional_supports_are_creatable_and_ordinary_awakened_supports_are_not()
+    {
+        // SkillGems RegularVariant links every upgrade to its lesser gem; the experience type decides which may be made.
+        var items = new ItemCatalog("data");
+        var names = items.GemNames().ToHashSet();
+        Assert.Contains("Greater Multistrike Support", names);
+        Assert.Contains("Hextoad Support", names);
+        Assert.Contains("Greater Volley Support", names);
+        Assert.Contains("Awakened Empower Support", names);
+        Assert.DoesNotContain("Awakened Multistrike Support", names);
+        var greater = items.Gem(items.Find("Greater Multistrike Support")!)!;
+        Assert.True(greater.IsExceptional && !greater.IsAwakened && greater.IsVaalOrAwakened);
+        Assert.False(items.Gem(items.Find("Greater Volley Support")!)!.IsVaalOrAwakened);
+    }
 }

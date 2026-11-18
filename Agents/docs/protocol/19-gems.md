@@ -170,7 +170,9 @@ the transfigured item-name display still needs a native retest.
   - **Vaal skills** have a soul collector and native budget payloads; unsupported Vaal executors remain refused.
     See [27-vaal-souls.md](27-vaal-souls.md); collection does not enable casting.
 - **Not created** (`ItemCatalog.FindGem`, `/gem`): the "[DNT]" placeholder variants, the "[UNUSED] …", "[DNT] …" and
-  "WIP …" gem rows, the awakened supports other than Awakened Empower, Enhance and Enlighten, and the Vaal variants
+  "WIP …" gem rows, the awakened supports other than Awakened Empower, Enhance and Enlighten (a `RegularVariant` row
+  with a GemProgressionPlusN experience type; the Greater exceptional supports, Greater Volley and Greater Multiple
+  Projectiles also have a `RegularVariant` and are created), and the Vaal variants
   whose base skill is only a placeholder's (Vaal Fireball has only its normal variant). A Vaal variant's name is "Vaal "
   and its base variant's ("Vaal Ice Nova of Frostbolts"); the table names them all "Vaal Ice Nova". Whether the game
   names them so is unverified.

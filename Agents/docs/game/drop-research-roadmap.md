@@ -13,7 +13,7 @@ is not in the client tables needs a source and a confidence note.
 - [x] Currency item rows: `BaseItemTypes` (`DropLevel`), `CurrencyItems`
   (`StackSize`, `Action`, `CurrencyUseType`); 1,962 rows, no drop weight.
 - [x] Core currency table: `drop_currency_weights`, 36 rows (the 24 of `ItemDrops.Currency`, sum 4049.51, plus 12
-  estimated ones).
+  estimated ones; Engineer's and Harbinger's Orbs are disabled, the client marks them no longer usable).
 - [x] Divination card rows: `BaseItemTypes` class `DivinationCard`, `DropLevel`;
   no area list in the client.
 - [x] Boss identity: `WorldAreas.Bosses_MonsterVarietiesKeys`,

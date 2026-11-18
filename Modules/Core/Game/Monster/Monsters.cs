@@ -1547,13 +1547,17 @@ public static partial class Game
         return Math.Min(now, frame.Start);
     }
 
+    // The record belongs to the acting monster unless the caller names another published object: a Rampage weapon's
+    // hit answers with the weapon's own life (RampageIncoming), and the action's generation still gates that answer.
     public static async Task<bool> SendMonsterAction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null)
+        ClientState conn, uint id, SpawnedMonster m, int action, Func<byte[]?> packet, string? log = null,
+        uint? recordId = null)
     {
+        uint record = recordId ?? id;
         while (MonsterActionCurrent(conn, id, m, action))
         {
             bool checkedAtGate = false, sent = false;
-            await SendWorldRecord(remote, stream, ciphers, conn, id, [], log, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, record, [], log, atGate: () =>
             {
                 // The projectile runtime first, as in the AI pass: a lockstep order places its walk here, and a contact
                 // still pending before that would read the new walk's cells as the old walk's.
@@ -1564,7 +1568,7 @@ public static partial class Game
                     var bytes = packet();
                     sent = bytes is not null;
                     // The others in the instance see it too (SharedMonsters.cs).
-                    if (bytes is not null) BroadcastMonsterMessage(conn, id, bytes);
+                    if (bytes is not null) BroadcastMonsterMessage(conn, record, bytes);
                     return bytes;
                 }
             });
@@ -2152,8 +2156,8 @@ public static partial class Game
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
-            m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
-        AilmentsWhenHitLocked(m, StatOf, blocked, now);
+            InflictedLocked(conn, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
+        AilmentsWhenHitLocked(conn, m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
         if (conn.PlayerLife == 0) { DamageTriggers.Remove(conn); conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
