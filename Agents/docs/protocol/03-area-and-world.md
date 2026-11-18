@@ -154,6 +154,13 @@ come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Ruleset
 S→C 0x1e carries a ruleset event by name (such as `open_deepwater_device`, `update_collection_chest`); its layout is
 not decoded.
 
+A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterRules (ClientDeepwater) looks up the
+`DeepwaterPlugin` terrain plugin every frame (`0x1416851b0` → `0x141685030`, which returns 0x28 when it is missing, with
+no null check); only WorldAreas whose `TerrainPlugin` is DeepwaterPlugin (DeepwaterEncounter, DeepwaterEncounterVoyage)
+have it. Sent anywhere else, the client closed about 2 s later with no log line (live 2026-11-18: The Sovereign and The
+Twilight Strand). The Sovereign takes row 172 DeepwaterHubRules alone (no per-frame code). Row 171's area type 53 checks
+are for the Sovereign that the plugin adds inside an encounter as a secondary area (`0x141f32870`).
+
 ## Open
 
 - The real player start position for each town (area data, or a real capture).
