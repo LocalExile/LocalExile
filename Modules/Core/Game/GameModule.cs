@@ -61,6 +61,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => { MapStrongboxes.Leave(conn); return Task.CompletedTask; });
         GameEvents.StateBuilding.Add(module.Manifest.Id, MapStrongboxes.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapEssences.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabBosses.Opening);
         GameEvents.AreaGenerated.Add(module.Manifest.Id, MapEssences.Enter);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MapEssences.Use);
         GameEvents.Drops.Add(module.Manifest.Id, MapEssences.Drops);

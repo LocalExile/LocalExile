@@ -162,7 +162,10 @@ public static partial class Game
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && variety.BossHealthBar && MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety))
+            && MapDevices.Value.IsMapArea(conn.Layout.Hash);
+        if (mapBoss && MapModsOf(conn) is { } bossMap)
+            mods = mods with { Effects = mods.Effects.Combine(MapBossEffects(bossMap)) };
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
@@ -503,7 +506,7 @@ public static partial class Game
         }
         var mapMods = MapModsOf(conn);
         var scale = mapMods?.Packs ?? default;
-        var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
+        var spawns = AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points), .. layoutPacks], shrineGuards: shrineGuards,
@@ -511,7 +514,11 @@ public static partial class Game
             guardSpawnable: row => Spawnable(row) && Monsters.Find(row.ToString()) is { } guardVariety && Emerges.Kind(guardVariety) == EmergeKind.None,
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y)),
             additionalPacks: MapScarabPacks.Requests(mapMods),
-            ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0), mapMods).ToList();
+            ordinaryPacks: mapMods?.Get("map_monstrous_treasure_no_monsters") is not > 0);
+        var shrinePoints = ServerLevels.For(layout.Id, conn.Seed) is { } shrineRooms
+            ? ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, conn.Seed).Select(p => (p.X, p.Y)).ToArray() : [];
+        spawns.AddRange(MapScarabBosses.Guards(conn, shrinePoints, spawns));
+        spawns = WithTwinBosses(spawns, mapMods).ToList();
         spawns.AddRange(nests);
         foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
             foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))

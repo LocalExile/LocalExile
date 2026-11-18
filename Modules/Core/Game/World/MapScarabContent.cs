@@ -27,7 +27,7 @@ public static class MapScarabContent
         if (family == "Domination")
             return mods.Get("map_num_extra_apparition_shrines") > 0 ? "Shrines.Apparitions"
                 : mods.Get("map_num_extra_evolving_shrines") > 0 ? "Shrines.Evolving"
-                : mods.Get("map_shrines_have_standalone_map_boss") > 0 ? "Shrines.Terrors" : StandardShrines;
+                : mods.Get("map_shrines_have_standalone_map_boss") > 0 ? MapScarabBosses.Terrors : StandardShrines;
         if (family == "Strongbox")
             return mods.Get("map_strongbox_close_after_opening_chance_%") > 0 ? MapStrongboxes.Reopen
                 : mods.Get("map_strongbox_mod_effect_+%") > 0 ? "Ambush.Potency"

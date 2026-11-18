@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GameServer.Core.Protocol.Instance;
@@ -24,8 +23,8 @@ public static class MapStrongboxes
         public readonly SemaphoreSlim Gate = new(1, 1);
         public List<Box>? Boxes;
     }
-    static readonly ConditionalWeakTable<InstanceState, Area> Areas = new();
-    static readonly ConditionalWeakTable<ClientState, HashSet<uint>> Presented = new();
+    static readonly RuleTable<InstanceState, Area> Areas = new();
+    static readonly RuleTable<ClientState, HashSet<uint>> Presented = new();
 
     public static void Opening(MapOpening request)
     {
@@ -33,6 +32,9 @@ public static class MapStrongboxes
             || !StrongboxCatalog.All.Any(t => StrongboxCatalog.Weight(t, opening.Area.Level, LeagueFor(request.Conn).HardMode, opening.Mods) > 0)) return;
         request.HandledContent.UnionWith([Content, Reopen, Discernment, Containment]);
         MapScarabPacks.RollFragmentCount(request, CountStat, Random.Shared);
+        if (opening.Mods.Get(CountStat) > 0)
+            request.ContentWarnings.Add(("Ambush.Affixes",
+                $"area={opening.Area.Id} content=Ambush: guard/reward lifecycle enabled; box rarity/affix rolling, affix actions and currency targeting remain unsupported; ordinary container reward budget is replica balance"));
     }
 
     public static IReadOnlyList<(int X, int Y)> Positions(AreaLayout layout, uint seed, int count)

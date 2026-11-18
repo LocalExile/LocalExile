@@ -242,6 +242,35 @@ public sealed class ScarabEncounterTests
             await MapEssences.Enter(essenceOwner.Conn);
             Assert.Equal((released.Id, released.Stage, released.Monster), (Monoliths()[0].Id, Monoliths()[0].Stage, Monoliths()[0].Monster));
             Assert.Equal(released.Essences, Monoliths()[0].Essences);
+            var terrorStats = new Dictionary<string, int>(catalog.Of([slot, Slot("ScarabDomination4")], Program.Items.Mods).Stats)
+            {
+                ["map_boss_maximum_life_+%"] = 40, ["map_boss_damage_+%"] = 30,
+                ["map_boss_attack_and_cast_speed_+%"] = 20,
+            };
+            var terrorMods = new MapMods(terrorStats);
+            var terrorInstance = new InstanceState();
+            terrorInstance.OpenedWith(new("TerrorsOwner", new(layout.Hash, area.Id, "Strand", 3) { Level = 70 }, terrorMods));
+            terrorInstance.AreaStats(() => Compose(terrorMods));
+            await using var terrors = await Wire.Open(terrorInstance, layout, seed);
+            var terrorGuards = MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []);
+            Assert.Equal(plan.Count, terrorGuards.Count);
+            Assert.All(terrorGuards, s =>
+            {
+                Assert.Equal(GameServer.Core.Protocol.Instance.MonsterRarity.Unique, s.Rarity);
+                Assert.Equal(MapScarabBosses.PackId, s.Pack);
+                Assert.Contains("Standalone", Game.Monsters.Find(s.Variety.ToString())!.Id);
+            });
+            Assert.Equal(terrorGuards, MapScarabBosses.Guards(terrors.Conn, [.. plan.Select(p => (p.X, p.Y))], []));
+            var guardPlan = terrorGuards[0];
+            var guardVariety = Game.Monsters.Find(guardPlan.Variety.ToString())!;
+            uint bossId = await Game.SpawnMonster(terrors.Conn.Wire.Remote, terrors.Conn.Wire.Stream, terrors.Conn.Wire.Ciphers,
+                terrors.Conn, guardVariety, 70, guardPlan.Rarity, guardPlan.X, guardPlan.Y, unrisen: false);
+            var boss = terrors.Conn.Monsters[bossId];
+            Assert.Equal(40, boss.Mods.Effects["maximum_life_+%"]);
+            Assert.Equal(30, boss.Mods.Effects["damage_+%"]);
+            Assert.Equal(20, boss.Mods.Effects["attack_speed_+%"]);
+            Assert.Equal(20, boss.Mods.Effects["base_cast_speed_+%"]);
+            PlayerInventories.Forget(terrors.Conn.Character!);
             PlayerInventories.Forget(essenceOwner.Conn.Character!);
             PlayerInventories.Forget(essencePeer.Conn.Character!);
             PlayerInventories.Forget(boxOwner.Conn.Character!);
@@ -315,7 +344,12 @@ public sealed class ScarabEncounterTests
         essenceRequest.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(essenceRequest.Slots, Program.Items.Mods) };
         MapScarabContent.Describe(essenceRequest);
         MapEssences.Opening(essenceRequest);
-        Assert.Contains("Essence.Stability", Assert.Single(essenceRequest.UnhandledContent));
+        Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
+        Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("replica balance"));
+        var terrors = Request("ScarabDomination4");
+        MapScarabContent.Describe(terrors);
+        MapScarabBosses.Opening(terrors);
+        Assert.Empty(terrors.UnhandledContent);
     }
 
     sealed class Wire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable

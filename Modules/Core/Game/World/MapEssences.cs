@@ -33,6 +33,10 @@ public static class MapEssences
         if (Packs.For(opening.Area.Id)?.Scattered.Any(p => p.Pack.Entries.Any(e =>
             Monsters.Find(e.Variety.ToString()) is { Supported: true })) != true) return;
         request.HandledContent.UnionWith([Content, Ascent, Calcification]);
+        if (opening.Mods.Get("map_has_monoliths") > 0 || opening.Mods.Get("map_rare_monsters_trapped_in_essences") > 0
+            || opening.Mods.Get("map_essences_are_1_tier_higher_chance_%") > 0)
+            request.ContentWarnings.Add(("Essence.Parity",
+                $"area={opening.Area.Id} content=Essence: release/reward lifecycle enabled; base essence multiplicity/weights use replica balance, corruption and specialised essence skills remain unsupported"));
     }
 
     static IEnumerable<ClientState> Members(ClientState conn) => conn.Instance.PlayersExcept(conn.PeerId)
