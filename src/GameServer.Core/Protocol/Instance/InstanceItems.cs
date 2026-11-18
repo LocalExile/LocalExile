@@ -403,6 +403,9 @@ public static class InstanceItems
     /// <summary>Commands.dat row 44 (WarpToHideout, "/hideout") + 1: the chat command that goes to the hideout.</summary>
     public const byte WarpToHideoutCommand = 45;
 
+    /// <summary>Commands.dat row 70 (WarpToDeepwaterHub, "/boat") + 1: the chat command that goes to The Sovereign.</summary>
+    public const byte WarpToDeepwaterHubCommand = 71;
+
     /// <summary>Commands.dat row 35 <c>SetAFK</c> + 1.</summary>
     public const byte AfkCommand = 36;
     /// <summary>Commands row 7 "ForceResync" (the client's <c>oos</c>): sent by the network update 0x14214f1d0 when more than

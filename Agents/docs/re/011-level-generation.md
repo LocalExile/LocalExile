@@ -69,6 +69,8 @@ Checked: the first draw of Lioneye's Watch seed 1 is 1791095845 in the client tr
 `0x14204d4b0`: stat 0xc1f forces topology N (1-based), stat 0xc20 an orientation (else 8 = random). Otherwise
 `0x14202e270(area, world +0xd0)` lists the area's Topologies (WorldAreas in-memory +0x68 count / +0x70 rows) whose
 Topologies +0x2c equals world +0xd0, else those with 60 (the default; 59 = Deepwater variants), else retries with 1.
+World +0xd0 is S→C 0x1d's u8 at +0x28 (setter `0x142149550`), a LeagueCategoryToDisplayName id (59 = Deepwater, the
+Allflame leagues) or 60 for none; the Gateway sends `InstanceEvents.LeagueCategory` and generates with it.
 `0x14204d2c0` picks one (`PickIndexAndOrientation`, mask from Topologies +0x1c, a list of codes, 8 = all; every row
 lists `[0]` in 3.29.3b and 3.29.3c, so the orientation is 0). `0x14204cb90` then loads the graph (`0x141fffb90`: .dgr sets
 flag 1, .tgr not) and `0x14204c040` adds it as a subgraph: its master file (`0x1420429e0`: the area's TSI override at
@@ -679,6 +681,11 @@ entries, tile hash 1294234863, all 4 134 draws up to the doodads, every room of 
   `_glacier_vertical_01.tgr`, 36 × 57) generates tile for tile: tile hash 3320701478 and all 4 778 draws up to the
   doodads** (with the Village row in `mission_4_1.arm`, §3c2). One view vertex differs at the fill (18, 45): flag 2 in
   the client, not in the port; heights and tiles are equal.
+- **DeepwaterHub** (The Sovereign, `hub.dgr` 2 × 3 units of 12, OuterBufferSize `0 12 0 0`): its "graph" node at
+  (0, 0) places `hub_interior.dgr` (below deck, 2 × 1) as record 1 above the deck. Seed 1 matches its trace (tile hash
+  4068164930, all 588 draws, both grids, 128 doodads, heights); only the transitions check differs, by 2, which keeps
+  it out of server_level_areas. Its two boat gates (`Deepwater/Boat_AreaTransition_Animate`) are room lines, which the
+  recorder's tile-object hook (`0x142047e30`) never sees, so they do not explain the 2.
 - Not ported: turned subgraphs (orientation ≠ 0), the pool's
   rows in a `.tgr` subgraph's special nodes, sub-area records beside a `.tgr` primary (§3), and the rest of
   `0x14204c040` (oversize-feature / telepad-injector records).

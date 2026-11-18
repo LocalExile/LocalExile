@@ -772,6 +772,11 @@ static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveT
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
     LabyrinthNodeKey? labyrinthNode = Environment.GetEnvironmentVariable("LEVELGEN_LAB") is { } lab && lab.Split(':') is [var ls, var lr, var ld]
         ? new LabyrinthNodeKey(uint.Parse(ls), int.Parse(lr), int.Parse(ld)) : null;
+    // LEVELGEN_VARIANT: the league category (0x1d +0x28, 60 for none) the topology pick reads, e.g. 59 for Allflame's
+    // Deepwater variants of The Coast; LEVELGEN_STATS=id=value,…: the 0x1d area stats (1-based Stats ids).
+    int variant = int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_VARIANT"), out int variantOverride) ? variantOverride : 60;
+    if (Environment.GetEnvironmentVariable("LEVELGEN_STATS") is { Length: > 0 } statsText)
+        area = area with { Stats = statsText.Split(',').Select(p => p.Split('=')).ToDictionary(p => int.Parse(p[0]), p => int.Parse(p[1])) };
 
     GenerationResult? result = null;
     var rng = new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
@@ -804,7 +809,7 @@ static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveT
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
+    try { result = LevelGenerator.Generate(files, area, seed, topologyVariant: variant, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);

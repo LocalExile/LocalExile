@@ -8,7 +8,7 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceWaypoints
 {
-    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a, VisitMenagerieId = 0x17b, VisitDelveHubId = 0x17d, VisitSanctumId = 0x17e, VisitKingsmarchId = 0x181, VisitHeistHubId = 0x184, VisitChayulaHubId = 0x182;
+    public const ushort WaypointsId = 0x4c, OpenUiId = 0x7b, TravelId = 0x4d, VisitHideoutId = 0x17a, VisitMenagerieId = 0x17b, VisitDelveHubId = 0x17d, VisitSanctumId = 0x17e, VisitKingsmarchId = 0x181, VisitHeistHubId = 0x184, VisitChayulaHubId = 0x182, VisitDeepwaterHubId = 0x183;
 
     /// <summary>C→S 0x17d: the World panel's Mine Encampment pin (SpecialMapPins DelveHub), 6 bytes: u32 BE the waypoint
     /// object the panel was opened from (live 2026-10-30: <c>017D 00002F00</c>).</summary>
@@ -30,6 +30,11 @@ public static class InstanceWaypoints
     /// <summary>C→S 0x182: the World panel's Monastery of the Keepers pin (SpecialMapPins BrequelHub), 7 bytes as 0x17e
     /// (live 2026-10-30: <c>0182 00002F00 00</c>).</summary>
     public const int VisitChayulaHubLength = 7;
+
+    /// <summary>C→S 0x183: the World panel's Deepwater pin (SpecialMapPins DeepwaterHub, The Sovereign), 7 bytes: u32 BE the
+    /// waypoint object (widget +0x524), u8 1 when Ctrl is held (sender 0x140aa3880). The pin is enabled only while the
+    /// league category (0x1d +0x28) equals its <c>__col5</c>, 59.</summary>
+    public const int VisitDeepwaterHubLength = 7;
 
     /// <summary>
     /// C→S 0x17a: the World panel's Hideout button, opened from a waypoint (live 2026-10-20). u16 n + n bytes UTF-8: the

@@ -106,11 +106,13 @@ public partial class Program
                 // The area stats the instance is played with (0x1d's first list, InstanceEvents.AreaStats): the client
                 // generates its level with them, so the Gateway does too. Composed by the instance's first connection.
                 string characterName = string.IsNullOrEmpty(resolved.Character) ? "Exile" : resolved.Character;
-                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(
-                    ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup),
-                    new AreaStatsRequest(characterName, resolved.League, areaHash, map)));
-                // The client generates the area at the seed, level and stats of 0x1d: a seed the Gateway can generate too.
-                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats);
+                var areaLeague = ServerLeagues.Resolve(resolved.LeagueForm, resolved.League, LeagueCatalog.Startup);
+                var areaRequest = new AreaStatsRequest(characterName, resolved.League, areaHash, map);
+                var areaStats = instance.AreaStats(() => InstanceEvents.ComposeAreaStats(areaLeague, areaRequest));
+                // The league content category (0x1d +0x28, InstanceEvents.LeagueCategory): the client picks the topology by it.
+                int leagueCategory = InstanceEvents.ComposeLeagueCategory(areaLeague, areaRequest);
+                // The client generates the area at the seed, level, stats and category of 0x1d: a seed the Gateway can generate too.
+                uint seed = AreaLayouts.PlayableSeed(areaHash, resolved.Seed, areaLevel, areaStats, leagueCategory);
                 var layout = AreaLayouts.For(areaHash, seed);
                 AreaLayouts.Announce(layout, seed);
                 Console.WriteLine($"[gateway] {remote} ticket 0x{ticket:x8}: {resolved.Character ?? "?"} → instance {instanceId}, {layout.Describe()}");
@@ -156,7 +158,7 @@ public partial class Program
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),
-                    AchievementSets: moduleHeader?.AchievementSets);
+                    AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {conn.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}"));
                 await Logic.Entered(remote, conn, level, resolved.Level);

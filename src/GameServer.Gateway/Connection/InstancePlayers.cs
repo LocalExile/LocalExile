@@ -53,6 +53,29 @@ public static class InstanceEvents
         return sum;
     }
 
+    /// <summary>The league content category the instance is played in (S→C 0x1d +0x28, client world +0xd0;
+    /// <see cref="GameServer.Core.World.LeagueCategory"/>): the client's topology pick, SpecialMapPins <c>__col5</c> and the
+    /// object types' <c>league_category</c> read it, so the Gateway generates the level with it too. The first answer of
+    /// the league's modules wins; none is 60.</summary>
+    public static readonly GameEvent<Func<AreaStatsRequest, int?>> LeagueCategory = new();
+
+    /// <summary>The league's first answer to <see cref="LeagueCategory"/>, or 60; a failing answer counts as none.</summary>
+    public static int ComposeLeagueCategory(LeagueRuntime league, AreaStatsRequest request)
+    {
+        foreach (var compose in LeagueCategory.For(league))
+        {
+            int? value;
+            try { value = compose(request); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[gateway] league category of 0x{request.Area:x4} for {request.Character}: {ex.GetType().Name}: {ex.Message}");
+                continue;
+            }
+            if (value is not null) return GameServer.Core.World.LeagueCategory.Clamp(value);
+        }
+        return GameServer.Core.World.LeagueCategory.None;
+    }
+
     /// <summary>Two stat lists summed (the area stats and the league's own, both sent in 0x1d's first list).</summary>
     public static IReadOnlyDictionary<uint, int>? Merge(IReadOnlyDictionary<uint, int>? a, IReadOnlyDictionary<uint, int>? b)
     {

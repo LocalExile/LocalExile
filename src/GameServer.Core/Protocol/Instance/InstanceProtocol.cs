@@ -21,6 +21,13 @@ public static class InstanceProtocol
     /// <summary>S→C 0x11 (no fields, class 0x1431768d8): switches both directions to Salsa20.</summary>
     public static byte[] StartEncryption() => new LoginWriter().U16(StartEncryptionId).ToArray();
 
+    public const ushort AddRulesetId = 0x1f;
+
+    /// <summary>S→C 0x1f: u8 Rulesets row, u32 (big-endian, unused by the factories). Unless the instance already holds a
+    /// ruleset of that row, the client builds it from its factory table and adds it to the instance's ruleset list
+    /// (instance dispatcher 0x142150ae0 case 8, slot 8 0x1415a6800); client code finds a ruleset there by its row.</summary>
+    public static byte[] AddRuleset(byte row, uint value = 0) => new LoginWriter().U16(AddRulesetId).U8(row).U32(value).ToArray();
+
     /// <summary>
     /// S→C 0x21 (class 0x1435e65c8, write 0x1421a9710; dispatcher case 10): enter the area. Two stash tab lists
     /// (<see cref="InstanceStash.WriteTabs"/>: the personal stash → instance +0xc498, the trade tabs → +0xc4c8), vec16 of
@@ -95,7 +102,7 @@ public static class InstanceProtocol
         InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
         InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
         InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
-        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength,
+        InstanceWaypoints.VisitChayulaHubId => InstanceWaypoints.VisitChayulaHubLength, InstanceWaypoints.VisitDeepwaterHubId => InstanceWaypoints.VisitDeepwaterHubLength,
         InstanceTransfer.UseSkillOnObjectId => 12, InstanceTransfer.ChooseInstanceId => 3, ResurrectId => 3, InstanceItems.DropItemId => 2,
         InstanceItems.PickUpItemId => 13, InstanceItems.PlaceItemId => 18,
         // Ctrl + click with the map device open: a map sends one of these, never 0xe8 (that is the Atlas Idol path).
@@ -597,6 +604,7 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. Other optional parts remain off. Defaults follow the constructor (0x1421a42b0).
+/// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,

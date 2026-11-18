@@ -117,7 +117,8 @@ decides each one (row bytes: +0x10 i32, +0x14 QuestFlag, +0x24 WorldArea, +0x34 
   419 NecropolisAreaUnlocked, 1834 DeepwaterBoatUnlocked;
 - a WorldArea (+0x24) needs that area's waypoint bit (0x4c): the Labyrinth pin's Labyrinth_Airlock, which the Gateway
   always sends as activated (and accepts as a 0x4d destination);
-- the i32 at +0x34 (`__col5`), when 1-59, must equal the current area's value at `(+0xc278)+0xd0`;
+- the i32 at +0x34 (`__col5`), when 1-59, must equal the league category at world `(+0xc278)+0xd0`, which 0x1d's
+  +0x28 sets (`InstanceEvents.LeagueCategory`, [011](../re/011-level-generation.md) §3);
 - +0x3a set hides the pin (SynthesisHub); +0x39 needs the Hideouts key (Player +0x1f8);
 - the DelveHub row (index 4) also compares a level (`0x140aa7860`), which the tested character passed.
 
@@ -135,9 +136,10 @@ the panel was opened from; the Gateway moves the player to the hub (arriving at 
 | 0x184 | `0184 00002F00` | Rogue Harbour | HeistHub |
 
 The pin of each message was taken from the click that sent it (0x181 and 0x182 by the order they came in); the
-Guild Hideout, Halls of the Dead, Necropolis and Deepwater pins are not mapped yet. The Deepwater pin (`__col5` 59)
-sends nothing when clicked: the client refuses it outside its own area type, and `/goto DeepwaterHub` builds no layout
-(its graph nests `hub_interior.dgr` as a sub-graph node, which the level generator does not place yet).
+Guild Hideout, Halls of the Dead and Necropolis pins are not mapped yet. The Deepwater pin (`__col5` 59) sends nothing
+while the league category is 60; enabled, it sends 0x183 (`0183 <u32 BE object> <u8 Ctrl>`, from the click switch of
+`0x140aa3880`, not yet seen live). `/goto DeepwaterHub` builds no layout: its level generates and matches the
+client's, but it is not in server_level_areas yet ([011](../re/011-level-generation.md) §3c3).
 
 **Hub waypoints.** The hubs have no waypoint bit of their own, so the Gateway sends their tile's waypoint object anyway
 (`WaypointCatalog.For`) and the player can click it to travel back; where the tiles place none (HeistHub,

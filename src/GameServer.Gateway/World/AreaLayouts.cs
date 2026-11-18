@@ -124,6 +124,10 @@ public static class AreaLayouts
     public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats) =>
         ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats);
 
+    /// <inheritdoc cref="ServerLevels.PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int)"/>
+    public static uint PlayableSeed(ushort hash, uint seed, int areaLevel, IReadOnlyDictionary<uint, int>? stats, int category) =>
+        ServerLevels.PlayableSeed(IdOf(hash), seed, areaLevel, stats, category);
+
     public static AreaLayout For(ushort hash, uint seed)
     {
         var hideout = HideoutCatalog.ByArea(hash);
