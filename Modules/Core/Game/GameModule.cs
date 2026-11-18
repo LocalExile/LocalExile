@@ -132,6 +132,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Game.VaalImmortalCallTick(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Game.LeavingVaalImmortalCall(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));

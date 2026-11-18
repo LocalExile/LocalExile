@@ -1305,7 +1305,7 @@ public static partial class Game
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - lifeTrap);
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)lifeAfter - lifeTrap), now);
                         if (trapDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
@@ -1315,7 +1315,8 @@ public static partial class Game
                     if (InGracePeriod(conn)) pbLoss = 0;
                     if (pbLoss > 0 && lifeAfter > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero));
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn,
+                            (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero)), now);
                         if (pbDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
