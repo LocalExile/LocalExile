@@ -49,6 +49,7 @@ public static partial class Game
     {
         if (m.Dead || m.Life == 0 || !m.Ignites.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds,
                 aggravated: false, spread: 0, damageTakenPct: UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+        InflictedLocked(conn, m, AilmentType.Ignite, now + ignite.RemainingSeconds);
         return ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now);
     }
 
@@ -205,6 +206,7 @@ public static partial class Game
         if (!target.Ignites.TryApply(settings, critical, now, e["avoid_ignite_%"],
                 e["immune_to_ignite"] != 0 || e["cannot_be_ignited"] != 0, conn.IgniteRandom,
                 UtilityFlaskStat(conn, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+        InflictedLocked(conn, target, AilmentType.Ignite, now + settings.Seconds);
         // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
         if (settings.FireExposure < 0)
         {

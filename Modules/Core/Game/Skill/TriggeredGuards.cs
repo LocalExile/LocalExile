@@ -20,8 +20,8 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     static readonly RuleTable<ClientState, TriggeredGuard> TriggeredGuards = new();
-    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
-        is "QuickGuard" or "ImmortalCall" or "MoltenShell";
+    static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => GuardSpellEffect(SkillsFor(conn).EffectId(gem.Effect));
+    static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell";
 
     static TriggeredGuard? CurrentTriggeredGuard(ClientState conn, double now)
     {
@@ -126,7 +126,7 @@ public static partial class Game
 
     // Called immediately after the use's successful payment, under the connection lock: a guard skill cast from the
     // skill bar arrives here as well as a triggered one (Cast When Damage Taken).
-    public static void StartGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
+    public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
     {
         var gem = SupportedSkill(conn, skill);
         if (!TriggerGuardReady(conn, now)) return;

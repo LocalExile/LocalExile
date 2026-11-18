@@ -161,6 +161,7 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
         VerifyCriticalTrigger();
+        VerifyMeleeKillTrigger();
         VerifyChannelTrigger();
         VerifyAwakenedCriticalTrigger();
     }
@@ -249,7 +250,7 @@ public class DamageTakenTriggerTests
         var call = Game.GemSkillEffects(conn).Single(g => g.Name == "Immortal Call");
         var charges = Game.ChargesOf(conn);
         charges.State.Set(ChargeType.Endurance, 3, now + 4, charges.Limits(ChargeType.Endurance));
-        Game.StartGuard(conn, session, call.Id, now + 4);
+        Game.StartTriggeredGuard(conn, session, call.Id, now + 4);
         Assert.Equal(0, charges.Effective(ChargeType.Endurance));
         Assert.Equal((412, 750, 1000), Game.TriggeredGuardHit(conn, 1000, 1000, 1000, now + 4.1));
         Assert.False(Game.TriggerGuardReady(conn, now + 8.59));
@@ -258,7 +259,7 @@ public class DamageTakenTriggerTests
         conn.PlayerStats[Program.Stats.Key("base_minimum_endurance_charges")!.Value] = 1;
         _ = Game.CharacterPlayerStats(conn);
         charges.State.Set(ChargeType.Endurance, 7, now + 9, charges.Limits(ChargeType.Endurance));
-        Game.StartGuard(conn, session, call.Id, now + 9);
+        Game.StartTriggeredGuard(conn, session, call.Id, now + 9);
         Assert.Equal(2, charges.Effective(ChargeType.Endurance)); // At most five of seven are consumed.
         Assert.Equal(5u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
             Game.TriggeredGuardPresentation(conn, now + 9).AsSpan(^4)));
@@ -420,6 +421,51 @@ public class DamageTakenTriggerTests
                 Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
                 Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10.135));
                 Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10.137));
+            }
+            finally { session.Invalidate(); }
+        });
+    }
+    // Cast on Melee Kill: only a hostile kill by the linked melee attack releases the next linked spell.
+    static void VerifyMeleeKillTrigger()
+    {
+        WithCharacter(conn =>
+        {
+            conn.Clock.Start();
+            var names = new[] { "SkillGemCleave", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnKill" };
+            var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+            { Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White,
+                ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + n)!)))], Links = [4] };
+            Game.ItemsOf(conn).Add(PlayerInventories.BodyArmour, 0, 0, robe);
+            Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Cleave");
+            var fireball = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
+            var pulse = Game.GemSkillEffects(conn).Single(s => s.Name == "Freezing Pulse");
+            Assert.Null(Game.CaptureCriticalTriggerSource(conn, attack.Id));
+            var source = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureMeleeKillTriggerSource(conn, attack.Id));
+            Assert.Equal(new[] { fireball.Id, pulse.Id }, source.Spells.Select(s => s.Skill));
+            Assert.Contains("melee attack's kill", Game.TriggerOnlyReason(Game.SupportedSkill(conn, fireball.Id))!);
+            Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(conn, attack.Id)));
+            Assert.Equal(1.2, GemSupportDamage.Multipliers(GameServer.Core.World.DamageTypeHistory.Fire,
+                [("support_cast_on_melee_kill_spell_damage_+%_final", 20)], new HashSet<int> { 1 }).GeneralOrPhysical, 9);
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            var session = new Game.ProjectileSession("comk-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            try
+            {
+                int action = conn.ActionCount; uint mana = conn.PlayerMana;
+                Assert.False(Game.ReleaseMeleeKillTrigger(conn, session, source, false, true, (20, 0), 10));
+                Assert.False(Game.ReleaseMeleeKillTrigger(conn, session, source, true, false, (20, 0), 10));
+                Assert.Equal(mana, conn.PlayerMana);
+                Assert.True(Game.ReleaseMeleeKillTrigger(conn, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                var first = Assert.IsType<ProjectileOffense>(Assert.Single(session.Runtime.Projectiles).Use.Payload);
+                Assert.Equal(fireball.Id, first.SourceSkill); Assert.False(first.ClientPredicted);
+                Assert.True(conn.PlayerMana < mana);
+                Assert.True(Game.ReleaseMeleeKillTrigger(conn, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                Assert.Contains(session.Runtime.Projectiles, p => ((ProjectileOffense)p.Use.Payload!).SourceSkill == pulse.Id);
+                Assert.Equal(action, conn.ActionCount);
             }
             finally { session.Invalidate(); }
         });

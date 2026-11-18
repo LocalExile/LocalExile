@@ -28,7 +28,7 @@ public static partial class Game
             return TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
                 ? () =>
                 {
-                    StartGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds);
+                    StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds);
                 } : null;
         if (TriggerSummonSpell(conn, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));

@@ -629,7 +629,7 @@ public static partial class Game
                 && Stats.Key("skill_effect_duration") is uint durationKey)
                 stats[durationKey] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(own[baseDurationKey],
                     name => Stats.Key(name) is uint k ? playerStats.GetValueOrDefault(k) : 0,
-                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0));
+                    name => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0, DurationKinds(conn, effect)));
             // Devout of Lunaris: the client aims a self-targeted Nova at the cursor only on
             // virtual_self_targeted_skills_target_location_instead, which its calculator (FUN_14289d210) derives from these
             // three stats; network stats run no calculators (04 §4.1a), so without it the Nova stayed on the caster (live).
@@ -735,7 +735,7 @@ public static partial class Game
             // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
             if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
                 && Stats.Key("active_skill_secondary_area_of_effect_radius") is uint secondaryRadius)
-                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
+                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
             // Hammerfalls' controller times its waves by the skill's combined_main_hand_attack_speed_+% (0x141b1a270); with
             // none sent its waves kept 0.7 s whatever the attack speed (live 2026-11-11). The server's waves read the same.
             if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stats.Key("combined_main_hand_attack_speed_+%") is uint combinedSpeed)
@@ -762,6 +762,10 @@ public static partial class Game
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
+                // The skill's per-hand more multipliers, as its hits take them (SupportedSwingHit).
+                var (mainHandMore, dualWieldMore) = SkillsFor(conn).IsAttack(effect) && shieldWeapon is null
+                    ? HandDamageMore(conn, own) : (1, 1);
+                if (mainHandMore * dualWieldMore != 1) supportedHit = supportedHit.Scale(mainHandMore * dualWieldMore);
                 double seconds = SkillsFor(conn).IsAttack(effect)
                     ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
                     : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
@@ -794,14 +798,17 @@ public static partial class Game
                     })
                         if (Stats.Key(field) is uint key)
                             stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
-                    // A dual-wielded attack gem swings the off hand too: its own rows, with the same supports, and the
-                    // per-use / per-second / attacks-per-second rows average both hands.
-                    if (OffHandPanelStats(conn, playerStats, panelSources.MainHand, panelSources.OffHand,
+                    // A dual-wielded attack gem whose weapon restriction the off hand fits swings it too: its own rows,
+                    // with the same supports, and the per-use / per-second / attacks-per-second rows combine both hands
+                    // (alternating, or both at once for skill_double_hits_when_dual_wielding: AttackHands).
+                    var panelHands = shieldWeapon is null ? PanelHands(conn, id) : AttackHand.Main;
+                    if (panelHands != AttackHand.Main && OffHandPanelStats(conn, playerStats, panelSources.MainHand, panelSources.OffHand,
                             stats.GetValueOrDefault(StatKeys.MainHandAttackSpeedPct), own, effect) is { } offHand
                         && OffhandWeaponFor(conn) is { } offWeapon)
                     {
                         offInputs = SupportedHitInputsFor(conn, id, weapon: offWeapon);
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
+                        if (dualWieldMore != 1) offHit = offHit.Scale(dualWieldMore);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
                         double offSeconds = SupportedOffHandAttackSeconds(conn, id, offWeapon);
                         if (additionalAttackMs != 0)
@@ -812,7 +819,9 @@ public static partial class Game
                         }
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
                             offSeconds, damageFactor,
-                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
+                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own),
+                            both: panelHands == AttackHand.Both,
+                            bothSeconds: panelHands == AttackHand.Both ? SupportedAttackSeconds(conn, id, AttackHand.Both) : null);
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
                                 stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
@@ -820,6 +829,9 @@ public static partial class Game
                         stats[StatKeys.HundredTimesDamagePerSecond] = perSecond;
                         stats[StatKeys.HundredTimesAttacksPerSecond] = attacksPerSecond;
                     }
+                    // A skill only the main hand swings draws no Off Hand rows, whatever the character's default attack has.
+                    else if (panelHands == AttackHand.Main && Stats.Key("skill_uses_off_hand") is uint usesOffHand
+                        && !panelSources.Overrides.Contains(usesOffHand)) stats[usesOffHand] = 0;
                 }
                 if (Stats.Key(SkillsFor(conn).IsAttack(effect) ? "main_hand_critical_strike_chance" : "spell_critical_strike_chance") is uint ck)
                     stats[ck] = criticalChance;
