@@ -23,6 +23,17 @@ public sealed class PassiveConditionTests
         // A condition this build cannot answer keeps the stat as it was, never dropping or moving it.
         var unknown = Game.FoldPassiveConditions(passives, StatConditions.Subject.Unknown);
         Assert.Equal(25, unknown.GetValueOrDefault(conditional));
+
+        // The Staff Mastery's "increased Defences while wielding a Staff": the tree's plain name is defences_+%, which
+        // is not a stat; it folds onto global_defences_+%, which the armour, evasion, energy shield and ward pools read.
+        uint staffDefences = Program.Stats.Key("defences_+%_while_wielding_staff")!.Value;
+        uint globalDefences = Program.Stats.Key("global_defences_+%")!.Value;
+        var staff = new Dictionary<uint, int> { [staffDefences] = 30 };
+        var wielding = Game.FoldPassiveConditions(staff, new StatConditions.Subject(
+            Flags: new Dictionary<string, bool> { ["_while_wielding_staff"] = true }));
+        Assert.Equal(30, wielding.GetValueOrDefault(globalDefences));
+        Assert.Empty(Game.FoldPassiveConditions(staff, new StatConditions.Subject(
+            Flags: new Dictionary<string, bool> { ["_while_wielding_staff"] = false })));
     }
 
     [Fact]
@@ -52,15 +63,17 @@ public sealed class PassiveConditionTests
             [Program.Stats.Key("two_handed_melee_physical_damage_+%")!.Value] = 40,
             [Program.Stats.Key("fire_mace_damage_+%")!.Value] = 15,
             [Program.Stats.Key("sword_damage_+%")!.Value] = 99,
+            [Program.Stats.Key("two_handed_weapon_hit_and_ailment_damage_+%")!.Value] = 60,
+            [Program.Stats.Key("damage_+%_with_one_handed_weapons")!.Value] = 25,
         };
         int Get(string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         var twoHandMace = new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "Two Hand Mace" };
-        Assert.Equal(30, SupportedAttackDamage.WeaponIncrease(twoHandMace, Get));
+        Assert.Equal(90, SupportedAttackDamage.WeaponIncrease(twoHandMace, Get));
         var increases = WeaponTypeDamage.Of(twoHandMace, Get);
         Assert.Equal(60, increases.Physical);
         Assert.Equal(15, Assert.Single(increases.Typed!).Increased);
-        // A different family reads its own row, not the mace's.
-        Assert.Equal(99, SupportedAttackDamage.WeaponIncrease(
+        // A different family reads its own row and the one-handed rows, not the mace's or the two-handed ones.
+        Assert.Equal(124, SupportedAttackDamage.WeaponIncrease(
             new SkillCatalog.Unarmed(1000, 10, 20, 10) { ItemClass = "One Hand Sword" }, Get));
 
         // The same rows reach a damaging ailment: the family's ailment row and the two-handed melee ailment row join

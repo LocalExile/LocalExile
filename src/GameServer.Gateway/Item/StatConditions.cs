@@ -292,6 +292,9 @@ public static class StatConditions
         plain = plain switch
         {
             "evasion_+%" => "evasion_rating_+%",
+            // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
+            // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
+            "defences_+%" => "global_defences_+%",
             "evasion_rating_plus" => "base_evasion_rating",
             "evasion_rating_+" => "base_evasion_rating",
             "armour_+%" => "physical_damage_reduction_rating_+%",

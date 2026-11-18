@@ -48,9 +48,10 @@ public static class WeaponTypeDamage
     static bool TwoHanded(int weaponType) => weaponType is 2 or 4 or 8 or 11 or 17;
 
     /// <summary>The rows that apply to every damage type of this hand's hits ("increased Damage with Maces",
-    /// "increased Hit and Ailment Damage with Axes or Swords").</summary>
+    /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
+    /// rows, which are the Two Hand Mastery's 60% and its attack speed cost).</summary>
     public static int Any(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
-        Any(FamilyOf(weapon.ItemClass), get, ailment: false);
+        Any(FamilyOf(weapon.ItemClass), TwoHanded(weapon.ItemClass), get, ailment: false);
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
@@ -60,14 +61,29 @@ public static class WeaponTypeDamage
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>
     public static (int Any, HitIncreases Extra) Ailment(int weaponType, Func<string, int> get) =>
-        (Any(FamilyOf(weaponType), get, ailment: true),
+        (Any(FamilyOf(weaponType), TwoHanded(weaponType), get, ailment: true),
             Extra(FamilyOf(weaponType), TwoHanded(weaponType), get, ailment: true));
 
-    static int Any(string? family, Func<string, int> get, bool ailment)
+    static int Any(string? family, bool twoHanded, Func<string, int> get, bool ailment)
     {
         if (family is null) return 0;
         int value = get($"{family}_damage_+%") + get($"{family}_hit_and_ailment_damage_+%");
         if (ailment) value += get($"{family}_ailment_damage_+%") + get($"attack_ailment_damage_+%_while_wielding_{family}");
+        // The handedness rows are separate ids from the family's own, and the two-handed melee ones sit beside them.
+        if (twoHanded)
+        {
+            value += get("damage_+%_with_two_handed_weapons") + get("two_handed_weapon_hit_and_ailment_damage_+%")
+                + get("two_handed_melee_weapon_hit_and_ailment_damage_+%");
+            if (ailment) value += get("two_handed_weapon_ailment_damage_+%")
+                + get("attack_ailment_damage_+%_while_wielding_two_handed_weapon")
+                + get("damage_over_time_+%_while_wielding_two_handed_weapon");
+        }
+        else
+        {
+            value += get("damage_+%_with_one_handed_weapons") + get("one_handed_weapon_hit_and_ailment_damage_+%");
+            if (ailment) value += get("one_handed_weapon_ailment_damage_+%")
+                + get("attack_ailment_damage_+%_while_wielding_one_handed_weapon");
+        }
         return family switch
         {
             "mace" or "staff" => value + get("mace_or_staff_hit_and_ailment_damage_+%")
@@ -98,6 +114,11 @@ public static class WeaponTypeDamage
         foreach (var type in DamageTypeFamilies)
             if (get($"{type.ToString().ToLowerInvariant()}_{family}_damage_+%") is var value && value != 0)
                 (typed ??= []).Add((DamageTypes.HistoryOf(type), value));
+        if (twoHanded)
+            foreach (var (type, stat) in new[] { (DamageType.Fire, "two_handed_melee_fire_damage_+%"),
+                (DamageType.Cold, "two_handed_melee_cold_damage_+%") })
+                if (get(stat) is var value && value != 0)
+                    (typed ??= []).Add((DamageTypes.HistoryOf(type), value));
         return new(physical, elemental, typed);
     }
 
