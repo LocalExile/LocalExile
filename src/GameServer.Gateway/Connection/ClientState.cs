@@ -361,6 +361,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Monsters lock.
     readonly Dictionary<(uint Source, string Stat), int> sourceValues = [];
     readonly Dictionary<(uint Source, string Key), double> sourceMarks = [];
+    /// <summary>Whether any source keeps a value on it.</summary>
+    public bool HasSourceValues => sourceValues.Count > 0;
     /// <summary>Every source's value of <paramref name="stat"/> on it.</summary>
     public IEnumerable<(uint Source, int Value)> SourceValues(string stat)
     {
@@ -369,7 +371,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
     public void SetSourceValue(uint source, string stat, int value)
     {
-        if (value == 0) sourceValues.Remove((source, stat));
+        if (value == 0) { if (sourceValues.Count > 0) sourceValues.Remove((source, stat)); }
         else sourceValues[(source, stat)] = value;
     }
     /// <summary>Marks <paramref name="key"/> as <paramref name="source"/>'s until <paramref name="until"/> (the later

@@ -46,9 +46,12 @@ static class UniqueBeltsFeature
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
     internal static Dictionary<uint, int> WithStolenMods(ClientState conn, Dictionary<uint, int> sources)
     {
-        var stolen = conn.StolenMods.Stats();
-        var magic = Magic.TryGetValue(conn, out var fromMagic) ? fromMagic.Mods.Stats() : null;
-        if (stolen.Count == 0 && magic is not { Count: > 0 }) return sources;
+        // Every player stat build passes here: an empty set of stacks returns before Stats() groups anything.
+        bool rare = conn.StolenMods.Count > 0;
+        bool fromMagic = Magic.TryGetValue(conn, out var stolenMagic) && stolenMagic.Mods.Count > 0;
+        if (!rare && !fromMagic) return sources;
+        var stolen = rare ? conn.StolenMods.Stats() : new Dictionary<string, int>();
+        var magic = fromMagic ? stolenMagic!.Mods.Stats() : null;
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in magic is null ? stolen : stolen.Concat(magic))
             if (Stats.Key(stat) is uint key) stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);

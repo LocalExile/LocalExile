@@ -30,6 +30,8 @@ public static partial class Game
     {
         // Every hit's damage taken passes here: a monster no wearer keeps a value on returns before the enumeration.
         if (!m.HasSourceValues) return 0;
+        // Every hit's damage taken passes here: a monster no wearer keeps a value on returns before the enumeration.
+        if (!m.HasSourceValues) return 0;
         double total = 0;
         foreach (var (source, value) in m.SourceValues(PerAilmentTypeTaken)) total += value * AilmentTypesInflicted(m, source, now);
         return total;
