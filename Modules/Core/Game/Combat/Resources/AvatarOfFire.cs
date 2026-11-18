@@ -64,7 +64,7 @@ public static partial class Game
         uint[] hosts = alive && Get(AvatarRotationStat) > 0 ? [.. equipment
             .Where(e => active is null ? !IsInactive(conn, e.Item.Id)
                 : active.Any(item => ReferenceEquals(item, e.Item.Item)))
-            .Where(e => ItemModStats.Sum([e.Item.Item], ItemsFor(conn).Mods).GetValueOrDefault(AvatarRotationStat) > 0)
+            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(AvatarRotationStat) > 0)
             .Select(e => e.Item.Id).Order()] : [];
         var state = AvatarRotationOf(conn);
         double now = ResourceEffectsTime(conn);

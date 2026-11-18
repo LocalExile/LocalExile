@@ -174,7 +174,7 @@ public static partial class Game
             .Where(e => !IsInactive(conn, e.Item.Id)).Select(e => e.Item.Item).ToArray();
         return Stats.Key(LifeReservation.ItemPercentStat) is uint key
             && conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
-            : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat);
+            : WornItemSum(conn, active).GetValueOrDefault(LifeReservation.ItemPercentStat);
     }
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated

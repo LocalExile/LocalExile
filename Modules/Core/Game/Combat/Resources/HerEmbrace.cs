@@ -44,7 +44,7 @@ public static partial class Game
         bool alive = CurrentGameWork && !conn.Closed && !conn.RageRetired && conn.PlayerLife > 0;
         var hosts = alive ? ItemsOf(conn).EquipmentSnapshot()
             .Where(e => active is null ? !IsInactive(conn, e.Item.Id) : active.Any(i => ReferenceEquals(i, e.Item.Item)))
-            .Where(e => ItemModStats.Sum([e.Item.Item], ItemsFor(conn).Mods).GetValueOrDefault(HerEmbraceGain) > 0)
+            .Where(e => PlainItemSum(e.Item.Item, ItemsFor(conn).Mods).GetValueOrDefault(HerEmbraceGain) > 0)
             .Select(e => e.Item.Id).Order().ToArray() : [];
         double now = ResourceEffectsTime(conn);
         if (hosts.Length > 0) ResourceEffectsOf(conn);
