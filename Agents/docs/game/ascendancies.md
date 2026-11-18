@@ -87,6 +87,11 @@ A lower development level removes safely removable ordinary leaves only; it reta
 
 The existing ordinary passive stat aggregation also sees allocated ascendancy stats.
 The selection lifecycle alone does not implement a class's signature gameplay.
+Chieftain's Tasalio adds the given percentage of every fire-resistance modifier (including all-element and pair
+modifiers, so those count again) to cold and lightning resistance. Valako does the same with maximum fire resistance.
+Hinekora rolls its chance and deals 500% of the killed monster's life as fire, mitigated like the other life explosions.
+Tukohama adds Ancestral Call and Fist of War, at the stat's level, to skills socketed in body armour.
+Ngamahu, Tawhoa, Ramako and Sione have no consumer.
 Antiquarian's Ward, Adrenaline, duration, stun and Lioneye consumers are described in its linked class audit.
 
 ### Whaletooth Bangle duration stat

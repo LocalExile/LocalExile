@@ -38,6 +38,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Chieftain: Tasalio shares fire resistance, Valako shares maximum fire resistance, Hinekora explodes kills
+  for 500% of life as fire, and Tukohama supports body-armour skills with Ancestral Call and Fist of War.
+  Unaffected by Ignite already applied. Ngamahu, Tawhoa, Ramako and Sione do not.
+  Docs: [ascendancies](../docs/game/ascendancies.md).
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
