@@ -19,7 +19,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   against melee attacks) change the rating an enemy attack rolls against. Magebane removes Dexterity's inherent evasion
   bonus and grants 1% spell suppression per 15 Dexterity; Pain Attunement grants 30% more Spell Damage on low life.
   Elemental Overload's window grants 40% more Elemental Damage with hits and ailments, its critical strikes deal no
-  extra Damage and its ailments are never from critical strikes.
+  extra Damage and its ailments are never from critical strikes; the skill-icon diamond is sent and expires with the
+  window. Perfect Agony makes the ailment DoT multiplier the critical strike multiplier and only critical strikes
+  inflict ailments (damaging and non-damaging); with Elemental Overload no hit inflicts one. Lethe Shade doubles the
+  duration of ailments on you (reflected ones excepted) and halves DoT taken for a second after a damaging ailment
+  starts. Vaal Pact makes melee life leech instant and blocks life recovery other than leech.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive tree jewel sockets, percentage attribute mods, The Adorned and Split Personality's allocated paths,
   including nested clusters (tree art check pending).

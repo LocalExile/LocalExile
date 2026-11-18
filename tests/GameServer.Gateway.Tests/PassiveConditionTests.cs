@@ -195,5 +195,69 @@ public sealed class PassiveConditionTests
                 new DamageConversion(), Both).ToDictionary(r => r.Stat, r => r.Value);
         var bothSettings = MonsterIgnites.Settings.From(bothRows.Select(kv => (kv.Key, kv.Value)), "main_hand", Both);
         Assert.False(new MonsterIgnites().TryApply(bothSettings, critical: true, 0, 0, false, new Random(1)));
+
+        // Perfect Agony gates the non-damaging ailments too: a non-critical hit inflicts no chill, freeze or shock, and
+        // Elemental Overload makes every hit count as non-critical for ailments, so the two together inflict none.
+        Func<string, int> Elemental(int agony, int overload) => name => name switch
+        {
+            "keystone_ailment_crit" => agony,
+            "keystone_elemental_overload" => overload,
+            _ => 0,
+        };
+        var coldHit = DamagePacket.Of(DamageType.Cold, 10, 10);
+        var lightningHit = DamagePacket.Of(DamageType.Lightning, 10, 10);
+        Assert.Empty(new MonsterElementalAilments().Inflict(coldHit, false, 100, 0, Elemental(1, 0), _ => 0, new Random(1)));
+        Assert.NotEmpty(new MonsterElementalAilments().Inflict(coldHit, true, 100, 0, Elemental(1, 0), _ => 0, new Random(1)));
+        Assert.Empty(new MonsterElementalAilments().Inflict(coldHit, true, 100, 0, Elemental(1, 1), _ => 0, new Random(1)));
+        Assert.Empty(new MonsterElementalAilments().Inflict(lightningHit, true, 100, 0, Elemental(1, 1), _ => 0, new Random(1)));
+        // Elemental Overload alone: a "critical" cold hit still chills but no longer guarantees a freeze.
+        var eoCold = new MonsterElementalAilments().Inflict(coldHit, true, 100, 0, Elemental(0, 1), _ => 0, new Random(1));
+        Assert.Contains(eoCold, e => e.Kind == MonsterElementalAilments.Kind.Chill);
+        Assert.DoesNotContain(eoCold, e => e.Kind == MonsterElementalAilments.Kind.Freeze);
+
+        // Lethe Shade: ailments on you last twice as long (a reflected one does not), and the damaging-ailment DoT you
+        // take is halved while one started within the past second.
+        int Lethe(string name) => name == "keystone_lethe_shade" ? 1 : 0;
+        Assert.Equal(2, IncomingResourceDefences.LetheShadeAilmentDuration(Lethe));
+        Assert.Equal(1, IncomingResourceDefences.LetheShadeAilmentDuration(_ => 0));
+        var letheBleed = new IncomingDamagingAilments();
+        letheBleed.ApplyBleed(0, 10, 5, victim: Lethe);
+        Assert.Equal(10, letheBleed.BleedingUntil(0));   // 5 s doubled
+        Assert.Equal(0, letheBleed.LatestStart);
+        var reflectedBleed = new IncomingDamagingAilments();
+        reflectedBleed.ApplyBleed(0, 10, 5, reflected: true, victim: Lethe);
+        Assert.Equal(5, reflectedBleed.BleedingUntil(0));   // reflection keeps its duration
+        PlayerElementalAilments Ignited()
+        {
+            var a = new PlayerElementalAilments();
+            a.Apply(DamagePacket.Of(DamageType.Fire, 100, 100), DamagePacket.Of(DamageType.Fire, 100, 100),
+                critical: true, 1000, 0, Lethe, new Random(1));
+            return a;
+        }
+        // 100 fire × 90% × 1.3 critical = 117/s; the halved window takes 58 of it.
+        Assert.Equal(117, Ignited().Advance(0, 1, Lethe, 0, 0, false, null, 1));
+        Assert.Equal(58, Ignited().Advance(0, 1, Lethe, 0, 0, false, null, .5));
+
+        // Vaal Pact: melee life leech is instant, non-melee life leech is not; non-leech life recovery is blocked while
+        // leech itself still recovers.
+        int Vaal(string name) => name == "keystone_vaal_pact" ? 1 : 0;
+        Assert.True(PetrifiedBlood.NonLeechLifeRecoveryBlocked(Vaal));
+        Assert.False(PetrifiedBlood.NonLeechLifeRecoveryBlocked(_ => 0));
+        ClientState VaalPlayer(uint life) => new(new(1, "vaal", 300, 300, 100, 100, null, []), 1, 1)
+            { Pools = new(1, 1000, 1000, 0, 0), PlayerLife = life };
+        var vaalTarget = new SpawnedMonster("vaal", new(0, 0, 0), 0, 0, 1000) { Life = 1000 };
+        var meleeSources = new LeechSources(DamagePacket.Of(DamageType.Physical, 1000, 1000),
+            DamagePacket.Empty, DamagePacket.Empty) { Attack = true, Melee = true };
+        var meleeConn = VaalPlayer(800);
+        Game.LeechOf(meleeConn).Configure(0,
+            LeechLimits.Resolve(Vaal, meleeConn.Pools.Life, meleeConn.Pools.Mana, meleeConn.Pools.EnergyShield), Vaal, _ => null);
+        Game.LeechOnHitLocked(meleeConn, vaalTarget, DamagePacket.Of(DamageType.Physical, 500, 500), 500, meleeSources);
+        Assert.Equal(850u, meleeConn.PlayerLife);   // the 50 leeched life lands at once
+        var rangedConn = VaalPlayer(800);
+        Game.LeechOf(rangedConn).Configure(0,
+            LeechLimits.Resolve(Vaal, rangedConn.Pools.Life, rangedConn.Pools.Mana, rangedConn.Pools.EnergyShield), Vaal, _ => null);
+        Game.LeechOnHitLocked(rangedConn, vaalTarget, DamagePacket.Of(DamageType.Physical, 500, 500), 500, meleeSources with { Melee = false });
+        Assert.Equal(800u, rangedConn.PlayerLife);   // non-melee leech is over time
+        Assert.Equal(1, Game.LeechOf(rangedConn).Life.Count);
     }
 }

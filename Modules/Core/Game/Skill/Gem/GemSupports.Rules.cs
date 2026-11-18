@@ -420,7 +420,7 @@ public static partial class Game
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int life = Get("killing_blow_consumes_corpse_restore_x_life");
         int mana = Get("killing_blow_consumes_corpse_restore_x_mana");
-        if (life > 0 && conn.PlayerLife > 0)
+        if (life > 0 && conn.PlayerLife > 0 && !PetrifiedBlood.NonLeechLifeRecoveryBlocked(Get))
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + life);
         if (mana > 0 && conn.PlayerLife > 0)
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);

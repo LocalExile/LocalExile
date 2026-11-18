@@ -325,7 +325,7 @@ public static partial class Game
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
             int criticalMultiplierBase = SupportedCriticalMultiplier(conn, skillId);
             var accuracy = SupportedAccuracy(conn, skillId);
-            var leech = HitLeechSources(player, true, skillStats, local);
+            var leech = HitLeechSources(player, true, skillStats, local, melee: true);
             var impale = ImpaleStats.From(player, Stats, true, skillStats, local);
             var criticalImpale = ImpaleStats.From(player, Stats, true, skillStats, local, critical: true);
             var ignite = SupportedIgnite(conn, skillId, spell: false, player);

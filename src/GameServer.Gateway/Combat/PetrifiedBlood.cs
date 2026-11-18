@@ -177,6 +177,13 @@ public static class PetrifiedBlood
     public static bool BlocksRecovery(ClientState conn) =>
         conn.PetrifiedBlood.Active && conn.PlayerLife > 0 && conn.PlayerLife >= LowLifeMaximum(conn);
 
+    /// <summary>Whether life recovery that is not leech is blocked: <c>cannot_recover_life</c>, or Vaal Pact's "Cannot
+    /// Recover Life other than from Leech". Checked where life is committed, not on the stats, so Zealot's Oath and the
+    /// like still convert life recovery to Energy Shield. Leech reads <c>cannot_recover_life</c> on its own and is not
+    /// touched by the keystone (poewiki /wiki/Vaal_Pact).</summary>
+    public static bool NonLeechLifeRecoveryBlocked(Func<string, int> get) =>
+        get("cannot_recover_life") != 0 || get("keystone_vaal_pact") != 0;
+
     /// <summary>
     /// Splits a hit's post-Energy-Shield Life loss into the part taken at once and the part Petrified Blood defers.
     /// Only the loss below half Life is protected, so a hit that leaves the player above Low Life is unchanged.

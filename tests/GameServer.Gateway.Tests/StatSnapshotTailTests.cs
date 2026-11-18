@@ -634,7 +634,7 @@ public class StatSnapshotTailTests(Xunit.Abstractions.ITestOutputHelper output)
         lock (conn.Monsters)
         {
             object leech = Game("LeechOf", conn)!;
-            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true]);
+            leech.GetType().GetMethod("Hit")!.Invoke(leech, [Now(), (500.0, 0.0, 0.0), false, false, false, true, false]);
         }
         Step("leeching");
         lock (conn.Monsters)

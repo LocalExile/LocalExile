@@ -548,7 +548,7 @@ public static partial class Game
                     gambler.InvertsResistance(Random.Shared));
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
-                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources));
+                    HitLeechSources(player, true, ownPenetration, weapon.LocalSources, weapon.Melee));
                 (damage, stored, impaled) = WithImpaleHitLocked(conn, m, damage, ownRolled, critical, sourceCriticalMultiplier,
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
@@ -2346,7 +2346,7 @@ public static partial class Game
                         mods = HitResistMods(player, skillStats);
                         sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                         if (!spell) accuracy = SupportedAccuracy(conn, skillId);
-                        leech = HitLeechSources(player, !spell, skillStats, local);
+                        leech = HitLeechSources(player, !spell, skillStats, local, !spell && SkillsFor(conn).IsMelee(gem.Effect));
                         impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
                         criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
                     }
