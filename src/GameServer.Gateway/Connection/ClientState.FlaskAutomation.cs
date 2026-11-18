@@ -29,6 +29,9 @@ public sealed class FlaskAutomationState
     public readonly SemaphoreSlim UseGate = new(1, 1);
     // Presentation receipts and revisions are accessed under Monsters, including at the send gate.
     public readonly List<FlaskOutput> Packets = [];
+    /// <summary>One publisher drains Packets at a time: several loops publish them (recovery, the projectile output,
+    /// flask use), and two that took the same create each reserved its object id.</summary>
+    public readonly SemaphoreSlim PublishGate = new(1, 1);
     public long StatRevision, PresentedStatRevision;
     public void Enqueue(FlaskAutomationEvent signal, FlaskAutomationChain? chain = null)
     {

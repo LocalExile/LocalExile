@@ -119,7 +119,6 @@ public static class StatConditions
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
         "_while_you_have_avatar_of_fire", "_while_you_do_not_have_avatar_of_fire",
-        "_while_affected_by_elusive",
         "_if_you_have_beast_minion",
         "_if_golem_summoned_in_past_8_seconds",
         "_while_in_blood_stance", "_in_blood_stance", "_while_in_sand_stance", "_in_sand_stance",
@@ -286,8 +285,6 @@ public static class StatConditions
 
     static string? FoldFromPlain(string statId, Func<string, bool> exists, string? candidate)
     {
-        if (statId == "additional_critical_strike_chance_permyriad_while_affected_by_cat_aspect")
-            return exists("additional_base_critical_strike_chance") ? "additional_base_critical_strike_chance" : null;
         if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
             || IncomingAilmentEffects.Expands(statId)) return null;
         if (candidate is not { } plain) return null;
