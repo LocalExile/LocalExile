@@ -138,7 +138,8 @@ public void Load(IModContext mod)
 Every setting has `type` and `default` (a group excepted), and may have:
 
 - `label` and `description`, an editor's text; `unit` (`s`, `min`, `%`, `cells`, …); `format`: `percent` (0.15 shown as
-  15%), `duration` (seconds shown as minutes and seconds) or `multiplier` (0.25 shown as ×0.25).
+  15%), `duration` (seconds shown as minutes and seconds), `multiplier` (0.25 shown as ×0.25), or `password`
+  (masked text in the editor, stored as plain text in the user's settings).
 - `options`: values, or `{"value": …, "label": "…"}` for an editor's text.
 - `source`: the game's values of a kind, checked once the game module is loaded: `area`, `monster`, `item`, `gem`,
   `stat`, `npc` or `quest_flag` (what the chat commands complete, and what `GameServer.Gateway values <kind>` lists).

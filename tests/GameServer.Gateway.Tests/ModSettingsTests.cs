@@ -60,6 +60,9 @@ public sealed class ModSettingsTests
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "integer", "default": 1.5 } } }"""));
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "choice", "default": "a" } } }"""));
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "bool", "default": true, "colour": 1 } } }"""));
+        var passwordSchema = ModSettings.Parse("""{ "settings": { "secret": { "type": "text", "format": "password", "default": "" } } }""");
+        Assert.Equal("sample-value", ModSettings.Merge(passwordSchema, """{ "secret": "sample-value" }""", log.Add)["secret"]!.GetValue<string>());
+        Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "bool", "format": "password", "default": true } } }"""));
         string modSources = Path.Combine("Mods", "Source");
         var shipped = Directory.GetFiles("Modules", ModSettings.FileName, SearchOption.AllDirectories)
             .Concat(Directory.Exists(modSources) ? Directory.GetFiles(modSources, ModSettings.FileName, SearchOption.AllDirectories) : [])

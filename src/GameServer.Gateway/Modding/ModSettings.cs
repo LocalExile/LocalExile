@@ -19,7 +19,7 @@ public static class ModSettings
     static readonly JsonSerializerOptions Write = new() { WriteIndented = true };
 
     static readonly string[] Types = ["bool", "integer", "number", "range", "choice", "choices", "text", "list", "map", "group"];
-    static readonly string[] Formats = ["percent", "duration", "multiplier"];
+    static readonly string[] Formats = ["percent", "duration", "multiplier", "password"];
     static readonly string[] Applies = ["now", "nextArea", "restart"];
     // What a declaration may hold, beside its type; what is only for an editor (label, unit, ...) is checked for its shape.
     static readonly string[] Attributes = ["type", "default", "label", "description", "min", "max", "step", "unit", "format", "options",
@@ -82,7 +82,11 @@ public static class ModSettings
         string type = Text(d, "type", path) ?? throw new FormatException($"\"{path}\" has no type");
         if (!Types.Contains(type)) throw new FormatException($"\"{path}\": type \"{type}\" is not one of {string.Join(", ", Types)}");
         foreach (string text in new[] { "label", "description", "unit" }) Text(d, text, path);
-        if (Text(d, "format", path) is { } format && !Formats.Contains(format)) throw new FormatException($"\"{path}\": format \"{format}\" is not one of {string.Join(", ", Formats)}");
+        if (Text(d, "format", path) is { } format)
+        {
+            if (!Formats.Contains(format)) throw new FormatException($"\"{path}\": format \"{format}\" is not one of {string.Join(", ", Formats)}");
+            if (format == "password" && type != "text") throw new FormatException($"\"{path}\": password format requires text");
+        }
         if (Text(d, "applies", path) is { } applies && !Applies.Contains(applies)) throw new FormatException($"\"{path}\": applies \"{applies}\" is not one of {string.Join(", ", Applies)}");
         if (d["advanced"] is { } advanced && advanced.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) throw new FormatException($"\"{path}\": advanced is not true or false");
         if (d["when"] is { } when && when is not JsonObject) throw new FormatException($"\"{path}\": when is not an object of setting to value");
