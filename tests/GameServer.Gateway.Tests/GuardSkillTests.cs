@@ -71,4 +71,36 @@ public sealed class GuardSkillTests
             cooldownUse: ticket);
         Assert.Empty(Game.TriggeredGuardPresentation(cloak.Conn, cloak.Conn.Clock.Elapsed.TotalSeconds));
     }
+
+    // Issue #1127: a guard's stat-only start rebuilt the skill bar (0x53), which re-creates every slot and resets its
+    // cooldown entry to the skill's own recovery rate, replaying the bar's cooldown animation. Only a real skill change
+    // (a skill added or removed) rebuilds the bar; a pure stat refresh keeps the slots and their entries.
+    [Fact]
+    public async Task A_stat_only_skill_refresh_does_not_rebuild_the_skill_bar()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Immortal Call", 1), ("Steelskin", 1));
+        CharacterSaves.SetSkillBar(f.Conn.Character!, 2, "ImmortalCall");
+        CharacterSaves.SetSkillBar(f.Conn.Character!, 3, "Steelskin");
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, f.Ciphers)) packets.Add(bytes.ToArray()); };
+        bool Bar(byte[] p) => p.Length > 2 && p[0] == 0 && p[1] == 0x53;
+        try
+        {
+            // The login refresh establishes the client's skill ids (and binds the saved bar).
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "login");
+            packets.Clear();
+            // A guard or self buff starting/ending, or an aura's stats recalculated, adds and removes no skill: the bar
+            // must not go out again, so the slots keep their cooldown entries (the guard's held freeze is not reset).
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "guard started");
+            Assert.DoesNotContain(packets, Bar);
+            packets.Clear();
+            // A skill leaving the equipment is a real change: a bound slot may have emptied, so the saved bar goes out.
+            f.Equip(("Immortal Call", 1));
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "gem removed");
+            Assert.Contains(packets, Bar);
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
 }

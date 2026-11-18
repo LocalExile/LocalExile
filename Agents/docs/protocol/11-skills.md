@@ -1577,7 +1577,10 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   5.32 s), and a zero rate on it stops the ring with the icon dark and no sweep, as the official client's frozen entry
   (`3.00 / 3.00 / rate 0`) shows; the press prediction the client makes from 0x1ce keeps its own rate
   (`1 + 113 %` = 2.13 here), so the server's entry has to follow it. Every repeated entry replays the bar's cooldown
-  animation, so one press must publish one entry.
+  animation, so one press must publish one entry. A 0x53 skill bar rebuild also re-creates the slot and resets its entry
+  to the skill's own recovery rate (a held rate-0 entry sent before the rebuild counted again at rate 2.13 right after
+  it), so a stat-only skill refresh — a guard or self buff starting/ending — does not rebuild the bar; only a skill added
+  or removed does (#1127).
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
