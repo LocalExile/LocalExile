@@ -296,6 +296,18 @@ in 0x008f `Game_MAP_PORTAL_LIST_MS` (100) after its create; on entering the hide
 `Game_MAP_PORTAL_ENTRY_MS` (1500). With a list delay of 0 each portal is drawn only by the next one's list, so the last
 never is (live). The open map keeps the places left (0–5 on the ring), so the portal taken is the one missing later.
 
+**Opening or idle.** The 0x008f handler keeps every listed entry in a world table keyed by the portal object, and stores
+it even when that object does not exist yet. It calls Portal slot +0xb8 with a 4th argument "opened" (`0x14218c9e0`,
+the call at `0x14218cc4c`) when the message's bit 0 is set, or the entry is new in that table, or its area, variation,
+model or owner changed. With "opened" the Portal component plays its `townportalopen` clip (the Portal block key read
+by `0x14161bd10` into +0x18), otherwise `townportal`, the idle loop (+0x38), unless that clip already plays. The
+Transitionable state 1 we send (MultiplexPortal's `create_untransitioned`: `townportalclose` at its end) draws
+nothing before the list. So a portal's first list always plays its opening, and a portal that already stands when the
+player arrives is listed once **before** its create: the later lists find the same entry and leave it idle. On entry the
+hideout's portals come up together this way (no gap); the portal back in a map, the portal back in a town and a
+reopened town portal are listed the same way (`Game.ListStandingPortal`). An Activate and a Portal Scroll still open
+theirs.
+
 **In the map.** Every area a map opens (`MapDevice.IsMapArea`) gets a portal back next to the arrival point, listed in
 0x008f with device 0 (the handler then skips the device's events but still sets the portal's area): it leads to the
 hideout and is not used up. The map's monster packs are its Maps.dat `MonsterPacksKeys` (Beach: `atlas-crab1`, level

@@ -145,7 +145,7 @@ public static partial class Game
                 string? ordinaryProjectile = OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true));
                 if (use.SkillId == SkillCatalog.FirstSkillId && ordinaryProjectile is not null)
                 {
-                    double duration = WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn));
+                    double duration = DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn));
                     if (!TryBeginRangedAttack(conn, at, duration, use.SkillId, use.Slot, out var shot)) continue;
                     int projectileEpoch;
                     lock (conn.Monsters) projectileEpoch = conn.ProjectileEpoch;
@@ -225,7 +225,7 @@ public static partial class Game
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
                 // (its pending hit), pay its cost or get a 0x1ab (live 2026-10-25).
                 bool leapSkill = attack && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
-                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
+                if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds, use.Slot))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
                     continue;
@@ -321,7 +321,7 @@ public static partial class Game
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
                             conn.NextAttackAt = AttackTiming.After(at, conn.NextAttackAt,
-                                Math.Max(TickSeconds, WeaponFor(conn).AttackSeconds(CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
+                                Math.Max(TickSeconds, DefaultAttackSeconds(conn, use.Slot, CharacterPlayerStats(conn)) / PlayerActionFactor(conn)));
                     }
                 }
                 Mark("begin");

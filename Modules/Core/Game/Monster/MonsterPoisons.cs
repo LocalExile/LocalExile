@@ -26,7 +26,7 @@ public static partial class Game
             ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         return WithOverheat(conn, skillId, MonsterPoisons.Settings.From(rows, hand, get,
-            spell || weapon is not null ? null : MainHandLocalSources(conn)));
+            spell ? null : weapon is null ? MainHandLocalSources(conn) : weapon.LocalSources));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
