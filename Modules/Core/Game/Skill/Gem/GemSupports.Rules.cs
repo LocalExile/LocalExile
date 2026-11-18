@@ -655,7 +655,7 @@ public static partial class Game
         var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
         var raw = secondary ? SecondaryRawHit(conn, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
-            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(conn, attackWeapon, caster, gem.Stats)),
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(conn, weapon, caster, gem.Stats)),
                 coefficients.Base, coefficients.Added)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
         if (!attack && !secondary && addedChaos > 0)
@@ -742,7 +742,7 @@ public static partial class Game
         var own = SupportedSkill(conn, skillId).Stats;
         var player = CharacterPlayerStats(conn);
         return AttackAccuracyProfile.From(conn.Pools, player, Stats, own, MainHandLocalSources(conn))
-            with { Rating = WeaponAccuracyFor(conn, WeaponFor(conn), player, own) };
+            with { Rating = WeaponAccuracyFor(conn, null, player, own) };
     }
 
     public static int SupportedCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, false);

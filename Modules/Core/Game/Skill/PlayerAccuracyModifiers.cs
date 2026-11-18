@@ -24,13 +24,13 @@ public static class PlayerAccuracyModifiers
 
 public static partial class Game
 {
-    // A real substituted weapon supplies its own local accuracy. A shield damage override has no weapon-local
-    // input packet and retains the skill's ordinary accuracy, as the existing shield hit-chance path does.
-    public static int WeaponAccuracyFor(ClientState conn, SkillCatalog.Unarmed weapon,
+    // Pools already include main-hand local accuracy. Only a substituted weapon replaces that contribution.
+    // A shield damage override has no local weapon packet and uses the ordinary rating.
+    public static int WeaponAccuracyFor(ClientState conn, SkillCatalog.Unarmed? weapon,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null)
     {
         long Own(string name) => Stats.Key(name) is uint key ? own?.GetValueOrDefault(key) ?? 0 : 0;
-        long localDifference = weapon.LocalSources is { } local
+        long localDifference = weapon?.LocalSources is { } local
             ? (long)local.GetValueOrDefault("local_accuracy_rating")
                 - (MainHandLocalSources(conn)?.GetValueOrDefault("local_accuracy_rating") ?? 0) : 0;
         return PlayerAccuracyModifiers.Selected(conn.Pools, WeaponProfileFor(conn, activeSet: true), Own,

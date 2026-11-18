@@ -863,7 +863,7 @@ static partial class SurvivorsSkills
         var skillKeys = SurvivorsKeyStats(skillStats);
         var accuracy = spell ? new AttackAccuracyProfile(int.MaxValue)
             : AttackAccuracyProfile.From(conn.Pools, playerKeys, Stats, skillKeys, weapon.LocalSources)
-            with { Rating = WeaponAccuracyFor(conn, weapon, playerKeys, skillKeys) };
+            with { Rating = WeaponAccuracyFor(conn, null, playerKeys, skillKeys) };
         var conversion = DamageStats.Conversion(mergedKeys, Stats, skill.Attack);
         List<(string Name, int Value)> supportMods = [];
         foreach (int index in run.SupportsOf(skillIndex))
