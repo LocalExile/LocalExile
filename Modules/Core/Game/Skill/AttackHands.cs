@@ -37,20 +37,31 @@ public static class AttackHands
         ((sequence + stage) & 1) == 0 ? AttackHand.Main : AttackHand.Off;
 
     /// <summary>The hand recorded for this use, or <paramref name="select"/>'s answer (given the sequence to alternate
-    /// on, 0 for a server use) recorded now.</summary>
+    /// on, 0 for a server use) recorded now. The log's lock is a leaf: <paramref name="select"/> runs outside it, since
+    /// it reads the skill and equipment under the connection's own locks (conn.Monsters), which a caller may already
+    /// hold (a contact under its combat lock) or take later (a use's admission). When two threads select the same use
+    /// at once, the first to record wins and both return its hand.</summary>
     public static AttackHand Resolve(ClientState conn, ushort skill, ushort sequence, Func<ushort, AttackHand> select)
     {
         if (!ClientSequence(sequence)) return select(0);
         var log = Logs.GetValue(conn, _ => new Log());
         lock (log)
+            if (Recorded(log, skill, sequence) is { } known) return known;
+        var hand = select(sequence);
+        lock (log)
         {
-            for (int i = 0; i < log.Count; i++)
-                if (log.Uses[i].Skill == skill && log.Uses[i].Sequence == sequence) return log.Uses[i].Hand;
-            var hand = select(sequence);
+            if (Recorded(log, skill, sequence) is { } raced) return raced;
             log.Uses[log.Next] = (skill, sequence, hand);
             log.Next = (log.Next + 1) % Remembered;
             log.Count = Math.Min(Remembered, log.Count + 1);
             return hand;
+        }
+
+        static AttackHand? Recorded(Log log, ushort skill, ushort sequence)
+        {
+            for (int i = 0; i < log.Count; i++)
+                if (log.Uses[i].Skill == skill && log.Uses[i].Sequence == sequence) return log.Uses[i].Hand;
+            return null;
         }
     }
 

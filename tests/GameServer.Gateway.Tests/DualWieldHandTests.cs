@@ -105,6 +105,30 @@ public sealed class DualWieldHandTests
             // The server's own uses (no client sequence) do not alternate.
             Assert.Equal(AttackHand.Main, Game.AttackHandFor(conn, both, 0xffff));
 
+            // Lock order: a use's admission selects its hand (reading the skill under conn.Monsters) while a contact,
+            // already holding conn.Monsters, asks for its own use's hand. The selection must not hold the hand log's lock.
+            using (var selecting = new ManualResetEventSlim()) using (var contactHolds = new ManualResetEventSlim())
+            {
+                bool admitted = false;
+                var admission = Task.Run(() => AttackHands.Resolve(conn, both, 0x8041, _ =>
+                {
+                    selecting.Set();
+                    contactHolds.Wait(TimeSpan.FromSeconds(10));
+                    admitted = Monitor.TryEnter(conn.Monsters, TimeSpan.FromSeconds(10));
+                    if (admitted) Monitor.Exit(conn.Monsters);
+                    return AttackHand.Off;
+                }));
+                var contact = Task.Run(() =>
+                {
+                    Assert.True(selecting.Wait(TimeSpan.FromSeconds(10)));
+                    lock (conn.Monsters) { contactHolds.Set(); return Game.AttackHandFor(conn, both, 0x8040); }
+                });
+                Assert.True(Task.WaitAll([admission, contact], TimeSpan.FromSeconds(30)));
+                Assert.True(admitted);
+                Assert.Equal((AttackHand.Off, AttackHand.Main), (admission.Result, contact.Result));
+                Assert.Equal(AttackHand.Off, Game.AttackHandFor(conn, both, 0x8041));   // recorded once selected
+            }
+
             // A shield is not a weapon: nothing alternates and the off hand has no swing.
             Equip(conn, Sword, ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!), "SkillGemHeavyStrike");
             for (ushort sequence = 0x8020; sequence <= 0x8023; sequence++)
