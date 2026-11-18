@@ -129,7 +129,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Live 2026-11-18 (tier 16 Cage): the gate labelled "The Sacred Grove" leads in and back; the grove needs the client's
   HarvestRules ruleset (S→C 0x1f), without which an Extractor crashes the client once targetable; a Collector shows its
   seed list, one click hatched 23 Vivid monsters and withered the pair, and their lifeforce reached the Horticrafting
-  Station. Not yet verified in the client: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
+  Station. Oshabi's fight ran in the client from the soul tree to the altar (four colours, adds, rewards, Bloodline
+  selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
