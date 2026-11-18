@@ -112,12 +112,29 @@ sealed class ExtraRoomPool
         if (counted && Share != 0) Share--;
     }
 
+    /// <summary><c>0x141d8e950</c> given the row named <paramref name="name"/> (the table's row: its first copy in the
+    /// list, none waiting is a no-op).</summary>
+    public void Remove(string name, bool counted)
+    {
+        int i = Rows.FindIndex(r => r.Name == name);
+        if (i < 0) return;
+        Rows.RemoveAt(i);
+        if (counted && Share != 0) Share--;
+    }
+
     /// <summary>The pool's placed rooms (+0x60, <c>0x141d8e240</c>): map rectangles of the unique rooms and shrines
     /// placed. The overlays keep off them (exclusion bit 0x20, <c>0x142004a90</c>).</summary>
     public readonly List<(int X0, int Y0, int X1, int Y1)> Placed = [];
 
+    /// <summary>The rows of the placed rooms (+0x60 entries' +0), where a placing pass gives one.</summary>
+    public readonly List<ExtraFeatureRow> PlacedRows = [];
+
     /// <summary><c>0x141d8e240</c>: a room of w × h at map (x, y) was placed for a row.</summary>
-    public void RoomPlaced(int x, int y, int w, int h) => Placed.Add((x, y, x + w, y + h));
+    public void RoomPlaced(int x, int y, int w, int h, ExtraFeatureRow? row = null)
+    {
+        Placed.Add((x, y, x + w, y + h));
+        if (row is not null) PlacedRows.Add(row);
+    }
 
     /// <summary><c>0x141d8f030</c>: a shrine room was placed. The shrine count drops by one (not below 0), the placed
     /// count goes up, and the first Shrine row leaves the list (the share stays). A shrine with a size (map position and

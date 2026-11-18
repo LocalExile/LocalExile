@@ -395,15 +395,22 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             TileStore store;
             if (r.Path.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase))
             {
-                // 0x1420460e0: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows. The tile
-                // graph's special nodes do not take them (not ported).
-                if (r.Parent <= 0) pool.Spread(FeatureWeight(r.Path, records, false), rng);
-                if (pool.Share != 0) throw new NotSupportedException($"{r.Path}: extra feature rooms in a tile graph subgraph are not ported");
+                // 0x1420460e0: a subgraph whose parent is the first (+0x92 = 0) takes its share of the rows after the
+                // graph preparation (its walk of 0x1420527f0, then 0x141d8f230), and its area unique rooms place them
+                // (0x14211bc90); the shrines (0x14211c5c0) go in for any record. The special nodes take no rows.
                 // The rolled Vaal side area goes to the first graph with side area nodes (2_9_4's oasis_foothills_4.tgr).
-                var gen = new TileGraphGenerator(files, rng, notes, VaalSideArea)
-                    { Hideout = Hideout, Labyrinth = Labyrinth, Master = r.Parent < 0 ? Master : null, Town = Town, PreparePool = pool };
+                bool vaal = VaalSideArea;
+                var gen = new TileGraphGenerator(files, rng, notes, vaal)
+                {
+                    Hideout = Hideout, Labyrinth = Labyrinth, Master = r.Parent < 0 ? Master : null, Town = Town, Pool = pool,
+                    ParentIsFirst = r.Parent <= 0, ShareWeight = () => FeatureWeight(r.Path, records, false),
+                };
                 var (_, _, tgFills) = gen.Subgraph(r.Path, r.Orientation, grid, vx, vy, primary: i == 0);
                 if (gen.SideAreaKept) VaalSideArea = false;
+                // After the layout: a VaalSideArea row this graph added (no entrance kept, +0xa set) leaves the pool
+                // uncounted (0x141d8e950), and +0xa is cleared once that row is among the pool's placed rooms (+0x60).
+                else if (vaal) pool.Remove(ExtraTerrainFeatures.VaalSideArea, false);
+                if (pool.PlacedRows.Any(p => p.Name == ExtraTerrainFeatures.VaalSideArea)) VaalSideArea = false;
                 var tgStore = store = gen.Store;
                 roomsOf.Add(gen.Rooms);
                 outers.Add(() => OuterTileGraph(r, grid, tgStore, tgFills));
@@ -1730,7 +1737,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
                     if (Loose(_grid.Corner(x + u, y + v).Ground) && Loose(ground)) _grid.SetGround(x + u, y + v, ground);
             notes.Add($"unique room {Path.GetFileName(room.Path)} ({row.Name}) o{o} at ({x}, {y})");
             fill.PlaceRoom(room, x - vx, y - vy, o, height, ground, true, row);
-            pool.RoomPlaced(x, y, w, h);
+            pool.RoomPlaced(x, y, w, h, row);
             pool.Remove(row, true);
             placed.Add((x, y, x + w, y + h));
             return true;

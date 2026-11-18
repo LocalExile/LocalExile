@@ -149,7 +149,11 @@ after its Vaal side area pick, so a VaalSideArea row added there is shared too) 
 (that pick again, rows or not: ZanaGauntlet's and the Shaper's Realm's gauntlet records draw `Next(6)` after their own
 `Next(7)`) and then its share (`0x141d8f230`, +0x144): all rows when +0x140 is 0, else rows × weight / +0x140 plus one when
 `Next(+0x140)` falls below the remainder, and +0x140 drops by the weight. The layout's mission rooms take the rows
-(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down).
+(§3c2 "Mission rooms"); `0x141d8e950` removes a row (and counts the share down). In a `.tgr` subgraph
+(`0x1420460e0`) the share is spread after the preparation and only the area unique rooms take rows (`0x14211bc90`,
+parent record 0 only, the share as given; the special nodes take none; the shrines `0x14211c5c0` go by +0x148 for any
+record); after the layout a VaalSideArea row that graph added leaves uncounted, and +0xa is cleared when that row is
+among the placed rooms (+0x60).
 
 ## 3c. Fixed layouts: one room (`LevelGenerator.cs`, `DungeonTiler`)
 
