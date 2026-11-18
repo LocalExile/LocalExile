@@ -1011,6 +1011,14 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         }
     }
     ushort nextBuff = 1;
+
+    /// <summary>The Elemental Overload indicator buff's instance (0: none sent yet). One instance, bound to the skill
+    /// that last crit; the client draws the diamond under that skill's icon and expires the buff after its window.</summary>
+    public ushort ElementalOverloadBuff;
+
+    /// <summary>When the Elemental Overload indicator's window ends (last crit + 8 s); the player tick removes the buff
+    /// then, as the client does not expire this invisible buff itself.</summary>
+    public double ElementalOverloadBuffUntil;
     public uint PlayerMaxLife => Pools.Life;
     /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
     public int PlayerLifeCap { get; set; } = int.MaxValue;

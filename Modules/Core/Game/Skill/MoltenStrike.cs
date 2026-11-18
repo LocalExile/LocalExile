@@ -395,6 +395,8 @@ public static partial class Game
                 ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn), criticalTrigger, critical, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
                 conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, skillId) ?? "", conn.Clock.Elapsed.TotalSeconds, critical);
+                if (critical && ElementalOverloadBuffPacket(conn, skillId) is { } eoBuff)
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)

@@ -162,7 +162,10 @@ yet confirmed on screen).
   a diamond below the affected skill's icon on the skill bar (poewiki /wiki/Elemental_Overload) — but the client draws
   it itself from the skill's critical hits: the wiki states the effect "is not a buff or a skill effect", and the
   `elemental_overload` buff (row 606) is `Invisible = 1` with an icon but no EPK, its only granted flag the stat
-  `has_elemental_overload_buff`. So there is no buff-bar icon and nothing for the server to send for the indicator. Its
+  `has_elemental_overload_buff`. The diamond is drawn from that buff bound to the skill (AddBuff bit3, `activeSkill`),
+  so the server sends it on the skill's critical strike (`ElementalOverloadBuffPacket`, row 606) and removes it in the
+  player tick when the eight-second window ends — the client does not expire this invisible buff itself. There is no
+  buff-bar icon. Its
   damage rides on `keystone_elemental_overload_damage_+%_final` (a non-public stat, like `in_blood_stance`) and the
   8-second window on `have_crit_in_past_8_seconds`; `elemental_overload_rotation_active` belongs to the unique item's
   "every 16 seconds" variant. The window is per skill (the skill that crit, and all its uses including proxies; the

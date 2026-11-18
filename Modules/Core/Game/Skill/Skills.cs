@@ -424,6 +424,25 @@ public static partial class Game
     public static DamagePacket AttackHit(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats, bool melee) =>
         AttackHitConverted(weapon, stats, melee, null);
 
+    /// <summary>Elemental Overload's skill-icon diamond: the client draws it from the <c>elemental_overload</c> buff
+    /// bound to the skill (AddBuff bit3, <c>activeSkill</c>). The buff is Invisible — no buff-bar icon — but its presence
+    /// drives the indicator below the skill's icon (poewiki). Sent on the skill's critical strike and refreshed for the
+    /// eight-second window; the client expires it. One instance, bound to the skill that last crit.</summary>
+    public const ushort ElementalOverloadBuffRow = 606;   // BuffDefinitions.elemental_overload
+
+    public static byte[]? ElementalOverloadBuffPacket(ClientState conn, ushort skillId)
+    {
+        var gem = SupportedSkill(conn, skillId);
+        if (Stats.Key("keystone_elemental_overload") is not uint keystone
+            || CharacterPlayerStats(conn).GetValueOrDefault(keystone) == 0
+            || SkillsFor(conn).ActionHash(gem.Effect) is not ushort action) return null;
+        ushort buff = conn.ElementalOverloadBuff;
+        if (buff == 0) buff = conn.ElementalOverloadBuff = conn.NextBuff++;
+        conn.ElementalOverloadBuffUntil = conn.Clock.Elapsed.TotalSeconds + RecentEvents.EightSecondWindow;
+        return InstanceEntities.AddBuff(PlayerId, buff, ElementalOverloadBuffRow, PlayerId, skillId,
+            u68: BitConverter.SingleToUInt32Bits((float)RecentEvents.EightSecondWindow), activeSkill: (skillId, action));
+    }
+
     /// <summary>Elemental Overload's per-skill window on a damage snapshot: while the keystone is allocated and this
     /// skill dealt a critical strike in the past eight seconds, its hits and ailments deal 40% more Elemental Damage
     /// (the client's carrier stat, <c>keystone_elemental_overload_damage_+%_final</c>). The window is per skill, not per

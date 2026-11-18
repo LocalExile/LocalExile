@@ -948,6 +948,16 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
+            // when the eight-second window ends (refreshed on each critical strike of the bound skill).
+            if (conn.ElementalOverloadBuff != 0 && conn.Clock.Elapsed.TotalSeconds >= conn.ElementalOverloadBuffUntil)
+            {
+                ushort overloadBuff = conn.ElementalOverloadBuff;
+                conn.ElementalOverloadBuff = 0;
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceEntities.RemoveBuff(PlayerId, overloadBuff), "0x01c2 elemental overload window ended");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);

@@ -573,6 +573,8 @@ public static partial class Game
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
                 conn.RecentEvents.RecordSkillCrit(SkillEffectId(conn, SkillCatalog.FirstSkillId) ?? "",
                     conn.Clock.Elapsed.TotalSeconds, critical);
+                if (critical && ElementalOverloadBuffPacket(conn, SkillCatalog.FirstSkillId) is { } eoBuff)
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, "elemental overload (default attack)");
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
@@ -2435,6 +2437,8 @@ public static partial class Game
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
                         conn.RecentEvents.RecordSkillCrit(SkillsFor(conn).EffectId(gem.Effect) ?? "",
                             conn.Clock.Elapsed.TotalSeconds, critical);
+                        if (critical && ElementalOverloadBuffPacket(conn, skillId) is { } eoBuff)
+                            ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.
