@@ -48,6 +48,7 @@ public static class CharacterStats
         int ColdOvercapEvasionPct = 0, int LightningOvercapCritPct = 0,
         int SpellSuppressionWhileFullEnergyShield = 0, int? SpellSuppressionChanceUncapped = null,
         bool ArmourAppliesToChaosDamage = false, uint Ward = 0,
+        bool AttackBlockAtMaximum = false, bool SpellBlockAtMaximum = false,
         // The rating while the player moves, when a "while moving" increase exists (null: the same as Evasion).
         int? EvasionWhileMoving = null)
     {

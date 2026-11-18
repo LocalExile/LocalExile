@@ -86,6 +86,38 @@ public sealed class GolemTests
         var stone = catalog.Find("SummonStoneGolem")!;
         Assert.Equal(70, GolemCatalog.BuffEffect(stone, n => n == "golem_buff_effect_+%" ? 50 : 0,
             n => n == "golem_buff_effect_+%" ? 20 : 0, 1));
+        var shielded = new GolemState.Golem(1, null!, flame, 1);
+        var raw = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
+            new Dictionary<uint, int>(), new(new Dictionary<string, int>()));
+        int nativeChaos = HitMitigation.Resistance(monsters, varietyFlame, 70, DamageType.Chaos).Value;
+        var converted = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
+            new Dictionary<uint, int>(), new(new Dictionary<string, int>
+            {
+                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
+                ["base_chaos_damage_resistance_%"] = 50 - nativeChaos
+            }));
+        Assert.False(raw.Fatal); Assert.True(raw.MaximumLife > 0);
+        var justBelow = Game.GolemPools.Calculate(monsters, varietyFlame, 70, shielded,
+            new Dictionary<uint, int>(), new(new Dictionary<string, int>
+            {
+                ["maximum_life_%_to_convert_to_maximum_energy_shield_per_1%_chaos_resistance"] = 2,
+                ["base_chaos_damage_resistance_%"] = 49 - nativeChaos
+            }));
+        Assert.False(justBelow.Fatal); Assert.True(justBelow.MaximumLife > 0);
+        Assert.True(justBelow.MaximumEnergyShield > 0);
+        Assert.True(converted.Fatal); Assert.Equal(0u, converted.MaximumLife);
+        Assert.Equal(0, converted.MaximumEnergyShield);
+        var pool = shielded.ShieldPool;
+        pool.SetMaximum(300, refill: true);
+        Assert.Equal(0, pool.Damage(100, bypass: false, 10));
+        var carried = pool.Capture(10.5);
+        var replacementPool = new EnergyShield(); replacementPool.SetMaximum(250);
+        replacementPool.Restore(carried, 50);
+        Assert.Equal(200u, replacementPool.Current);
+        Assert.False(replacementPool.RechargeReady(51.49, _ => 0));
+        Assert.True(replacementPool.RechargeReady(51.5, _ => 0));
+        Assert.Equal(50, replacementPool.Damage(50, bypass: true, 52));
+        Assert.Equal(200u, replacementPool.Current);
         // Recovery buffs have conditional fields absent from ordinary golem buff packets.
         var safeguarding = new GolemState.Golem(0x4000000, null!, catalog.Find("SummonStoneGolemAltY")!, 1);
         safeguarding.OwnerBuff[Program.Stats.Key("melee_damage_removed_from_stone_golem_before_life_or_es_%")!.Value] = 18;
@@ -227,10 +259,19 @@ public sealed class GolemTests
                 var wornWeapon = weapon with { Sockets = [new(SocketColour.White, reservationGem)] };
                 Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wornWeapon);
                 var active = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == effectId);
-                var reservation = Game.SupportedReservation(conn, active.Id);
+                var reservation = Game.SupportedReservationCost(conn, active.Id);
                 Assert.NotNull(reservation);
-                Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, active.Id, active.Effect,
-                    active.Name, reservation!.Value, active.Level, active.Quality), effectId);
+                if (StanceCatalog.IsSource(effectId))
+                {
+                    Assert.True(Game.TryBeginSkillCooldownUse(conn, active.Id, active.Effect,
+                        Game.CooldownFor(conn, active.Effect, active.Level, active.Quality), instant: true,
+                        () => { }, out var stanceUse));
+                    Assert.True(await Game.CastGemSkill("test", wire.Stream, wire.Ciphers, conn, active.Id,
+                        (0, 0), (0, 0), cooldownUse: stanceUse), effectId);
+                }
+                else
+                    Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, active.Id, active.Effect,
+                        active.Name, reservation!.Value, active.Level, active.Quality), effectId);
                 Assert.Single(conn.Auras); Assert.True(Game.ReservedMana(conn) > 0, effectId);
                 var aura = conn.Auras[active.Id];
                 if (effectId == "TempestShield")

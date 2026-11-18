@@ -19,12 +19,20 @@ public sealed partial class ClientState
     // The effect percentage last put in the buff's +0x82, -1 while no buff is shown.
     public int ElusiveEffectPercent = -1;
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
-    public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
+    public bool SourcePhasing;
+    public bool IsPhasing => SourcePhasing || Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds || Reservations.CatPhasing;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     public HashSet<uint> RetiredCombatObjects { get; } = [];
     public HashSet<(uint Actor, ushort Buff)> RetiredCombatBuffs { get; } = [];
     public RampageState.Value SentRampage { get; set; }
+    // The stat-driving part of the last published streak: the full stats go out only when one of these changes,
+    // while current_rampage_stacks (every kill) goes as one partial stat update.
+    public (int Active, int Damage, int Movement, int Rarity, int Area, int AttackSpeed)? SentRampageStat;
+    public int SentRampageStacks;
+    // Explosion art budget: a burst of kill explosions should not create an effect object for every corpse.
+    public double ExplosionArtWindow;
+    public int ExplosionArtCount;
     public ushort RampageBuff { get; set; }
     public double? RampageTransferAt;
     public double VaalPreventionUntil;
@@ -53,6 +61,7 @@ public sealed partial class ClientState
                     if (Monsters.TryGetValue(actor, out var monster)) monster.RampageBlindUntil = 0;
             }
             OwnedCombatState = null;
+            SourcePhasing = false;
             VaalUseState = null;
             // Winter Orb's orb ends with the area, the death or the load that retires the connection's combat work.
             WinterOrbState = null;
@@ -71,6 +80,10 @@ public sealed partial class ClientState
             ElusiveMovementPct = 0;
             ElusiveEffectPercent = -1;
             SentRampage = default;
+            SentRampageStat = null;
+            SentRampageStacks = 0;
+            ExplosionArtWindow = 0;
+            ExplosionArtCount = 0;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
             if (SoulEater.AuraBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.AuraBuff));
