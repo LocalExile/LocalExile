@@ -44,8 +44,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
-  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
-  drop factors act ([maps](../docs/game/maps.md); offline only).
+  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage, the map's card and scarab
+  drop factors and the scarab-type weights (ScarabTypes: the Carapaces' `MoreLikely`, `DisableDrops`) act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
