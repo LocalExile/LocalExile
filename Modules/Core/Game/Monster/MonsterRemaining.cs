@@ -8,7 +8,8 @@ public static partial class Game
     public static bool MonsterLiving(SpawnedMonster m) => m.Hostile && !m.Dead && m.Life > 0;
 
     public static int LivingMonstersLocked(ClientState conn) =>
-        conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving);
+        conn.Monsters.Values.Count(MonsterLiving) + conn.DormantMonsters.Values.Count(MonsterLiving)
+        + HeldBackLocked(conn).Count;
 
     sealed class RemainingDelivery
     {

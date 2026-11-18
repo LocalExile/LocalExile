@@ -139,11 +139,12 @@ public static partial class Game
     /// the main hand).</summary>
     public static int HandWeaponCritical(ClientState conn, AttackHand hand)
     {
-        if (hand != AttackHand.Off || OffhandWeaponFor(conn) is null || ActiveOffHand(conn)?.Type is not { } type)
+        if (hand != AttackHand.Off || OffhandWeaponFor(conn) is not { } off || ActiveOffHand(conn)?.Type is not { } type)
             return WeaponProfileFor(conn, activeSet: true).Critical;
-        var local = HandLocalStats(conn).Off;
+        // The off-hand weapon's sources are already its qualified local stats (WeaponIn), as HandLocalStats gives them.
+        var local = off.LocalSources;
         return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(conn).WeaponCritical(type),
-            local.GetValueOrDefault("local_critical_strike_chance"), local.GetValueOrDefault("local_critical_strike_chance_+%"));
+            local?.GetValueOrDefault("local_critical_strike_chance") ?? 0, local?.GetValueOrDefault("local_critical_strike_chance_+%") ?? 0);
     }
 
     /// <summary>The off-hand swing's weapon base critical chance for the target-conditional chances (null: the main
@@ -267,15 +268,20 @@ public static partial class Game
 
     /// <summary>A supported attack's critical chance with a hand; both hands at once average the two (Path of
     /// Building's CritChance AVERAGE for a both-weapon attack).</summary>
-    public static int SupportedCriticalChance(ClientState conn, ushort skillId, AttackHand hand) => hand switch
-    {
-        AttackHand.Off when OffhandWeaponFor(conn) is not null =>
-            SupportedCriticalChanceFor(conn, skillId, false, weaponCritical: HandWeaponCritical(conn, AttackHand.Off)),
-        AttackHand.Both when OffhandWeaponFor(conn) is not null => (int)Math.Round((SupportedCriticalChance(conn, skillId)
-            + SupportedCriticalChanceFor(conn, skillId, false, weaponCritical: HandWeaponCritical(conn, AttackHand.Off))) / 2.0,
-            MidpointRounding.AwayFromZero),
-        _ => SupportedCriticalChance(conn, skillId),
-    };
+    public static int SupportedCriticalChance(ClientState conn, ushort skillId, AttackHand hand) =>
+        SupportedCriticalChance(conn, skillId, hand, hand != AttackHand.Main && OffhandWeaponFor(conn) is not null
+            ? HandWeaponCritical(conn, AttackHand.Off) : null);
+
+    /// <summary><see cref="SupportedCriticalChance(ClientState, ushort, AttackHand)"/> with the off-hand weapon's base
+    /// critical chance read once by the caller (null: no off-hand weapon), for a sweep that asks per victim.</summary>
+    public static int SupportedCriticalChance(ClientState conn, ushort skillId, AttackHand hand, int? offCritical) =>
+        (hand, offCritical) switch
+        {
+            (AttackHand.Off, int off) => SupportedCriticalChanceFor(conn, skillId, false, weaponCritical: off),
+            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChance(conn, skillId)
+                + SupportedCriticalChanceFor(conn, skillId, false, weaponCritical: off)) / 2.0, MidpointRounding.AwayFromZero),
+            _ => SupportedCriticalChance(conn, skillId),
+        };
 
     /// <summary>A supported attack's accuracy with a hand: the off hand's local accuracy in the main hand's place.
     /// Both hands at once use the main hand's (one hit, one evasion roll).</summary>

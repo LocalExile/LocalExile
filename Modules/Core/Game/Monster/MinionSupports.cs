@@ -3,6 +3,17 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    sealed record MinionDamageScaling(double HitMore, double AilmentMore, IReadOnlyDictionary<uint, int> Overrides);
+    static readonly RuleTable<GolemState.Ability, MinionDamageScaling> MinionDamageScalings = new();
+
+    static GolemState.Ability CurrentMinionHit(GolemState.Ability accepted, GolemState.Ability current)
+    {
+        if (!MinionDamageScalings.TryGetValue(accepted, out var scaling)) return current;
+        var stats = new Dictionary<uint, int>(current.Stats);
+        foreach (var pair in scaling.Overrides) stats[pair.Key] = pair.Value;
+        return MinionDamageScale(current, scaling.HitMore, scaling.AilmentMore, stats);
+    }
+
     static readonly RuleTable<GolemState.Golem, Dictionary<ushort, int>> MinionRuthlessCounts = new();
     static readonly Lazy<IReadOnlyDictionary<string, GemSupports.Effect>> MinionSupportRules = new(LoadMinionSupportRules);
     static IReadOnlyDictionary<string, GemSupports.Effect> LoadMinionSupportRules() =>
@@ -34,6 +45,14 @@ public static partial class Game
                 Poison = p with { Min = p.Min * ailmentMore, Max = p.Max * ailmentMore,
                     CriticalMin = p.CriticalMin * ailmentMore, CriticalMax = p.CriticalMax * ailmentMore } });
         }
+        MinionDamageScalings.TryGetValue(original, out var previous);
+        var overrides = previous is null ? new Dictionary<uint, int>() : new(previous.Overrides);
+        if (stats is not null)
+            foreach (var pair in stats)
+                if (!original.Stats.TryGetValue(pair.Key, out int before) || before != pair.Value)
+                    overrides[pair.Key] = pair.Value;
+        MinionDamageScalings.Add(scaled, new(hitMore * (previous?.HitMore ?? 1),
+            ailmentMore * (previous?.AilmentMore ?? 1), overrides));
         return scaled;
     }
 

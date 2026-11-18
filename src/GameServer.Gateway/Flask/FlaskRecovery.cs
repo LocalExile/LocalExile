@@ -22,9 +22,9 @@ public static class FlaskRecovery
     /// <summary>A use's instant part and what it takes from the other pool, applied to <paramref name="life"/> and
     /// <paramref name="mana"/> (life never below 1, mana up to <paramref name="manaCap"/>): the new pools, or null when the
     /// player is dead (life 0) — a flask must not bring a dead player back to 1 life.</summary>
-    public static (uint Life, uint Mana)? Instant(Use r, uint life, uint mana, uint maxLife, int manaCap) =>
+    public static (uint Life, uint Mana)? Instant(Use r, uint life, uint mana, uint maxLife, uint lifeCap, int manaCap) =>
         life == 0 ? null
-            : ((uint)Math.Clamp(Math.Floor(life + r.InstantLife - r.RemovesLife), 1, maxLife),
+            : ((uint)Math.Clamp(Math.Floor(life + r.InstantLife - r.RemovesLife), 1, Math.Min(maxLife, lifeCap)),
                (uint)Math.Clamp(Math.Floor(mana + r.InstantMana - r.RemovesMana), 0, Math.Max(0, manaCap)));
 
     /// <summary>Low life is half of maximum life or less (Path of Building Data.lua LowPoolThreshold 0.5).</summary>
