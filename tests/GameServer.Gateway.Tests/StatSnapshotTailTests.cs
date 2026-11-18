@@ -454,6 +454,39 @@ public class StatSnapshotTailTests
         Assert.Equal(1, Cursed(belt));
     }
 
+    // The condition inputs a stat-sources lookup remembers (SelfCurseConditionInputs, WornGrantsFor) follow each thing
+    // they are worked out from: asked again after a change, the answer is the new one.
+    [Fact]
+    public void Remembered_condition_inputs_follow_the_overrides_the_players_life_and_the_worn_items()
+    {
+        using var setup = new SnapshotSetup();
+        var conn = Connection("ConditionMemo" + Guid.NewGuid().ToString("N"));
+        conn.PlayerLife = 1;
+        var uniques = new UniqueCatalog(Program.Items);
+        var belt = uniques.Create("Coward's Legacy", new Random(1))!;
+        uint cursedKey = Program.Stats.Key("cursed_by_vulnerability")!.Value;
+        int Cursed(params Item[] worn) =>
+            ((IReadOnlyDictionary<uint, int>)Game("SelfCurseConditionInputs", conn, worn, null, null, null, null)!)[cursedKey];
+        Assert.Equal(1, Cursed(belt));
+        Assert.Equal(1, Cursed(belt));
+        lock (conn.Monsters) conn.PlayerStats[Program.Stats.Key("immune_to_curses")!.Value] = 1;
+        Assert.Equal(0, Cursed(belt));
+        lock (conn.Monsters) conn.PlayerStats.Clear();
+        Assert.Equal(1, Cursed(belt));
+        conn.PlayerLife = 0;
+        Assert.Equal(0, Cursed(belt));
+
+        var boots = new InventoryItem(100, 0, 0, uniques.Create("Doryani's Delusion", new Random(1))!);
+        IReadOnlyList<WornGrantedSkills.Grant> Grants(params (byte Row, InventoryItem Item)[] equipment) =>
+            global::Game.AllWornGrantedSkillsOf(conn, equipment);
+        int worn = Grants((PlayerInventories.Boots, boots)).Count;
+        Assert.True(worn > 0);
+        Assert.Empty(Grants());
+        Assert.Equal(worn, Grants((PlayerInventories.Boots, boots)).Count);
+        // The same item under another id is another host.
+        Assert.All(Grants((PlayerInventories.Boots, boots with { Id = 200 })), g => Assert.Equal(200u, g.Host));
+    }
+
     [Fact]
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
