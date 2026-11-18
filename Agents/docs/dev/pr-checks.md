@@ -24,6 +24,13 @@ in `sql/updates/pending_<db>/`, no change to a merged file, no rows in `base/`, 
 a final `;`. Then it builds every database from scratch in the updater's order ([databases](databases.md)); a file
 that fails names itself and the error.
 
+## Tests
+
+`.github/workflows/tests.yml` builds the solution and runs the Data, Core and Gateway suites on every pull request, on a
+machine that has only what is in git. A test that needs an extracted game file shows as skipped there
+(`GameFilesFact`, `ClientArchiveFact` in `tests/GameServer.Gateway.Tests/Needs.cs`): 18 of 1076 on 2026-11-17, the
+level generation and some boss rooms, which still need a local run.
+
 ## Protected files
 
 `.github/CODEOWNERS` lists what only the maintainer can approve: agent instructions and guides, repository controls,
