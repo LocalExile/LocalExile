@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
@@ -12,6 +13,16 @@ public sealed class EssenceCorruptionTests
     [Fact]
     public void Corruption_uses_real_essence_groups_tier_caps_and_Stability_outcomes()
     {
+        foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
+        {
+            var mod = Program.Items.Mods.ById("EssenceDaemonPhysicalAddedAndConvertedTo" + suffix)!;
+            Assert.Equal(MonsterModCatalog.Support.Full, MonsterModCatalog.SupportOf(mod));
+            var effects = new MonsterModCatalog(Program.Items.Mods, "data").Create(
+                [mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70).Effects;
+            var hit = effects.Hit(DamagePacket.Of(DamageType.Physical, 100, 200));
+            Assert.Equal(new DamageRange(80, 160), hit[DamageType.Physical]);
+            Assert.Equal(new DamageRange(30, 60), hit[element]);
+        }
         var hatred = MapEssenceCatalog.All.Single(e => e.Type == 0 && e.Tier == 5);
         var envy = MapEssenceCatalog.All.Single(e => e.Type == 19 && e.Tier == 5);
         var source = new MapEssences.Monolith(1, 0, 100, 100, "unused", [hatred.Row, envy.Row]);
