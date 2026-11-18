@@ -187,6 +187,12 @@ public static partial class Game
         StatConditions.BeenFrozen,
         StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
         StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
+        // Accepted-use, mana, flask, stance and charge recorders.
+        StatConditions.SpentMana, StatConditions.UsedSkill, StatConditions.UsedMovementSkill, StatConditions.UsedDash,
+        StatConditions.UsedFireSkill, StatConditions.UsedColdSkill, StatConditions.UsedVaalSkill,
+        StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask, StatConditions.UsedTopazFlask,
+        StatConditions.UsedAmethystFlask, StatConditions.ChangedStance,
+        StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
     };
     sealed class ConditionalItemPoolState
     {
