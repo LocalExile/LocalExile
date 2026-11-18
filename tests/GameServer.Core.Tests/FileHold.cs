@@ -9,7 +9,9 @@ static class FileHold
     public static FileStream For(string path, FileShare share, int ms)
     {
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, share);
-        _ = Task.Delay(ms).ContinueWith(_ => stream.Dispose());
+        // A thread of its own: on the thread pool the release waited behind the other tests' work, and on a busy
+        // two-core machine it came after the save had given up (2 s), which failed the test that expects the save.
+        new Thread(() => { Thread.Sleep(ms); stream.Dispose(); }) { IsBackground = true }.Start();
         return stream;
     }
 }
