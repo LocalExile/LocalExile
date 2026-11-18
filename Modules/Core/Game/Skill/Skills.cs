@@ -1351,6 +1351,15 @@ public static partial class Game
             conn.Minions.StatRevision++;
             return;
         }
+        // In an area's frames the next Stats phase builds and publishes them, once for all the changes of a frame.
+        if (PublishByFrame(conn, why)) return;
+        await PublishCharacterStats(remote, stream, ciphers, conn, why);
+    }
+
+    // The character panel, the skills and the Energy Shield as they are now.
+    static async Task PublishCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    {
+        conn.PlayerSkillsCache = null;
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)), $"0x01b3 player stats ({why})");
         await SendSkills(remote, stream, ciphers, conn);

@@ -92,7 +92,9 @@ public static partial class Game
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
-        b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
+        b.At - a.At is >= 0 and < PlayerStatsLifetime && SameSources(a, b);
+
+    static bool SameSources(PlayerStatsEntry a, PlayerStatsEntry b) => Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
         && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
         && a.AspectRevision == b.AspectRevision
@@ -108,6 +110,14 @@ public static partial class Game
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
+        // In an area's frames: the build of the last Stats phase (StatsSystem.cs), until the next.
+        if (FrameStatsOf.TryGetValue(conn, out var frame) && frame.ByFrame)
+            lock (frame)
+                if (frame.Stats is { } built)
+                {
+                    baselineLifePerSecond = frame.Baseline;
+                    return new(built);
+                }
         if (CurrentPlayerStatsScope.Value is not { } scope || !ReferenceEquals(scope.Conn, conn))
             return ThrottledPlayerStats(conn, out baselineLifePerSecond);
         var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
@@ -150,6 +160,93 @@ public static partial class Game
         key.Baseline = baselineLifePerSecond;
         lock (holder) holder.Entry = key;
         return stats;
+    }
+
+    // ---- stats by frame ----
+
+    // A player's stats in an area's frames: built once in the Stats phase when a change marked them (MarkPlayerStatsDirty,
+    // SendCharacterStats) or an input of the key above changed, and read from there until the next build. The character
+    // panel is published there too, once a frame however many changes asked for it.
+    sealed class FrameStats
+    {
+        public bool Dirty = true, ByFrame;
+        public Dictionary<uint, int>? Stats;
+        public double Baseline;
+        public PlayerStatsEntry? Key;
+        public string? Publish;
+        public Task Publishing = Task.CompletedTask;
+        public int Steps, Builds, Published;
+    }
+    static readonly ConditionalWeakTable<ClientState, FrameStats> FrameStatsOf = new();
+
+    /// <summary>A change of the player's stats: they are built again in the next Stats phase.</summary>
+    public static void MarkPlayerStatsDirty(ClientState conn)
+    {
+        if (FrameStatsOf.TryGetValue(conn, out var frame)) lock (frame) frame.Dirty = true;
+    }
+
+    // Asks the Stats phase to publish the panel (SendCharacterStats); false off the frames, which publish at once.
+    static bool PublishByFrame(ClientState conn, string why)
+    {
+        if (!FrameStatsOf.TryGetValue(conn, out var frame) || !frame.ByFrame) return false;
+        lock (frame) { frame.Dirty = true; frame.Publish ??= why; }
+        return true;
+    }
+
+    static readonly bool VerifyFrameStats = Environment.GetEnvironmentVariable("Game_STATS_FRAME_VERIFY") == "1";
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> FrameStatsMisses = new();
+
+    /// <summary>The player's part of the Stats phase.</summary>
+    internal static void StepPlayerStats(ClientState conn)
+    {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent
+            || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
+        var frame = FrameStatsOf.GetValue(conn, _ => new());
+        var key = PlayerStatsKey(conn, conn.Clock.Elapsed.TotalSeconds);
+        bool dirty;
+        lock (frame) dirty = frame.Dirty || frame.Stats is null || frame.Key is null || !SameSources(frame.Key, key);
+        if (dirty)
+        {
+            lock (frame) frame.Dirty = false;
+            var stats = CharacterPlayerStatsSnapshot(conn, out double baseline, out _);
+            lock (frame) { frame.Stats = stats; frame.Baseline = baseline; frame.Key = key; }
+        }
+        else if (VerifyFrameStats) VerifyFrame(conn, frame);
+        frame.ByFrame = true;
+        if (dirty) frame.Builds++;
+        if (++frame.Steps == 300)
+        {
+            // Game_TRACE=budget: how often the phase built and published them (300 frames, about 10 s).
+            if (GameServer.Core.Diagnostics.ServerTrace.Budget)
+                Console.WriteLine($"[stats] {conn.Wire.Remote} {frame.Builds} build(s), {frame.Published} panel(s) in {frame.Steps} frames");
+            frame.Steps = frame.Builds = frame.Published = 0;
+        }
+        string? why;
+        lock (frame)
+        {
+            if (frame.Publish is null || !frame.Publishing.IsCompleted) return;
+            (why, frame.Publish) = (frame.Publish, null);
+            frame.Published++;
+        }
+        var (remote, stream, ciphers) = conn.Wire;
+        frame.Publishing = AsPlayer(conn, updates, () => PublishCharacterStats(remote, stream, ciphers, conn, why));
+    }
+
+    // Game_STATS_FRAME_VERIFY=1: a player whose stats were not built again is built anyway and compared; what differs
+    // is an input that changed without marking them.
+    static void VerifyFrame(ClientState conn, FrameStats frame)
+    {
+        Dictionary<uint, int>? kept;
+        lock (frame) kept = frame.Stats;
+        if (kept is null) return;
+        var fresh = CharacterPlayerStatsSnapshot(conn, out _, out _);
+        var wrong = fresh.Keys.Union(kept.Keys).Where(k => fresh.GetValueOrDefault(k) != kept.GetValueOrDefault(k))
+            .Select(k => Stats.Name(k)).Order().ToArray();
+        if (wrong.Length == 0) return;
+        string names = string.Join(" ", wrong.Take(12));
+        int seen = FrameStatsMisses.AddOrUpdate(names, 1, (_, n) => n + 1);
+        if (seen is 1 or 10 or 100 or 1000)
+            Console.WriteLine($"[stats-verify] {conn.Wire.Remote} {wrong.Length} stat(s) changed unmarked (x{seen}): {names}");
     }
 
     // ---- the skill list ----
