@@ -375,9 +375,11 @@ public static class AreaTransitionCatalog
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
-                    placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
+                    // A map-side gate into an ExtraTerrainFeatures sub-area names that sub-area's world area (the Sacred
+                    // Grove's HarvestLeague), so the client labels it with that area's name; the gate stays within the area.
+                    placed.Add(new AreaTransitionObject(o.X, o.Y, SubAreaHash(e.FeatureWorldArea) ?? areaHash, o.Model, Rotation: o.Rotation, Height: height,
                         Type: Resolve(o.Type, what, notes))
-                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled });
+                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled, Feature = e.Feature });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:
@@ -398,6 +400,11 @@ public static class AreaTransitionCatalog
         }
         return placed;
     }
+
+    // The HASH16 of a WorldAreas row, or null for -1 or an unknown row.
+    static ushort? SubAreaHash(int row) => row < 0 ? null
+        : ClientTables.TableOrEmpty("WorldAreas").FirstOrDefault(r => r.Index == row) is { } area && area.Int("HASH16") is var h and > 0
+            ? (ushort)h : null;
 
     /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
     /// an unknown key or without the table.</summary>

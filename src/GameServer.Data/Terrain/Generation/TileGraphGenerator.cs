@@ -24,9 +24,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     /// <summary>The generator's extra room pool (+0x40): the shrine count the features rolled.</summary>
     public ExtraRoomPool? Pool { get; init; }
 
-    /// <summary>The pool the graph preparation adds the VaalSideArea row to when <see cref="Pool"/> is not set (a tile
-    /// graph subgraph, whose later stages do not take the pool's rows).</summary>
-    public ExtraRoomPool? PreparePool { get; init; }
+    /// <summary>The subgraph's record has the first for its parent (+0x92 = 0): it takes a share of the pool's rows and
+    /// places them as area unique rooms (<c>0x14211bc90</c>). The primary tile graph on its own map does.</summary>
+    public bool ParentIsFirst { get; init; } = true;
+
+    /// <summary>A composite layout's subgraph: the weight its rows are shared by (<c>0x1420527f0</c> of its graph
+    /// alone, which may draw a FileGroups pick). Null for the primary tile graph on its own map, which takes them all.</summary>
+    public Func<int>? ShareWeight { get; init; }
 
     /// <summary>The graph kept a Vaal side area entrance (<c>0x142038b70</c> returned true): the generator's +0xa is
     /// cleared for the graphs after it.</summary>
@@ -124,7 +128,10 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     {
         Graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
         if (orientation != 0) throw new NotSupportedException($"turning a tile graph (orientation {orientation}) is not ported");
-        SideAreaKept = Prepare(Graph, rng, vaalSideArea, Hideout, primary, Pool ?? PreparePool, Labyrinth);
+        SideAreaKept = Prepare(Graph, rng, vaalSideArea, Hideout, primary, Pool, Labyrinth);
+        // 0x1420460e0 after the preparation (a VaalSideArea row it added is shared too): with +0x92 = 0 the share of
+        // the rows (0x141d8f230) by the subgraph's weight; the primary tile graph has none to share by and takes all.
+        if (ParentIsFirst && Pool is { } pool) pool.Spread(ShareWeight?.Invoke() ?? 0, rng);
         notes.Add($"graph {graphPath}: {Graph.Nodes.Count} nodes, {Graph.Edges.Count} edges after exist rolls");
         var cells = new VoronoiCells(Graph);
         cells.Jitter(rng);
@@ -285,14 +292,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         return true;
     }
 
-    /// <summary><c>0x14211bc90</c>: with rows in the pool, the openings once; the rows in order, while the share (+0x144)
-    /// lasts, each place a room (<c>0x14211bf80</c>): its only room, else its rooms shuffled (<c>Next(count)</c>, then
-    /// the shuffle) until one is placed. The rows placed leave the pool, counted (<c>0x141d8e950</c>).</summary>
+    /// <summary><c>0x14211bc90</c>: for a record whose parent is the first (+0x92 = 0) with rows in the pool, the
+    /// openings once; the rows in order, while the share (+0x144, as <c>0x1420460e0</c> spread it) lasts, each place a
+    /// room (<c>0x14211bf80</c>): its only room, else its rooms shuffled (<c>Next(count)</c>, then the shuffle) until one
+    /// is placed. The rows placed leave the pool, counted (<c>0x141d8e950</c>).</summary>
     void AreaUniqueRooms(Fill placer)
     {
-        if (Pool is not { } pool || pool.Rows.Count == 0) return;
-        // 0x1420460e0: the primary tile graph takes its share (all the rows: no subgraph weight to share by).
-        pool.Spread(0, rng);
+        if (!ParentIsFirst || Pool is not { } pool || pool.Rows.Count == 0) return;
         var openings = Openings();
         var placed = new List<ExtraFeatureRow>();
         int left = pool.Share;
@@ -339,8 +345,8 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                     if (Loose(grid.Corner(x + u + _ox, y + v + _oy).Ground) && Loose(ground))
                         grid.SetGround(x + u + _ox, y + v + _oy, ground);
             notes.Add($"area unique room {Path.GetFileName(room.Path)} ({row.Name}) o{o} at ({x + _ox}, {y + _oy})");
-            placer.PlaceRoom(room, x, y, o, grid.Corner(x + _ox, y + _oy).Height, ground, true);
-            Pool!.RoomPlaced(x + _ox, y + _oy, w, h);
+            placer.PlaceRoom(room, x, y, o, grid.Corner(x + _ox, y + _oy).Height, ground, true, row);
+            Pool!.RoomPlaced(x + _ox, y + _oy, w, h, row);
             return true;
         }
         return false;

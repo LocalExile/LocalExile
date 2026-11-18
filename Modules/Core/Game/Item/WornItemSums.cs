@@ -11,7 +11,7 @@ public static partial class Game
     static readonly RuleTable<Item, ItemSum> ItemSums = new();
 
     /// <summary>One item's global mod stats with no subject: <c>ItemModStats.Sum([item], mods)</c>.</summary>
-    static IReadOnlyDictionary<string, int> PlainItemSum(Item item, ModCatalog mods)
+    internal static IReadOnlyDictionary<string, int> PlainItemSum(Item item, ModCatalog mods)
     {
         var rules = Program.GameLogicOrNull;
         if (ItemSums.TryGetValue(item, out var known) && ReferenceEquals(known.Mods, mods) && ReferenceEquals(known.Rules, rules))

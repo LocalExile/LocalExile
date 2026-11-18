@@ -187,6 +187,11 @@ public sealed class MonsterElementalAilments
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
+        // Elemental Overload: ailments never count as being from critical strikes. Perfect Agony: non-critical strikes
+        // cannot inflict ailments, damaging or not; with Elemental Overload every hit counts as non-critical, so the two
+        // together stop hits inflicting any ailment (poewiki /wiki/Perfect_Agony).
+        if (attacker("keystone_elemental_overload") != 0) critical = false;
+        if (attacker("keystone_ailment_crit") != 0 && !critical) return added;
         void Add(Effect effect) { if (Apply(effect, attacker, target) is { } e) added.Add(e); }
         double chilling = Inflicting("chill", DamageType.Cold, damage, attacker, critical);
         double freezing = Inflicting("freeze", DamageType.Cold, damage, attacker, critical);
