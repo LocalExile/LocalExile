@@ -24,6 +24,9 @@ public static partial class Game
     public sealed class PlayerStepOutputs
     {
         public double BaselineLifePerSecond;
+        /// <summary>What the pools are built from changed outside the steps (the area's stat buffs, a new area): the Pools
+        /// step builds them again.</summary>
+        public volatile bool RebuildPools;
     }
 
     static readonly Action<ClientState, StatMap, PlayerStepOutputs>[] PlayerSteps = BuildPlayerSteps();
@@ -35,8 +38,13 @@ public static partial class Game
         static int GetIn(StatMap stats, string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         static void AddTo(StatMap stats, uint key, long value) => stats[key] = ActorScale.Saturate(stats.GetValueOrDefault(key) + value);
 
-        Step(PlayerStatStep.Pools, (conn, _, _) =>
+        Step(PlayerStatStep.Pools, (conn, _, outputs) =>
         {
+            if (outputs.RebuildPools)
+            {
+                outputs.RebuildPools = false;
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            }
             EnsureConditionalItemPools(conn);
             EnsureAntiquarianPools(conn);
             EnsureOwnAuraPools(conn);

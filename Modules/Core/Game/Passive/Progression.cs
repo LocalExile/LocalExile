@@ -170,6 +170,8 @@ public static partial class Game
         sources = WithHerEmbrace(conn, sources);
         sources = WithElusive(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
+        // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
+        if (conn.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(conn.PeerId), sources);
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
         sources = WithSpreadPoisonRegeneration(conn, sources);

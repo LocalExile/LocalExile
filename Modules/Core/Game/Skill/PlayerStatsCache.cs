@@ -42,6 +42,17 @@ public static partial class Game
         public long Conditions = -1;
         public double MovingCheckAt = double.PositiveInfinity;
         public double Clock;
+        // The area the steps last ran in: a new one has none of the last one's stat buffs.
+        public GameArea? Area;
+    }
+
+    /// <summary>The area's stat buffs on a player's entity changed (AreaStatBuffs): its pools and sources are built again.</summary>
+    internal static void PlayerStatBuffsChanged(ClientState conn)
+    {
+        if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return;
+        frame.Outputs.RebuildPools = true;
+        graph.MarkRule((int)PlayerStatStep.Pools);
+        graph.MarkRule((int)PlayerStatStep.Sources);
     }
 
     // The step being run and its frame, for StatsChangeIn.
@@ -151,6 +162,11 @@ public static partial class Game
         double clock = conn.Clock.Elapsed.TotalSeconds;
         frame.Clock = clock;
         var graph = frame.Graph ??= PlayerStatGraph(conn, frame);
+        if (!ReferenceEquals(frame.Area, conn.Frames.Area))
+        {
+            if (frame.Area is not null) PlayerStatBuffsChanged(conn);
+            frame.Area = conn.Frames.Area;
+        }
         bool dirty;
         lock (frame) (dirty, frame.Dirty) = (frame.Dirty, false);
         if (dirty)

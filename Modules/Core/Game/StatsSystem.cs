@@ -23,6 +23,11 @@ public static partial class Game
     {
         var monsters = conn.Monsters;
         var frames = conn.Frames;
+        area.Events.On<StatBuffsChanged>(e =>
+        {
+            foreach (var player in frames.Players())
+                if (player.PeerId == e.Entity.Value) PlayerStatBuffsChanged(player);
+        }, source);
         area.Systems.Add("stats", AreaPhase.Stats, _ =>
         {
             // Players first, in the order they joined; then the monsters.
