@@ -44,7 +44,7 @@ public sealed class CullingStrikeReviewTests
             var conn = Player();
             var monster = Target("rf burn");
             conn.Monsters[42] = monster;
-            var rf = new RighteousFireState(1, 2, null, 3, 0, 0, 10);
+            var rf = new RighteousFireState(1, 2, 3, 0, 0) { Radius = 10 };
             rf.Auras[42] = 4;
             conn.RighteousFire = rf;
             var stats = With(("culling_strike_on_burning_enemies", 1));

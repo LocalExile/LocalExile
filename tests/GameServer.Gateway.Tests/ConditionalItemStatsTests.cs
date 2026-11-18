@@ -9,11 +9,12 @@ namespace GameServer.Gateway.Tests;
 /// A condition that does hold moves the value onto the stat's plain name, which is what the pools and panels already
 /// read — without that the condition would be decided correctly and the mod would still do nothing.
 /// </summary>
-public class ConditionalItemStatsTests
+public partial class ConditionalItemStatsTests
 {
     [Fact]
     public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
     {
+        Ring_conditions_rebuild_the_actual_stat_cache_on_same_item_slot_moves();
         Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes();
         A_stats_condition_is_decided_from_the_state_the_server_keeps();
         The_shield_condition_is_answered_in_every_spelling_the_tables_use();

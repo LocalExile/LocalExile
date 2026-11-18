@@ -381,9 +381,20 @@ public sealed class PlayerInventories
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
     public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
+        // Asked for many times in one stat-sources lookup: one array of the right size, no growing list (profiled
+        // 2026-11-17: 12% of a lookup).
         lock (_lock)
-            return [.. ItemModStats.EquipmentRows.SelectMany(row =>
-                (_items.TryGetValue(row, out var items) ? items : []).Select(item => (row, item)))];
+        {
+            int count = 0;
+            foreach (byte row in ItemModStats.EquipmentRows)
+                if (_items.TryGetValue(row, out var items)) count += items.Count;
+            var snapshot = new (byte Row, InventoryItem Item)[count];
+            int at = 0;
+            foreach (byte row in ItemModStats.EquipmentRows)
+                if (_items.TryGetValue(row, out var items))
+                    foreach (var item in items) snapshot[at++] = (row, item);
+            return snapshot;
+        }
     }
 
     public Item? SocketHost(uint id)

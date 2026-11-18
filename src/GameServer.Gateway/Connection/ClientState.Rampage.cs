@@ -19,7 +19,8 @@ public sealed partial class ClientState
     // The effect percentage last put in the buff's +0x82, -1 while no buff is shown.
     public int ElusiveEffectPercent = -1;
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
-    public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
+    public bool SourcePhasing;
+    public bool IsPhasing => SourcePhasing || Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds || Reservations.CatPhasing;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
     public HashSet<uint> RetiredCombatObjects { get; } = [];
@@ -60,6 +61,7 @@ public sealed partial class ClientState
                     if (Monsters.TryGetValue(actor, out var monster)) monster.RampageBlindUntil = 0;
             }
             OwnedCombatState = null;
+            SourcePhasing = false;
             VaalUseState = null;
             // Winter Orb's orb ends with the area, the death or the load that retires the connection's combat work.
             WinterOrbState = null;

@@ -29,8 +29,9 @@ public static partial class Game
         lock (left.Monsters)
         {
             // The held-back ones too: they are the instance's, wherever the players went.
-            left.Instance.Monsters = [.. SavedMonster.Save(InstanceMonsters(left),
-                left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left)), .. HeldBackLocked(left)];
+            if (left.MonstersPlaced)
+                left.Instance.Monsters = [.. SavedMonster.Save(InstanceMonsters(left),
+                    left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left)), .. HeldBackLocked(left)];
             RemoveLeavingMinionsLocked(left);
         }
     }
