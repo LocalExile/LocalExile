@@ -38,7 +38,7 @@ public class ChatHubTests
         hub.Handle(cid, new ChatFrame(ChatFrame.Join, Kind: ChatChannelKind.Global, Channel: 2));
 
         hub.Handle(ann, new ChatFrame(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "hi\u0007"));
-        var line = new ChatFrame(ChatFrame.Line, "Ann", ChatChannelKind.Global, Text: "hi");
+        var line = new ChatFrame(ChatFrame.Line, "Ann", ChatChannelKind.Global, Channel: 1, Text: "hi", Language: 0);
         Assert.Equal([line], annHeard);
         Assert.Equal([line], bobHeard);
         Assert.Empty(cidHeard);
@@ -54,6 +54,11 @@ public class ChatHubTests
         hub.Handle(bob, new ChatFrame(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "privet"));
         Assert.Single(annHeard);
         Assert.Empty(cidHeard);
+
+        // A Gateway can leave a single room without dropping its connection or whispers.
+        hub.Handle(ann, new ChatFrame(ChatFrame.LeaveChannel, Kind: ChatChannelKind.Global));
+        hub.Handle(ann, new ChatFrame(ChatFrame.Say, Kind: ChatChannelKind.Global, Text: "not joined"));
+        Assert.Single(annHeard);
 
         annHeard.Clear();
         bobHeard.Clear();

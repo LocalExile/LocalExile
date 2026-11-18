@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Core.Chat;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
@@ -219,6 +220,9 @@ public static class GameEvents
 
     /// <summary>Whether anything subscribes to client messages with this opcode.</summary>
     public static bool WantsPacket(ushort opcode) => Packets.TryGetValue(opcode, out var packet) && packet.Any;
+
+    /// <summary>A human's own channel line echoed by its chat server after validation and flood control. Observers must not block.</summary>
+    public static readonly GameEvent<Action<ClientState, ChatFrame>> ChatPosted = new();
 
     /// <summary>A chat command, <c>/name args…</c>, through <see cref="CommandsBuilding"/>. The Gateway's own commands, and those added
     /// before it, keep their name. One that throws tells the player it failed, and the error is in the Gateway's log.</summary>

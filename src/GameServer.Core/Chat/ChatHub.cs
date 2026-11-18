@@ -57,6 +57,10 @@ public sealed class ChatHub(TimeProvider? time = null)
             switch (frame.Type)
             {
                 case ChatFrame.Join: Join(member, frame); break;
+                case ChatFrame.LeaveChannel:
+                    if (frame.Kind is { } kind && member.Channels.Remove(kind, out var room))
+                        Remove(member, kind, room);
+                    break;
                 case ChatFrame.Say: Say(member, frame); break;
                 case ChatFrame.Whisper: Whisper(member, frame); break;
             }
@@ -88,7 +92,7 @@ public sealed class ChatHub(TimeProvider? time = null)
         if (frame.Kind is not { } kind || !member.Channels.TryGetValue(kind, out var room)) return;
         frame = ChatWire.CleanLine(frame);
         if (frame.Text is not { Length: > 0 } text || !Spend(member)) return;
-        var line = ChatWire.Fitted(new ChatFrame(ChatFrame.Line, member.Name, kind, Text: text, Items: frame.Items));
+        var line = ChatWire.Fitted(new ChatFrame(ChatFrame.Line, member.Name, kind, room.Channel, text, room.Language, frame.Items));
         foreach (var listener in _channels[(kind, room.Channel, room.Language)]) listener.Send(line);
     }
 

@@ -11,7 +11,7 @@ namespace GameServer.Core.Chat;
 public sealed record ChatFrame(string Type, string? Name = null, ChatChannelKind? Kind = null, ushort? Channel = null, string? Text = null, byte? Language = null,
     IReadOnlyList<ChatFrameItem>? Items = null)
 {
-    public const string Hello = "hello", Join = "join", Say = "say", Whisper = "whisper";
+    public const string Hello = "hello", Join = "join", LeaveChannel = "leave-channel", Say = "say", Whisper = "whisper";
     public const string Welcome = "welcome", Line = "line", Whispered = "whispered", Offline = "offline", TooFast = "too-fast";
 }
 

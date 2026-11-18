@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 namespace GameServer.Modules.Chat;
 
 /// <summary>A character's place in chat, from its first channel until it leaves the game: it outlives the connection of each
-/// area. It is on the local chat server, or on the remote one a mod chose while that can be reached.</summary>
+/// area. It keeps one connection to the local server and one to each remote server used by its rooms or whispers.</summary>
 sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDisposable
 {
     /// <summary>The time between tries of a remote server that failed, each at an area change.</summary>
@@ -12,11 +12,18 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
 
     readonly Lock _gate = new();
     readonly CancellationTokenSource _stop = new();
-    ChatLink? _link;
-    bool _onRemote, _disposed;
-    string? _told;
-    long _nextRemoteTry;
-    int _trying;
+    sealed class RemoteConnection((string Host, int Port) endpoint)
+    {
+        public readonly (string Host, int Port) Endpoint = endpoint;
+        public ChatLink? Link;
+        public long NextTry;
+        public bool Connecting;
+    }
+
+    readonly Dictionary<(string Host, int Port), RemoteConnection> _remotes = [];
+    ChatLink? _local;
+    ChatRoutes.RemoteRoute? _route;
+    bool _disposed;
 
     public ClientState Conn { get; private set; } = conn;
 
@@ -25,132 +32,192 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
 
     public void Open()
     {
-        Ready = UseLocalAsync();
-        if (chat.Remote is not null) _ = Ready.ContinueWith(_ => TryRemoteAsync(), TaskScheduler.Default);
+        Ready = OpenLocal();
+        RouteChanged();
     }
 
-    /// <summary>The character's connection in the area it entered, and another try of a remote server that failed.</summary>
     public void Entered(ClientState entered)
     {
         Conn = entered;
-        bool retry;
-        lock (_gate) retry = chat.Remote is not null && !_onRemote && !_disposed && Environment.TickCount64 >= _nextRemoteTry;
-        if (retry) _ = TryRemoteAsync();
+        lock (_gate) if (!_disposed) RefreshConnections();
     }
 
-    /// <summary>A mod chose a chat server, or stopped: the character moves now, not at its next area.</summary>
     public void RouteChanged()
     {
-        bool toLocal;
         lock (_gate)
         {
             if (_disposed) return;
-            _nextRemoteTry = 0;
-            toLocal = chat.Remote is null && _onRemote;
+            _route = ChatRoutes.Selection;
+            RefreshConnections();
+            SyncRooms();
         }
-        _told = null;
-        if (chat.Remote is not null) _ = TryRemoteAsync();
-        else if (toLocal) _ = BackToLocalAsync();
-    }
-
-    async Task BackToLocalAsync()
-    {
-        await UseLocalAsync();
-        await Tell("Connected to the local chat server.");
     }
 
     public void Send(ChatFrame frame)
     {
-        ChatLink? link;
-        lock (_gate) link = _link;
-        link?.Send(frame);
+        lock (_gate)
+        {
+            if (_disposed) return;
+            if (frame is { Type: ChatFrame.Join, Kind: { } kind, Channel: { } channel })
+            {
+                RefreshConnections();
+                Join(kind, channel, frame.Language ?? 0);
+            }
+            else if (frame.Kind is { } roomKind && chat.Channels.Find(name, roomKind) is { } room)
+                LinkFor(roomKind, room.Channel)?.Send(frame);
+            else if (frame.Type == ChatFrame.Whisper)
+                LinkAt(_route?.WhisperServer)?.Send(frame);
+        }
     }
 
-    async Task UseLocalAsync()
+    ChatLink? LinkAt((string Host, int Port)? endpoint) =>
+        endpoint is { } server && _remotes.TryGetValue(server, out var remote) && remote.Link is { } link ? link : _local;
+
+    ChatLink? LinkFor(ChatChannelKind kind, ushort channel) => LinkAt(_route?.ServerFor(kind, channel));
+
+    void RefreshConnections()
     {
-        try { Attach(await Connect("127.0.0.1", chat.LocalPort), remote: false); }
-        catch (IOException e) { chat.Log($"{name}: the local chat server refused: {e.Message}"); }
+        HashSet<(string Host, int Port)> wanted = [];
+        if (_route is { } route)
+        {
+            if (route.WhisperServer is { } whisperServer) wanted.Add(whisperServer);
+            foreach (var (kind, channel, _) in chat.Channels.Current(name))
+                if (route.ServerFor(kind, channel) is { } server) wanted.Add(server);
+        }
+
+        foreach (var (server, remote) in _remotes)
+            if (!wanted.Contains(server))
+            {
+                _remotes.Remove(server);
+                remote.Link?.Dispose();
+            }
+
+        foreach (var server in wanted)
+        {
+            if (!_remotes.TryGetValue(server, out var remote)) _remotes.Add(server, remote = new(server));
+            if (remote.Link is null && !remote.Connecting && Environment.TickCount64 >= remote.NextTry)
+            {
+                remote.Connecting = true;
+                _ = OpenRemote(remote);
+            }
+        }
     }
 
-    async Task TryRemoteAsync()
+    void SyncRooms()
     {
-        if (chat.Remote is not var (host, port) || Interlocked.Exchange(ref _trying, 1) != 0) return;
+        foreach (var (kind, channel, language) in chat.Channels.Current(name)) Join(kind, channel, language);
+    }
+
+    void Join(ChatChannelKind kind, ushort channel, byte language)
+    {
+        var chosen = LinkFor(kind, channel);
+        var leave = new ChatFrame(ChatFrame.LeaveChannel, Kind: kind);
+        chosen?.Send(new ChatFrame(ChatFrame.Join, Kind: kind, Channel: channel, Language: language));
+        if (_local != chosen) _local?.Send(leave);
+        foreach (var remote in _remotes.Values)
+            if (remote.Link != chosen) remote.Link?.Send(leave);
+    }
+
+    async Task OpenLocal()
+    {
+        try
+        {
+            var link = await Connect("127.0.0.1", chat.LocalPort);
+            lock (_gate)
+            {
+                if (_disposed || link.IsClosed) { link.Dispose(); return; }
+                _local = link;
+                SyncRooms();
+            }
+        }
+        catch (IOException e) { if (!_stop.IsCancellationRequested) chat.Log($"{name}: the local chat server refused: {e.Message}"); }
+    }
+
+    async Task OpenRemote(RemoteConnection remote)
+    {
+        var (host, port) = remote.Endpoint;
         try
         {
             var link = await Connect(host, port);
-            // The mod changed its mind while this connected.
-            if (chat.Remote != (host, port))
+            lock (_gate)
             {
-                link.Dispose();
-                return;
+                if (_disposed || _remotes.GetValueOrDefault(remote.Endpoint) != remote || link.IsClosed)
+                {
+                    link.Dispose();
+                    return;
+                }
+                remote.Link = link;
+                remote.NextTry = 0;
+                SyncRooms();
             }
-            Attach(link, remote: true);
             chat.Log($"{name}: on chat server {host}:{port}");
-            _told = null;
             await Tell("Connected to the online chat server." + (link.Name == name ? "" : $" Another player is named {name} there: you are {link.Name}."));
         }
         catch (IOException e)
         {
-            chat.Log($"{name}: chat server {host}:{port}: {e.Message}");
-            await FellBack($"Failed to connect to {host}:{port} chat channel, switching back to local chat server.");
+            bool report;
+            lock (_gate)
+            {
+                report = !_disposed && _remotes.GetValueOrDefault(remote.Endpoint) == remote;
+                if (report) remote.NextTry = Environment.TickCount64 + RetryMilliseconds;
+            }
+            if (report)
+            {
+                chat.Log($"{name}: chat server {host}:{port}: {e.Message}");
+                await Tell($"Failed to connect to {host}:{port} chat channel, switching back to local chat server.");
+            }
         }
-        finally { Volatile.Write(ref _trying, 0); }
-    }
-
-    async Task FellBack(string text)
-    {
-        lock (_gate) _nextRemoteTry = Environment.TickCount64 + RetryMilliseconds;
-        if (_told == text) return;
-        _told = text;
-        chat.Log($"{name}: {text}");
-        await Tell(text);
+        finally
+        {
+            lock (_gate) remote.Connecting = false;
+        }
     }
 
     Task<ChatLink> Connect(string host, int port) => ChatLink.ConnectAsync(host, port, name, Received, Closed, _stop.Token);
 
-    void Attach(ChatLink link, bool remote)
-    {
-        ChatLink? old;
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                link.Dispose();
-                return;
-            }
-            old = _link;
-            _link = link;
-            _onRemote = remote;
-        }
-        old?.Dispose();
-        foreach (var (kind, channel, language) in chat.Channels.Current(name)) link.Send(new ChatFrame(ChatFrame.Join, Kind: kind, Channel: channel, Language: language));
-    }
-
     void Closed(ChatLink link)
     {
-        bool lostRemote;
         lock (_gate)
         {
-            if (_disposed || !ReferenceEquals(link, _link)) return;
-            _link = null;
-            lostRemote = _onRemote;
-            _onRemote = false;
+            if (_disposed) return;
+            if (ReferenceEquals(link, _local))
+            {
+                _local = null;
+                chat.Log($"{name}: lost the local chat server");
+                return;
+            }
+            var remote = _remotes.Values.FirstOrDefault(remote => remote.Link == link);
+            if (remote is null) return;
+            remote.Link = null;
+            remote.NextTry = Environment.TickCount64 + RetryMilliseconds;
+            SyncRooms();
         }
-        if (!lostRemote)
-        {
-            chat.Log($"{name}: lost the local chat server");
-            return;
-        }
-        _ = UseLocalAsync();
-        if (chat.Remote is var (host, port)) _ = FellBack($"Failed to connect to {host}:{port} chat channel, switching back to local chat server.");
+        _ = Tell("Lost an online chat server. Its channels will use local chat.");
     }
 
     /// <summary>A frame from the chat server: untrusted like all of it, so a name that could pose as a prefix is dropped.</summary>
-    Task Received(ChatFrame frame)
+    Task Received(ChatLink source, ChatFrame frame)
     {
+        lock (_gate)
+        {
+            if (_disposed || (source != _local && !_remotes.Values.Any(remote => remote.Link == source))) return Task.CompletedTask;
+            if (frame.Type == ChatFrame.Line && frame.Kind is { } kind)
+            {
+                if (chat.Channels.Find(name, kind) is not { } room || LinkFor(kind, room.Channel) != source
+                    || (frame.Channel is { } channel && channel != room.Channel)
+                    || (frame.Language is { } language && language != room.Language)) return Task.CompletedTask;
+            }
+            else if (frame.Type is ChatFrame.Whisper or ChatFrame.Whispered or ChatFrame.Offline
+                && source != LinkAt(_route?.WhisperServer)) return Task.CompletedTask;
+        }
         frame = ChatWire.CleanLine(frame);
         string text = frame.Text!;
         bool named = ChatWire.ValidMember(frame.Name);
+        if (GameEvents.ChatPosted.Any && !Conn.Controlled
+            && frame is { Type: ChatFrame.Line, Kind: ChatChannelKind.Global or ChatChannelKind.Trade, Channel: not null, Language: not null }
+            && named && frame.Name == source.Name && text.Length > 0)
+            foreach (var (owner, posted) in GameEvents.ChatPosted.Subscribers(Conn))
+                GameEventOwners.Guard(owner, nameof(GameEvents.ChatPosted), () => posted(Conn, frame));
         return frame.Type switch
         {
             ChatFrame.Line when named && frame.Kind is ChatChannelKind.Global or ChatChannelKind.Trade && text.Length > 0 =>
@@ -179,15 +246,15 @@ sealed class ChatSession(ChatService chat, string name, ClientState conn) : IDis
 
     public void Dispose()
     {
-        ChatLink? link;
         lock (_gate)
         {
             if (_disposed) return;
             _disposed = true;
-            link = _link;
-            _link = null;
+            _stop.Cancel();
+            _local?.Dispose();
+            foreach (var remote in _remotes.Values) remote.Link?.Dispose();
+            _remotes.Clear();
+            _local = null;
         }
-        _stop.Cancel();
-        link?.Dispose();
     }
 }

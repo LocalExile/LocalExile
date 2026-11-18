@@ -22,10 +22,16 @@ public sealed class ChatLink : IDisposable
 
     /// <summary>The name the server gave the character: its own, with a number when another member has it.</summary>
     public string Name { get; }
+    public bool IsClosed => Volatile.Read(ref _disposed) != 0;
 
     /// <summary>Connects and introduces the character.</summary>
     /// <exception cref="IOException">The server cannot be reached or did not accept the name.</exception>
-    public static async Task<ChatLink> ConnectAsync(string host, int port, string name, Func<ChatFrame, Task> received, Action<ChatLink> closed, CancellationToken cancel)
+    public static Task<ChatLink> ConnectAsync(string host, int port, string name, Func<ChatFrame, Task> received,
+        Action<ChatLink> closed, CancellationToken cancel) =>
+        ConnectAsync(host, port, name, (_, frame) => received(frame), closed, cancel);
+
+    public static async Task<ChatLink> ConnectAsync(string host, int port, string name, Func<ChatLink, ChatFrame, Task> received,
+        Action<ChatLink> closed, CancellationToken cancel)
     {
         var tcp = new TcpClient { NoDelay = true };
         try
@@ -50,11 +56,11 @@ public sealed class ChatLink : IDisposable
         }
     }
 
-    async Task ReadAsync(Stream stream, Func<ChatFrame, Task> received, Action<ChatLink> closed)
+    async Task ReadAsync(Stream stream, Func<ChatLink, ChatFrame, Task> received, Action<ChatLink> closed)
     {
         try
         {
-            while (await ChatWire.ReadAsync(stream, _stop.Token) is { } frame) await received(frame);
+            while (await ChatWire.ReadAsync(stream, _stop.Token) is { } frame) await received(this, frame);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or OperationCanceledException or ObjectDisposedException) { }
         Dispose();

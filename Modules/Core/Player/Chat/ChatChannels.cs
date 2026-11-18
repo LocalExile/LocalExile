@@ -14,6 +14,9 @@ sealed class ChatChannels
 
     readonly ConcurrentDictionary<(string Character, ChatChannelKind Kind), (ushort Channel, byte Language)> _chosen = new();
 
+    internal (ushort Channel, byte Language)? Find(string character, ChatChannelKind kind) =>
+        _chosen.TryGetValue((character.ToUpperInvariant(), kind), out var channel) ? channel : null;
+
     /// <summary>
     /// The channel a join request gets: the number asked for (/global N, /trade N, or the one the client remembers), else
     /// the character's last channel of that kind, else <see cref="DefaultChannel"/>. The channel is kept for the next areas

@@ -15,6 +15,7 @@ public sealed class ChatModule : IModule
     public void Load(IModuleContext module)
     {
         var chat = new ChatService(module.Log);
+        module.Lifetime.Own(ChatRoutes.PublishMembership(chat.Channels.Find));
         module.Lifetime.Own(chat);
         module.Lifetime.Own(ChatRoutes.Follow(chat.RouteChanged));
         GameEvents.Packet(InstanceChat.LinkItemId).Add(module.Manifest.Id, (conn, bytes) => chat.Linked(conn, InstanceChat.ReadLinkItem(bytes.AsSpan())));
