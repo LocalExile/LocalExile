@@ -31,7 +31,7 @@ static partial class Game
         NoteCorpseConsumedLocked(conn, m);
         conn.Monsters.Remove(id);
         conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-        if (Stats.Key("cannot_recover_life") is uint cannot && player.GetValueOrDefault(cannot) != 0) return true;
+        if (LifeRecovery.NonLeechBlocked(name => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0)) return true;
         var session = LeechOf(conn);
         uint before = conn.PlayerLife;
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,

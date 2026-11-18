@@ -82,9 +82,9 @@ sealed class Act4 : Act
             // the Belly and stays as PietyBelly where she fell (no room places her; NPCTalk 620/621 start a4q5). In The
             // Harvest the three guardians' deaths set their Killed flags (assumed: no table names the setter). KillGuardians
             // (log rows 5-12, "kill the guardians") is not set: no data sets or clears it, and the "complete" rows 0 and 2
-            // need it missing (Act4Complete has none; ConsoleAscent keeps it). Malachai's second stage, which the area does
-            // not place (SecondForm), appears where the first falls; its death sets QuestComplete (the first stage cannot die
-            // below 70% in the game, a floor the server does not model: /kill ends it). The withered Dialla's 521 (its flag
+            // need it missing (Act4Complete has none; ConsoleAscent keeps it). Malachai retreats without dying at
+            // 70% life. His next form starts at 92% at the second arena's boss point and sets QuestComplete on death.
+            // The withered Dialla's 521 (its flag
             // DiallaOnMalachaiDead) opens the Ascent.
             new Quest("a4q1")
             {
@@ -103,6 +103,7 @@ sealed class Act4 : Act
                 On.Killed(Harvest, Act4Monsters.Shavronne, "a4q1-KilledShavronne"),
                 On.Seen(Harvest, Act4Monsters.Malachai, "a4q1-SeenMalachai"),
                 On.Seen(Harvest, Act4Monsters.Malachai2, "a4q1-SeenMalachai"),
+                On.Threshold(Harvest, Act4Monsters.Malachai, 70),
                 On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2),
                 On.Killed(Harvest, Act4Monsters.Malachai2, "a4q1-QuestComplete"),
                 new PointPortalRule(Harvest, Highgate, "Metadata/QuestObjects/Act4/MalachaiDeathPortal"),

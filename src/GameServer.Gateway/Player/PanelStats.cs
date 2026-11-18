@@ -484,8 +484,9 @@ public static class PanelStats
             }
         }
         if (referenceAccuracy is int accuracy)
-            result.Add(("chance_to_evade_%", Math.Clamp(DamageModel.EvadeChance(pools.Evasion, accuracy)
-                + get("chance_to_evade_attacks_%"), 0, EvadeChanceCap)));
+            result.Add(("chance_to_evade_%", get("keystone_unwavering_stance") != 0 ? 0
+                : Math.Clamp(DamageModel.EvadeChance(pools.Evasion, accuracy)
+                    + get("chance_to_evade_attacks_%"), 0, EvadeChanceCap)));
         if (pools.Ward > 0)
             result.Add(("ward_delay", (int)Math.Clamp(Math.Round(WardState.Delay(get) * 1000), 0, int.MaxValue)));
         if (get("energy_shield_recharge_apply_to_mana") != 0)

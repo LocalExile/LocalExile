@@ -5,6 +5,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+  The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
+  Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
   The native window handler and visible state were verified through the real client.
   Its placement supports the hideout editor; storage transfers were not added by this change.
@@ -44,8 +47,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   maps (the stand-in for bonus objectives) through league flags 329-332, per character; a locked tab is refused. A map's area stats take the active preset's
   nodes (HardMode vectors in a HardMode league) composed by the tree's own rules (`AtlasStats`: Wandering Path, Grand
   Design, Unfettered Concentration, mod effect per mod and per fragment), with rarity-gated packs and Meticulous
-  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage and the map's card and scarab
-  drop factors act ([maps](../docs/game/maps.md); offline only).
+  Appraiser resolved in the list; the vital/deadly keystones' monster life and damage, the map's card and scarab
+  drop factors and the scarab-type weights (ScarabTypes: the Carapaces' `MoreLikely`, `DisableDrops`) act ([maps](../docs/game/maps.md); offline only).
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
@@ -86,6 +89,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   rejecting extra inputs before consumption (verified in the 3.29.3d client with both inputs preserved); in the map, a
   portal back to the hideout, the map's own monster packs (Maps.dat) and its boss arena
   gates (teleports); Nessa sells Beach Maps; `/league_flag`, `/hideout_keys` (dev, answered in chat).
+  A run whose device instance is gone (a hideout's instance expires six minutes after its last player leaves) moves to
+  the instance the character enters, so its portals left stand at the new device (2026-11-18).
   Code: `HideoutCatalog.cs`, `InstanceHideouts.cs`, `WorldAreaHideouts.cs`, Gateway (`WarpToHideout`,
   `SpawnHideoutDoodads`, `UseMapDevice`, `ActivateMapDevice`, `UseMapPortal`), `MapDevice.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md).
@@ -100,6 +105,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Named scarabs: Domination/Cloister, guarded Ambush boxes, Essence release/Ascent/Calcification and Terrors bosses;
   box affixes, Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
+  Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
+  Essence corruption/skills/balance and other dedicated engines remain incomplete and log diagnostics (#505).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

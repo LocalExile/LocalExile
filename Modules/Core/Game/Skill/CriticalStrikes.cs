@@ -1,9 +1,17 @@
 
 public static partial class Game
 {
+    // "Your Critical Strikes do not deal extra Damage": the stat, and the two keystones whose text says the same
+    // (Elemental Overload, Perfect Agony). Resolute and Precise Technique say "Never deal Critical Strikes", which is
+    // CriticalProhibitedBy instead.
     public static bool CriticalHitsDealNoExtraDamage(IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? own = null) => Stats.Key("no_critical_strike_multiplier") is uint key
+        IReadOnlyDictionary<uint, int>? own = null)
+    {
+        bool Flag(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
+        return Flag("no_critical_strike_multiplier")
+            || Flag("keystone_elemental_overload") || Flag("keystone_ailment_crit");
+    }
 
     public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
         : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
@@ -13,7 +21,8 @@ public static partial class Game
             CriticalHitsDealNoExtraDamage(player, own));
 
     public static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
-        or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
+        or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks"
+        or "resolute_technique" or "keystone_precise_technique";
 
     public static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(ClientState conn)
     {
@@ -73,7 +82,9 @@ public static partial class Game
         bool Flag(string name) => Stats.Key(name) is uint key
             && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
         return Flag("global_cannot_crit") || Flag("virtual_global_cannot_crit")
-            || attack && Flag("cannot_critical_strike_with_attacks");
+            // Resolute Technique and Precise Technique ("Never deal Critical Strikes"), and the attack-only cannot-crit.
+            || attack && (Flag("cannot_critical_strike_with_attacks")
+                || Flag("resolute_technique") || Flag("keystone_precise_technique"));
     }
 
     // The original per-type damage draws still precede the original critical Next(10000). Conditional luck adds

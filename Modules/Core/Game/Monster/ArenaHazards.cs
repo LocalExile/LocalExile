@@ -98,7 +98,7 @@ internal static class ArenaHazards
                     loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
                         : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
                 }
-                p.PlayerLife = (uint)Math.Max(0, (long)p.PlayerLife - loss);
+                p.PlayerLife = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - loss), now);
                 shieldChanged = shield != p.EnergyShield.Current;
                 if (died = before > 0 && p.PlayerLife == 0) { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
                 foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())

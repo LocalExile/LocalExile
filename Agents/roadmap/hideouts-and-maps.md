@@ -35,6 +35,15 @@ bench.
   Voidstones; the map stash tab's layout (18 A5); the official drop pools.
 - **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
 
+### Idols: what the side panel leaves out
+
+- **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
+  The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
+- **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
+  Kingsmarch's Idol gambling (`VillageIdolGamblingUnlocked`); the Ruthless versions of two unique Idols;
+  refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
+- **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
+
 ### Hideouts: decorations, editing and the map device
 
 - **Known:** the Lush Hideout works: travel, waypoint, stash, Nessa, the Edit button and the map device: slots,
@@ -54,7 +63,9 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** create the rest of the decorations (`HideoutObject`, each type's components from
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
-  maps: remaining scarab engines, Ambush affixes, Essence corruption/skills and Evolution/Apparitions (#505);
+  maps: remaining scarab engines, Ambush affixes, Essence corruption/skills, Torment spirits' skills and
+  Evolution/Apparitions (#505);
+  maps: remaining scarab engines, Essence corruption/skills and Evolution/Apparitions (#505);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
   Simulacrum's native reward/fog presentation, specialised boss behaviour and full clear need verification.
   Personal template selection and login to the selected home are implemented (see Status).

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "settings": {
+    "enableAtlasTree": {
+      "type": "bool",
+      "default": false,
+      "label": "Keep the Atlas passive tree",
+      "description": "Off, as in Legacy of Phrecia: Idols replace the Atlas passive tree, which the client hides. On: the Atlas passive tree stays usable beside the Idols."
+    },
+    "dropRate": {
+      "type": "number", "default": 1, "min": 0, "max": 100, "format": "multiplier",
+      "label": "Idol drop rate",
+      "description": "How many times as often monsters in maps drop Idols. 0 stops them dropping."
+    }
+  }
+}

@@ -114,7 +114,10 @@ public static class CharacterStats
         int EnergyShieldPctPerTenStrength = 0, int EvasionPctPerTenIntelligence = 0,
         bool NoLifeFromStrength = false, bool NoManaFromIntelligence = false,
         bool NoStrengthBonuses = false, bool NoDexterityBonuses = false, bool NoIntelligenceBonuses = false,
-        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0)
+        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
+        // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
+        // can add spell suppression chance per complete group of 15 Dexterity.
+        bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0)
     {
         public static readonly Bonus None = new();
     }
@@ -160,7 +163,10 @@ public static class CharacterStats
             + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0),
             0L, DamageModel.SpellSuppressionChanceCap);
 
-    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null)
+    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null) =>
+        For(c, level, bonus, null);
+
+    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus, Func<long, long, int>? resolveAccuracy)
     {
         var b = bonus ?? Bonus.None;
         level = Math.Clamp(level, 1, Progression.MaxLevel);
@@ -195,7 +201,7 @@ public static class CharacterStats
         int accuracyPerDex = b.NoDexterityBonuses ? 0 : b.DexterityAccuracyTriple ? 3 : 2;
         long accuracyBase = accuracyPerLevel * level + (long)accuracyPerDex * dex + b.Accuracy
             + (b.AccuracyEqualsIntelligence ? intel : 0) + (long)str * b.AccuracyFromStrengthPct / 100;
-        int accuracy = AccuracyRating.Calculate(accuracyBase, b.AccuracyPct);
+        int accuracy = (resolveAccuracy ?? AccuracyRating.Calculate)(accuracyBase, b.AccuracyPct);
         // PoB CalcDefence: armour and evasion are flat defences raised by their increased modifiers. Evasion keeps the
         // character's 15 base and gains 1% per 5 dexterity; armour has no base outside items and passives. The
         // overcapped cold resistance's increase is one of the evasion increases (it applies before the conversion, so
@@ -225,7 +231,7 @@ public static class CharacterStats
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
             + (long)b.EvasionPctPerTenIntelligence * (intel / 10);
-        long totalEvasionPct = (b.NoDexterityBonuses ? 0L : dex / 5L) + ordinaryEvasionPct;
+        long totalEvasionPct = (b.NoDexterityBonuses || b.NoDexterityEvasion ? 0L : dex / 5L) + ordinaryEvasionPct;
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion;
         decimal evasionValue = More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
@@ -292,8 +298,9 @@ public static class CharacterStats
             LightningResistance: BaseResistance + b.LightningResistance, ChaosResistance: BaseResistance + b.ChaosResistance,
             FireMaxResistance: Max(b.FireMaxResistance), ColdMaxResistance: Max(b.ColdMaxResistance),
             LightningMaxResistance: Max(b.LightningMaxResistance), ChaosMaxResistance: Max(b.ChaosMaxResistance),
-            SpellSuppressionChance: Math.Clamp(b.SpellSuppressionChance, 0, DamageModel.SpellSuppressionChanceCap),
-            SpellSuppressionChanceUncapped: b.SpellSuppressionChance,
+            SpellSuppressionChance: Math.Clamp(b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
+                0, DamageModel.SpellSuppressionChanceCap),
+            SpellSuppressionChanceUncapped: b.SpellSuppressionChance + dex / 15 * b.SpellSuppressionPerFifteenDexterity,
             SpellSuppressionEffect: Math.Max(0, DamageModel.SpellSuppressionEffect + b.SpellSuppressionEffect),
             SpellSuppressionLucky: b.SpellSuppressionLucky, SpellSuppressionUnlucky: b.SpellSuppressionUnlucky,
             SpellSuppressionWhileFullLife: b.SpellSuppressionWhileFullLife,
