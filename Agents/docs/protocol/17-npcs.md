@@ -24,7 +24,9 @@ An NPCs.dat row's `Id` (`Metadata/NPC/Act1/Tarkleigh`) is an .ot type, created w
 The child .ot only sets its `animated_object`.
 
 Of the NPC types in `data/object-types.json`, 190 have exactly that list; 54 add Transitionable, 31 StateMachine, and a
-few ControlZone, Functions, Stats or Brackets (not written yet).
+few ControlZone, Functions, Stats or Brackets. Stats is written as a monster's (compact count + pairs, u32, u32, u8;
+reader `0x1421c98b0`), empty; Functions and ControlZone read nothing (slot 17 `0x1400f1180`: ret). Brackets is not
+written: it would also let Kingsmarch's Mayor, Tujen, Rog, Farmer and Recruiter spawn.
 
 | Part | Bytes |
 |---|---|
@@ -79,7 +81,7 @@ drew it without a model), Divinia (`SanctumNPCTown`) in the Forbidden Sanctum, J
 Faustus, Isla, Sonja and Raulf in Kingsmarch, Kurai, Faustus, Adiyah, Whakano and the nine rogues in the Rogue Harbour,
 Ailith (`ChayulaFarmerHub`) in the Monastery of the Keepers. Kingsmarch, the Rogue Harbour and the Monastery have not
 been placed live yet: their NPCs, stash and guild stash are offsets from the arrival (`StashCatalog.FromArrival`).
-Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`: unlike `VillageFaustus`, it has no ControlZone, so it can be serialized).
+Every hideout also gets Einhar (`EinharHideout`) and Faustus (`VillageFaustusHideout`).
 
 Several town rooms do not start at (0, 0): the area has a border around the room. The atlas's grid placement for
 fixed layouts ([08](08-area-transitions.md) §6, step 10) assumes (0, 0), so its exits in those towns are probably off
@@ -130,7 +132,7 @@ by the same amount.
 - **Not placed:** league NPCs of the same rooms (Einhar, Niko, Jun, Alva, Gwennen, Tujen, Rog, Dannig, Divinia,
   Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of Exile, Tolman (act 8, no NPCTalk rows), Kirac
   and the Karui Shores' `HelenaIntro` at (510, 173) (a trigger by the tunnel that plays "HelenaThroughTheTunnel" and
-  then hides; both need ControlZone, which is not serialized) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
+  then hides; not placed yet) and later quest stages of the same NPC: Highgate's `DiallaTownWithered` at (250, 553),
   Oriath Docks' `InnocenceTown` in Bannon's cell, Act 6's Lilly sitting by Bestel at (148, 343) (she is placed by her
   ship, `QuestObjects/Act6/LillyShip`). Which stage the real server shows depends on quest progress; the Gateway places
   the first one.

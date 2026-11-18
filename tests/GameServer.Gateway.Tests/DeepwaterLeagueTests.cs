@@ -1,5 +1,6 @@
 using System.Reflection;
 using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Modding;
 using GameServer.Modules.Deepwater;
@@ -43,6 +44,20 @@ public sealed class DeepwaterLeagueTests
             lifetime.Stop(ex => throw ex);
             GameEventOwners.Release("Deepwater", GameEventOwners.ModuleRank);
         }
+    }
+
+    // ValerieTutorial (Stats, Functions, StateMachine after the base six) is written: Stats as a monster's with no pairs
+    // (compact count, u32, u32, u8), nothing for Functions, then her StateMachine (2 states, 2 timers).
+    [Fact]
+    public void Valerie_writes_stats_and_functions()
+    {
+        var valerie = NpcCatalog.Load().Find("Metadata/NPC/League/Deepwater/ValerieTutorial");
+        Assert.NotNull(valerie);
+        Assert.True(valerie.Supported);
+        byte[] blob = new NpcObject(236, 190, valerie.Components!, 0, valerie.StateMachine, valerie.TransitionState).Blob();
+        Assert.Equal("0000" + "EC000000" + "BE000000" + "00000000" + "0000" + "00020001" + "00" + "00" + "01FF" + "00"
+            + "00" + "00000000" + "00000000" + "00"
+            + "0202" + "0000" + "0000" + "0000000000" + "0000000000" + "00", Convert.ToHexString(blob));
     }
 
     static IModuleContext Context(IModuleLifetime lifetime)
