@@ -765,8 +765,18 @@ static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveT
     var fs = OpenGame();
     var files = Files();
     int level = 1;
+    // The terrain plugin states the load was played with (the trace's pluginStates, from the Gateway through the
+    // recorder; LEVELGEN_PLUGINS=id=hex,… in its place): TerrainPlugins __col1 → the state's bytes.
+    Dictionary<ushort, byte[]>? pluginStates = null;
     if (tracePath is not null)
-        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath))) level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+        using (var head = JsonDocument.Parse(File.ReadAllText(tracePath)))
+        {
+            level = head.RootElement.TryGetProperty("level", out var l) ? l.GetInt32() : 1;
+            if (head.RootElement.TryGetProperty("pluginStates", out var ps) && ps.ValueKind == JsonValueKind.Object)
+                pluginStates = ps.EnumerateObject().ToDictionary(p => ushort.Parse(p.Name), p => Convert.FromHexString(p.Value.GetString() ?? ""));
+        }
+    if (Environment.GetEnvironmentVariable("LEVELGEN_PLUGINS") is { Length: > 0 } pluginText)
+        pluginStates = pluginText.Split(',').Select(p => p.Split('=')).ToDictionary(p => ushort.Parse(p[0]), p => Convert.FromHexString(p[1]));
     // LEVELGEN_LEVEL: the area level without a trace; LEVELGEN_LAB=seed:row:difficulty: a Labyrinth room's node (0x1d extra data).
     if (int.TryParse(Environment.GetEnvironmentVariable("LEVELGEN_LEVEL"), out int levelOverride)) level = levelOverride;
     var area = AreaInfo.Load(p => fs.TryReadFile(p, out var d) ? d : null, areaId, level);
@@ -809,7 +819,7 @@ static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveT
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, topologyVariant: variant, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
+    try { result = LevelGenerator.Generate(files, area, seed, topologyVariant: variant, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain, pluginStates: pluginStates); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);

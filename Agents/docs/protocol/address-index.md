@@ -92,7 +92,13 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x142149550` | Fn | 0x1d +0x28 → world `+0xd0` league category ([03](03-area-and-world.md), [re/011](../re/011-level-generation.md) §3) |
 | `0x1415a6800` | Fn | S→C 0x1f add ruleset (dispatcher case 8, slot 8): builds the Rulesets row's ruleset unless held ([03](03-area-and-world.md) §8) |
 | `0x1416851b0` / `0x141685030` | Fn | DeepwaterRules (row 171) per-frame update / DeepwaterPlugin lookup (0x28 when missing, no null check) |
-| `0x141f32870` | Fn | Deepwater plugin's secondary area (The Sovereign, area type 53) inside an encounter |
+| `0x141f32870` | Fn | DeepwaterPlugin +0x20: main record N × N, The Sovereign (area type 53) as a sub-area inside an encounter ([re/011](../re/011-level-generation.md) §3c4) |
+| `0x141ecdad0` / `0x141eca930` → `0x141ecab90`, `0x141ecb130` | Fn | 0x1d extra-data decoder / terrain plugins created at generation start: each sent state, then the area's own ([03](03-area-and-world.md) §1) |
+| `0x141d93260` → `0x141f32690` → `0x141f35280` (`0x141f350c0`, `0x141f565f0`) | Fn | DeepwaterPlugin factory / ctor / state parser (cell, room row) |
+| `0x142436e50` / `0x141e4c7e0` | Fn | a mod record (u16 Mods HASH16, compact ints) / the compact signed int reader |
+| `0x141f32a70` | Fn | DeepwaterPlugin +0x30: the main graph's cells and each cell's room node |
+| `0x141f331e0` → `0x141f34ee0` | Fn | DeepwaterPlugin +0x28: the seams; `0x141f33de0` across, `0x141f34900` down (ends trimmed by `0x141f34200`, `0x141f33260` plain fill), `0x141f33c90` edge merge, `0x141f33560` re-pick, `0x141f33340` fill pick |
+| `0x1416850c0` | Fn | DeepwaterRules: region r ≥ 2 → plugin cell r − 2 |
 | `0x14041b5d0` | Fn | The Sovereign's C→S 0x2ca ruleset action opcodes 0-7 |
 
 ## Objects and components

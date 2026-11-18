@@ -702,6 +702,45 @@ entries, tile hash 1294234863, all 4 134 draws up to the doodads, every room of 
   rows in a `.tgr` subgraph's special nodes, sub-area records beside a `.tgr` primary (§3), and the rest of
   `0x14204c040` (oversize-feature / telepad-injector records).
 
+## 3c4. Deepwater encounters: the DeepwaterPlugin (`DeepwaterGeneration.cs`)
+
+DeepwaterEncounter and DeepwaterEncounterVoyage (WorldAreas `TerrainPlugin` = DeepwaterPlugin, `__col1` 11572; topology
+`Deepwater_01.dgr`, one node no room has) are an N × N grid the server sends as the plugin's state in 0x1d's extra
+data ([03](../protocol/03-area-and-world.md) §1). At the generator's start `0x141eca930` creates one plugin per sent
+state, then the area's own plugin with an empty state unless one was sent (`0x141ecb130`): without a state the
+DeepwaterPlugin (`0x141d93260` → `0x141f32690`) builds a fixed 2 × 2 grid (ThermalVentsCross1 turned 1, SandyCross1 2,
+CoralReefCross1 0, CoralForestCross1 0). Both seed-1 traces of the gate are that grid. State (`0x141f35280`, LE):
+u8 N; per cell, index N·y + x (`0x141f350c0`): u8 DeepwaterRooms row (`0x141f565f0`, no range check), u8 orientation,
+u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods HASH16, a compact int per stat,
+`0x141e4c7e0`). Generation reads neither the stats nor the mods. The plugin's vtable hooks:
+
+- **+0x20** `0x141f32870`: record 0 is N × N room units (master.tsi 30, buffer 3: 30N + 6), and DeepwaterHub is added as
+  a sub-area (`0x14204d8e0`: `Next(count)`, `Next(840)`); record 1 is the boat, its interior the last record.
+- **+0x30** `0x141f32a70` (after a record's graph is read, only for a record whose world area is of type 52): record 0
+  becomes N × N "graph" nodes at (23x, 23y), each `[biome .dgr, "1", "1"]` (a `Next(1)` per cell over the room's world
+  area's topologies: DeepwaterRooms +0x3c, else its biome's +8). Records 2 … N² + 1 are the cells in node order: one
+  node with the room's `.arm` tag at the cell's orientation, cell 0 also `default` and `killzone=3`.
+- **+0x28** `0x141f331e0` → `0x141f34ee0` (where the port calls Delve's join): ground checks off (map +0x10), then per
+  cell, y then x, with the room's mask (+0x10) turned right by the orientation in 4 bits: bit 4 joins the cell to x + 1
+  along the record's right edge (`0x141f33de0`, x = right − 3, every 3 rows), bit 2 to y + 1 along its bottom
+  (`0x141f34900`). Only the lower / left cell's mask is read. A pair of 3 × 3 tiles (tile data +0x60 / +0x61) is turned
+  (`0x141d83b10`, the tile's own key: grounds left out of keys included), the far tile's side runs through both
+  (`0x141f33c90` merges the two cross sides; no Deepwater master has an EdgeCombination, so two edges become none and
+  the edge point 9), and both are picked again with the cell's master (`0x141f33560`): an untagged tile whose key is a
+  plain fill takes a 3 × 3 fill tile of its ground (`0x141f33340`: one `Next(total)` over every FillTiles list, always
+  drawn, then `Next(8)`), else nine 1 × 1 (each `Next(8)`), else the TileSet's tiles of the old tag
+  (`0x141d85600`, `Next(total)`); with nothing, the grounds left out of keys go and it tries again, then "Cannot find
+  matching tile key to connect Deepwater cell". For no ground or a ground with flag 4 a fill tile also needs flags
+  0x40 | 0x80 (+0x16c) and no bit 8 in its first slot's F (+0x90 → +0x30). The vertical seam is
+  first trimmed from both ends (`0x141f34200`) to the first column where both tiles are plain fills or neither has an
+  edge on the far side. Two equal edges at a trimmed end would go through the missing EdgeCombination (not ported:
+  the port stops).
+
+The port generates both areas without a state (103 × 66, the default grid) and with module grids (164 one-room charts,
+40 3 × 3 voyages: no stop); no trace of a sent grid exists yet. Open: the record WorldArea switch to the biome's
+(+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the FillTiles lists' order in
+the client (it matters only for a ground with tiles in two lists), and the cell stats' and mods' meaning.
+
 ## 3d. Tile graphs (`.tgr`): first stages (`TileGraph.cs`, `FortuneVoronoi.cs`, `VoronoiCells.cs`)
 
 `0x14204bb30` sends `.tgr` subgraphs to `0x1420460e0`, then `0x14211cf00` lays them out. Ported so far (The Twilight
