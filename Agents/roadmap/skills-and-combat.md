@@ -48,15 +48,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
   model; the arrow arrives about 25 ms after the muzzle flash, with a fixed 60 ms lead tuned on localhost rather than
   one that follows the connection's latency ([11](../docs/protocol/11-skills.md) §4).
 - **Spell and attack panels:** integer-roll expectation, cooldowns, DoT/beam displays, in-place link mutation,
-  off-hand alternation, conditional damage and support/modifier scope; check equipment UI refresh live.
-  Attack base/added coefficients are separate; ordinary bow/wand/claw/dagger additions, light-radius fire and Ritual
-  boots' accuracy-derived lightning have shared consumers. The boots' less-accuracy factor applies before dependent outputs.
-  Varunastra feeds the shared additions and positive weapon conditions. Fan of Blades' either-hand projectile count
-  and attacking-hand hit increase have consumers, as does DualWield3's different-type generic damage condition.
-  Negative conditions, other different-type consumers, other projectile inputs, remaining weapon families,
-  skill-specific added inputs and native checks stay open (#368).
   conditional damage and support/modifier scope; check equipment UI refresh live.
-  Attack base/added coefficients are separate; remaining skill-specific added inputs and native checks stay in #368.
+  Attack base/added coefficients are separate; negative weapon conditions, remaining weapon families,
+  skill-specific added inputs and native checks stay in #368.
 - **Warcries:** executors for the other warcries; explosions need global added damage, flat crit chance, on-hit
   effects, their native art and the wave delay ([11](../docs/protocol/11-skills.md) §10i).
 - **Character panel (#75)** ([11](../docs/protocol/11-skills.md) §14):
@@ -84,14 +78,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     skill-specific recovery speeds and the speed/defence/ailment/DoT leech-state consumers; other Life-retention
     sources. Do not add overlapping displayed scopes, substitute regeneration for leech, broaden the attack-only item
     scope, infer Vaal Pact from legacy raw flag names, or multiply one boolean doubling per item copy.
-  - Damage: alternative quality, off-hand alternation, endpoint-only modifiers and official rounding.
-    Righteous Fire uses its linked area, elemental and DoT damage modifiers and fire prohibitions on enemies.
-    Lifetap and Inspiration scale their active portions of a burn tick. Other conditional DoT modifiers and native
-    timing checks remain open.
-    Physical/per-element target increases and Maim now add with general DoT damage taken; hit target composition,
-    other target scopes and native comparison remain open. A damage-qualified Maim settles pending bleeding before
-    its target damage increase takes effect. Ordinary Maim has an independent movement timer.
   - Damage: alternative quality, endpoint-only modifiers and official rounding.
+    Hits still multiply a target's physical damage taken and Maim separately; DoT adds them ([20](../docs/protocol/20-damage.md)).
   - Dual wielding ([11](../docs/protocol/11-skills.md) §4): when the client calls the hand selector and its stage for
     Multistrike repeats and Barrage's projectiles (they keep the use's hand) and channels (Cyclone keeps the main hand);
     the off hand's own stun threshold reduction and weapon-family modifiers; a wand beside a melee weapon (the default

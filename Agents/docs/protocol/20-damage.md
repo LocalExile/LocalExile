@@ -59,17 +59,10 @@ does the mirror pass through the player's resistances. Damage over time is outsi
 penetration. Righteous Fire's monster burn (its per-tick percentage-of-life model) and the player's ignites take the
 monster's capped resistance of their type, its base and its mods' as for hits, and its damage taken (`MonsterDotTaken`;
 before the ignites, the burn took only the mods' resistance).
-Izaro's Toggle Statues carry a signed elemental damage-taken modifier: LabyrinthSecretEffects 16–21 map
-BuffDefinitions 559–564 to Stats 2085/3688/3689 with -20, in both the first and returning trials.
-Those are reduced fire/cold/lightning damage taken, not resistance or a hit-only reduction. They add to the
-matching DoT's general and elemental increased/reduced damage-taken bucket; native damage parity is unverified.
-Vulnerability's BuffDefinitions 79 carries `physical_damage_taken_+%` (15 at gem level 1, 30 at 20;
-GrantedEffectStatSetsPerLevel 11135/11154). Maim Support's stat set 7844 grants 10 increased physical damage taken
-while maimed, separately from its source-side more physical damage. Both target increases add to general damage
-taken for physical DoT; Pride remains a separate more multiplier. Hit target composition is still a separate audit.
-The hit pipeline applies Maim before its bleeding callback. A hit that applies Maim's physical damage increase first
-settles the old bleed at its earlier Rupture expiry points. Damage earned before the hit uses the previous target multiplier.
-This ordering does not establish general sub-tick integration of every damage-taken expiry or native timing parity.
+A DoT adds the target's per-type damage taken to its general increase: Izaro's Toggle Statues (BuffDefinitions
+559–564, Stats 2085/3688/3689, -20 fire/cold/lightning), Vulnerability's `physical_damage_taken_+%` (BuffDefinitions 79)
+and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
+separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
 Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
@@ -282,57 +275,21 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
 `global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
 alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
-armour bonus, added only while a bow is the weapon), the wand ranges and the stats below are read.
-The wand ranges are `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats rows 412-417)
-and `attack_minimum/maximum_added_physical_damage_with_wands` (6772-6773).
-All eight have `IsLocal=0` and `IsWeaponLocal=0`; their stat descriptions restrict them to wand attacks.
-The `AbyssAdded*DamageWithWandsJewel` modifiers supply these ranges through equipped jewels.
-They enter added damage for the attacking wand before its skill's added effectiveness, not the local weapon base.
-Other weapon families and spells do not receive them; their native panel and hit presentation remain unverified.
+armour bonus, added only while a bow is the weapon) and the stats below are read. Weapon-family ranges go to the
+attacking hand only, before the skill's added effectiveness:
 
-The claw/dagger pairs are global Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815 and 14155-14158.
-Their descriptions (2121-2122, 2131-2132, 2139-2140, 2147-2148, 2154-2155) restrict the additions to that hand's
-attacks. The dagger descriptions reference `ReminderTextDaggerRuneDagger` (ReminderText 157): Rune Daggers count
-as Daggers. `AbyssAdded*DamageWithClaws/DaggersJewel` has positive spawn weight for `abyss_jewel_melee` (234), the
-Murderous Eye Jewel tag. Native panel/hit parity remains unverified.
-
-Varunastra's `WeaponCountsAsAllOneHandedWeapons__1` (Mod 12753) supplies local Stat 4196. Its main/off-hand
-aliases are Stats 4197/4198 (client keys `0x1066/0x1067`); neither replaces the actual sword type. The same hand
-can receive both claw and dagger additions, once each. The native one-hand melee mask and restriction ordering
-are recorded in [hand selection](../re/projectiles/hand-selection.md); that evidence is stable-input RE, not gameplay.
-
-Fan of Blades (PassiveSkills 3093, granted by Mod 22890) supplies Stats 11248 and 11815: one additional attack
-projectile while wielding a Claw/Dagger, and 20% increased projectile attack hit damage **with** those weapons.
-Descriptions 4962/9907 distinguish the scopes. The [native count predicate](../re/projectiles/count-stat-inputs.md)
-accepts either active hand's type 10/12/16 or either Varunastra alias, once per attack; damage uses the attacking
-hand's identity and joins the existing increased bucket. Melee components, spells and ailments receive no damage
-increase. These are data/RE and automated server checks, including Survivors; native panel/hit parity is unverified.
-
-Dual Wielding Mastery's `DualWield3` (mastery effect 125, HASH16 46493) grants 60% generic increased damage through
-Stat 15135, `damage_+%_while_wielding_two_different_weapon_types` (description 6194).
-[Pinned PoB's condition](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcPerform.lua#L159-L242)
-accepts Varunastra alone in either active hand; ordinary/thrusting swords share a type, while mace/sceptre and
-dagger/rune dagger differ. The increase joins the generic bucket before hit, ailment and Essence Drain snapshots;
-it does not require the hit to use either weapon. Source removal, inactive hands and stored weapon sets have
-automated controls. These type distinctions follow the reference model; native execution remains unverified.
-
-Eclipse Solaris's `AddedFireDamageFromLightRadiusUnique__1` grants the global attack-only pair
-`minimum/maximum_added_fire_damage_to_attacks_per_1%_light_radius` (Stats 22169-22170, both local flags zero).
-Native stat description 9405 applies the range per 1% light radius **above base**. The modifier's 2-5 therefore gives
-40-100 added fire at 20% increased, before the skill's added effectiveness. Zero or negative `light_radius_+%` gives no grant.
-[PoB's LightRadiusInc](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcDefence.lua#L1655)
-corroborates the nonnegative sum of increases/reductions; current Life/ES light presentation is separate.
-Native panel/hit parity and conditional light-radius sources remain unverified.
-
-Cloudwhisper, Windbreak and Stormrider Boots share the Ritual implicit's attack-lightning pair (Stats 13539-13540,
-description 4952: per 200 Accuracy Rating) and `boots_implicit_accuracy_rating_+%_final` (Stat 13577, description 5359).
-The native rolls are 1 to 5-6 lightning and 25% less accuracy. The grant uses complete 200-rating groups before added
-effectiveness. [PoB's per-stat parser](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/ModParser.lua#L1499)
-and [accuracy calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L2213-L2221)
-use the hand/skill's accuracy, separately from target-conditional accuracy. Its
-[blind calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcPerform.lua#L858-L865)
-puts blind in the same more bucket: floor(381 * .75 * .7) is 200; flooring before blind would give 199 and lose a group.
-These are native-description/reference-model findings; native panel, rounding and hit parity remain unverified.
+- Wands: `attack_minimum/maximum_added_{lightning,fire,cold}_damage_with_wand` (Stats 412-417) and
+  `…_physical_damage_with_wands` (6772-6773). Claws and daggers: Stats 6774-6777, 6786-6789, 6800-6803, 6812-6815,
+  14155-14158; Rune Daggers count as Daggers (ReminderText 157).
+- Varunastra (Mod 12753): local Stat 4196, hand aliases 4197/4198 (client keys `0x1066/0x1067`). It counts as every
+  one-hand melee type for these ranges and weapon conditions; the hand's native weapon type stays a sword.
+- Fan of Blades (Stats 11248, 11815): the extra projectile checks either hand (type 10/12/16 or a Varunastra alias),
+  the 20% projectile hit increase only the attacking hand.
+- `DualWield3` (Stat 15135): generic increased damage; ordinary and thrusting swords are one type, and Varunastra alone
+  qualifies (as PoB).
+- Eclipse Solaris (Stats 22169-22170): the range per 1% increased light radius; none at zero or less.
+- Ritual boots implicit (Stats 13539-13540, per 200 accuracy; Stat 13577, less accuracy): whole 200-rating groups of
+  the hand's accuracy, with the less factor and Blind applied before one rounding (floor(381 × .75 × .7) = 200, not 199).
 
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.

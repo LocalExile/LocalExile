@@ -77,9 +77,8 @@ Nothing yet.
   for gems in their source item, independently of links; automated tests cover their addition and removal.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
-  Cast when Damage Taken checks its level cap against the actual level of an active skill granted by equipment.
-  Varunastra fits one-hand melee skill/support table restrictions; bow, wand and two-hand-only restrictions still apply.
-  Support resolution retains the existing main-hand policy. Native eligibility and broader hand selection remain unverified.
+  Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
+  melee skill and support restrictions.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
@@ -99,13 +98,10 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Hallow and
+  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
   Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
   damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Spellblade takes active one-hand melee weapons' local damage without importing global attack-only additions or counting generic additions twice;
-  dual wield contributes 60% per hand, rounded down per hand before spell effectiveness. Native panel/hit and rounding parity
-  remain unverified ([25](../docs/protocol/25-gem-supports.md)).
   Mirage Archer fires linked bow skills with a native head attachment and default green art; autonomous actions
   keep a separate sequence and expiry removes it. Independent model facing and reported client CPU spikes remain unresolved
   ([25](../docs/protocol/25-gem-supports.md)).

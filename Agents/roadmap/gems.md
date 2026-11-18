@@ -69,7 +69,6 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
-  The CWDT level gate covers equipment-granted actives. Native trigger behaviour on those items remains open.
 - **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
   repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
   remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
@@ -78,10 +77,7 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Barrage still needs sequential release, cancellation and per-projectile hit admission beyond its attack-time penalty.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.
   Verify native refresh after mod changes and controlled before/after local level/quality changes.
-  Spellblade's active one-hand melee eligibility, weapon-local inputs and dual-wield contribution/penalty are implemented;
-  verify its native panel/hits and per-hand transfer rounding against the reference-model behavior.
-  Varunastra's table-based weapon eligibility is implemented; selected-stat restrictions, off-hand support selection
-  and native availability/refresh remain open.
+  Check Spellblade's panel and per-hand rounding live; Varunastra's off-hand support selection is open.
 - **Done when:** Fireball linked with Arcane Surge shows the support's letter and pays the multiplied cost, a modelled
   support such as Faster Casting changes the skill, and the support crash is gone.
 

@@ -209,12 +209,8 @@ Its added chaos enters raw spell damage before effectiveness, conversion, increa
 unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;
 area poison uses the same added chaos base. Source identity survives gem experience/level-lock edits, not replacement.
 Proxy/trigger executors must supply their own actual caster and never reuse the player payment.
-Spellblade's Stat 18860 names one-hand melee **weapon** damage, not the full attack's inputs.
-The [pinned PoB transfer](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L597-L610)
-reads the item's damage, excluding global attack additions and the generic additions a spell already receives.
-Its [exported stat description](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Data/StatDescriptions/gem_stat_descriptions.lua#L19369-L19384)
-specifies 60% contribution per weapon when two are equipped. The transfer floors each hand's endpoints separately
-before spell effectiveness. These are description/reference-model findings; native panel, hit and rounding parity remain unverified.
+Spellblade (Stat 18860) adds the one-hand melee weapons' own damage, not global attack additions. The main hand must
+be one; with two weapons each counts 60%, floored per hand before spell effectiveness (as PoB).
 Hallow's Hallowing Flame gives
 the next attack 25% of its physical damage as extra fire (scaled by the magnitude stat, then removed); and Excommunicate
 suppresses an excommunicated monster's chaos damage for its 3 seconds.

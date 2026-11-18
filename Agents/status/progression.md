@@ -38,8 +38,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Dual Wielding Mastery's different-weapon-type damage condition has automated allocation/refund and combat coverage;
-  native acceptance is pending. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
+- Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
 - Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
 - Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).

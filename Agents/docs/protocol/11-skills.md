@@ -2465,10 +2465,8 @@ passive or another item changes which weapons qualify. Because the client still 
 `GemDisabled` / `GemSkillInstanceDisabled` refuse it through `WeaponRestricted`: `SkillCatalog.WeaponRestrictions`
 (the effect's ActiveSkills `WeaponRestriction_ItemClassesKeys`) against the active hands' ItemClasses rows, an empty or
 inactive main hand counting as Unarmed (row 36), either hand fitting. Automated coverage only; awaiting a native check.
-Varunastra's active local flag additionally admits a listed one-hand melee class, using the same Module identity
-predicate as flat attack additions and support table restrictions. The actual ItemClasses row and native weapon type
-stay unchanged; its aliases and source are described in [20](20-damage.md) §2b. Support resolution still selects the
-main hand; this does not implement the complete native selected-stat predicate or alternating-hand executor.
+Varunastra also fits any listed one-hand melee class (here and for support restrictions); its ItemClasses row and
+native weapon type stay a sword ([20](20-damage.md) §2b). Support resolution still reads only the main hand.
 
 The rest of `FUN_141eee810` (Frida 2026-11-01, `scripts/re/frida/trace-skill-usable.js` and
 `trace-skill-usable-stats.js`), with ebp the main and esi the off hand's type, every test reading the skill's stats:
@@ -3131,23 +3129,13 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **Righteous Fire** (`ActivateRighteousFire`, `RunPlayerTick`, `BurnAround`): cast on the player itself (§9), it puts
   two buffs on the player: `righteous_fire` (row 12, BuffVisuals 15: `ri_fire/bottom.epk`, the ring at the feet) and
   `righteous_fire_aura` (row 13, BuffVisuals 19: the ignite flames, and for a player model EPKFiles2
-  `ri_fire/player.epk`, the burning hands). Its independent recovery-loop self-burn is 90% of maximum Life plus
-  70% of maximum Energy Shield per second, before mitigation (nonlethal, stopping at 1 Life). The player tick's enemy
-  burn starts at 70% of maximum Life plus Energy Shield per second. GrantedEffectStatSets 719 supplies these rates
-  in percent per minute; spent Life or ES does not reduce the base. A hostile monster within its
-  radius plus its size carries `righteous_fire_aura`. It ends at death; casting it again does nothing.
-  RF has no `spell_damage_modifiers_apply_to_skill_dot` implicit: its burning area takes applicable increased damage,
-  not spell or ignite damage. This agrees with [pinned PoB's area-only DoT flag](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Data/Skills/act_int.lua#L15539-L15545),
-  a reference model rather than native execution evidence. Generic and fire DoT multipliers add to each other,
-  separately from increased damage ([PoB's DoT calculation](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/17f493353192edfc53fd0d76e2f553d36e264698/src/Modules/CalcOffence.lua#L5872-L5879));
-  ailment, ignite and critical-only multipliers do not apply. Outgoing damage modifiers do not scale self-burn.
-  Admitted supports add their applicable quality increases to the player's increases.
-  Their area, elemental and DoT more factors multiply separately.
-  A linked elemental damage prohibition stops the burn on enemies.
-  Elemental Focus's ailment prohibition allows the skill's burning area.
-  Lifetap and Inspiration scale the parts of a tick when the support is linked and the buff or charges are active.
-  Their more damage factors multiply during overlaps.
-  Other conditional DoT modifiers and native timing remain unverified.
+  `ri_fire/player.epk`, the burning hands). The self-burn is 90% of maximum Life plus 70% of maximum Energy Shield per
+  second (nonlethal, stopping at 1 Life); the enemy burn is 70% of maximum Life plus Energy Shield per second
+  (GrantedEffectStatSets 719, in percent per minute). A hostile monster within its radius plus its size carries
+  `righteous_fire_aura`. It ends at death; casting it again does nothing. RF has no
+  `spell_damage_modifiers_apply_to_skill_dot`, so the enemy burn takes increased area, fire, elemental and DoT damage but
+  not spell damage (as PoB); DoT multipliers add together, and linked supports' more factors multiply. Lifetap and
+  Inspiration count only for the part of a tick while their buff or charges are active. Nothing outgoing scales the self-burn.
   **The radius** is `active_skill_base_area_of_effect_radius`
   (18 at level 1; one unit is one cell) plus `active_skill_base_radius_+`, scaled as Path of Building's calcRadius:
   floor(base × floor(100 × √(area modifier)) / 100), where the modifier is (1 + `base_skill_area_of_effect_+%` +

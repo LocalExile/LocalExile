@@ -64,7 +64,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Righteous Fire enemy burn with linked supports, Lifetap and Inspiration. [Skills §12](../docs/protocol/11-skills.md)
+- Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
@@ -115,17 +115,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Percentage attributes, attribute-scaled pools and defences, and inherent-bonus prohibitions.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
-- Weapon-local damage and timing, ordinary wand/claw/dagger attack ranges (including Rune Daggers), light-radius-derived
-  attack fire and accuracy-derived attack lightning.
-  Ritual boots' less-accuracy factor and the grant share resolved hand/skill accuracy. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
-  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers.
-  Varunastra's active-hand identities feed claw/dagger additions, positive weapon conditions and equipped-claw counts;
-  native per-hand flags retain the actual sword type. Its native presentation and other identity consumers remain open.
-  Fan of Blades supplies either-hand additional attack projectiles and attacking-hand projectile hit increases,
-  including Survivors; mixed hands, allocation/refund and released snapshots have automated checks, not native validation.
-  DualWield3's different-weapon-type condition feeds generic damage for hits, ailments and Essence Drain snapshots;
-  weapon subclasses, Varunastra and equipment/source changes have automated coverage, not native validation.
-  New skill-specific inputs and native checks remain open (#368).
+- Weapon-local damage and timing; wand/claw/dagger added ranges, Varunastra, Fan of Blades, Eclipse Solaris and the
+  Ritual boots' accuracy lightning. Docs: [20](../docs/protocol/20-damage.md) §2a-2b.
+  Attack coefficients and weapon-scoped cold per Dexterity have shared consumers; new skill-specific inputs and native checks remain open (#368).
 - Projectile framework: one 30 Hz runtime for gem and bow projectiles.
   Docs: [framework](../docs/game/projectile-framework.md), [client research](../docs/re/012-projectile-execution.md).
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) §2c.
@@ -217,9 +209,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Critical-strike elemental resistance rules (Inevitable Judgement). Docs: [20](../docs/protocol/20-damage.md) §4.
 - Client Buff descriptor research (#370, #466, offline only).
   Docs: [report](../docs/re/client-buff-descriptor-consumers.md).
-- Damage model: packets, conversion, ailments, penetration and player ES. Physical/per-element target increases
-  and Maim add with general DoT damage taken. A hit that applies Maim's physical damage increase settles pending bleeding first
-  (server-tested; native parity open). Player ailments from ordinary hits,
+- Damage model: packets, conversion, ailments, penetration and player ES. Player ailments from ordinary hits,
   boss skills, ground and reflection share recent-freeze, automatic-flask and movement notifications.
   Native boss ailment chances and modifiers feed the ordinary hit application, with one avoidance roll per kind.
   Docs: [20](../docs/protocol/20-damage.md),
