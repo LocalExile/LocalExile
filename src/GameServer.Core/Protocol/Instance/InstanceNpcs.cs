@@ -81,7 +81,7 @@ public static class InstanceNpcs
     public static int? CtrlBuyLength(ReadOnlySpan<byte> data) => data.Length < 9 ? null : 8 + CompactUIntLength(data[8]) + 2;
 
     /// <summary>C→S 0x8b (3 bytes, class 0x1435cb1f0, write 0x140e27920, live 2026-11-19 on "TAKE ALL" in a multi-item
-    /// quest reward offer such as Kirac's Voidstones or Valerie's Cursed Ducats): u16 BE 0x008b, u8 flag (0x00).</summary>
+    /// quest reward offer, QuestRewardOffers __col6 = 1): u16 BE 0x008b, u8 flag (0x00).</summary>
     public const ushort TakeAllRewardsId = 0x8b;
     public const int TakeAllRewardsLength = 3;
 

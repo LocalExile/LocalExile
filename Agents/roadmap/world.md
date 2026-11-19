@@ -137,9 +137,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      (`NpcCatalog.Talk.LeagueFlags*`) and applied only for Valerie: 1168 rows of many leagues use them, so applying
      them for every NPC needs its own verification.
   4. Economy and crafting (Sulphur, Vesper's Allflame crafting, the 11 Ducats, Cursed Ducats and Messages in a Bottle
-     are in the status, "The Sovereign"): live verification of crafting/vats, Cursed Ducats and bottles; the five
-     upgrade pieces (`DeepwaterUpgrades` rows 0–4); and the deferred niche crafting orbs (Resonators, Veiled,
-     Conflict/Dominance, Tempering/Tailoring, Memory orbs).
+     are in the status, "The Sovereign"): the five upgrade pieces (`DeepwaterUpgrades` rows 0–4) and the deferred niche
+     crafting orbs (Resonators, Veiled, Conflict/Dominance, Tempering/Tailoring, Memory orbs).
   5. Progression: the rest of Maiden Voyage (Valerie 789 after the tutorial, the post-tutorial quests), The Spirit
      Flame and Turning the Tide (Quest 209-211) with Valerie's variant per
      stage (her `ValeriePlacer*` markers), the Deepwater Fairgraves and the Allflame on The Ship Graveyard, Velka;
