@@ -2731,6 +2731,9 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   A summon past it kills the oldest living totem first.
   The client computes the same limit itself (`FUN_1427b75c0` builds `number_of_totems_allowed` 0x3be) and refuses
   a totem skill below one (`FUN_141962e30`).
+  Multiple Totems Support adds its constant `base_number_of_totems_allowed` 2 to the supported skill's limit, and one
+  use summons two totems (`summon_2_totems`, or on `chance_to_summon_two_totems_%`), side by side across the cast line;
+  the spacing is the server's own. A skill with a cooldown summons one a use.
 - Death: at Life 0, at the end of its duration, when replaced past the limit, or when the player dies (wiki Totem and
   Soul Mantle).
   The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bd) a second after.
@@ -2748,7 +2751,11 @@ Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sou
 Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
 `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
-On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
+The proxy carries `skill_is_non_pathing`: without it the client sent each server-driven cast through its
+walk-into-range step and dropped it, so the totem stood still and Arc drew nothing (live 2026-11-19; section 6,
+"`skill_is_non_pathing`"). With it the totem plays its cast and the client draws Arc itself.
+The action spawns no projectile on the client, unlike the player's own cast: every projectile a totem emits is a
+server-created object with its rig's flight and impact clips (Fireball and Spark checked live).
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
 owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
