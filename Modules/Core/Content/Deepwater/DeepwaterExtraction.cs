@@ -29,6 +29,10 @@ internal static class DeepwaterExtraction
         public int Landed { get; set; }
         /// <summary>A capsule that sent its items up, or that called the Bathysphere: it took off.</summary>
         public bool Sent, Called;
+        /// <summary>A Voyage's start Bathysphere once another was called: sent with <c>landed</c> 0, which disables its
+        /// Targetable (ExtractionObject.ot, H), since QuestFlags 3562 would otherwise enable it with the called one. It
+        /// gets no drop task. G: the real server's handling is unknown (removing it is the fallback).</summary>
+        public bool Retired { get; set; }
         /// <summary>A Voyage's entry capsule beside the start Bathysphere: it can only call the Bathysphere (the wiki).</summary>
         public bool Entry { get; init; }
         public string Name => Entry ? "entry capsule" : Kind.ToString();
@@ -106,7 +110,7 @@ internal static class DeepwaterExtraction
             {
                 StateMachine = States.Value.GetValueOrDefault(device.Type)?.Set("landed", device.Landed),
                 // A re-entry during the descent picks it up at the current stage.
-                Tasks = device.Landed == 0 && stage is { } s ? [(DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, s))] : [],
+                Tasks = device.Landed == 0 && !device.Retired && stage is { } s ? [(DeepwaterConstants.BathysphereDropTask, DropTask(DropStages, s))] : [],
             };
         var player = PlayerOf(conn);
         if (!await global::Game.SendWorldCreate(player, device.Id, InstanceEntities.CreateObject(device.Id, InstanceEntities.ObjectTypeHash(device.Type), obj.Blob()),
@@ -205,6 +209,7 @@ internal static class DeepwaterExtraction
         string? why = null;
         if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
         else if (conn.PlayerLife == 0) why = "dead";
+        else if (device.Retired) why = "a Voyage leaves by the called Bathysphere";
         else if (device.Kind == Kind.Bathysphere && (!conn.HasQuestFlag(DeepwaterConstants.CanExtract) || device.Landed == 0))
             why = device.Landed == 0 ? "still descending" : "not DeepwaterCanExtract";
         // A Voyage leaves only by the Bathysphere it called (the wiki: calling "moves the Bathysphere there"); the start
@@ -420,7 +425,7 @@ internal static class DeepwaterExtraction
         var capsule = OpenCapsuleOf(conn, run);
         double now = conn.Clock.Elapsed.TotalSeconds;
         string? why = null;
-        Device? bathysphere = null;
+        Device? bathysphere = null, start = null;
         if (!run.Voyage) why = "a Chart leaves by its Bathysphere or the backup capsule (G)";
         else if (capsule is null) why = "no capsule window open";
         else if (ItemsOf(conn).Items(CapsuleRow).Count > 0) why = "the capsule holds items";
@@ -438,6 +443,8 @@ internal static class DeepwaterExtraction
                     run.DropStage = 0;
                     bathysphere = new Device { Kind = Kind.Bathysphere, Id = conn.TakeObjectId(), X = capsule.X, Y = capsule.Y, Landed = 0 };
                     run.Devices.Add(bathysphere);
+                    start = run.Devices.FirstOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 2);
+                    if (start is not null) (start.Retired, start.Landed) = (true, 0);
                 }
             }
         if (why is not null || bathysphere is null)
@@ -453,6 +460,7 @@ internal static class DeepwaterExtraction
             {
                 await Transition(member, capsule);
                 await Create(member, bathysphere, 0);
+                if (start is not null) await SendLanded(member, start);
                 var (remote, stream, ciphers) = member.Wire;
                 await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.VoyageDefend]);
             }
@@ -520,7 +528,7 @@ internal static class DeepwaterExtraction
         lock (run.Gate)
             if (run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0)
             {
-                var descending = run.Devices.LastOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 0);
+                var descending = run.Devices.LastOrDefault(d => d.Kind == Kind.Bathysphere && d.Landed == 0 && !d.Retired);
                 if (now >= run.LandAt)
                 {
                     run.Phase = DeepwaterRun.RunPhase.Extractable;
