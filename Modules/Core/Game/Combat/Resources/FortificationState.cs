@@ -102,7 +102,9 @@ public sealed class FortificationState
 
     void Advance(double now)
     {
-        if (!double.IsFinite(now) || now < 0 || now < lastTime) throw new ArgumentOutOfRangeException(nameof(now));
+        if (!double.IsFinite(now) || now < 0) throw new ArgumentOutOfRangeException(nameof(now));
+        // The projectile runtime's time can run a little ahead of the area's frame time: an earlier read is no time passing.
+        now = Math.Max(now, lastTime);
         if (double.IsFinite(lastTime))
         {
             double from = lastTime;
