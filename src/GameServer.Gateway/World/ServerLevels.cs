@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Ggpk;
+using GameServer.Data.Terrain;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Core;
 
@@ -26,6 +27,8 @@ public static class ServerLevels
     {
         /// <summary>The client's tile hash of the generated grid, and how long the generation took.</summary>
         public uint TileHash { get; init; }
+        /// <summary>The ground type at a cell of the generated layout, when its tile and nearest vertex name one.</summary>
+        public Func<int, int, string?>? GroundAt { get; init; }
         /// <summary>Every quest tile object of the grid (<see cref="QuestObjectTypes.IsTileQuestObject"/>): the quest engine's
         /// seals, levers, doors, altars and quest chests. <see cref="QuestObjects"/> keeps a1q4's types only, as the
         /// recorder captures them (the level generator's gate compares those).</summary>
@@ -338,6 +341,7 @@ public static class ServerLevels
                 RoomObjects = AreaObjects.RoomObjects(result, points: true, links: roomLinks),
                 RoomLinks = roomLinks,
                 PackRooms = AreaPopulation.PackRooms(result.Records),
+                GroundAt = GroundNames(files, result.Grid),
                 FeatureAreas = [.. result.Records.Where(r => r.FeatureWorldArea >= 0).Select(r => (r.X * 23, r.Y * 23, (r.X + r.W) * 23, (r.Y + r.H) * 23))],
             };
         }
@@ -347,6 +351,23 @@ public static class ServerLevels
             Errors[(CacheArea(areaId, node), seed, areaLevel)] = ex.ToString();
             return null;
         }
+    }
+
+    static Func<int, int, string?> GroundNames(TerrainCache files, TileGrid grid)
+    {
+        const int size = TilePlacement.CellsPerTile;
+        int width = grid.Width * size, height = grid.Height * size;
+        var tiles = new bool[grid.Height, grid.Width];
+        var names = new string?[grid.Height + 1, grid.Width + 1];
+        for (int y = 0; y <= grid.Height; y++)
+            for (int x = 0; x <= grid.Width; x++)
+            {
+                names[y, x] = files.Ground(grid.Corner(x, y).Ground)?.Name;
+                if (x < grid.Width && y < grid.Height) tiles[y, x] = grid[x, y].HasValue;
+            }
+        // Random doodads sample the nearest final vertex, switching at cell 12 of a 23-cell tile.
+        return (x, y) => (uint)x < (uint)width && (uint)y < (uint)height && tiles[y / size, x / size]
+            ? names[(y + size / 2) / size, (x + size / 2) / size] : null;
     }
 
     static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)

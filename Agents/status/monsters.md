@@ -167,6 +167,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Native variety weapons reach ordinary monster inventories; explicit equipment overrides remain authoritative.
   Native appearance references resolve; rendered model parity remains unverified.
 
+- Weighted area packs on generated layouts use the centre's ground type. Gateway checks cover the Coast's wet and dry
+  ground and mixed-tile boundaries. Official boundary sampling and real-client placement remain unverified. [14](../docs/protocol/14-monster-packs.md)
+
 - Native ranged actions receive final projectile counts; other than simulated mortars, flight damage remains incomplete.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
@@ -313,7 +316,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The reference capture misses its opening, so this is calibration rather than a verified official total;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
-  Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
+  how near the player must come before an emerge monster rises is our choice;
   a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
   campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
   entry;

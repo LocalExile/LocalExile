@@ -18,13 +18,21 @@ The Coast (`1_1_2`, WorldAreas row 6, level 2):
 | Pack | Weight | Members | Placed |
 |---|---|---|---|
 | `Act1-CoastCrabs` (row 2) | 100 | 2–4 Savage / Kelp / Shore / Coconut / Spider Crabs; 80%: one large Savage Crab (row 4515) | scattered |
-| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned; `Grounds`: the beach/ocean ground types | scattered (grounds not checked) |
+| `Act1-ZombieDrowned` (row 3) | 100 | 3–4 Drowned | scattered on one of five wet beach/ocean grounds in generated layouts |
 | `Act1-SandspitterEmerge` (row 4) | 100 | 3–4 Gravel Eaters | scattered, buried: they rise when the player comes near ([10](10-chat-and-commands.md) §5) |
 | `1_1_2-cannibalfire` (row 620) | 0 | 2–4 Cannibals (male, female, fire throwers, Fire-eater) | room points `%area%-cannibalfire` |
 | `1_1_2-bosspack` (row 621) | 0 | 6–8 Cannibals | with the boss at `mapboss` |
 | boss: Fire Fury (row 2845, `CannibalFemaleBossWitch`) | | Unique | room point `mapboss` |
 
 Packs whose `Id` is `<area>-<name>` have weight 0: the layout places them, through **room points** (§3).
+
+`MonsterPacks.Grounds` lists names from the first line of the terrain's `.gt` files. For a scattered centre or a
+room point that specifies only rarity, the Gateway draws from unrestricted rows and rows naming the local ground,
+with their original weights. An empty pool leaves the site free. The sample uses the nearest vertex of the final
+tile grid, as the client's random doodads do. Members can cross that boundary within their usual radius.
+The Twilight Strand's Drowned use a separate row with an empty list. Untainted Paradise spells the `Knoll` ground
+`knoll` in two pack rows. The Pantheon soldier pack has only `-` and its room names the pack directly. It keeps its
+existing weighted placement pending support for those room points.
 
 **Not recovered:** how many packs an area gets, and how often a pack is magic or has a rare: the official server
 decides those. Ours (`AreaPopulation`): one scattered pack per 9 000 walkable cells (`CellsPerPack`; The Coast: 44
@@ -253,7 +261,8 @@ placement algorithms remain unknown.
 - Unique map bosses get `MonsterMapBossDifficulty` plus `MonsterMapDifficulty` life and damage percentages
   (`MonsterCatalog.MapBossScaling`; level 83 is ×20.73 life and ×1.15 damage). The area level is the map level here; a
   future map-affix system may add more.
-- `Grounds` (Drowned on wet beach) is not checked; we have no ground-type grid.
+- The official pack sampler at mixed-ground boundaries and the priority of ground restrictions for explicitly named
+  encounters are unknown. Captured walk maps carry no ground names for the weighted draw.
 - Emerge packs (Gravel Eaters, Dripping Dead, the Strand's Drowned, Tide Striders …) are placed waiting and rise within
   24 cells of the player ([10](10-chat-and-commands.md) §5); the distance is ours (the official one is in the server's
   AI files). The pack rule for the 161 varieties whose Id contains "Emerge": the 85 without a Transitionable are

@@ -17,6 +17,10 @@ public sealed class PackCatalog(string folder = "data")
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
         IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
     {
+        public IReadOnlyList<string> Grounds { get; init; } = [];
+        // The Pantheon soldier pack has a lone "-" and is named directly by its room. Keep its existing weighted draw.
+        internal bool HasGroundTypes => Grounds.Count != 0 && Grounds is not ["-"];
+
         public int PickVariety(Random rng)
         {
             int roll = rng.Next(Math.Max(1, Entries.Sum(e => e.Weight)));
@@ -37,6 +41,9 @@ public sealed class PackCatalog(string folder = "data")
 
         /// <summary>How much denser than the ordinary its scattered packs stand (the Labyrinth's: LabyrinthTrials.PackDensity).</summary>
         public double Density { get; init; } = 1;
+
+        /// <summary>The generated instance's ground names for its weighted packs. Captured walk maps have none.</summary>
+        public Func<int, int, string?>? GroundAt { get; init; }
     }
 
     /// <summary>The weight of a map's own packs (Maps.dat MonsterPacksKeys), which have none for the area.</summary>
@@ -115,7 +122,7 @@ public sealed class PackCatalog(string folder = "data")
             result.Add(new Pack(row, p.Text("Id") ?? "", p.Int("MinCount"), p.Int("MaxCount"),
                 p.Int("BossMonsterSpawnChance"), p.Int("BossMonsterCount"),
                 [.. p.Ints("BossMonster_MonsterVarietiesKeys")],
-                byPack.GetValueOrDefault(row) ?? [], areaWeights));
+                byPack.GetValueOrDefault(row) ?? [], areaWeights) { Grounds = p.Texts("Grounds") });
         }
         var areaRows = new List<(string, int, int[])>();
         foreach (var a in ClientTables.Table("WorldAreas"))
@@ -452,12 +459,25 @@ public static class AreaPopulation
                         $"({s.X - at.X},{s.Y - at.Y})"))));
         }
         if (packs.Count == 0 && additionalPacks is not { Count: > 0 }) return spawns;
+        // Keep the table order and weights in each ground's pool. Captured walk maps have no ground samples.
+        var groundPools = new Dictionary<string, List<(PackCatalog.Pack Pack, int Weight)>>(StringComparer.OrdinalIgnoreCase);
+        var unrestricted = packs.Where(p => !p.Pack.HasGroundTypes).ToList();
+        if (ordinaryPacks && area.GroundAt is not null)
+            foreach (string ground in packs.Where(p => p.Pack.HasGroundTypes).SelectMany(p => p.Pack.Grounds).Distinct(StringComparer.OrdinalIgnoreCase))
+                groundPools.Add(ground, [.. packs.Where(p => !p.Pack.HasGroundTypes || p.Pack.Grounds.Contains(ground, StringComparer.OrdinalIgnoreCase))]);
+        PackCatalog.Pack? PickAt(int x, int y)
+        {
+            var pool = packs;
+            if (area.GroundAt is { } groundAt && groundPools.Count > 0)
+                pool = groundAt(x, y) is { } name ? groundPools.GetValueOrDefault(name, unrestricted) : unrestricted;
+            return pool.Count > 0 ? PickPack(pool, rng) : null;
+        }
         // The layout's own pack points stand their packs first, where the room puts them (issue #668).
         int roomPlaced = 0;
         foreach (var p in packs.Count == 0 || !ordinaryPacks ? [] : roomPacks ?? [])
             if (PackPoint(p.Name) is { } rarity)
             {
-                var pack = PickPack(packs, rng);
+                if (PickAt(p.X, p.Y) is not { } pack) continue;
                 int before = spawns.Count;
                 AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);
                 if (spawns.Count > before) roomPlaced++;
@@ -525,8 +545,9 @@ public static class AreaPopulation
             if (plans.Count >= wanted) break;
             if (Near(c, arrival, SpawnClearance) || transitions.Any(t => Near(c, t, TransitionClearance)) || centres.Any(o => Near(c, o, PackSpacing))
                 || scatterable is not null && !scatterable(c.X, c.Y)) continue;
+            if (PickAt(c.X, c.Y) is not { } pack) continue;
             centres.Add(c);
-            plans.Add((c, PickPack(packs, rng)));
+            plans.Add((c, pack));
         }
         // Rarity per pack: rare (one rare member), magic (all members) or normal; at least MinRares rares.
         var rarities = plans.Select(_ => RollRarity(rng.Next(100))).ToList();
