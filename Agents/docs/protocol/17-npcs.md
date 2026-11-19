@@ -353,8 +353,10 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   its 3.29 measurements; base weights, the tab layout and identified results are local choices (live 2026-11-18,
   Faustus in the hideout). Not done: the alt price floor (the account's highest character in the league).
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
-  QuestRewardOffers `__col3` is a league quest flag taken flag (1911, past the client's 0x776 flags, is none): Allflame's
-  pity Sulphur (offer 136) has only LQF 1880.
+  QuestRewardOffers `__col3` is a league quest flag taken flag (1911, past the client's 0x776 flags, is none):
+  Allflame's pity Sulphur (offer 136) has only LQF 1880. The other rows that have one are once-per-league rewards
+  (Kirac's first map 70, the Heist coins 77-109, Kingsmarch's tutorial gold 123-129); the server ORs it with the row's
+  QuestFlag and sets it in the claim's save.
 
 ## 6. Dev commands
 

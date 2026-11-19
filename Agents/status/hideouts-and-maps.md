@@ -212,30 +212,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
   The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
   Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
-  Charts start the runs from the deck as 3.29 did ([03](../docs/protocol/03-area-and-world.md) §8,
-  [05](../docs/protocol/05-inventories-and-ui.md) §3); verified live 2026-11-19 up to the start of the first Voyage
-  (tutorial chart, a Chart run and its failure, the pity Sulphur, the locker across a relog, the 2 × 2 board with a
-  rotation at its level, and the 3 × 3 border mods and a reroll); the first Voyage's extraction is not.
-  Charts drop normal, magic or rare with the Mods domain 39 affixes, the drop area's level and a room; Valerie gives
-  the tutorial's level 2 magic Sandy Seabed chart.
-  The Chart Locker (inventory 112, one tab region per base), Valerie's "Chart Area" (103, Descend) and "Plan Voyage"
-  (the charted charts in 104: move, rotate, delete; a 2 × 2 first Voyage, then 3 × 3 with 12 border mods and up to 5
-  rerolls from 3000 Sulphur doubling) open their windows.
-  The Bathysphere (IsMapOwner) then takes the owner into a DeepwaterEncounter or Voyage instance whose grid is the
-  chart or board (rooms, rotations, cell stats, border mods), at the chart's level or the board's average + 10 capped
-  at the highest chart.
-  A charted chart gets a gt37 implicit and moves to 104; a Voyage's charts are used up unless their not-consume roll
-  succeeds.
-  The Maiden Voyage tracker follows the run flags and league flags 1820-1823, 1881-1883, 1892 and 1893.
-  Guesses (G in the code): saved per character, not per account; the hub's first character is its map owner; the
-  rotate direction; the drop rarity (world.db `deepwater_chart_*`), the room and implicit pools and the uniform border
-  pool; Sulphur from the locker first; a failed Chart loses its chart; mode 2's collection goes to the main inventory;
-  the tracker's triggers.
-  Not applied: the chart stats for objects and conversions (strongboxes, monoliths, torment, Izaro, Ducat chests,
-  anchors, golden lanterns, gold and Stacked Deck conversions, lanterns not consumed).
-  Kishara's Rest never rolls, and the Active Voyage window (0x72) is not opened.
-  A new instance of an encounter area by `/goto DeepwaterEncounter` or `/goto DeepwaterEncounterVoyage` gets a random
-  grid of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
+  Charts (rarity, affixes, level, room), the Chart Locker, Valerie's chart device and Voyage planner, and the deck's
+  Bathysphere start Chart and Voyage runs whose grid, level and stats are the chart's or the board's, with the Maiden
+  Voyage tracker ([03](../docs/protocol/03-area-and-world.md) §8, [05](../docs/protocol/05-inventories-and-ui.md) §3,
+  [13](../docs/protocol/13-items.md) §2); verified live up to the start of the first Voyage.
+  Guesses (G in the code): the chart inventories are per character while the tutorial's league flags are per account
+  and league; the deck's map owner; the drop, room, implicit and border pools; when charts are consumed.
+  Not applied: the chart stats for objects and conversions; Kishara's Rest; the Active Voyage window (0x72).
+  A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
+  of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
