@@ -151,8 +151,6 @@ public partial class Program
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
-                // The plaza's door is shut whenever someone comes: each run is chosen at its device again.
-                if (layout.Id == LabyrinthDay.Plaza) conn.Instance.ClearState(LabyrinthDay.PlazaDoorOpen);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(conn)),
                     TerrainData: moduleHeader?.Terrain ?? (labyrinthNode is null ? null : LabyrinthDay.ExtraData(labyrinthNode)),

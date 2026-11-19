@@ -18,6 +18,13 @@ public static class LabyrinthDay
     /// <summary>A built day: its layout and each node's WorldAreas Id.</summary>
     public sealed record Day(LabyrinthLayout Layout, IReadOnlyList<string?> Areas);
 
+    /// <summary>The day and difficulty selected at the plaza, with the first room's area hash.</summary>
+    public sealed record Entry(uint Seed, int Difficulty, ushort Destination);
+
+    public static Entry? EntryFor(uint seed, int difficulty) =>
+        For(seed, difficulty).Areas.FirstOrDefault() is { } first && AreaTransitionCatalog.HashOf(first) is ushort hash
+            ? new(seed, difficulty, hash) : null;
+
     /// <summary>Today's seed.</summary>
     public static uint Seed =>
         uint.TryParse(Environment.GetEnvironmentVariable("Game_LAB_SEED"), out uint fixedSeed) ? fixedSeed
@@ -86,21 +93,22 @@ public static class LabyrinthDay
 
     static int IndexOf(Day day, int row) => day.Layout.Nodes.ToList().FindIndex(n => n.Row == row);
 
-    /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of today's Normal
-    /// Labyrinth at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
+    /// <summary>The way to a room of a run from a transition: the plaza's way in starts a new run of the selected day
+    /// and difficulty at its first room; an exit of a run's room goes to its neighbour in the layout (the exit's
     /// <paramref name="entrance"/> N: the N-th connection, else the neighbour played in the exit's area), its instance
     /// when the run has been there, else a new one at a seed the run picks, so the server knows its room.
     /// Null: not a run's way (an ordinary transfer).</summary>
     public static PendingTransfer? Transfer(string character, string fromArea, uint fromSeed, string? sourceType, ushort destination, string? destinationArea,
-        int? entrance = null)
+        int? entrance = null, Entry? entry = null)
     {
         Run? run;
         int to;
         if (fromArea == Plaza && sourceType == Entrance)
         {
-            run = Runs[character] = new Run(Seed, 1);
+            if (entry is null || entry.Destination != destination) return null;
+            run = Runs[character] = new Run(entry.Seed, entry.Difficulty);
             to = 0;
-            Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} of day {run.Seed} starts");
+            Console.WriteLine($"[gateway] {character}: Labyrinth run {run.Number} of day {run.Seed}, difficulty {run.Difficulty}, starts");
         }
         else
         {
@@ -270,8 +278,9 @@ public static class LabyrinthDay
     /// <summary>The Aspirants' Plaza: where the first room's way out (its -1 connection) leads.</summary>
     public const string Plaza = "Labyrinth_Airlock";
 
-    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the instance state of
-    /// its door, which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then.</summary>
+    /// <summary>The plaza's way into the Labyrinth (the entrance tile's LabyrinthAreaTransition) and the flag of its door,
+    /// which the Labyrinth chosen at the device (C→S 0x212) opens: the way in is shown only then. The flag is per player
+    /// (ClientState.LabyrinthEntry, read by Game.ClientHasQuestFlag); setting it on the instance does nothing.</summary>
     public const string Entrance = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAreaTransition";
     public static readonly string PlazaDoorOpen = Quests.InstanceFlag("PlazaDoor");
 

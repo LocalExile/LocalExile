@@ -180,19 +180,47 @@ public static partial class Game
         return count > 0 && done == count;
     }
 
-    // C→S 0x212: the Labyrinth the plaza's select window chose (1 Normal … 4 Eternal). With its trials done the door in front
-    // of the way in opens in this instance and the way in shows (to today's first room; only the Normal Labyrinth is built).
+    public static string? LabyrinthAdmissionFailure(ClientState conn, int tier)
+    {
+        if (tier is not (1 or 2)) return "this difficulty is not supported";
+        if (tier == 2 && conn.Pools.Level < 40) return "requires level 40";
+        if (tier == 2 && !conn.HasQuestFlag("LabyrinthComplete1")
+            && !conn.MainAscendancy.EarnedAwards.Contains(global::AscendancyRules.AwardKeys[0]))
+            return "requires completing the Normal Labyrinth";
+        return LabyrinthTrialsDone(conn, tier, out int done, out int count)
+            ? null : $"requires all {count} trials ({done} completed)";
+    }
+
+    public static string? OpenLabyrinthEntrance(ClientState conn, int tier, uint day)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.Layout.Id != LabyrinthDay.Plaza || conn.LabyrinthEntry is not null || conn.Closed || conn.LeavingArea)
+                return "the plaza entrance cannot be changed";
+            if (LabyrinthAdmissionFailure(conn, tier) is { } failure) return failure;
+
+            var (id, portal) = conn.Layout.AreaTransitions.FirstOrDefault(t => t.Transition.SourceType == LabyrinthDay.Entrance);
+            if (portal is null || LabyrinthDay.EntryFor(day, tier) is not { } entry) return "the first room is unavailable";
+            conn.ReplaceAreaTransition(id, portal with { DestinationHash16 = entry.Destination });
+            conn.LabyrinthEntry = entry;
+            return null;
+        }
+    }
+
+    // C→S 0x212: the plaza's choice opens a door and shows the selected day's first room for this player.
     public static async Task ChooseLabyrinth(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte tier)
     {
         if (conn.Layout.Id != LabyrinthDay.Plaza) return;
-        bool done = LabyrinthTrialsDone(conn, tier, out int have, out int count);
-        Console.WriteLine($"[gateway] {remote} <= 0x0212 Labyrinth {tier} chosen: {have} of {count} of its trials done");
-        if (tier != 1)
+        string? failure;
+        try { failure = OpenLabyrinthEntrance(conn, tier, LabyrinthDay.Seed); }
+        catch (Exception ex) when (ex is InvalidDataException or FileNotFoundException)
+        { failure = ex.Message; }
+        if (failure is not null)
         {
-            Console.WriteLine($"[gateway] {remote} Labyrinth {tier}: only the Normal Labyrinth is built, the door stays shut");
+            Console.WriteLine($"[gateway] {remote} <= 0x0212 Labyrinth {tier} refused: {failure}");
             return;
         }
-        if (!done || !conn.Instance.SetState(LabyrinthDay.PlazaDoorOpen)) return;
+        Console.WriteLine($"[gateway] {remote} <= 0x0212 Labyrinth {tier} chosen");
         await UpdateQuestObjectStates(remote, stream, ciphers, conn, [LabyrinthDay.PlazaDoorOpen]);
         await UpdateShownTransitions(remote, stream, ciphers, conn, "the Labyrinth's door opens");
     }
@@ -213,6 +241,8 @@ public static partial class Game
     // they do not, so a league without them has the layout as generated.
     public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        if (conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance)
+            return conn.LabyrinthEntry?.Destination == transition.DestinationHash16;
         // A gate into an ExtraTerrainFeatures sub-area stands only where a module of the league fills it.
         if (transition.Feature is { } feature && !GameEvents.FillsFeature(conn, feature)) return false;
         if (Sirus.GateShown(conn, transition) is bool sirusShown) return sirusShown;
@@ -264,7 +294,8 @@ public static partial class Game
     // its ways by these, so the server's checks follow them.
     public static bool ClientHasQuestFlag(ClientState conn, string flag)
     {
-        if (Quests.IsInstanceFlag(flag)) return conn.Instance.HasState(flag);
+        if (Quests.IsInstanceFlag(flag))
+            return flag == LabyrinthDay.PlazaDoorOpen ? conn.LabyrinthEntry is not null : conn.Instance.HasState(flag);
         if (conn.HasQuestFlag(flag)) return true;
         if (Quests.Rows([flag]) is not [int row]) return false;
         bool inHideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null || conn.Layout.Hash == StashCatalog.DelveHub;
