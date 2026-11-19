@@ -197,7 +197,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bear Trap's single secondary hit; immobilisation and its decaying debuff remain open.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave and Devouring Totem. Docs: [11](../docs/protocol/11-skills.md) §10g.
-- Holy Flame Totem's piercing bolts; consecrated ground remains open. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Holy Flame Totem places without channelling on its owner and fires piercing bolts. Consecrated ground remains open.
+  Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
