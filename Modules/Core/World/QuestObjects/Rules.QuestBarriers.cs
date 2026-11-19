@@ -54,21 +54,29 @@ static class QuestBarriers
     static bool Separates(Func<int, int, bool> inside, int w, int h, HashSet<(int X, int Y)> closed, (int X, int Y) from,
         IReadOnlyList<(int X, int Y)> guarded)
     {
-        if (closed.Contains(from)) return false;
+        if (closed.Contains(from) || guarded.Any(g => g.X < 0 || g.Y < 0 || g.X >= w || g.Y >= h)) return false;
+        // Stops at the first guarded cell reached: walking all of a 1357x989 trial map, several times a door, made a door
+        // cost 150-175 ms of the area entry (live 2026-11-20).
+        var targets = guarded.Select(g => g.Y * w + g.X).ToHashSet();
         var seen = new bool[w * h];
-        var queue = new Queue<(int X, int Y)>();
-        seen[from.Y * w + from.X] = true;
-        queue.Enqueue(from);
+        var queue = new Queue<int>();
+        int start = from.Y * w + from.X;
+        seen[start] = true;
+        queue.Enqueue(start);
         while (queue.Count > 0)
         {
-            var (x, y) = queue.Dequeue();
-            foreach (var (nx, ny) in new[] { (x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1) })
-            {
-                if (!inside(nx, ny) || seen[ny * w + nx] || closed.Contains((nx, ny))) continue;
-                seen[ny * w + nx] = true;
-                queue.Enqueue((nx, ny));
-            }
+            int at = queue.Dequeue();
+            if (targets.Contains(at)) return false;
+            int x = at % w, y = at / w;
+            Visit(x + 1, y); Visit(x - 1, y); Visit(x, y + 1); Visit(x, y - 1);
         }
-        return guarded.All(g => g.X >= 0 && g.Y >= 0 && g.X < w && g.Y < h && !seen[g.Y * w + g.X]);
+        return true;
+
+        void Visit(int nx, int ny)
+        {
+            if (!inside(nx, ny) || seen[ny * w + nx] || closed.Contains((nx, ny))) return;
+            seen[ny * w + nx] = true;
+            queue.Enqueue(ny * w + nx);
+        }
     }
 }
