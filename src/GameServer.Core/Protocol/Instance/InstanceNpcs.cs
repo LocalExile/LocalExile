@@ -6,6 +6,20 @@ namespace GameServer.Core.Protocol.Instance;
 public static class InstanceNpcs
 {
     public const ushort TalkId = 0x84;
+
+    // S→C 0xbe (3.29.3c writer 0x1421a9f80): VoteType row plus one (zero closes),
+    // answered flag, local voter flag, and the u8 count of (name, VoteState) entries.
+    // A solo vote has no other voters to list.
+    public static byte[] OpenVote(byte row) => new LoginWriter().U16(0xbe).U8((byte)(row + 1)).U8(0).U8(1).U8(0).ToArray();
+    public static byte[] CloseVote() => new LoginWriter().U16(0xbe).U8(0).U8(0).U8(0).U8(0).ToArray();
+
+    // C→S 0xbd (sender 0x14026ff10): one byte, 1 accepts and 0 rejects.
+    public const ushort VoteAnswerId = 0xbd;
+    public const int VoteAnswerLength = 3;
+
+    // NPC component update reader 0x141e7b780 uses the same two fields as creation.
+    public static byte[] DialogueAvailability(uint objectId, byte componentIndex, bool available) =>
+        InstanceEntities.ComponentUpdate(objectId, componentIndex, [(byte)(available ? 1 : 0), 0xff]);
     // HideoutSelectionWindow in the native screen-name table at 0x142fd89f0.
     public const byte HideoutSelectionUi = 0x22;
 

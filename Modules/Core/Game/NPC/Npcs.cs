@@ -166,8 +166,12 @@ public static partial class Game
         await ExecuteQuestConversation(remote, stream, ciphers, conn, id, npc, talk);
     }
 
-    public static Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(remote, stream, ciphers, conn, id, npc, talk);
+    public static async Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+    {
+        if (!await BanditChoices.ChooseDialogue(conn, id, npc, talk))
+            await RunNpcOption(remote, stream, ciphers, conn, id, npc, talk);
+    }
 
     // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut
     // (onClick: no talk is open). False when the row is not for this character now, or nothing answers it.

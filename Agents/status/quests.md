@@ -193,9 +193,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [opening encounter](../docs/protocol/12-quests.md#opening-encounter-2026-10-25).
 - Quest exits with a Transitionable (Merveil's exit, the arena doors) open without their animation (plain
   AreaTransition), and the arena doors are not created at all.
-- The Act 2 bandits wait for a solo player's choice. Approach the leader and type /bandit to see the options.
-  A pledge can change until the player trades both rivals' amulets for the chosen reward and the Apex.
-  Challenging all three leads to Eramir's existing hand-in.
+- In Act 2, solo players talk to a bandit leader to open the native Help or Kill choice. An allied leader accepts both
+  rivals' amulets for the reward and the Apex. Killing all three leads to Eramir's hand-in.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 
