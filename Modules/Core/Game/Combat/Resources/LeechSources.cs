@@ -5,6 +5,9 @@ using GameServer.Core.World;
 public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
 {
     public bool Attack { get; init; }
+    // Whether the hit is melee damage: Vaal Pact's "Life Leech from Melee Damage is Instant" reads it (a bow attack is
+    // Attack but not Melee). Molten Strike's melee hit sets it; its projectiles and other ranged attacks do not.
+    public bool Melee { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
     // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").

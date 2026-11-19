@@ -18,7 +18,7 @@ public static partial class Game
             orderKey: orderKey, checkpoint: checkpoint);
 
     static async Task PresentMeleeImpact(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, string art, (int X, int Y) from, (int X, int Y) at)
+        ClientState conn, string art, (int X, int Y) from, (int X, int Y) at, float scale = 1)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         uint id;
@@ -30,7 +30,7 @@ public static partial class Game
         }
         var effect = new EffectObject(at.X, at.Y, art)
         {
-            AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation,
+            AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation, Scale = scale,
             Rotation = (float)Math.Atan2(at.X - from.X, from.Y - at.Y)
         };
         bool created = await SendWorldCreate(conn, id,

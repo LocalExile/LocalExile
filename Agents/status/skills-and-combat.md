@@ -71,6 +71,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Embrace Madness and self Vulnerability (#504). Docs: [11](../docs/protocol/11-skills.md).
 - Incoming bleed/poison and qualified Elusive (#504). Docs: [20](../docs/protocol/20-damage.md).
+- Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
+  Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
+  Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
 
 - Leap Slam: landing hits and full-life stuns; recovery cadence awaits a client check. Docs: [11](../docs/protocol/11-skills.md) §9a.
 
@@ -171,9 +174,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.
-- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear landings across terrain gaps. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Instant skills, shared Blink and Guard cooldowns (a guard skill cast from the bar as well as one a trigger releases),
+  opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas, with clear
+  landings across terrain gaps. A guard's bar entry is held at the skill's own cooldown with a zero recovery rate while
+  its buff runs and counts at the character's recovery after it, as the official client shows.
+  Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
+  discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) §11, §12.
 - Steelskin, Immortal Call and Molten Shell cast by hand start the triggered guard buff; a running or recovering
-  guard refuses the next before its cost (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
+  guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;

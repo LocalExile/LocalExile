@@ -127,14 +127,33 @@ public static class AilmentPanelStats
         bool bowAttack = context.Attack && !context.Spell
             && get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type") == WeaponTypeStats.Bow;
         if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_ailment_damage_+%") + get("bow_hit_and_ailment_damage_+%");
+        // The tree's "with <weapon type>" rows reach an ailment as they reach the hit (issue #1102): the plain and
+        // hit-and-ailment rows, the family's own ailment row, and the two families' shared ailment rows.
+        (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
+            ? WeaponTypeDamage.Ailment(get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type"), get)
+            : (0, default);
+        common += weaponAny;
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
         more.Add(new("delirium_aura_damage_over_time_+%_final"));
         if (ailment == "poison") more.Add(new("herald_of_agony_poison_damage_+%_final"));
         if (ailmentType == DamageType.Physical) more.Add(new("herald_of_purity_physical_damage_+%_final"));
-        double multiplier = Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
-            + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
-            + (critical ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100)
+        // Elemental Overload: "Ailments never count as being from Critical Strikes" for as long as the keystone is
+        // allocated, so the critical rows lose the critical ailment multipliers (the application side rolls the hit's
+        // chance instead of a critical strike's guaranteed one, MonsterIgnites.Settings.NeverFromCrit).
+        bool neverFromCrit = get("keystone_elemental_overload") != 0;
+        // Perfect Agony: "Damage over Time Multiplier for Ailments is equal to Critical Strike Multiplier" — the hit's
+        // critical strike multiplier replaces the whole damage-over-time multiplier bucket (generic, typed, ailment and
+        // critical bonuses are ignored); the more/less damage factors below still apply. The base critical strike
+        // multiplier is 150% plus base_critical_strike_multiplier_+ (the generic bonuses; a weapon's local critical
+        // multiplier is not in this merged view).
+        bool perfectAgony = get("keystone_ailment_crit") != 0;
+        double dotMultiplier = perfectAgony
+            ? Math.Max(0, (150 + get("base_critical_strike_multiplier_+")) / 100.0)
+            : Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get(Slug(ailmentType) + "_dot_multiplier_+")
+                + get("ailment_dot_multiplier_+") + get(ailment + "_dot_multiplier_+")
+                + (critical && !neverFromCrit ? get("critical_ailment_dot_multiplier_+") + get("critical_" + ailment + "_dot_multiplier_+") : 0)) / 100);
+        double multiplier = dotMultiplier
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get("active_skill_ignite_damage_+%_final") / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".
@@ -153,6 +172,12 @@ public static class AilmentPanelStats
             if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get("physical_bow_damage_+%");
             if (bowAttack && ((path.History | DamageTypes.HistoryOf(ailmentType)) & DamageTypeHistory.Elemental) != 0)
                 increased += get("bow_elemental_damage_+%");
+            if ((path.History & DamageTypeHistory.Physical) != 0) increased += weaponExtra.Physical;
+            if (((path.History | DamageTypes.HistoryOf(ailmentType)) & DamageTypeHistory.Elemental) != 0)
+                increased += weaponExtra.Elemental;
+            if (weaponExtra.Typed is { } weaponTyped)
+                foreach (var source in weaponTyped)
+                    if ((path.History & source.History) != 0) increased += source.Increased;
             // The types the portion visited count once each; the ailment's own type is already in the common bucket.
             foreach (var source in typed)
                 if ((path.History & source.History) != 0 && source.History != DamageTypes.HistoryOf(ailmentType)) increased += source.Increased;
@@ -162,6 +187,10 @@ public static class AilmentPanelStats
             double factor = Math.Max(0, 1 + increased / 100) * multiplier * more
                 .Where(m => m.Type == DamageTypeHistory.None || (types & m.Type) != 0)
                 .Aggregate(1.0, (v, m) => v * Math.Max(0, 1 + get(m.Stat) / 100.0));
+            // Elemental Overload's window reaches an elemental ailment (ignite) as it reaches the hit; bleed and poison
+            // deal physical and chaos damage, whatever their portion converted from.
+            if ((DamageTypes.HistoryOf(ailmentType) & DamageTypeHistory.Elemental) != 0)
+                factor *= Math.Max(0, 1 + get("keystone_elemental_overload_damage_+%_final") / 100.0);
             min += path.Range.Min * factor;
             max += path.Range.Max * factor;
         }

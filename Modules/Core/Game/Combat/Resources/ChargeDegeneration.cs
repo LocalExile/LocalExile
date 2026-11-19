@@ -108,7 +108,7 @@ public static partial class Game
                 reductionPct: ChargeEffects.Reduction(Get).Elemental);
             int life = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, damage,
                 Get(IncomingResourceDefences.BypassStat), now, ref state.BypassCarry[i]);
-            conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - life);
+            conn.PlayerLife = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)conn.PlayerLife - life), now);
             total = ActorScale.Saturate((long)total + life);
         }
         if (conn.PlayerLife == 0) { state.Clear(now); conn.InvalidateIncomingHits(); RecordHardcoreDeath(conn); }

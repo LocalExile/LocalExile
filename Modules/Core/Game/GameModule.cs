@@ -44,6 +44,7 @@ public sealed class GameModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
         // A map device's portal labels read "<area> (Completed)" once that run's boss is dead (World/Portals.cs).
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => Rules.TickMapRunBoss(conn));
@@ -134,6 +135,8 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Game.VaalImmortalCallTick(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Game.LeavingVaalImmortalCall(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));

@@ -328,7 +328,7 @@ public static partial class Game
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
             int criticalMultiplierBase = SupportedCriticalMultiplier(conn, skillId);
             var accuracy = SupportedAccuracy(conn, skillId, hand);
-            var leech = HitLeechSources(player, true, skillStats, local);
+            var leech = HitLeechSources(player, true, skillStats, local, melee: true);
             var impale = ImpaleStats.From(player, Stats, true, skillStats, local);
             var criticalImpale = ImpaleStats.From(player, Stats, true, skillStats, local, critical: true);
             var ignite = SupportedIgnite(conn, skillId, spell: false, player, swingWeapon);
@@ -400,6 +400,8 @@ public static partial class Game
                 if (hit.Life == 0) ReleaseMeleeKillTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                     meleeKillTrigger, true, m.Hostile, mAt, now);
                 conn.RecentEvents.RecordCriticalOutcome(now, critical);
+                if (ElementalOverloadCritLocked(conn, skillId, null, player, critical) is { } eoBuff)
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                 if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                     m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
                 if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)

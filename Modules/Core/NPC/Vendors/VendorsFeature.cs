@@ -37,9 +37,26 @@ static class VendorsFeature
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
         bool finite = shop.Finite.TryGetValue(id,out var token);
         bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(conn),key,token,PersonalStashOf(conn));
+        var bought = offer.Item.Item;
+        if (Gambling.OfferOf(shop,id) is { } gamble)
+        {
+            // A gamble: a new item of the offer's kind at its price. It need not have the shown item's size, so it goes to the
+            // cell asked for when it fits there and to the inventory's first free cell otherwise; never straight onto equipment.
+            if (gamble.Roll(Random.Shared) is not { } rolled) { await conn.Commands!.Reply("Nothing to gamble for at your level."); return; }
+            bought = rolled with { Price = bought.Price };
+            if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.Cursor) row = null;
+        }
+        // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
+        else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
+        { await conn.Commands!.Reply("Talk to the gambler again to gamble."); return; }
         var purchase = ItemMoves.PurchaseVendor(items,
             shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(conn),
-            offer.Item.Item,catalog,ShapeOf,Consume,row,x,y);
+            bought,catalog,ShapeOf,Consume,row,x,y);
+        if (purchase is null && row is not null && bought != offer.Item.Item)
+        {
+            row = null;
+            purchase = ItemMoves.PurchaseVendor(items, stash, PersonalStashOf(conn), bought, catalog, ShapeOf, Consume);
+        }
         if (purchase is null) { await conn.Commands!.Reply("Unable to buy: check the price, inventory space and available stock."); return; }
         if (finite) shop.Items.Remove(id);
         foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
@@ -240,7 +257,19 @@ static class VendorsFeature
     }
 
     // Purchase Items: the NPC's stock as one shop tab (S→C 0xc0, inventory manager 1), then S→C 0x8c opens the buy window on it.
-    internal static async Task OpenNpcShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null)
+    // Gamble for Items: the gamble window's tabs (Gambling.Window), opened as the black market (window kind 10).
+    internal static async Task OpenGamble(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc)
+    {
+        if (Items.Error is not null) { await OpenNpcShop(remote, stream, ciphers, conn, npcObject, npc); return; }
+        var notes = new List<string>();
+        var (window, offers) = Gambling.Window(conn, npc.Npc.Id, ItemsOf(conn).NewItemId, notes);
+        foreach (var n in notes) Console.WriteLine($"[gateway] {remote} gamble {npc.Npc.Name}: {n}");
+        await OpenNpcShop(remote, stream, ciphers, conn, npcObject, npc, window, Gambling.WindowKind);
+        if (conn.Shop is { } shop) Gambling.Remember(shop, offers);
+    }
+
+    internal static async Task OpenNpcShop(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcObject, SpawnedNpc npc, VendorStock.Window? prepared = null,
+        ushort windowKind = 0)
     {
         if (conn.Sale is not null) await CloseSale(remote, stream, ciphers, conn, accepted: false);
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
@@ -263,7 +292,7 @@ static class VendorsFeature
         // 0x8c's u16 is the window kind (0x140740840, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
         // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073ef50). The NPC's DialogueStyle
         // picks the window, not the u8 (0x140dca580). A tab's compact value is its colour (0x14073ef50: ARGB, 0 the default).
-        await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
+        await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, windowKind, false, ids,
             nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
     }

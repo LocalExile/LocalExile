@@ -513,7 +513,8 @@ public static partial class Game
         int speed = CastSpeedPct(player);
         if (Stats.Key("base_cast_speed_+%") is uint k) speed += own.GetValueOrDefault(k);
         speed = FinalCastSpeedPct(conn, MergeSkillStats(player, own), speed);
-        return SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
+        return GolemStat(own, "base_spell_cast_time_ms_override") is int basis and > 0
+            ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(conn), effect, speed);
     }
 
     // A genuine spell's final server wait; native actions instead receive the unadjusted base milliseconds.
@@ -948,6 +949,16 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // Elemental Overload's diamond: the client does not expire the invisible indicator buff itself, so remove it
+            // when the eight-second window ends (refreshed on each critical strike of the bound skill).
+            if (conn.ElementalOverloadBuff != 0 && conn.Clock.Elapsed.TotalSeconds >= conn.ElementalOverloadBuffUntil)
+            {
+                ushort overloadBuff = conn.ElementalOverloadBuff;
+                conn.ElementalOverloadBuff = 0;
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId,
+                    InstanceEntities.RemoveBuff(PlayerId, overloadBuff), "0x01c2 elemental overload window ended");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
@@ -1016,6 +1027,7 @@ public static partial class Game
             {
                 // A stationary, full-resource ally may otherwise send no stats or mana at all.
                 // Reconcile shared auras on the periodic gate too, so entry/exit never needs another action.
+                await SendTemporaryAuraExpiry(remote, stream, ciphers, conn);
                 if (conn.Auras.Count > 0 || conn.ReceivedAuras.Count > 0 || conn.AuraStatsDirty
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
@@ -1145,7 +1157,7 @@ public static partial class Game
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
-        bool zealotsOath = false, convertLifeRegen = false;
+        bool zealotsOath = false, convertLifeRegen = false, vaalPact = false;
         double? periodicRegenStart = null;
         double periodicRegenPerSecond = 0;
         double nextVitalsSave = last + 5;
@@ -1211,6 +1223,7 @@ public static partial class Game
                     periodicRegenPerSecond = conn.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
+                    vaalPact = RecoveryStat("keystone_vaal_pact") != 0;
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
                         Resistance(conn, DamageType.Fire), MaxResistance(conn, DamageType.Fire));
                     (ratesAt, cachedRf) = (now, rf);
@@ -1284,13 +1297,17 @@ public static partial class Game
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     if (!zealotsOath) nonFlaskLife += unhingedHitLife;
+                    // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
+                    // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
+                    // conversions under Zealot's Oath above still apply (the stats are not removed).
+                    if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
                     conn.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
                     // Trap degeneration can kill; keep the same current-owner recovery and death publication gates.
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - lifeTrap);
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn, (uint)Math.Max(0, (long)lifeAfter - lifeTrap), now);
                         if (trapDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
@@ -1300,7 +1317,8 @@ public static partial class Game
                     if (InGracePeriod(conn)) pbLoss = 0;
                     if (pbLoss > 0 && lifeAfter > 0 && !HardcoreProgressBlocked(conn))
                     {
-                        conn.PlayerLife = lifeAfter = (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero));
+                        conn.PlayerLife = lifeAfter = VaalImmortalCallLife(conn,
+                            (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero)), now);
                         if (pbDeath = lifeAfter == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
                         RecordHardcoreDeath(conn);
                     }
