@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -13,6 +14,8 @@ public sealed class EssenceCorruptionTests
     [Fact]
     public void Corruption_uses_real_essence_groups_tier_caps_and_Stability_outcomes()
     {
+        LowLifeEffects();
+        DecayEffects();
         foreach (var (suffix, element) in new[] { ("Fire", DamageType.Fire), ("Cold", DamageType.Cold), ("Lightning", DamageType.Lightning) })
         {
             var mod = Program.Items.Mods.ById("EssenceDaemonPhysicalAddedAndConvertedTo" + suffix)!;
@@ -176,6 +179,114 @@ public sealed class EssenceCorruptionTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
         }
+    }
+
+    static MonsterModSet RealMod(string id)
+    {
+        var mod = Program.Items.Mods.ById(id)!;
+        Assert.Equal(MonsterModCatalog.Support.Full, MonsterModCatalog.SupportOf(mod));
+        return new MonsterModCatalog(Program.Items.Mods, "data").Create(
+            [mod.Roll(ModSection.Implicit, new Random(505))], [], MonsterRarity.Normal, 70);
+    }
+
+    static ClientState CombatClient() => new(new(1, "essence-combat", 300, 300, 100, 100, null, []), 1, 1)
+    { Pools = new(70, 10000, 100, 0, 0), PlayerLife = 10000 };
+
+    static void LowLifeEffects()
+    {
+        var mods = RealMod("EssenceEnrageOnLowLife");
+        mods = mods with { Effects = mods.Effects.Combine(new Dictionary<string, int>
+            { ["damage_+%"] = 100, ["attack_speed_+%"] = 20, ["base_cast_speed_+%"] = 40, ["base_movement_velocity_+%"] = 20 }) };
+        var monster = new SpawnedMonster("enrage", new(10, 10, 36), 60, 8, 100)
+        { Mods = mods, Life = 51, Attack = new(1, 1, 8, DamagePacket.Of(DamageType.Physical, 200, 200)) };
+        var conn = CombatClient();
+        conn.Monsters[42] = monster;
+        DamagePacket Hit() => Game.MonsterModHit(monster, monster.Attack!.Damage, 1000, 1000, new Random(505), out _, now: 0);
+        Assert.Equal(200, Hit().MinTotal, 8);
+        Assert.Equal(1, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+        Assert.Equal(20, Game.MaimedMovementFactor(monster, 0).Pct);
+        monster.Life = 50;
+        Assert.Equal(227, Hit().MinTotal, 8);
+        Assert.Equal(2d / 3, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+        Assert.Equal(80, Game.MaimedMovementFactor(monster, 0).Pct);
+        Assert.Equal(1.5, Game.MaimedMovementFactor(monster, 0).Factor, 8);
+        var packets = Game.MonsterAilmentChangesLocked(conn, 0);
+        Assert.Contains(packets, p => p.Packet.AsSpan().SequenceEqual(InstanceEntities.StatsUpdate(42, [(StatKeys.MovementVelocityPct, 80)])));
+        Assert.Equal(54, monster.Walk.Speed, 8);
+        monster.MaimedUntil = 2;
+        Assert.Equal(50, Game.MaimedMovementFactor(monster, 0).Pct);
+        monster.Attack = monster.Attack! with { Spell = true };
+        Assert.Equal(.7, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+        monster.MaimedUntil = 0;
+        monster.Life = 51;
+        Game.MonsterAilmentChangesLocked(conn, 0);
+        Assert.Equal(36, monster.Walk.Speed, 8);
+        Assert.Equal(200, Hit().MinTotal, 8);
+        Assert.Equal(1, Game.MonsterSwingSeconds(conn, monster, 0), 8);
+    }
+
+    static void DecayEffects()
+    {
+        Assert.Contains("8 seconds", StatDescriptions.Load().For(Game.DecayOnHit)!.Variants[0].Text);
+        Assert.Equal("decay", ClientTables.Table("BuffDefinitions")[766].Text("Id"));
+        var source = new SpawnedMonster("decay", new(0, 0, 0), 60, 8, 100)
+            { Mods = RealMod("DecayOnHitEssenceMonster1") };
+        var scaled = source.Mods.Effects.Combine(new Dictionary<string, int>
+        {
+            ["damage_+%"] = 100, ["chaos_damage_+%"] = 25, ["damage_over_time_+%"] = 25,
+            ["physical_damage_+%"] = 1000, ["spell_damage_+%"] = 1000,
+            ["base_physical_damage_%_to_convert_to_chaos"] = 100, ["physical_damage_%_to_add_as_fire"] = 100,
+        });
+        Assert.Equal(625, scaled.OverTime(250, DamageType.Chaos), 8);
+        var conn = CombatClient();
+        Dictionary<uint, int> Stats(params (string Name, int Value)[] values) =>
+            values.ToDictionary(v => Program.Stats.Key(v.Name)!.Value, v => v.Value);
+        var empty = Stats();
+        void Apply(double now, bool blocked = false) => Game.ApplyMonsterDecayLocked(conn, 42, source, blocked, now, empty);
+        void Advance(double from, double until, Dictionary<uint, int>? stats = null) => Game.AdvancePlayerAilmentsLocked(conn, from, until, stats ?? empty);
+        Apply(0, true);
+        Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
+        Apply(0); Apply(1);
+        Advance(0, 2);
+        Assert.Equal(9500u, conn.PlayerLife); // strongest only, no poison-style stacking
+        Advance(0, 2);
+        Assert.Equal(9500u, conn.PlayerLife);
+        Advance(2, 9);
+        Assert.Equal(7750u, conn.PlayerLife);
+        Advance(9, 10);
+        Assert.Equal(7750u, conn.PlayerLife);
+        Assert.Contains(conn.Minions.OutputQueue, q => q.Packet.AsSpan().StartsWith(new byte[] { 1, 0xc1 }));
+        Assert.Contains(conn.Minions.OutputQueue, q => q.Packet.AsSpan().StartsWith(new byte[] { 1, 0xc2 }));
+        Game.ClearPlayerDecay(conn);
+        conn.EnergyShield.SetMaximum(1000, refill: true);
+        Apply(20);
+        Advance(20, 21);
+        Assert.Equal(7500u, conn.PlayerLife);
+        Assert.Equal(1000u, conn.EnergyShield.Current);
+        Advance(21, 22, Stats(("chaos_damage_does_not_bypass_energy_shield", 1)));
+        Assert.Equal(7500u, conn.PlayerLife);
+        Assert.Equal(750u, conn.EnergyShield.Current);
+        conn.Immune = true;
+        Advance(22, 24);
+        conn.Immune = false;
+        Advance(24, 25);
+        Assert.Equal(7250u, conn.PlayerLife);
+        Game.ClearPlayerDecay(conn);
+        Apply(30);
+        Advance(30, 31, Stats(("immune_to_poison", 1), ("base_all_ailment_duration_+%", 100)));
+        Assert.Equal(7000u, conn.PlayerLife); // Decay is neither poison nor an ailment
+        Advance(31, 38);
+        Assert.Equal(5250u, conn.PlayerLife);
+        Advance(38, 40);
+        Assert.Equal(5250u, conn.PlayerLife);
+        Apply(40);
+        conn.PlayerLife = 1;
+        Advance(40, 41);
+        Assert.Equal(0u, conn.PlayerLife);
+        Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
+        Advance(41, 42);
+        Assert.True(double.IsNegativeInfinity(Game.PlayerDecayStarted(conn)));
+        conn.Closed = true;
     }
 
     sealed class OutcomeRoll(int outcome) : Random

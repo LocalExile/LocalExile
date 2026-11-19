@@ -225,6 +225,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.PaidChannel = null;
         conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
         conn.IncomingAilments.Clear();
+        Rules.ClearPlayerDecay(conn);
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);

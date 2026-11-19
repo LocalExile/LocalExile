@@ -1242,6 +1242,7 @@ public static partial class Game
                 dead = lifeBefore == 0;
                 if (dead)
                 {
+                    ClearPlayerDecay(conn);
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry =
                         conn.ChaosDotBypassCarry = 0;

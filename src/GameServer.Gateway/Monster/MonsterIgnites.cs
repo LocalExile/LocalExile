@@ -118,6 +118,9 @@ public sealed class MonsterIgnites
     }
     public double RemainingBase(double now) => Math.Max(0, Until - now) * expiryRate;
 
+    /// <summary>Discards uncommitted damage without removing or extending the timed instances.</summary>
+    public void DiscardDamageCarry() { carry = 0; accrued = 0; }
+
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
 
