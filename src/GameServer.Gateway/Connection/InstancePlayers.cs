@@ -78,7 +78,7 @@ public static class InstanceEvents
 
     /// <summary>The terrain plugin states a new instance is played with (S→C 0x1d extra data, second flag byte bit 0: per
     /// plugin its TerrainPlugins <c>__col1</c> id and the plugin's bytes). The client's plugin builds its part of the level
-    /// from them (the Allflame encounter grid), so the Gateway generates the level with the same. Asked once per instance
+    /// from them, so the Gateway generates the level with the same. Asked once per instance
     /// by its first connection, with the area stats; per plugin the last answer wins (a mod after the modules).</summary>
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyList<(ushort Plugin, byte[] State)>?>> TerrainPluginStates = new();
 

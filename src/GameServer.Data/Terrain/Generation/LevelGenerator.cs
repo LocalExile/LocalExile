@@ -52,7 +52,9 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
         int hideout = hideouts.Find(h => hideouts.RefList(h, 0x1a).Contains(row));
         int claim = hideout < 0 ? -1 : hideouts.Ref(hideout, 0x2a);
         int plugin = areas.Ref(row, 0x1fc);
-        var plugins = plugin < 0 ? null : Dat("TerrainPlugins");
+        // An older game pack has no TerrainPlugins: the area then counts as having none, which only the plugins whose
+        // generation is ported (PortsPlugin) need.
+        var plugins = plugin >= 0 && read("Data/TerrainPlugins.datc64") is { } pluginData ? new RawDat(pluginData) : null;
         return new AreaInfo(areaId, areas.Bool(row, 0x14), tops, areas.Bool(row, 0x14e), areas.U16(row, 0x2a), areas.Bool(row, 0xe4),
             areas.I32(row, 0x1e4), level, chance, hideout < 0 ? null : (hideouts.Bool(hideout, 0x42), hideouts.I32(hideout, 0x43)),
             i => (leagues.I32(i, 0x8a), leagues.Bool(i, 0x8e), leagues.Bool(i, 0xa0)),
@@ -61,8 +63,8 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
             areas.String(row, 0x192) is { Length: > 0 } tsi ? tsi : null, r => r < areas.Count ? Tops(r) : null,
             CoreLeagues: leagues, Table: Dat)
         {
-            TerrainPlugin = plugin < 0 ? (ushort)0 : (ushort)plugins!.I32(plugin, 8),
-            TerrainPluginId = plugin < 0 ? null : plugins!.String(plugin, 0),
+            TerrainPlugin = plugins is null ? (ushort)0 : (ushort)plugins.I32(plugin, 8),
+            TerrainPluginId = plugins?.String(plugin, 0),
         };
     }
 }

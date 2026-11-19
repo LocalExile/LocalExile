@@ -171,7 +171,7 @@ A row belongs to the areas whose client-side content uses it. Row 171 DeepwaterR
 no null check). Sent on The Sovereign or The Twilight Strand, the client closed about 2 s later with no log line. The
 encounter areas (WorldAreas `TerrainPlugin` DeepwaterPlugin: DeepwaterEncounter, DeepwaterEncounterVoyage) always have
 the plugin at world `+0xe0`, with or without the server's state (§1, extra data), so the Allflame module sends row 171
-there only, after 0x7d (not yet run on the client). Whether the real server did is unknown. The Sovereign takes row 172
+there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether the real server did is unknown. The Sovereign takes row 172
 DeepwaterHubRules alone (no per-frame code). Row 171's area type 53 checks are for the Sovereign that the plugin adds
 inside an encounter as a secondary area (`0x141f32870`).
 

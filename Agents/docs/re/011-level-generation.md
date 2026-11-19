@@ -736,8 +736,7 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   edge on the far side. Two equal edges at a trimmed end would go through the missing EdgeCombination (not ported:
   the port stops).
 
-The port generates both areas without a state (103 × 66, the default grid) and with module grids (164 one-room charts,
-40 3 × 3 voyages: no stop); no trace of a sent grid exists yet. Open: the record WorldArea switch to the biome's
+No trace of a sent grid exists yet. Open: the record WorldArea switch to the biome's
 (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the FillTiles lists' order in
 the client (it matters only for a ground with tiles in two lists), and the cell stats' and mods' meaning.
 

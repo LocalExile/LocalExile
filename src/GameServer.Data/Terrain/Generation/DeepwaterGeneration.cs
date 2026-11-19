@@ -209,8 +209,8 @@ public sealed class DeepwaterGeneration
                 ka.Edges[1] = ka.Edges[3]; ka.PointA[1] = Point(ka.PointA[3]); ka.PointB[1] = ka.PointB[3];
                 ka.Grounds[2] = ka.Grounds[3]; ka.Grounds[1] = ka.Grounds[0];
                 ka.Heights[2] = ka.Heights[3]; ka.Heights[1] = ka.Heights[0];
-                Pick(x, y, ka, a.Value, false);
-                Pick(x + 3, y, kb, b.Value, false);
+                Pick(x, y, ka, a.Value);
+                Pick(x + 3, y, kb, b.Value);
             }
         }
 
@@ -253,8 +253,8 @@ public sealed class DeepwaterGeneration
                 ka.Edges[0] = ka.Edges[2]; ka.PointA[0] = Point(ka.PointA[2]); ka.PointB[0] = ka.PointB[2];
                 ka.Grounds[0] = ka.Grounds[3]; ka.Grounds[1] = ka.Grounds[2];
                 ka.Heights[0] = ka.Heights[3]; ka.Heights[1] = ka.Heights[2];
-                Pick(x, y, ka, a.Value, false);
-                Pick(x, y - 3, kb, b.Value, false);
+                Pick(x, y, ka, a.Value);
+                Pick(x, y - 3, kb, b.Value);
             }
         }
 
@@ -272,10 +272,7 @@ public sealed class DeepwaterGeneration
             if (!ThreeByThree(a) || !ThreeByThree(b)) return false;
             string? ea = a!.Value.Tile.Key.Rotate(a.Value.Orientation).Edges[side], eb = b!.Value.Tile.Key.Rotate(b.Value.Orientation).Edges[side];
             if (ea is not null && string.Equals(ea, eb, StringComparison.OrdinalIgnoreCase))
-            {
-                if (combiner is null) throw new NotSupportedException($"Deepwater seam at ({x}, {y}): equal edges at a seam end without an EdgeCombination (0x141f34200)");
-                if (combiner.Combine(ea, ea, 0) is null) throw new NotSupportedException($"Deepwater seam at ({x}, {y}): the seam end re-pick (0x141f34200) is not ported");
-            }
+                throw new NotSupportedException($"Deepwater seam at ({x}, {y}): equal edges at a seam end (0x141f34200's combination and re-pick are not ported)");
             return false;
         }
 
@@ -303,9 +300,9 @@ public sealed class DeepwaterGeneration
         /// tag with the key (<c>0x141d85600</c>; with none, again with the corners whose ground has no flag 1 at height 0),
         /// weighted. When nothing fits, the grounds left out of keys go and it tries again; without one it fails as the
         /// client does.</summary>
-        void Pick(int x, int y, TileKey key, TileEntry original, bool trimmed)
+        void Pick(int x, int y, TileKey key, TileEntry original)
         {
-            if (!trimmed && original.Tile.Tag.Length == 0
+            if (original.Tile.Tag.Length == 0
                 && key.Edges.All(e => e is null || files.Edge(e)?.Wildcard == true)
                 && key.Grounds.All(g => string.Equals(g, key.Grounds[0], StringComparison.OrdinalIgnoreCase)))
             {
@@ -346,7 +343,7 @@ public sealed class DeepwaterGeneration
             var rest = key.Clone();
             for (int c = 0; c < 4; c++)
                 if (files.Ground(rest.Grounds[c]) is { IgnoredInKeys: true }) rest.Grounds[c] = null;
-            Pick(x, y, rest, original, trimmed);
+            Pick(x, y, rest, original);
         }
 
         /// <summary><c>0x141f33340</c>: the master's fill tiles (every list of the FillTiles object, <c>0x141ff6ba0</c>) that

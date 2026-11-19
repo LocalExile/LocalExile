@@ -200,9 +200,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   were played.
   The Allflame leagues play every area in league category 59 ([011](../docs/re/011-level-generation.md) §3): The Coast,
   The Ship Graveyard and its Cave are generated in their Deepwater topologies.
-  The port builds the Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) from the terrain plugin
-  state 0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4); not
-  compared with a trace yet, so the Gateway does not generate them.
 - **Level generator port.** `GameServer.Data/Terrain/Generation` reproduces the client's level generator: the tile
   grid, the walkability and projectile grids, the doodads, every cell's ground height (`CellHeights.cs`) and the area
   transitions and waypoints (`AreaObjects.cs`: the tiles' objects, and a room's `Waypoint` line where no tile places
@@ -212,6 +209,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   loads the client itself failed to generate, the port fails 112 the same way (115 expected once the gate reruns:
   the Sanctum Cellar, Nave and Vaults now fail as the client does). The 34 areas the client cannot
   generate at seed 1 (and that need no server data) were toured at random seeds the port generates: all 73 loads match.
+  The Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) are built from the terrain plugin state
+  0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4). Verified
+  live (3.29.3d, 2026-11-18): the client's tile hash equals the port's for a one-room chart and a 3 × 3 Voyage grid.
+  Their walk grids are not compared yet, so the Gateway does not generate them.
   An unattended tour of every WorldAreas row with a topology (2026-10-27, `scripts/re/levelgen/tourloop.py`, which
   restarts and logs in the client by itself) left 234 of the 1932 rows with no client-side level to match: 17 without a
   topology, 202 that need data from the server (Incursion temples, Delve cells and biomes, Heist contracts, Synthesis

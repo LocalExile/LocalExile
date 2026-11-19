@@ -111,7 +111,7 @@ public static class AreaLayouts
 
     const string Folder = "data/walkability";
 
-    static string IdOf(ushort hash) =>
+    internal static string IdOf(ushort hash) =>
         Ids.GetValueOrDefault(hash) ?? AreaTransitionCatalog.IdOf(hash) ?? HideoutCatalog.ByArea(hash)?.AreaId ?? $"0x{hash:x4}";
 
     /// <summary>The seed the instance's layout is generated and played at (<see cref="ServerLevels.PlayableSeed"/>).</summary>
@@ -211,7 +211,7 @@ public static class AreaLayouts
             {
                 id = layout.Id, seed, hash = layout.Hash, written = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 nonce = Guid.NewGuid().ToString("N"),
-                // The terrain plugin states of the load (the Deepwater grid), for the trace: levelgen generates with them.
+                // The terrain plugin states of the load, for the trace: levelgen generates with them.
                 pluginStates = ServerLevels.PluginStatesOf(layout.Id, seed)?.ToDictionary(p => p.Key.ToString(), p => Convert.ToHexString(p.Value)),
             });
             SaveFiles.Write($"{Folder}/current.json", json);

@@ -92,7 +92,7 @@ public static class ServerLevels
     // key (StatsKey) when it is not 60.
     static readonly ConcurrentDictionary<(string Area, uint Seed), int> PlayedCategories = new();
     // The terrain plugin states an (area, seed) is played with (0x1d extra data, InstanceEvents.TerrainPluginStates): the
-    // client's plugin builds its part of the level from them (the Allflame encounter grid). Part of the cache key (StatsKey).
+    // client's plugin builds its part of the level from them. Part of the cache key (StatsKey).
     static readonly ConcurrentDictionary<(string Area, uint Seed), IReadOnlyDictionary<ushort, byte[]>> PlayedPluginStates = new();
     static readonly Dictionary<(string Area, uint Seed), (int Level, string Stats, int Category, string States)> PlayedContexts = new();
     static readonly ConcurrentDictionary<uint, byte[]> DelveTerrains = new();
@@ -138,6 +138,17 @@ public static class ServerLevels
     static string StatesKey(IReadOnlyDictionary<ushort, byte[]>? states) => states is not { Count: > 0 } ? "" :
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(
             string.Concat(states.OrderBy(p => p.Key).Select(p => $"{p.Key}:{Convert.ToHexString(p.Value)};")))))[..8];
+
+    /// <summary>(area, seed) is played without the terrain plugin states <see cref="PlayableSeed(string, uint, int, IReadOnlyDictionary{uint, int}?, int, IReadOnlyList{ValueTuple{ushort, byte[]}}?)"/>
+    /// recorded: 0x1d carries other extra data in their place, so the client builds the level without them.</summary>
+    public static void PlayWithoutPluginStates(string areaId, uint seed)
+    {
+        lock (Gate)
+        {
+            PlayedPluginStates.TryRemove((areaId, seed), out _);
+            if (PlayedContexts.TryGetValue((areaId, seed), out var played)) PlayedContexts[(areaId, seed)] = played with { States = "" };
+        }
+    }
 
     static int CategoryOf(string areaId, uint seed) => PlayedCategories.GetValueOrDefault((areaId, seed), LeagueCategory.None);
 

@@ -94,6 +94,12 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _terrainPluginStates ??= compose();
     }
 
+    /// <summary>The instance is played without terrain plugin states from now on (0x1d carries other extra data).</summary>
+    public void DropTerrainPluginStates()
+    {
+        lock (_areaStatsGate) _terrainPluginStates = [];
+    }
+
     /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
     public IReadOnlyDictionary<uint, int>? KeptAreaStats
     {

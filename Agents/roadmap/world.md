@@ -60,9 +60,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     rooms ("Unknown Incursion Temple room hash").
   - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
     the floor graph from the rooms the server sends.
-  - Deepwater (2): DeepwaterEncounter and DeepwaterEncounterVoyage are ported (011 §3c4) but not yet compared: run
-    the gate on their seed-1 traces (the default grid) and a capture with a module grid (`pluginStates` in the trace),
-    then list them in `server_level_areas`.
+  - Deepwater (2): DeepwaterEncounter and DeepwaterEncounterVoyage are ported (011 §3c4) and match the client's tile
+    hash with a sent grid; left: run the gate on their seed-1 traces (the default grid), compare the walk grids of a
+    capture with a module grid (`pluginStates` in the trace), then list them in `server_level_areas`.
 - The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
@@ -122,10 +122,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
-  1. Encounter levels: the grid is sent and generated (status, "The Sovereign"); left: a live run of both areas
-     (the client keeps ruleset 171, the walk grids equal), the direction of the orientation byte and which board corner
-     is cell 0 (the start), the "Deepwater (2)" item of [server-side level generation](#server-side-level-generation),
-     and the chart's own room, rotation, level, cell stats and border mods once charts exist (step 3).
+  1. Encounter levels: the grid and ruleset 171 are sent and the level is generated (status, "The Sovereign"); left:
+     the direction of the orientation byte and which board corner is cell 0 (the start), the "Deepwater (2)" item of
+     [server-side level generation](#server-side-level-generation) (the gate, the walk grids, `server_level_areas`), and
+     the chart's own room, rotation, level, cell stats and border mods once charts exist (step 3).
   2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
      already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
      then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
