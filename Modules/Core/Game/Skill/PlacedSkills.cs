@@ -474,7 +474,11 @@ public static partial class Game
             {
                 var use = CaptureGemProjectile(conn, session, placed.Skill, payload, shot, critical, from: at);
                 use = ClientDrawnVolley(conn, session, placed.Skill, payload, use, 0, 0);
-                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
+                // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
+                var drawn = (ProjectileOffense)use.Payload!;
+                return use with { Payload = drawn with { ClientPredicted = false,
+                    Presentation = drawn.Presentation ?? MonsterProjectilePresentation(SkillsFor(conn).Clips(use.Profile.Id),
+                        use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
             return;
         }
