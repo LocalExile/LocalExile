@@ -44,6 +44,14 @@ internal sealed class DeepwaterRun
     /// <summary>Lanterns placed by the player (the first, free one is not counted).</summary>
     public int Placed { get; set; }
     public int Total { get; set; }
+    /// <summary>The run's monster level: the controller's character level clamped to 1..84 until charts carry one (G;
+    /// WorldAreas gives the encounter areas level 1).</summary>
+    public required int Level { get; init; }
+    /// <summary>The league's packs not yet woken by a lantern (DeepwaterMonsters), and how many were planned and woken.</summary>
+    public readonly List<DeepwaterMonsters.Pack> Planned = [];
+    public int PlannedPacks { get; set; }
+    public int ReleasedPacks { get; set; }
+    public int ReleasedMonsters { get; set; }
     public readonly object Gate = new();
 
     public Lantern[] Snapshot() { lock (Gate) return [.. Lanterns]; }

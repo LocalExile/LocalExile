@@ -25,6 +25,7 @@ public sealed partial class DeepwaterModule
         if (conn.Instance is not { } instance) return;
         bool made = false;
         DeepwaterRun? run;
+        DeepwaterRun.Lantern? first = null;
         lock (_runs)
         {
             if (!_runs.TryGetValue(instance, out run))
@@ -35,12 +36,19 @@ public sealed partial class DeepwaterModule
                     return;
                 }
                 bool voyage = player.AreaId == DeepwaterConstants.VoyageArea;
-                run = new DeepwaterRun { Voyage = voyage, Board = board, Controller = player.Character, Total = DeepwaterLanterns.Total(conn, voyage) };
+                run = new DeepwaterRun
+                {
+                    Voyage = voyage, Board = board, Controller = player.Character, Total = DeepwaterLanterns.Total(conn, voyage),
+                    Level = Math.Clamp((int)conn.Pools.Level, 1, DeepwaterMonsters.MaxLevel),
+                };
+                var plan = DeepwaterMonsters.Plan(conn.Layout, conn.Seed, run, module.Log);
+                run.Planned.AddRange(plan);
+                run.PlannedPacks = plan.Count;
                 // The first lantern burns at the start Bathysphere (cell 0's "bathysphere" point; the wiki: placed on entry)
                 // and is not one of the run's (G: the tutorial's count starts at 6 with it already lit). Without an anchor
                 // the client allows no placement.
                 var start = board.Cells[0].Point("bathysphere") ?? board.Cells[0].Point("default") ?? (conn.Layout.SpawnX, conn.Layout.SpawnY);
-                DeepwaterLanterns.Add(conn, run, start.X, start.Y, counts: false);
+                first = DeepwaterLanterns.Add(conn, run, start.X, start.Y, counts: false);
                 _runs.Add(instance, run);
                 made = true;
             }
@@ -48,6 +56,8 @@ public sealed partial class DeepwaterModule
         if (made) module.Log($"{player.Character}: Allflame {(run.Voyage ? "Voyage" : "Chart")} in {player.AreaId}/{player.Seed}, {run.Board.Size}×{run.Board.Size}, {run.Total} lanterns");
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
+        // The first lantern's light wakes the packs around the start.
+        if (first is not null) await DeepwaterMonsters.Release(module, conn, run, first);
         // The run's owner holds the lanterns (QuestFlags 3550, the client's placement gate) and is its map owner (2020,
         // the capsule window's gate; G that the owner is the one). Other players get neither (G: the
         // TransferLanternControlObject that hands the lanterns over is not built).
@@ -82,6 +92,7 @@ public sealed partial class DeepwaterModule
                 module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern ({a.X}, {a.Y}): lantern {placed}/{total}");
                 await DeepwaterLanterns.Show(module, conn, lantern, dropping: true);
                 await DeepwaterLanterns.SendCount(conn, run);
+                await DeepwaterMonsters.Release(module, conn, run, lantern);
                 if (placed == 1)
                 {
                     var (remote, stream, ciphers) = conn.Wire;
@@ -93,6 +104,16 @@ public sealed partial class DeepwaterModule
                 module.Log($"{player.Character} <= 0x02ca DeepwaterRules {a.Op}: not built yet");
                 return true;
         }
+    }
+
+    static JsonObject PackState(DeepwaterRun run)
+    {
+        lock (run.Gate)
+            return new JsonObject
+            {
+                ["planned"] = run.PlannedPacks, ["released"] = run.ReleasedPacks, ["waiting"] = run.Planned.Count,
+                ["monstersReleased"] = run.ReleasedMonsters,
+            };
     }
 
     void RunState(ClientState conn, JsonObject json)
@@ -114,6 +135,8 @@ public sealed partial class DeepwaterModule
             ["biome"] = cell?.BiomeArea,
             ["onDeck"] = run.Board.OnDeck(at),
             ["inLight"] = run.InLight(at, now),
+            ["level"] = run.Level,
+            ["packs"] = PackState(run),
             ["drowningLeft"] = _light.Drowning(conn, out double left) ? Math.Round(left, 2) : null,
             ["lanterns"] = new JsonArray([.. run.Snapshot().Select(l => (JsonNode)new JsonObject
             {

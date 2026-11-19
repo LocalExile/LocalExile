@@ -71,6 +71,8 @@ public sealed partial class DeepwaterModule : IModule
     {
         string id = module.Manifest.Id;
         module.Lifetime.Own(Quests.Register(id, [new DeepwaterQuests()]));
+        // The league monsters' more life (DeepwaterLifeScalingPerLevel), as Harvest's grove monsters.
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([DeepwaterMonsters.LevelMoreLife], []));
         // Every area of the league is played in its category and carries map_deepwater_league (what the client's and the
         // server's extra terrain feature roll for Deepwater encounters read).
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);

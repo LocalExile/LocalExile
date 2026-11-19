@@ -218,6 +218,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
   [world status](world.md) ("Level generator port").
+  Each cell plans its biome's league packs (MonsterPacks 3149-3166 by MinLevel, `DeepwaterRooms.__col8` per cell)
+  at the character's level (1-84), with DeepwaterLifeScalingPerLevel's more life; a pack spawns when a lantern's
+  light first covers it (guesses: the hidden-until-lit mechanism, the counts, the spacing; not verified live yet).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
