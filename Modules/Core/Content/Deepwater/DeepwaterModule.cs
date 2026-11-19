@@ -69,6 +69,8 @@ public sealed partial class DeepwaterModule : IModule
         public MapDevice.Run? Armed;
         public DeepwaterPlan? ArmedPlan;
         public double PortalOpenAt;
+        /// <summary>When the deck next checks whether this player became its map owner (DeepwaterHub.TickDeck).</summary>
+        public double NextOwnerCheck;
         public Func<Task>? Confirm;
     }
 

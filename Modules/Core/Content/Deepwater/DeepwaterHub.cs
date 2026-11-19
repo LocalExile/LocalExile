@@ -161,6 +161,17 @@ public sealed partial class DeepwaterModule
     {
         if (!_states.TryGetValue(PlayerOf(conn), out var state)) return;
         await TickPortal(conn, state);
+        // A map owner who left hands the deck to a player still on it (every 2 s, not every tick).
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (PlayerOf(conn).AreaId == HubId && now >= state.NextOwnerCheck)
+        {
+            state.NextOwnerCheck = now + 2;
+            if (!conn.HasQuestFlag(DeepwaterConstants.MapOwner) && HubOwner(conn))
+            {
+                var (remote, stream, ciphers) = conn.Wire;
+                await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.MapOwner]);
+            }
+        }
         if (!state.LockerOpen) return;
         var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         long dx = here.X - state.LockerAt.X, dy = here.Y - state.LockerAt.Y, far = state.LockerReach + 30;
@@ -172,14 +183,21 @@ public sealed partial class DeepwaterModule
 
     // ---- the hub's map owner ----
 
-    /// <summary>The player owns this hub instance (the first character in it, G).</summary>
+    /// <summary>The player owns this hub instance: its first character, and when that one has left it (another area, a
+    /// logout, a party that broke up), the next one who asks while there (G: the real game's hand-over is not known).</summary>
     bool HubOwner(ClientState conn)
     {
         if (conn.Instance is not { } instance) return false;
         string me = PlayerOf(conn).Character;
-        string owner;
-        lock (_hubOwners) owner = _hubOwners.GetValue(instance, _ => me);
-        return owner.Equals(me, StringComparison.OrdinalIgnoreCase);
+        bool OwnerHere(string owner) => DeepwaterLoot.Members(conn).Any(m => CharacterName(m).Equals(owner, StringComparison.OrdinalIgnoreCase));
+        lock (_hubOwners)
+        {
+            string owner = _hubOwners.GetValue(instance, _ => me);
+            if (owner.Equals(me, StringComparison.OrdinalIgnoreCase)) return true;
+            if (OwnerHere(owner)) return false;
+            _hubOwners.AddOrUpdate(instance, me);
+            return true;
+        }
     }
 
     /// <summary>On The Sovereign the owner holds IsMapOwner (QuestFlags 2020): Valerie's "Chart Area" and "Plan Voyage" and
