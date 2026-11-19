@@ -359,7 +359,8 @@ internal static class DeepwaterLoot
         return true;
     }
 
-    static Task EndAction(ClientState conn, int? action = null) =>
+    /// <summary>Ends the player's interaction (0x1ad), after a refusal or a use.</summary>
+    public static Task EndAction(ClientState conn, int? action = null) =>
         global::Game.SendWorldRecord(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null,
             still: action is int a ? () => PlayerActionCurrent(conn, a) : null);
 

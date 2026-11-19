@@ -92,6 +92,15 @@ internal sealed class DeepwaterRun
     public double NextSwarm { get; set; }
     public int SwarmPacks { get; set; }
 
+    /// <summary>The run's Bathyspheres and capsules (DeepwaterExtraction), and the capsule window each character has open.</summary>
+    public readonly List<DeepwaterExtraction.Device> Devices = [];
+    public readonly Dictionary<string, uint> OpenCapsule = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>When a called Bathysphere lands (instance seconds), 0 when none is coming.</summary>
+    public double LandAt { get; set; }
+    /// <summary>How the run ended (null while it runs): "success", "failure: …".</summary>
+    public string? Outcome { get; set; }
+    /// <summary>The deck's CollectionChest, once someone rode up.</summary>
+    public uint DeckChest { get; set; }
     public readonly object Gate = new();
 
     public Lantern[] Snapshot() { lock (Gate) return [.. Lanterns]; }

@@ -50,6 +50,7 @@ public sealed partial class DeepwaterModule
                 // the client allows no placement.
                 var start = board.Cells[0].Point("bathysphere") ?? board.Cells[0].Point("default") ?? (conn.Layout.SpawnX, conn.Layout.SpawnY);
                 first = DeepwaterLanterns.Add(conn, run, start.X, start.Y, counts: false);
+                DeepwaterExtraction.Plan(conn, run, start, module.Log);
                 _runs.Add(instance, run);
                 made = true;
             }
@@ -58,6 +59,7 @@ public sealed partial class DeepwaterModule
         foreach (var lantern in run.Snapshot()) await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: made);
         await DeepwaterLanterns.SendCount(conn, run);
         await DeepwaterLoot.Show(conn, run);
+        await DeepwaterExtraction.Show(conn, run);
         // The first lantern's light wakes the packs around the start and collects the Sulphur there.
         if (first is not null)
         {
@@ -67,8 +69,9 @@ public sealed partial class DeepwaterModule
         // The run's owner holds the lanterns (QuestFlags 3550, the client's placement gate) and is its map owner (2020,
         // the capsule window's gate; G that the owner is the one). Other players get neither (G: the
         // TransferLanternControlObject that hands the lanterns over is not built).
-        if (player.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase))
+        if (player.Character.Equals(run.Controller, StringComparison.OrdinalIgnoreCase) && run.Phase != DeepwaterRun.RunPhase.Ended)
             await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner]);
+        await DeepwaterExtraction.SyncFlags(conn, run);
     }
 
     async Task<bool> RulesetAction(IModuleContext module, ClientState conn, byte[] bytes)
@@ -108,9 +111,14 @@ public sealed partial class DeepwaterModule
                 // A Chart's last lantern: the lanterns collapse and its Bathysphere can be used (QuestFlags 3562).
                 if (!run.Voyage && placed >= total) await ChartCollapse(module, conn, run);
                 return true;
+            case DeepwaterRuleset.Op.SendItemsToSurface:
+                await DeepwaterExtraction.SendToSurface(module, conn, run);
+                return true;
+            case DeepwaterRuleset.Op.RequestExtraction:
+                await DeepwaterExtraction.CallBathysphere(module, conn, run);
+                return true;
             default:
-                // Send to Surface (2) and Call Bathysphere (3) belong to the capsules and the extraction, not built yet.
-                module.Log($"{player.Character} <= 0x02ca DeepwaterRules {a.Op}: not built yet");
+                module.Log($"{player.Character} <= 0x02ca DeepwaterRules op {(byte)a.Op}: unknown");
                 return true;
         }
     }
@@ -132,6 +140,12 @@ public sealed partial class DeepwaterModule
             await SetQuestFlags(remote, stream, ciphers, member, [DeepwaterConstants.CanExtract]);
         }
     }
+
+    static DeepwaterExtraction.Device[] DevicesOf(DeepwaterRun run) { lock (run.Gate) return [.. run.Devices]; }
+
+    // A run that failed (a death, drowning, leaving another way) for everyone in it.
+    Task RunFailed(IModuleContext module, ClientState conn, string reason) =>
+        RunOf(conn) is { } run ? DeepwaterExtraction.Fail(module, conn, run, reason) : Task.CompletedTask;
 
     static JsonObject PackState(DeepwaterRun run)
     {
@@ -167,6 +181,14 @@ public sealed partial class DeepwaterModule
             ["loot"] = DeepwaterLoot.State(run),
             ["drowningLeft"] = _light.Drowning(conn, out double left) ? Math.Round(left, 2) : null,
             ["collapse"] = run.CollapseState,
+            ["outcome"] = run.Outcome,
+            ["landIn"] = run.LandAt > 0 ? Math.Round(Math.Max(0, run.LandAt - now), 1) : null,
+            ["devices"] = new JsonArray([.. DevicesOf(run).Select(d => (JsonNode)new JsonObject
+            {
+                ["id"] = d.Id, ["kind"] = d.Kind.ToString(), ["x"] = d.X, ["y"] = d.Y, ["landed"] = d.Landed, ["sent"] = d.Sent, ["called"] = d.Called,
+            })]),
+            ["capsule"] = ItemsOf(conn).Items(DeepwaterExtraction.CapsuleRow).Count,
+            ["collection"] = ItemsOf(conn).Items(DeepwaterExtraction.CollectionRow).Count,
             ["swarmPacks"] = run.SwarmPacks,
             ["lanterns"] = new JsonArray([.. run.Snapshot().Select(l => (JsonNode)new JsonObject
             {

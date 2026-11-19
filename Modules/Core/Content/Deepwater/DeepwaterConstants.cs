@@ -57,12 +57,16 @@ internal static class DeepwaterConstants
     public const string MapOwner = "IsMapOwner";
     /// <summary>QuestFlags 3562: the Bathysphere is targetable.</summary>
     public const string CanExtract = "DeepwaterCanExtract";
+    /// <summary>QuestFlags 3547: items wait in the collection (114); the deck's CollectionChest is targetable with it.</summary>
+    public const string StoredItems = "DeepwaterStoredItemsInExtractionChest";
+    /// <summary>QuestFlags 3572: a Voyage's called Bathysphere is coming (the quest tracker's "hold the line").</summary>
+    public const string VoyageDefend = "DeepwaterVoyageDefendUntilExtraction";
     /// <summary>QuestFlags 3579.</summary>
     public const string FirstLanternPlaced = "FirstLanternPlaced";
     /// <summary>QuestFlags 3625: the player is on the encounter's own deck.</summary>
     public const string InPseudoHub = "InMyDeepwaterPseudoHub";
     /// <summary>The run's flags, cleared at any entry outside the encounter areas (a crash or a relog left them on).</summary>
-    public static readonly string[] RunFlags = [LanternController, MapOwner, CanExtract, InPseudoHub];
+    public static readonly string[] RunFlags = [LanternController, MapOwner, CanExtract, InPseudoHub, VoyageDefend];
 
     /// <summary>League quest flag 1893 <c>Deepwater3x3VoyagesEnabled</c>: a Voyage then has 40 more lanterns (the wiki's
     /// 65 after the first Voyage; DeepwaterUpgrades 5, stat 23281).</summary>
