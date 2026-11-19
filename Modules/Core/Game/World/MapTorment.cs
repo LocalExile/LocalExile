@@ -68,6 +68,7 @@ public static partial class MapTorment
         public int Version { get; set; }
         public byte[] Magic { get; set; } = [];
         public byte[] Stats { get; set; } = [];
+        public byte[]? Skills { get; set; }
         public List<int> Spirits { get; set; } = [];
         public Dictionary<string, int> DropStats { get; set; } = new(StringComparer.Ordinal);
     }
@@ -312,8 +313,8 @@ public static partial class MapTorment
         var w = conn.Wire;
         foreach (var (id, mark, buff) in due)
         {
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Magic, null);
-            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, mark.Stats, null);
+            await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, conn, id, () =>
+                mark.Skills is { } skills ? [mark.Magic, mark.Stats, skills] : [mark.Magic, mark.Stats]);
             if (buff)
                 await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.AddBuff(id, conn.NextBuff++,
                     mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff),
@@ -501,12 +502,7 @@ public static partial class MapTorment
             m.MaxLife = (uint)Math.Clamp((long)oldLife * scale / Math.Max(1, before.MaxLife(100000)), 1, uint.MaxValue);
             m.Life = (uint)Math.Clamp(Math.Ceiling(m.Life * (double)m.MaxLife / Math.Max(1, oldLife)), 1, m.MaxLife);
         }
-        if (m.Attack is { } attack)
-            m.Attack = attack with
-            {
-                Damage = MonsterModEffects.AddedTo(attack.Damage, stats),
-                Seconds = before.AttackSeconds(attack.Seconds, stats.GetValueOrDefault("attack_speed_+%")),
-            };
+        BossKits.RefreshAttacks(conn, m);
         if (after.MovementPct != before.MovementPct)
             m.Walk.SetSpeed(m.Walk.Speed * (100.0 + after.MovementPct) / Math.Max(1, 100.0 + before.MovementPct), now);
         Show(conn, area, id, m, mark =>
@@ -515,29 +511,53 @@ public static partial class MapTorment
             if (grip) mark.Spirits.Add(spirit.Row);
             foreach (string stat in DropStatIds)
                 if (stats.GetValueOrDefault(stat) is int value and not 0) mark.DropStats[stat] = mark.DropStats.GetValueOrDefault(stat) + value;
-        });
+        }, refreshSkills: true);
         Console.WriteLine($"[torment] {(grip ? "possessed" : "touched")} 0x{id:x} {m.Variety?.Id} ({m.Rarity}) by {spirit.Variety}");
+    }
+
+    // Replace the ordinary actions' final values while keeping each granted record's native stats and extra sets.
+    static Dictionary<ushort, GrantedSkill> AttackSkills(SpawnedMonster m, IReadOnlyList<GrantedSkill> skills)
+    {
+        var changed = new Dictionary<ushort, GrantedSkill>();
+        foreach (var skill in skills)
+        {
+            if (BossKits.AttackById(m, skill.Id) is not { } attack || skill.Stats is null) continue;
+            var values = attack.SkillStats().ToDictionary(s => s.Item1, s => s.Item2);
+            changed.Add(skill.Id, skill with { Stats = [.. skill.Stats.Select(s => (s.Key, values.GetValueOrDefault(s.Key, s.Value)))] });
+        }
+        return changed;
     }
 
     /// <summary>Under the Monsters lock: a touched or possessed monster's record for the clients (its mods, the stats they
     /// change, the record later clients are created from) and its mark, changed by <paramref name="change"/>.</summary>
-    static void Show(ClientState conn, Area area, uint id, SpawnedMonster m, Action<Mark> change)
+    static void Show(ClientState conn, Area area, uint id, SpawnedMonster m, Action<Mark> change, bool refreshSkills = false)
     {
         var effects = m.Effects;
         var client = new List<(uint Key, int Value)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, m.MaxLife)),
             (StatKeys.MovementVelocityPct, effects.MovementPct) };
         if (Program.Stats.Key("actor_scale_+%") is uint actorScale) client.Add((actorScale, effects.ActorScalePct));
-        if (m.Attack is { } a) client.AddRange(a.Stats());
+        var basic = m.Kit.Count > 0 ? m.Kit[0].Attack : m.Attack;
+        if (basic is not null) client.AddRange(basic.Stats());
+        byte[]? skillUpdate = null;
         // The record a client that comes later is created from (SyncInstanceMonsters).
         string? name = null;
         if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
         {
             var keys = client.Select(c => c.Key).ToHashSet();
+            var skills = origin.Object.Skills;
+            if (refreshSkills && skills is not null && !m.Scripted && m.Attack is { Scripted: false }
+                && AttackSkills(m, skills) is { Count: > 0 } changed)
+            {
+                skills = [.. skills.Select(s => changed.GetValueOrDefault(s.Id, s))];
+                byte actor = checked((byte)origin.Object.Components.ToList().IndexOf("Actor"));
+                skillUpdate = InstanceEntities.ActorSkills(id, actor, [.. changed.Values]);
+            }
             conn.Instance.World.MonsterOrigins[id] = origin with
             {
                 Object = origin.Object with
                 {
                     Mods = m.Mods.Mods,
+                    Skills = skills,
                     Stats = [.. (origin.Object.Stats ?? []).Where(s => !keys.Contains(s.Key)), .. client],
                 },
             };
@@ -553,6 +573,7 @@ public static partial class MapTorment
             mark.Version = ++area.Version;
             mark.Magic = InstanceEntities.ComponentUpdate(id, 2, magic.ToArray());
             mark.Stats = InstanceEntities.StatsUpdate(id, client);
+            mark.Skills = skillUpdate;
             KeepMarks(conn, area);
         }
     }

@@ -91,16 +91,18 @@ public static class TormentCatalog
     /// <summary>Mods.dat rows rolled as a monster's explicit mods (the list its name plate shows), with their summed stats.</summary>
     public static (IReadOnlyList<ItemMod> Mods, Dictionary<string, int> Stats) Roll(IEnumerable<int> rows, Random random)
     {
-        var mods = new List<ItemMod>();
-        var stats = new Dictionary<string, int>(StringComparer.Ordinal);
-        foreach (var mod in rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>())
-        {
-            var rolled = mod.Roll(ModSection.Explicit, random);
-            mods.Add(rolled);
-            for (int i = 0; i < mod.Stats.Count && i < rolled.Values.Count; i++)
-                stats[mod.Stats[i].Id] = stats.GetValueOrDefault(mod.Stats[i].Id) + rolled.Values[i];
-        }
-        return (mods, stats);
+        var mods = Game.MonsterModRolls.Value.Species(rows.ToArray(), random);
+        return (mods, Game.MonsterModRolls.Value.RolledStats(mods));
+    }
+
+    static readonly Lazy<HashSet<ushort>> TouchAndGripHashes = new(() => All.SelectMany(s => s.Touch.Concat(s.Grip))
+        .Distinct().Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>().Select(m => m.Hash).ToHashSet());
+
+    /// <summary>The Touches and Grips actually rolled on this monster, including a kept monster's older mod list.</summary>
+    internal static MonsterModEffects EffectsOn(MonsterModSet mods)
+    {
+        var rolls = mods.Mods.Where(m => TouchAndGripHashes.Value.Contains(m.Hash)).ToArray();
+        return rolls.Length == 0 ? MonsterModEffects.None : new(Game.MonsterModRolls.Value.RolledStats(rolls));
     }
 
     static readonly Lazy<(ushort Touched, ushort Possessed)> EffectHashes = new(() =>

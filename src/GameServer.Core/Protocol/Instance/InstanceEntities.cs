@@ -326,6 +326,14 @@ public static class InstanceEntities
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
 
+    /// <summary>Replace existing skills by id on this object's Actor, using the same list as its creation record.</summary>
+    public static byte[] ActorSkills(uint entityId, byte actorIndex, IReadOnlyList<GrantedSkill> skills)
+    {
+        var w = new BlobWriter().U8(0x40).U8(0);
+        PlayerObject.WriteSkillList(w, skills);
+        return ComponentUpdate(entityId, actorIndex, w.ToArray());
+    }
+
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
     /// other entries append, so changing a source/type first requires a removal.</summary>
     public static byte[] PlayerMinionsChange(uint playerId, IReadOnlyList<MinionOwnershipChange> changes,

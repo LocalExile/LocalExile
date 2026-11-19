@@ -203,10 +203,11 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     }
 
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
-    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
-    /// alike, so a casting monster's skill uses the same time.</summary>
-    public double AttackSeconds(double baseSeconds) => baseSeconds
-        / Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0)
+    /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final).</summary>
+    public double AttackSeconds(double baseSeconds) => AttackSeconds(baseSeconds, spell: false);
+
+    public double AttackSeconds(double baseSeconds, bool spell) => baseSeconds
+        / Math.Max(0.1, 1 + this[spell ? "base_cast_speed_+%" : "attack_speed_+%"] / 100.0)
         / (1 + this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
 
     /// <summary>An attack time of <see cref="AttackSeconds"/> with <paramref name="extraPct"/> more increased attack speed (a
@@ -470,16 +471,26 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         return set;
     }
 
+    public Dictionary<string, int> RolledStats(IEnumerable<ItemMod> list)
+    {
+        var stats = new Dictionary<string, int>();
+        foreach (var m in list)
+            if (mods.ByHash(m.Hash) is { } mod)
+                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++)
+                {
+                    string id = mod.Stats[i].Id;
+                    stats[id] = stats.GetValueOrDefault(id) + m.Values[i];
+                }
+        return stats;
+    }
+
     /// <summary>A set from known mods (a kept monster, a test): its effects from the mods' values, plus the rarity
     /// table's life. Without the rarity's own mods (no Mods.dat) the life and damage of the rarity still apply
     /// (MonsterCatalog.RarityLifePct / RarityAttack).</summary>
     public MonsterModSet Create(IReadOnlyList<ItemMod> list, IReadOnlyList<uint> nameWords, MonsterRarity rarity, int level)
     {
-        var stats = new Dictionary<string, int>();
+        var stats = RolledStats(list);
         void Add(string stat, int value) => stats[stat] = stats.GetValueOrDefault(stat) + value;
-        foreach (var m in list)
-            if (mods.ByHash(m.Hash) is { } mod)
-                for (int i = 0; i < mod.Stats.Count && i < m.Values.Count; i++) Add(mod.Stats[i].Id, m.Values[i]);
         if (rarity != MonsterRarity.Normal && !stats.ContainsKey("monster_life_+%_final_from_rarity"))
         {
             Add("monster_life_+%_final_from_rarity", MonsterCatalog.RarityLifePct(rarity));

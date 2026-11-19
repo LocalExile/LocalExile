@@ -163,6 +163,7 @@ public sealed class TormentTests
         {
             ["map_spawn_extra_torment_spirits"] = 1, ["map_boss_is_possessed"] = 1, ["map_tormented_spirits_movement_speed_+%"] = 30,
             ["map_monster_damage_taken_+%_while_possessed"] = 20, ["map_tormented_spirit_release_and_dig_%_chance"] = 100,
+            ["map_boss_damage_+%"] = 30, ["map_boss_attack_and_cast_speed_+%"] = 20, ["map_monsters_%_physical_damage_to_add_as_lightning"] = 40,
         });
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var instance = new InstanceState();
@@ -194,7 +195,7 @@ public sealed class TormentTests
             var packs = Game.Packs.For(area.Id)!;
             var member = packs.Scattered.SelectMany(p => p.Pack.Entries).Select(e => Game.Monsters.Find(e.Variety.ToString()))
                 .First(v => v is { Supported: true })!;
-            var bossVariety = packs.Bosses.Select(row => Game.Monsters.Find(row.ToString())).First(v => v is { Supported: true })!;
+            var bossVariety = packs.Bosses.Select(row => Game.Monsters.Find(row.ToString())).Single(v => v?.Name == "Massier")!;
             var far = layout.Near((spirit.X > layout.GridW / 2 ? spirit.X - 150 : spirit.X + 150, spirit.Y));
             uint minion = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Normal,
                 far.X + 3, far.Y, unrisen: false);
@@ -202,12 +203,46 @@ public sealed class TormentTests
                 far.X, far.Y, unrisen: false);
             uint boss = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, bossVariety, 70, MonsterRarity.Unique,
                 far.X, far.Y + 20, unrisen: false);
+            var massier = owner.Conn.Monsters[boss];
+            var second = Assert.Single(massier.Kit, k => k.Effect == 1329);
+            massier.Attack = second.Attack;
+            BossKits.Consume(massier, second.Attack, 8);
+            var here = massier.Walk.Position(0);
+            owner.Conn.Walk.Teleport(here.X, here.Y, 0);
+            Game.PlaceLockstepChase(owner.Conn, massier, massier.ActionGeneration, 0);
+            Assert.Equal(0d, massier.ClientSwingAt);
             owner.Conn.Walk.Teleport(spirit.X, spirit.Y, 0);
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.True(TormentCatalog.Has(owner.Conn.Monsters[rare].Mods, grip: true));
             Assert.True(owner.Conn.Monsters[rare].Effects["base_damage_taken_+%"] >= 20);
             Assert.True(TormentCatalog.Has(owner.Conn.Monsters[minion].Mods, grip: false));
-            Assert.True(TormentCatalog.Has(owner.Conn.Monsters[boss].Mods, grip: true));
+            Assert.True(TormentCatalog.Has(massier.Mods, grip: true));
+            var selected = massier.Kit.Single(k => k.Effect == second.Effect);
+            Assert.Same(selected.Attack, massier.Attack);
+            Assert.True(selected.Attack.Damage.MinTotal > second.Attack.Damage.MinTotal);
+            Assert.True(selected.Attack.Seconds < second.Attack.Seconds);
+            Assert.Same(second.Attack, massier.ClientSwingStats!.Value.Attack);
+            Assert.Equal(second.Attack.Seconds, massier.ClientSwingStats.Value.Seconds);
+            Assert.Equal(8 + second.CooldownSeconds, massier.KitReadyAt[second.Effect]);
+            var raw = BossKits.AttackFor(owner.Conn, bossVariety, 70, selected.Effect, selected.Attack.SkillId);
+            Assert.Equal(massier.Mods.Effects.Hit(raw.Damage).Components, selected.Attack.Damage.Components);
+
+            var saved = Assert.Single(SavedMonster.Save([massier], 0));
+            uint copy = await Game.RestoreMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, bossVariety, saved);
+            var restored = owner.Conn.Monsters[copy];
+            Assert.Equal(massier.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)),
+                restored.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)));
+            var shown = instance.World.MonsterOrigins[boss].Object;
+            var rebuilt = instance.World.MonsterOrigins[copy].Object;
+            foreach (var (live, kept) in massier.Kit.Zip(restored.Kit))
+            {
+                Assert.Equal(live.Attack.Damage.Components, kept.Attack.Damage.Components);
+                var skill = shown.Skills!.Single(s => s.Id == live.Attack.SkillId);
+                Assert.Equal(rebuilt.Skills!.Single(s => s.Id == skill.Id).Stats, skill.Stats);
+                Assert.Contains((StatKeys.MainHandAttackDurationMs, (int)Math.Round(live.Attack.Seconds * 1000)), skill.Stats!);
+            }
+            Assert.Equal(rebuilt.Stats!.Single(s => s.Key == StatKeys.MainHandMinTotal),
+                shown.Stats!.Single(s => s.Key == StatKeys.MainHandMinTotal));
             Assert.Equal("0", instance.ContentState["Torment/seance"]);
 
             // Speaker of the Dead: the spirit the player stands on goes into the player, who gets its Possessed buff.

@@ -81,13 +81,14 @@ public static class BossKits
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
         int defaultEffect = -1, MonsterAttack? defaultAttack = null) =>
-        Kit(conn, variety, level, defaultEffect, defaultAttack, null);
+        Kit(conn, variety, level, defaultEffect, defaultAttack, null, false);
 
     internal static IReadOnlyList<MonsterKitSkill> Kit(ClientState conn, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect, MonsterAttack? defaultAttack, MonsterModEffects? mapBossEffects)
+        int defaultEffect, MonsterAttack? defaultAttack, MonsterModSet? mods, bool mapBoss)
     {
         var catalog = SkillsFor(conn);
         if (!IsKitBoss(catalog, variety)) return [];
+        var secondaryEffects = mods is null ? null : mapBoss ? mods.Effects : TormentCatalog.EffectsOn(mods);
         List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
@@ -101,9 +102,7 @@ public static class BossKits
             else
             {
                 attack = AttackFor(conn, variety, level, effect, id);
-                if (mapBossEffects is not null)
-                    attack = attack with { Damage = mapBossEffects.Hit(attack.Damage),
-                        Seconds = attack.Summon is null ? mapBossEffects.AttackSeconds(attack.Seconds) : attack.Seconds };
+                if (secondaryEffects is { Stats.Count: > 0 }) attack = WithMonsterMods(attack, secondaryEffects);
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
             // segments, a trigger that waits for the geometry it points at, a shape the client plays and the server
@@ -115,6 +114,27 @@ public static class BossKits
         }
         return kit;
     }
+
+    // Called under the Monsters lock. An already ordered swing keeps its attack object and deadline.
+    // The AI keeps its selected slot and cooldowns for its next order.
+    internal static void RefreshAttacks(ClientState conn, SpawnedMonster monster)
+    {
+        if (monster.Kit.Count == 0)
+        {
+            if (monster.Attack is { } attack) monster.Attack = WithMonsterMods(attack, monster.Mods.Effects);
+            return;
+        }
+        var secondary = IsMapBoss(conn, monster.Variety!, monster.Rarity) ? monster.Mods.Effects : TormentCatalog.EffectsOn(monster.Mods);
+        monster.Kit = [.. monster.Kit.Select((skill, index) => skill with
+        {
+            Attack = WithMonsterMods(skill.Attack, index == 0 ? monster.Mods.Effects : secondary),
+        })];
+        if (monster.Attack is { } selected)
+            monster.Attack = monster.Kit.First(skill => skill.Attack.SkillId == selected.SkillId).Attack;
+    }
+
+    internal static MonsterAttack? AttackById(SpawnedMonster monster, ushort id) =>
+        monster.Attack?.SkillId == id ? monster.Attack : monster.Kit.FirstOrDefault(k => k.Attack.SkillId == id)?.Attack;
 
     /// <summary>The kit as the actor's skill list: 0x4000 + the kit index names the action, as the campaign's own kits do
     /// (DepravedTrinity.Skill).</summary>

@@ -389,7 +389,7 @@ public static partial class Game
                         walks.GetValueOrDefault(PlayerId) ?? conn.Walk, (int)(chaser.Attack!.Range - 1), LivingCollision.PlayerSize,
                         chaser.ClientChaseTimerFrom), start, end, length);
                     chaser.ClientChaseTimerFrom = timer;
-                    if (result != WalkUpResult.Walking) WalkUpEnds(chaser, start, result == WalkUpResult.Swings);
+                    if (result != WalkUpResult.Walking) WalkUpEnds(conn, chaser, start, result == WalkUpResult.Swings);
                     continue;
                 }
                 if (!walks.TryGetValue(id, out var walk)) continue;
@@ -526,9 +526,9 @@ public static partial class Game
 
     // A walk-up that swung, from the frame's start, for the AI to take (PlanMonsterAi), or failed: the client's action
     // ends with no swing.
-    static void WalkUpEnds(SpawnedMonster m, double start, bool swings)
+    static void WalkUpEnds(ClientState conn, SpawnedMonster m, double start, bool swings)
     {
-        if (swings) (m.ClientSwingAt, m.ClientSwingAction) = (start, m.ActionGeneration);
+        if (swings) BeginClientSwing(conn, m, m.ActionGeneration, start);
         else m.LastTarget = null;
         m.ClientChase = null;
     }

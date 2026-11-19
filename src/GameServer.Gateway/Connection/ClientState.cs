@@ -35,6 +35,9 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
 
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
+    // The skill before monster modifiers. A later change of mods recalculates from these same values.
+    public double BaseSeconds { get; } = Seconds;
+    public DamagePacket BaseDamage { get; } = Damage;
     /// <summary>Native source ailment chances and modifiers, consumed once by the ordinary incoming-hit path.</summary>
     public PlayerElementalAilments.HitSettings Ailments { get; init; }
     public bool Ranged { get; init; }
@@ -193,7 +196,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public MonsterAttack? Attack { get; set; }
     /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
     /// Empty for every monster that swings one attack.</summary>
-    public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    public IReadOnlyList<MonsterKitSkill> Kit { get; set; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
     public bool Hostile { get; init; } = true;
@@ -452,6 +455,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
     public int ClientSwingAction;
+    // Captured when the client's walk-up begins its swing, before the next AI pass can change the attack.
+    public (MonsterAttack Attack, double Seconds)? ClientSwingStats;
     // Lockstep: the start of the frame in whose tick the client ends a walk that an in-place action left going under it
     // (Game.MonsterSwingOrderLocked), the frame after its Actor ends that action; null when none is pending. The step
     // pass applies it (Game.StepFrames), and an order the client takes drops it (Game.LockstepOrderFrom).
