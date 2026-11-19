@@ -92,6 +92,8 @@ public sealed class TemporaryAuraTests
             GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(20) };
     }
 
+    sealed class NoCritical : Random { public override int Next(int maxValue) => maxValue - 1; }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"temporary-aura-{Guid.NewGuid():N}.db");
@@ -114,6 +116,7 @@ public sealed class TemporaryAuraTests
                 Experience = CharacterStats.ExperienceFor(100), PlayerSent = true, Instance = new(),
                 Pools = new(100, 2000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
                 LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
+                CriticalRandom = new NoCritical(),   // the hits' damage ranges assume no critical strike
             };
             Conn.Walk.Teleport(100, 100, 0);
             foreach (string attr in new[] { "strength", "dexterity", "intelligence" }) Set($"virtual_{attr}_for_requirements", 1000);
