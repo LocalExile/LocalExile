@@ -263,9 +263,11 @@ public sealed class DeepwaterGeneration
             }
         }
 
-        /// <summary><c>0x141f34200</c>: whether the trim stops at column x. Two equal edges on <paramref name="side"/> would
-        /// be combined with the master's EdgeCombination, which no Deepwater master has (the client reads through the
-        /// missing file there); that and the re-pick it leads to are not ported.</summary>
+        /// <summary><c>0x141f34200</c>: whether the trim stops at column x. Two equal edges on <paramref name="side"/> at a
+        /// trimmed end go through the master's EdgeCombination with no null check; no Deepwater master has one, so the
+        /// client crashes and such a level is never played. The re-pick that follows with a combination (candidates only,
+        /// the undo list, <c>0x141f34900</c>'s re-picked shifts) is not ported, because no master that uses this plugin
+        /// can reach it.</summary>
         bool End(int x, int y, int side)
         {
             if (PlainFill(grid[x, y]) && PlainFill(grid[x, y - 3])) return true;
@@ -277,7 +279,7 @@ public sealed class DeepwaterGeneration
             if (!ThreeByThree(a) || !ThreeByThree(b)) return false;
             string? ea = a!.Value.Tile.Key.Rotate(a.Value.Orientation).Edges[side], eb = b!.Value.Tile.Key.Rotate(b.Value.Orientation).Edges[side];
             if (ea is not null && string.Equals(ea, eb, StringComparison.OrdinalIgnoreCase))
-                throw new NotSupportedException($"Deepwater seam at ({x}, {y}): equal edges at a seam end (0x141f34200's combination and re-pick are not ported)");
+                throw new InvalidOperationException($"Deepwater seam at ({x}, {y}): equal edges at a seam end; the client reads the master's missing EdgeCombination there (0x141f34200 → 0x1401297c0) and crashes");
             return false;
         }
 
@@ -355,9 +357,9 @@ public sealed class DeepwaterGeneration
         /// are size × size with the ground on their own corner 0 (<c>0x141f5f530</c>), weighted: one <c>Next(total)</c>,
         /// drawn even when none is. For no ground or a ground with flag 4 a tile also needs bits 0x40 and 0x80 of its flags
         /// (tile data +0x16c) and no bit 8 in its first slot's F (tile data +0x90 → +0x30). Rooms in the lists never count.
-        /// The lists are taken in file order (the client's map order is not known); in the Deepwater masters a ground's
-        /// tiles of one size are in one list, except the ones without a ground (Blank.tdt in "default" and
-        /// "BeachMiddleSand").</summary>
+        /// The client takes the "default" list first (FillTiles +0x100, its rooms +0x120), then the named lists of its
+        /// hash maps (<c>0x141ff6ba0</c>). In the Deepwater .gft files only "default" and "BeachMiddleSand" share a
+        /// request (no ground, 1 × 1), and "default" comes first in both, so file order is the client's.</summary>
         TileDef? Fill(string? ground, int size)
         {
             bool strict = ground is null || ((files.Ground(ground)?.Flags ?? 0) & 4) != 0;
