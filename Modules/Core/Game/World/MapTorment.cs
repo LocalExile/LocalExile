@@ -67,7 +67,6 @@ public static partial class MapTorment
         public bool Paid { get; set; }
         public int Version { get; set; }
         public byte[] Magic { get; set; } = [];
-        public byte[] Stats { get; set; } = [];
         public byte[]? Skills { get; set; }
         public List<int> Spirits { get; set; } = [];
         public Dictionary<string, int> DropStats { get; set; } = new(StringComparer.Ordinal);
@@ -304,23 +303,30 @@ public static partial class MapTorment
     {
         if (area.Marks.Count == 0) return;
         var shown = Presented.GetValue(conn, _ => new());
-        var due = new List<(uint Id, Mark Mark, bool Buff)>();
+        var due = new List<(uint Id, Mark Mark)>();
         lock (conn.Monsters)
             lock (area.Marks)
                 foreach (var (id, mark) in area.Marks)
-                    if (conn.MonsterViews.ContainsKey(id) && shown.Versions.GetValueOrDefault(id, -1) != mark.Version)
-                        due.Add((id, mark, !shown.Versions.ContainsKey(id) || mark.Grip));
+                    if (conn.MonsterViews.ContainsKey(id) && !conn.AsleepMonsters.Contains(id)
+                        && shown.Versions.GetValueOrDefault(id, -1) != mark.Version)
+                        due.Add((id, mark));
         var w = conn.Wire;
-        foreach (var (id, mark, buff) in due)
-        {
+        foreach (var (id, mark) in due)
             await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, conn, id, () =>
-                mark.Skills is { } skills ? [mark.Magic, mark.Stats, skills] : [mark.Magic, mark.Stats]);
-            if (buff)
-                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, conn, id, InstanceEntities.AddBuff(id, conn.NextBuff++,
-                    mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff),
-                    $"torment: monster 0x{id:x} {(mark.Grip ? "possessed" : "touched")}");
-            shown.Versions[id] = mark.Version;
-        }
+            {
+                lock (conn.Monsters)
+                {
+                    if (!conn.MonsterViews.ContainsKey(id) || conn.AsleepMonsters.Contains(id)
+                        || !conn.Monsters.TryGetValue(id, out var monster)) return null;
+                    var records = new List<byte[]> { mark.Magic, InstanceEntities.StatsUpdate(id, ClientStats(monster)) };
+                    if (mark.Skills is { } skills) records.Add(skills);
+                    if (!shown.Versions.ContainsKey(id) || mark.Grip)
+                        records.Add(InstanceEntities.AddBuff(id, conn.NextBuff++,
+                            mark.Grip ? TormentCatalog.PossessedBuff : TormentCatalog.TouchedBuff));
+                    shown.Versions[id] = mark.Version;
+                    return records.ToArray();
+                }
+            });
     }
 
     static async Task Drive(ClientState conn, Area area, double seconds)
@@ -528,9 +534,8 @@ public static partial class MapTorment
         return changed;
     }
 
-    /// <summary>Under the Monsters lock: a touched or possessed monster's record for the clients (its mods, the stats they
-    /// change, the record later clients are created from) and its mark, changed by <paramref name="change"/>.</summary>
-    static void Show(ClientState conn, Area area, uint id, SpawnedMonster m, Action<Mark> change, bool refreshSkills = false)
+    // A mark outlives temporary auras. Read the host's current values for the player receiving the mark.
+    static List<(uint Key, int Value)> ClientStats(SpawnedMonster m)
     {
         var effects = m.Effects;
         var client = new List<(uint Key, int Value)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, m.MaxLife)),
@@ -538,12 +543,18 @@ public static partial class MapTorment
         if (Program.Stats.Key("actor_scale_+%") is uint actorScale) client.Add((actorScale, effects.ActorScalePct));
         var basic = m.Kit.Count > 0 ? m.Kit[0].Attack : m.Attack;
         if (basic is not null) client.AddRange(basic.Stats());
+        return client;
+    }
+
+    /// <summary>Under the Monsters lock: a touched or possessed monster's record for the clients (its mods, the stats they
+    /// change, the record later clients are created from) and its mark, changed by <paramref name="change"/>.</summary>
+    static void Show(ClientState conn, Area area, uint id, SpawnedMonster m, Action<Mark> change, bool refreshSkills = false)
+    {
         byte[]? skillUpdate = null;
         // The record a client that comes later is created from (SyncInstanceMonsters).
         string? name = null;
         if (conn.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
         {
-            var keys = client.Select(c => c.Key).ToHashSet();
             var skills = origin.Object.Skills;
             if (refreshSkills && skills is not null && !m.Scripted && m.Attack is { Scripted: false }
                 && AttackSkills(m, skills) is { Count: > 0 } changed)
@@ -554,11 +565,10 @@ public static partial class MapTorment
             }
             conn.Instance.World.MonsterOrigins[id] = origin with
             {
-                Object = origin.Object with
+                Object = origin.Object.WithStats(ClientStats(m)) with
                 {
                     Mods = m.Mods.Mods,
                     Skills = skills,
-                    Stats = [.. (origin.Object.Stats ?? []).Where(s => !keys.Contains(s.Key)), .. client],
                 },
             };
             name = origin.Object.Name;
@@ -572,7 +582,6 @@ public static partial class MapTorment
             change(mark);
             mark.Version = ++area.Version;
             mark.Magic = InstanceEntities.ComponentUpdate(id, 2, magic.ToArray());
-            mark.Stats = InstanceEntities.StatsUpdate(id, client);
             mark.Skills = skillUpdate;
             KeepMarks(conn, area);
         }

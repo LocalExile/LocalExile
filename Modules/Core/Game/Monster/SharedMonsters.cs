@@ -682,6 +682,27 @@ public static partial class Game
         return true;
     }
 
+    public static List<(uint Key, int Value)> MonsterLifeAndScale(SpawnedMonster monster)
+    {
+        var result = new List<(uint Key, int Value)> { (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, monster.MaxLife)) };
+        if (Stats.Key("actor_scale_+%") is uint scale) result.Add((scale, monster.Effects.ActorScalePct));
+        return result;
+    }
+
+    // Earlier Torment marks kept the maximum life and scale they saw at possession, even across shrine expiry.
+    // Other spawners can specify their own presentation stats. An omitted scale has the native value zero.
+    static MonsterObject CurrentMonsterCreation(MonsterObject origin, SpawnedMonster monster)
+    {
+        var stats = origin.Stats;
+        bool temporarySize = monster.TemporaryStats.Values.Any(source => source.ContainsKey("base_actor_scale_+%"));
+        bool marked = monster.Mods.Mods.Count != 0
+            && (TormentCatalog.Has(monster.Mods, grip: true) || TormentCatalog.Has(monster.Mods, grip: false));
+        if (!temporarySize && !marked) return origin;
+        var actual = MonsterLifeAndScale(monster);
+        return actual.All(s => (stats?.FirstOrDefault(old => old.Key == s.Key).Value ?? 0) == s.Value)
+            ? origin : origin.WithStats(actual);
+    }
+
     // Every client's frame: the instance's monsters as this client should have them. The ones it was not shown are created
     // (where they are, with the life they have; the runner's own spawns were created where they were spawned); the
     // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
@@ -736,7 +757,7 @@ public static partial class Game
                         if (life == 0) continue; // died before this client came: nothing to show
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Immediate(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
                         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
-                        var shown = o.Object with { GridX = at.X, GridY = at.Y, Life = life };
+                        var shown = CurrentMonsterCreation(o.Object, m) with { GridX = at.X, GridY = at.Y, Life = life };
                         if (!dormant && m.Variety is { } v && Emerges.Kind(v, m.Rarity) != EmergeKind.None
                             && !MonsterEmerge.Waiting(conn, id) && shown.TransitionState != MonsterEmerge.RisenState(v)
                             && v.ComponentsOrBase.Contains("Transitionable"))
@@ -747,12 +768,18 @@ public static partial class Game
                         SettleBleeding(m, now);
                         foreach (var buff in PresentRupturesLocked(conn, id, m, now)) packets.Presentation(id, buff);
                         if (!conn.LockstepClient && to != at) packets.World(id, InstanceProtocol.ActionStarted(id, at.X, at.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408));
-                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance };
+                        conn.MonsterViews[id] = new(at, conn.LockstepClient ? at : to, life) { ActorStance = shown.ActorStance, OriginStats = o.Object.Stats };
                         if (conn.LockstepClient) births.Add(conn.WorldOutput.PublishedObject(id));
                         continue;
                     }
                     if (dormant || conn.AsleepMonsters.Contains(id)
                         || conn.LockstepClient && !conn.WorldOutput.PublishedObject(id).IsReady) continue;
+                    if (!ReferenceEquals(seen.OriginStats, o.Object.Stats) && CurrentMonsterCreation(o.Object, m).Stats is { } updated)
+                    {
+                        uint? scale = Stats.Key("actor_scale_+%");
+                        var vitals = updated.Where(s => s.Key == StatKeys.MaximumLife || s.Key == scale).ToArray();
+                        if (vitals.Length != 0) packets.World(id, InstanceEntities.StatsUpdate(id, vitals));
+                    }
                     // Its walks: from the AI of its target's connection, which sends that client its own orders.
                     if (life > 0 && !ReferenceEquals(m.Target, conn) && !(runner && m.Target is null))
                     {
@@ -766,7 +793,7 @@ public static partial class Game
                     if (life > 0 && bars.Hidden.Remove(id))
                         packets.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 0)]));
                     if (terminal || seen.Life != life) packets.World(id, InstanceProtocol.LifeUpdate(id, life));
-                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life };
+                    conn.MonsterViews[id] = seen with { At = at, To = to, Life = life, OriginStats = o.Object.Stats };
                     // A boss the others fight: its life bar here too.
                     if (m.BossBarShown && life > 0 && conn.BossBarsSeen.Add(id)) bossBars.Add((id, m));
                 }

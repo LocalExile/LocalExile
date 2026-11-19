@@ -3,6 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
+using GameServer.Modules.Shrines;
 
 namespace GameServer.Gateway.Tests;
 
@@ -81,6 +82,14 @@ public sealed class TormentTests
                 spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
             uint rare = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Rare,
                 spirit.X, spirit.Y, unrisen: false, placement: Game.MonsterPlacement.Established);
+            ShrineRegistry.RegisterDefaults();
+            var massive = ShrineCatalog.Find("Massive")!;
+            var shrine = new ShrineInstance { Definition = massive, At = (spirit.X, spirit.Y), Before = ShrineRegistry.Before(massive) };
+            var shrineContext = new ShrineContext(owner.Conn, 0);
+            int initialScale = owner.Conn.Monsters[rare].Effects.ActorScalePct;
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterEnter(shrineContext, shrine, rare);
+            uint scale = Program.Stats.Key("actor_scale_+%")!.Value;
+            Assert.Contains((scale, initialScale + 20), instance.World.MonsterOrigins[rare].Object.Stats!);
             owner.Conn.Walk.Teleport(spirit.X + 10, spirit.Y, 0);
             await MapTorment.Tick(owner.Conn, 0.25);
             Assert.Equal(MapTorment.SpiritState.Possessed, Spirits()[0].State);
@@ -93,6 +102,51 @@ public sealed class TormentTests
             Assert.Equal(2500, touched.Effects["from_league_item_quantity_+%_permyriad"]);
             Assert.True(possessed.Effects["from_league_item_rarity_+%_permyriad"] >= 3000);
             Assert.Equal(touched.Mods.Mods, instance.World.MonsterOrigins[normal].Object.Mods);
+
+            // The spirit took the host while Massive was active. A later viewer sees the size and life after claim.
+            uint enlarged = possessed.MaxLife;
+            int enlargedScale = possessed.Effects.ActorScalePct;
+            foreach (var effect in shrine.Before) await effect.OnActivation(shrineContext, shrine);
+            var origin = instance.World.MonsterOrigins[rare].Object;
+            Assert.True(possessed.MaxLife < enlarged);
+            Assert.Contains((StatKeys.MaximumLife, (int)possessed.MaxLife), origin.Stats!);
+            Assert.Contains((scale, enlargedScale - 20), origin.Stats!);
+            var basic = possessed.Kit.Count > 0 ? possessed.Kit[0].Attack : possessed.Attack!;
+            var expected = InstanceEntities.StatsUpdate(rare, [(StatKeys.MaximumLife, (int)possessed.MaxLife),
+                (StatKeys.MovementVelocityPct, possessed.Effects.MovementPct), (scale, enlargedScale - 20), .. basic.Stats()]);
+            // Another spawner's explicit life and size are also part of its creation, independent of the shrine.
+            uint custom = await Game.SpawnMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, member, 70, MonsterRarity.Normal,
+                spirit.X, spirit.Y, mods: MonsterModSet.None, unrisen: false,
+                extraStats: [(scale, 25), (StatKeys.MaximumLife, 1234567)], placement: Game.MonsterPlacement.Established);
+            byte[] Creation(uint id)
+            {
+                var created = instance.World.MonsterOrigins[id];
+                var actor = owner.Conn.Monsters[id];
+                var at = actor.Walk.Position(owner.Conn.Clock.Elapsed.TotalSeconds);
+                return InstanceEntities.CreateObject(id, created.Type,
+                    (created.Object with { GridX = at.X, GridY = at.Y, Life = actor.Life }).Blob());
+            }
+            var create = Creation(rare);
+            var customCreate = Creation(custom);
+            var previousOutgoing = Program.Outgoing;
+            var recorded = new List<byte[]>();
+            Program.InGame.TryAdd(owner.Conn, 0);
+            try
+            {
+                var otherWire = peer.Conn.Wire;
+                Program.Outgoing = (ciphers, packet) => { if (ReferenceEquals(ciphers, otherWire.Ciphers)) recorded.Add(packet.ToArray()); };
+                await Game.SyncInstanceMonsters(otherWire.Remote, otherWire.Stream, otherWire.Ciphers, peer.Conn);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(create) >= 0);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(customCreate) >= 0);
+                recorded.Clear();
+                await MapTorment.Tick(peer.Conn, 0.25);
+                Assert.Contains(recorded, packet => packet.AsSpan().IndexOf(expected) >= 0);
+            }
+            finally
+            {
+                Program.Outgoing = previousOutgoing;
+                Program.InGame.TryRemove(owner.Conn, out _);
+            }
 
             // A kill (any kind: GameEvents.Kill) claims the payout once; the kill's own drop roll still sees the mark,
             // and the next tick drops the possessed rare's two rares and a slain spirit's rare.

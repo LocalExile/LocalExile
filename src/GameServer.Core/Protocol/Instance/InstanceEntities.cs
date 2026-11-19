@@ -669,6 +669,13 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
     public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
 
+    /// <summary>Apply the same changed stats to this retained creation record as to a client already in the area.</summary>
+    public MonsterObject WithStats(IReadOnlyList<(uint Key, int Value)> updated)
+    {
+        var keys = updated.Select(s => s.Key).ToHashSet();
+        return this with { Stats = [.. (Stats ?? []).Where(s => !keys.Contains(s.Key)), .. updated] };
+    }
+
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
     /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
