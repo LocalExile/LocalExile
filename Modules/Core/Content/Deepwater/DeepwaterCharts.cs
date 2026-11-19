@@ -1,0 +1,119 @@
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
+
+namespace GameServer.Modules.Deepwater;
+
+/// <summary>Allflame Charts as items (BaseItemTypes 5413-5415; ChartThermalVents 5416 never shipped). A chart's
+/// DeepwaterChart component holds its Area Level, its rotation and its DeepwaterRooms row (13-items §2); its item level is
+/// its area level. Rarity follows world.db <c>deepwater_chart_*</c> (G), and magic and rare affixes are the ordinary item
+/// rolls over Mods domain 39 (prefixes gt 1, suffixes gt 2, tag <c>chart</c>, tier by Level ≤ item level), so ordinary
+/// currency works on a chart as on any item and keeps its component. A charted chart gets one Adjacent or Voyage implicit
+/// (gt 37) in place of MapDeepwaterChartImplicit ("revealed once Charted").</summary>
+internal static class DeepwaterCharts
+{
+    /// <summary>The shipped chart bases, by Id.</summary>
+    public static readonly string[] Bases =
+        ["Metadata/Items/Deepwater/ChartSandy", "Metadata/Items/Deepwater/ChartCoralForest", "Metadata/Items/Deepwater/ChartCoralReef"];
+    public const string Sandy = "Metadata/Items/Deepwater/ChartSandy";
+
+    public static bool IsChart(ItemCatalog.BaseType type) => Array.IndexOf(Bases, type.Id) >= 0;
+    public static bool IsChart(ItemCatalog catalog, Item item) => catalog.ByHash(item.TypeHash) is { } type && IsChart(type);
+
+    static int Setting(string key) => DeepwaterLoot.Setting(key);
+
+    /// <summary>A new chart of this base: item level and Area Level <paramref name="areaLevel"/>, rotation 0, a room of
+    /// <see cref="Room"/>, and the given rarity or one rolled from world.db (G: normal 60 %, magic 30 %, rare 10 %). Magic and
+    /// rare charts are unidentified while <c>deepwater_chart_unidentified</c> is 1 (G: as maps).</summary>
+    public static Item Create(ClientState conn, ItemCatalog.BaseType type, int areaLevel, ItemRarity? rarity, Random random)
+    {
+        byte level = (byte)Math.Clamp(areaLevel, 1, 100);
+        var item = ItemCatalog.Create(type, random: random) with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, random)) };
+        var rolled = rarity ?? RollRarity(random);
+        if (rolled is not (ItemRarity.Magic or ItemRarity.Rare)) return item;
+        return RollsFor(conn).Roll(item, rolled, random) with { Identified = Setting("deepwater_chart_unidentified") == 0 };
+    }
+
+    static ItemRarity RollRarity(Random random)
+    {
+        int magic = Setting("deepwater_chart_magic_percent"), rare = Setting("deepwater_chart_rare_percent");
+        int roll = random.Next(100);
+        return roll < rare ? ItemRarity.Rare : roll < rare + magic ? ItemRarity.Magic : ItemRarity.Normal;
+    }
+
+    // ---- the room ----
+
+    sealed record RoomRow(byte Row, long Biome, int Mask, bool Special, string Name, string Id);
+
+    // The rooms a chart may get: those of the shipped charts' biomes, never a linked or attached room (Kishara's Rest and its
+    // arena: the boss encounter is not built), a [DNT] row, Lost Shipment or Runes of the Deep (nobody reports them, rules §3.2).
+    static readonly Lazy<(Dictionary<int, long> BiomeOf, RoomRow[] Rooms)> Rooms = new(() =>
+    {
+        var biomeOf = new Dictionary<int, long>();
+        var bases = ClientTables.TableOrEmpty("BaseItemTypes");
+        foreach (var c in ClientTables.TableOrEmpty("DeepwaterCharts"))
+            if (c.IntOrNull("BaseItemType") is { } item && c.LongOrNull("Biome") is { } biome
+                && item < bases.Count && Array.IndexOf(Bases, bases[item].Text("Id")) >= 0)
+                biomeOf[item] = biome;
+        var shipped = biomeOf.Values.ToHashSet();
+        var rooms = ClientTables.TableOrEmpty("DeepwaterRooms")
+            .Where(r => r.Index < 0xff && r.LongOrNull("Biome") is { } b && shipped.Contains(b) && r.IsNull("__col14") && r.BoolOrNull("__col17") != true
+                && r.Text("Name") is { } name && !name.StartsWith("[DNT]", StringComparison.Ordinal)
+                && r.Text("Id") is { } id && !id.Contains("LostShipment", StringComparison.Ordinal) && !id.Contains("StoneCircle", StringComparison.Ordinal))
+            .Select(r => new RoomRow((byte)r.Index, r.Long("Biome"), r.Int("__col2"), r.BoolOrNull("Special") == true, r.Text("Name")!, r.Text("Id")!))
+            .ToArray();
+        return (biomeOf, rooms);
+    });
+
+    /// <summary>A room for a new chart of this base (rules §3.2, every weight G: the real ones are server-side and unknown):
+    /// the chart's biome 90 %, another shipped biome 10 %; then a generic room 95 % or a special area 5 % (Anchorfield,
+    /// Infested Bathyspheres and Hazardous Depths twice as likely as the others, the wiki's "more common"); a generic room by
+    /// shape, ends and straights 0.6 against 1 (3.29.0b "somewhat less common"). <paramref name="generic"/> keeps the chart's
+    /// own biome and a generic room (Valerie's chart). The client crashes drawing a chart whose room names no row, so row 0
+    /// is the fallback.</summary>
+    public static byte Room(int baseRow, Random random, bool generic = false)
+    {
+        var (biomeOf, rooms) = Rooms.Value;
+        if (!biomeOf.TryGetValue(baseRow, out long own) || rooms.Length == 0) return 0;
+        long biome = own;
+        if (!generic && random.Next(100) >= 90)
+        {
+            var others = biomeOf.Values.Distinct().Where(b => b != own).ToArray();
+            if (others.Length > 0) biome = others[random.Next(others.Length)];
+        }
+        var inBiome = rooms.Where(r => r.Biome == biome).ToArray();
+        var specials = inBiome.Where(r => r.Special).ToArray();
+        bool special = !generic && specials.Length > 0 && random.Next(100) < 5;
+        if (special)
+        {
+            var areas = specials.GroupBy(r => r.Name).Select(g => (Rows: g.ToArray(), Weight: Common(g.First().Id) ? 2 : 1)).ToArray();
+            int pick = random.Next(areas.Sum(a => a.Weight));
+            foreach (var (rows, weight) in areas)
+            {
+                if (pick < weight) return rows[random.Next(rows.Length)].Row;
+                pick -= weight;
+            }
+        }
+        var plain = inBiome.Where(r => !r.Special).ToArray();
+        if (plain.Length == 0) return inBiome.Length > 0 ? inBiome[random.Next(inBiome.Length)].Row : (byte)0;
+        // Per row: 3 for an end or a straight, 5 for the rest (0.6 : 1).
+        int total = plain.Sum(r => ShapeWeight(r.Mask));
+        int at = random.Next(total);
+        foreach (var r in plain)
+        {
+            int w = ShapeWeight(r.Mask);
+            if (at < w) return r.Row;
+            at -= w;
+        }
+        return plain[^1].Row;
+    }
+
+    static bool Common(string id) =>
+        id.Contains("AnchorField", StringComparison.Ordinal) || id.Contains("Bathyspheres", StringComparison.Ordinal) || id.Contains("HazardBoat", StringComparison.Ordinal);
+
+    static int ShapeWeight(int mask) => System.Numerics.BitOperations.PopCount((uint)mask) switch
+    {
+        1 => 3,
+        2 when mask is 5 or 10 => 3,
+        _ => 5,
+    };
+}

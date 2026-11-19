@@ -95,8 +95,6 @@ internal static class DeepwaterEncounters
     static readonly string[] Crabs = [Monsters_ + "CoconutCrabEncounter", Monsters_ + "NimbleCrabEncounter", Monsters_ + "QuillCrabEncounter"];
     static readonly string[] Brinerots = [Monsters_ + "BrinerotSpearmanEncounter", Monsters_ + "BrinerotJavelineerEncounter", Monsters_ + "BrinerotSwordsmanEncounter"];
 
-    // The Charts an encounter chest drops (BaseItemTypes 5413-5415; ChartThermalVents 5416 never shipped).
-    static readonly string[] Charts = ["Metadata/Items/Deepwater/ChartSandy", "Metadata/Items/Deepwater/ChartCoralForest", "Metadata/Items/Deepwater/ChartCoralReef"];
     // The regular Ducats (BaseItemTypes 5418, 5419, 5438-5446; not 5420 "[DNT] UNUSED"): a Brinerot guard's drop.
     static readonly string[] Ducats =
     [
@@ -530,44 +528,25 @@ internal static class DeepwaterEncounters
         await DeepwaterBuffs.Grant(module, conn, e.Kind);
     }
 
-    /// <summary>One Chart (uniform over the three biomes; normal, item level and area level = this area's level, a room of
-    /// its biome: G until chart mods exist) and the Chests row's <c>__col2</c> ordinary items (G: read as the item count; Coral 5, Cursed 3,
+    /// <summary>One Chart (uniform over the three biomes, G; its level, rarity, affixes and room are DeepwaterCharts') at this
+    /// area's level) and the Chests row's <c>__col2</c> ordinary items (G: read as the item count; Coral 5, Cursed 3,
     /// Brinerot 2). No Sulphur and no Cursed Ducats: their sources are Charts and Voyages.</summary>
     static List<ItemDrops.Drop> Loot(ClientState conn, Encounter e)
     {
         var catalog = ItemsFor(conn);
         int level = AreaLevel(conn);
         var drops = new List<ItemDrops.Drop>();
-        var charts = Charts.Select(catalog.Find).OfType<ItemCatalog.BaseType>().Where(t => t.Supported).ToArray();
+        var charts = DeepwaterCharts.Bases.Select(catalog.Find).OfType<ItemCatalog.BaseType>().Where(t => t.Supported).ToArray();
         if (charts.Length > 0)
         {
             var chart = charts[Random.Shared.Next(charts.Length)];
-            drops.Add(new(ItemCatalog.Create(chart) with { ItemLevel = (byte)level, Chart = new ChartData((byte)level, 0, Room(chart.Row)) }, chart));
+            drops.Add(new(DeepwaterCharts.Create(conn, chart, level, null, Random.Shared), chart));
         }
         int count = ChestItems.Value.GetValueOrDefault(e.Type);
         if (count > 0 && Environment.GetEnvironmentVariable("Game_DROPS") != "0")
             drops.AddRange(DropsFor(conn).Container(level, count, 0, Random.Shared));
         return drops;
     }
-
-    /// <summary>A room for a new Chart of this base: uniform over its biome's DeepwaterRooms (DeepwaterCharts.Biome), except
-    /// the Voyage-only Kishara's Rest and its arena (G: the wiki says only that dead ends and straights became rarer in
-    /// 3.29.0b). The client crashes drawing a Chart whose room byte names no row (L 2026-11-19), so row 0 is the fallback.
-    /// The chart's first byte is its Area Level (L: the tooltip and the icon's "L" show it); the second is still unknown.</summary>
-    static byte Room(int baseRow) =>
-        ChartRooms.Value.TryGetValue(baseRow, out var rooms) && rooms.Length > 0 ? rooms[Random.Shared.Next(rooms.Length)] : (byte)0;
-
-    static readonly Lazy<Dictionary<int, byte[]>> ChartRooms = new(() =>
-    {
-        var rooms = ClientTables.TableOrEmpty("DeepwaterRooms");
-        var result = new Dictionary<int, byte[]>();
-        foreach (var c in ClientTables.TableOrEmpty("DeepwaterCharts"))
-            if (c.IntOrNull("BaseItemType") is { } item && c.IntOrNull("Biome") is { } biome)
-                result[item] = [.. rooms.Where(r => r.Index < 0xff && r.IntOrNull("Biome") == biome && r.IsNull("__col14")
-                    && r.BoolOrNull("__col17") != true && r.Text("Name") is { } name && !name.StartsWith("[DNT]", StringComparison.Ordinal))
-                    .Select(r => (byte)r.Index)];
-        return result;
-    });
 
     // ---- drops ----
 
