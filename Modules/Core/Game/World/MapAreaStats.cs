@@ -63,6 +63,8 @@ public static partial class Game
     public static IReadOnlyDictionary<uint, int>? MapAreaStats(AreaStatsRequest request)
     {
         if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1);
+        // Not an Atlas map: the mods' own stats, without the atlas, the tier block, its hidden life or the preset.
+        if (!map.Atlas) return ComposeMapAreaStats(map.Mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1);
         // The atlas: the active preset's nodes (HardMode vectors in a HardMode league), composed by the tree's rules.
         var presets = CharacterSaves.Load(map.Owner)?.AtlasPassivePresets ?? [];
         int preset = AtlasActivePreset(map.Owner, presets);
