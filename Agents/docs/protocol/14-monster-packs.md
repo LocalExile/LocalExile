@@ -424,3 +424,8 @@ The first byte is stored at component +0xf0; the essence references occupy +0xc8
 The object's four Transitionable states start at 1 and release at 4; its interaction distance override is 20.
 Its `targetable` shared state is inverted: 0 enables targeting, 1 disables it.
 Transition 4 removes collision and hides its marker; use component indices 4 and 6 for transition and shared-state updates.
+Essence-list changes recreate the same object id; the verified `0x74` currency target is also used for monoliths.
+Vaal Orbs replaced Remnants in 3.27; the legacy `CurrencyCorruptMonolith` table row is not a current gameplay input.
+The historical `deal_chaos_damage_per_second_for_10_seconds_on_hit` id has an **8-second** duration in the pinned
+client's `stat_descriptions` block. Its Decay icon is BuffDefinitions row 766 (`IsRecovery=false`, `__col44=false`):
+no inline values or `u82`, despite its granted per-minute chaos-damage stat.

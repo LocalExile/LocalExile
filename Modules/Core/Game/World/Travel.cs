@@ -168,7 +168,8 @@ public static partial class Game
                 await GameEvents.RunLocalGateUsed(conn);
             return;
         }
-        if (use.Ctrl)
+        bool labyrinthEntry = conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance;
+        if (use.Ctrl && !labyrinthEntry)
         {
             await ShowInstances(remote, stream, ciphers, conn, dest, atWaypoint: false,
                 arrivalEntrance: AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance));
@@ -176,8 +177,10 @@ public static partial class Game
         }
         // A Labyrinth run's ways (the plaza's way in, its rooms' exits): each room its own instance (LabyrinthDay.Transfer).
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
-            AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false)
-            { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance) };
+            AreaTransitionCatalog.IdOf(dest), transition.Entrance, conn.LabyrinthEntry);
+        if (labyrinthEntry && transfer is null) return;
+        transfer ??= new PendingTransfer(dest, 0, false)
+        { ArrivalEntrance = AreaTransitionCatalog.PairedEntrance(conn.Layout.Hash, dest, transition.Entrance) };
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
     }
 
@@ -521,7 +524,7 @@ public static partial class Game
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn)
         {
-            AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+            AreaLayouts.CameFrom[r.Ticket] = KitavaActTen.ArrivalSource(conn.Layout.Id, t.Area) ?? conn.Layout.Hash;
             if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
         }
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
