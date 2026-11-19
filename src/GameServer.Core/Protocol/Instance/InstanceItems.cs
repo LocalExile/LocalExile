@@ -117,8 +117,8 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public bool Vestigial { get; init; }
     public HeistBlueprintState? HeistBlueprint { get; init; }
 
-    /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31,
-    /// u8 a DeepwaterRooms row (+0x20). The client crashes drawing a chart whose row is out of range (0xff), so null
+    /// <summary>The DeepwaterChart component (slot 5 0x1424bbe90): u8 +0x30 the Area Level its tooltip shows, u8 +0x31
+    /// the rotation, u8 a DeepwaterRooms row (+0x20). The client crashes drawing a chart whose row is out of range (0xff), so null
     /// writes 00 00 00 (row 0).</summary>
     public ChartData? Chart { get; init; }
 
@@ -250,7 +250,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     break;
                 case "DeepwaterChart":
                     var chart = Chart ?? new ChartData(0, 0, 0);
-                    w.U8(chart.AreaLevel).U8(chart.B).U8(chart.Room);
+                    w.U8(chart.AreaLevel).U8(chart.Rotation).U8(chart.Room);
                     break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
@@ -678,5 +678,7 @@ public static class InstanceItems
     }
 }
 
-/// <summary>The DeepwaterChart component's three bytes: the Area Level (+0x30), one unnamed (+0x31) and the DeepwaterRooms row.</summary>
-public readonly record struct ChartData(byte AreaLevel, byte B, byte Room);
+/// <summary>The DeepwaterChart component's three bytes: the Area Level (+0x30), the rotation (+0x31) and the DeepwaterRooms
+/// row. Rotation: quarter turns applied to the room's connection mask as the DeepwaterPlugin cell orientation
+/// (0x141fbeda0); not copied by the client's component copy.</summary>
+public readonly record struct ChartData(byte AreaLevel, byte Rotation, byte Room);
