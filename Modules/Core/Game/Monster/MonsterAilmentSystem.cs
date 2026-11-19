@@ -9,14 +9,14 @@ public static partial class Game
     public static void StartMonsterAilments(GameArea area, Player conn, object source)
     {
         var frames = conn.Frames;
-        var monsters = conn.Monsters;
         area.Systems.Add("monster ailments", AreaPhase.Ai, a =>
         {
             if (!CurrentGameWork || frames.View is not { } view || view.Paused || view.Closed || !view.PlayerSent) return;
             List<(byte[] Packet, string Log)> changes;
-            lock (monsters)
-                using (ProjectileMutation(view, phase: "ailments"))
-                    changes = AreaAilmentChangesLocked(view, Math.Max(ProjectileWorldTime(view), a.Time));
+            // The mutation takes the experience gate, then the Monsters lock: taking Monsters first here deadlocked against a
+            // monster spawn holding the gate (live 2026-11-20, the Prison's held-back monsters revealed).
+            using (ProjectileMutation(view, phase: "ailments"))
+                changes = AreaAilmentChangesLocked(view, Math.Max(ProjectileWorldTime(view), a.Time));
             if (changes.Count == 0) return;
             foreach (var player in frames.Players())
             {
