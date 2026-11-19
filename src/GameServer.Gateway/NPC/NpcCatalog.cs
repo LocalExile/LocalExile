@@ -53,6 +53,9 @@ public sealed class NpcCatalog
         /// quest's next step: Tarkleigh's first "Dweller of the Deep" has a1q7-ReceivedQuest, the second a1q7-Congratulated).
         /// Of two rows with the same text, the one not heard yet is the quest's next.</summary>
         public IReadOnlyList<string> HeardFlags { get; init; } = [];
+        /// <summary>NPCTalk column 15: league quest flags the row marks as heard. Later rows need them in column 16
+        /// (Kirac's "The Elderslayers" needs 998 from "Brother"; "Elder Reward" needs 994 from "The Elder").</summary>
+        public IReadOnlyList<int> HeardLeagueFlags { get; init; } = [];
         public string? StartFlag { get; init; }
         public string? FinishFlag { get; init; }
         public int? RewardOffer { get; init; }
@@ -356,6 +359,7 @@ public sealed class NpcCatalog
                     && r.BoolOrNull("__col14") == false
                     && r.BoolOrNull("__col20") == false,
                 RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
+                HeardLeagueFlags = [.. r.Ints("__col15").Where(i => i is > 0 and < 0x777)],
                 StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
                 RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
                 Script2 = r.TextOrNull("Script2") ?? "",
