@@ -2043,9 +2043,16 @@ public static partial class Game
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
     // active_skill_base_area_of_effect_radius, else Cyclone's 16 or the generic 12, grown by the player's area stats
     // (SkillArea). The radius stat is in cells (Righteous Fire's 18 is its 1.8 m, verified against the real game 2026-10-23).
-    public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
+    public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect) =>
+        SkillRadius(conn, skillStats, spell, effect, repeat: 0);
+
+    static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect, int repeat)
     {
         var areaStats = SkillAreaStats(conn, skillStats, effect);
+        // Greater Spell Echo adds to increased area before the area-to-radius conversion.
+        if (spell && repeat > 0 && Stats.Key(SkillArea.IncreasedPerRepeat) is uint echo
+            && skillStats.TryGetValue(echo, out int increase) && Stats.Key(SkillArea.BaseIncreased) is uint area)
+            areaStats[area] = areaStats.GetValueOrDefault(area) + repeat * increase;
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
         return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
     }
@@ -2187,11 +2194,7 @@ public static partial class Game
             : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId, hand), out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
-        // Greater Spell Echo: each repeat of the spell has more increased area than the one before.
-        var areaStats = skillStats;
-        if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0 && Stats.Key(SkillArea.BaseIncreased) is uint baseKey)
-            areaStats = new Dictionary<uint, int>(skillStats) { [baseKey] = skillStats.GetValueOrDefault(baseKey) + perRepeat * repeat };
-        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, areaStats, spell, gem.Effect)) * radiusMore);
+        int radius = (int)Math.Round((radiusOverride ?? SkillRadius(conn, skillStats, spell, gem.Effect, repeat)) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so

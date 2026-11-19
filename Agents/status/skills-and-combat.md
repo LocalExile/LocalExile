@@ -231,7 +231,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Dark Bargain (player and chained skeleton explosions; skeleton chains have server-side coverage). Docs: [11](../docs/protocol/11-skills.md) §9a.
 
 ## Not working yet
 

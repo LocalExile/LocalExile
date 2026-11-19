@@ -1492,8 +1492,8 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   `SpellRepeats` sends the count with the skill and the server repeats its releases (`ScheduleGemProjectile`) and
   area hits (`LaunchProjectile`) a cast time apart, with the use's one cost and critical roll; a new action cancels the
   rest. The ordinary Ice Nova replay uses the same timing; see “Ice Nova's ring” above.
-  Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
-  at a moving target.
+  Greater Spell Echo scales spell hits and area with the repeat index. Awakened Spell Echo's double-damage chance
+  applies on the final repeat. Whether a repeat re-aims at a moving target remains open.
   Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
   cast's early window and the last repeat's late window ([07](07-latency-visibility-movement.md) §6).
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
@@ -1912,8 +1912,8 @@ list faulted (`0xc0000005` at offset `0x17b6067`). Three entries (first form, no
 
 **Dark Bargain**: at the cast's contact it explodes at the player's skeleton nearest the aim (else the player), paying
 12% of its maximum life (never the last point) as added base chaos damage, then chains to the nearest unused skeletons;
-with none in reach the player pays 12% of maximum life for 56% more damage. Radius 26, the default art scaled to it;
-the seek and chain ranges are estimates.
+with none in reach the player pays 12% of maximum life for 56% more damage. Each explosion uses its cast's repeat
+index. The default art scales to the effective blast radius (base 26). The seek and chain ranges are estimates.
 
 ## 10. Projectiles (experimental)
 
