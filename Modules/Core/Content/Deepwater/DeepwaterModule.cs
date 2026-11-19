@@ -41,6 +41,8 @@ public sealed partial class DeepwaterModule : IModule
     // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
     // a null check).
     static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules"));
+    // Row 172's C→S 0x2ca op TakeAllLoot (0x140425340, M: the name from ClientDeepwaterHub's RTTI lambdas).
+    const byte TakeAllLoot = 9;
     // DeepwaterRules (ClientDeepwater, DeepwaterRuleset.Row): its per-frame update (0x1416851b0) looks the DeepwaterPlugin
     // terrain plugin up (0x141685030) without a null check, so it goes only to the areas whose WorldAreas TerrainPlugin is
     // that plugin: the client creates it there at every generation (0x141eca930). On The Sovereign and The Twilight Strand
@@ -80,14 +82,19 @@ public sealed partial class DeepwaterModule : IModule
         InstanceEvents.AreaStats.Add(id, _ => Stats.Key("map_deepwater_league") is uint key ? new Dictionary<uint, int> { [key] = 1 } : null);
         // An encounter area's grid (0x1d extra data), chosen once per instance.
         InstanceEvents.TerrainPluginStates.Add(id, request => DeepwaterGrid.For(request.Area));
-        // The hub's ruleset on the hub, the encounter's in an encounter area, before the area's objects.
+        // The hub's ruleset on the hub; in an encounter area the encounter's and the hub's, before the area's objects. The
+        // deck's Loot window (0x7b kind 0x6f) builds its grid over inventory 114 only when row 172 is in the area
+        // (0x1404244b0 returns early without it), and ClientDeepwaterHub has no per-frame code (03 §8).
         GameEvents.EnterMessages.Add(id, conn =>
         {
             string area = PlayerOf(conn).AreaId;
-            if (area == HubId && HubRules.Value is { } hub) return [($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub))];
-            if (DeepwaterGrid.IsEncounter(area) && DeepwaterRuleset.Row.Value is { } rules)
-                return [($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules))];
-            return [];
+            var hub = HubRules.Value is { } h ? ($"0x001f ruleset DeepwaterHubRules (row {h})", InstanceProtocol.AddRuleset(h)) : default((string, byte[])?);
+            if (area == HubId) return hub is { } only ? [only] : [];
+            if (!DeepwaterGrid.IsEncounter(area)) return [];
+            var messages = new List<(string, byte[])>();
+            if (DeepwaterRuleset.Row.Value is { } rules) messages.Add(($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules)));
+            if (hub is { } deck) messages.Add(deck);
+            return messages;
         });
         // C→S 0x183: the World panel's Deepwater pin (enabled by the league category, disabled on The Sovereign itself).
         GameEvents.Packet(InstanceWaypoints.VisitDeepwaterHubId).Add(id, async (conn, bytes) =>
@@ -117,8 +124,24 @@ public sealed partial class DeepwaterModule : IModule
             string area = PlayerOf(conn).AreaId;
             if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, conn);
         });
-        // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons).
-        GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
+        // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons) and the hub ruleset's Take All
+        // in the Loot window (op 9, no arguments).
+        GameEvents.Packet(InstanceRulesets.ActionId).Add(id, async (conn, bytes) =>
+        {
+            if (HubRules.Value is { } hub && bytes.Length >= 5 && bytes[2] == hub && bytes[3] == 1 && bytes[4] == TakeAllLoot)
+            {
+                await DeepwaterExtraction.TakeFromCollection(module, conn, null);
+                return true;
+            }
+            return await RulesetAction(module, conn, bytes);
+        });
+        // C→S 0x0113: Ctrl + click an item out of the Loot window (inventory 114).
+        GameEvents.Packet(InstanceItems.CollectionTakeId).Add(id, async (conn, bytes) =>
+        {
+            if (bytes.Length < InstanceItems.CollectionTakeLength) return false;
+            await DeepwaterExtraction.TakeFromCollection(module, conn, InstanceItems.ReadCollectionTake(bytes));
+            return true;
+        });
         GameEvents.Tick.Add(id, async (conn, _) =>
         {
             await DeepwaterBuffs.Tick(module, conn);
@@ -153,7 +176,7 @@ public sealed partial class DeepwaterModule : IModule
         // Inventory 113 takes only Dredge items, through an open capsule window; a Dredge item goes nowhere else but the
         // main and expanded inventories (the client's own gate).
         GameEvents.InventoryRefusal.Add(id, (conn, row, item) => row == DeepwaterExtraction.CapsuleRow
-            ? DeepwaterExtraction.CapsuleRefusal(conn, RunOf(conn), row, item) : DeepwaterExtraction.DredgeRefusal(row, item));
+            ? DeepwaterExtraction.CapsuleRefusal(conn, RunOf(conn), row, item) : DeepwaterExtraction.DredgeRefusal(conn, row, item));
         // C→S 0x0112: Ctrl + click into or out of an open capsule.
         GameEvents.Packet(InstanceItems.ExtractionMoveId).Add(id, async (conn, bytes) =>
         {

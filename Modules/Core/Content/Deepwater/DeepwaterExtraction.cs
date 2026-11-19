@@ -44,8 +44,8 @@ internal static class DeepwaterExtraction
         };
     }
 
-    /// <summary>The capsule window's owner (ClientState.ModuleWindow).</summary>
-    public const string CapsuleWindow = "deepwater-capsule";
+    /// <summary>The capsule and Loot (collection) windows' owners (ClientState.ModuleWindow).</summary>
+    public const string CapsuleWindow = "deepwater-capsule", CollectionWindow = "deepwater-collection";
     /// <summary>Inventories rows 113 (DeepwaterExtractionInventory1, the capsule's 12×5) and 114
     /// (DeepwaterCollectionInventory1, the deck's 12×40; 05-inventories-and-ui.md).</summary>
     public const byte CapsuleRow = 113, CollectionRow = 114;
@@ -199,7 +199,7 @@ internal static class DeepwaterExtraction
         {
             if (DeckChestAt(conn) is { } chest && await world.WalkUpTo(chest.X, chest.Y, (Info(CollectionChest)?.Size ?? 1) + 2, requestedAt))
             {
-                conn.ModuleWindow = null;
+                conn.ModuleWindow = CollectionWindow;
                 await player.Send(InstanceWaypoints.OpenUi(CollectionUi, run.DeckChest), $"0x007b open CollectionInventory (kind 0x{CollectionUi:x2}, inventory 114) at the CollectionChest 0x{run.DeckChest:x} (G)");
             }
             return true;
@@ -271,8 +271,9 @@ internal static class DeepwaterExtraction
     /// <summary>Why a Dredge item may not go into this row: the client keeps a contraband item out of every inventory but
     /// the main and expanded ones (InventoryIdKey 0) and the capsule's (0x41) (0x141d65f80); the server mirrors it (G: the
     /// exact rows, by Inventories row).</summary>
-    public static string? DredgeRefusal(byte row, Item item) =>
-        row is PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or CapsuleRow || !DeepwaterDredge.Dredged(item)
+    public static string? DredgeRefusal(ClientState conn, byte row, Item item) =>
+        row is PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or CapsuleRow
+            || !DeepwaterDredge.Dredged(item)
             ? null : "a Dredge item goes only into the main inventory or a capsule";
 
     /// <summary>C→S 0x0112, Ctrl + click with the capsule window open: an item from the main (or expanded) inventory into
@@ -291,25 +292,61 @@ internal static class DeepwaterExtraction
         else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
         else if (OpenCapsuleOf(conn, run) is null || conn.ModuleWindow != CapsuleWindow) why = "no capsule window is open";
         else if (move.Into && !(DeepwaterDredge.Dredged(it.Item) && DeepwaterDredge.Ids(conn).Contains(it.Id))) why = "only Dredge items go into a capsule";
-        var shape = it is null ? default : ShapeOf(it.Item) ?? new(1, 1, "");
-        (byte X, byte Y)? cell = why is null ? items.FreeCell(to, shape.Width, shape.Height, ShapeOf) : null;
-        if (why is null && cell is null) why = $"no room in row {to}";
+        if (why is null && await Move(conn, it!, from, to) is { } placed)
+            module.Log($"{player.Character} <= {what}: row {from} → row {to} at ({placed.X}, {placed.Y})");
+        else
+            module.Log($"{player.Character} <= {what}: refused ({why ?? $"no room in row {to}, or it moved"})");
+    }
+
+    /// <summary>Moves an item to the first free cell of <paramref name="to"/> and sends the two 0xbf (remove, add); null
+    /// when it does not fit or is no longer in <paramref name="from"/>.</summary>
+    static async Task<InventoryItem?> Move(ClientState conn, InventoryItem it, byte from, byte to)
+    {
+        var items = ItemsOf(conn);
+        var shape = ShapeOf(it.Item) ?? new(1, 1, "");
+        if (items.FreeCell(to, shape.Width, shape.Height, ShapeOf) is not { } cell) return null;
         InventoryItem? placed = null;
-        if (why is null)
-            Saves.Atomically(() =>
-            {
-                if (items.Remove(from, it!.Id) is { } taken) placed = items.Put(to, taken with { X = cell!.Value.X, Y = cell.Value.Y });
-            });
-        if (placed is null)
+        Saves.Atomically(() =>
         {
-            module.Log($"{player.Character} <= {what}: refused ({why ?? "it moved"})");
-            return;
-        }
-        module.Log($"{player.Character} <= {what}: row {from} → row {to} at ({placed.X}, {placed.Y})");
+            if (items.Remove(from, it.Id) is { } taken) placed = items.Put(to, taken with { X = cell.X, Y = cell.Y });
+        });
+        if (placed is null) return null;
+        var player = PlayerOf(conn);
         await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [placed.Id], []),
             $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {placed.Id}");
         await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [placed]),
             $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {placed.Id} at ({placed.X}, {placed.Y})");
+        return placed;
+    }
+
+    // ---- the collection (114) ----
+
+    /// <summary>C→S 0x0113 (Ctrl + click in the Loot window) takes one item, ruleset 172 op 9 (Take All) every item that
+    /// fits, out of the collection into the main inventory, the client waiting for the 0xbf pairs as for 0x0112. Then the
+    /// CollectionChest's flag 3547 and model follow the count (G: the real server's order and a full inventory's answer
+    /// are unknown; what does not fit stays).</summary>
+    public static async Task TakeFromCollection(IModuleContext module, ClientState conn, uint? itemId)
+    {
+        var player = PlayerOf(conn);
+        var items = ItemsOf(conn);
+        string what = itemId is { } one ? $"0x0113 Ctrl + click item {one} out of the collection" : "ruleset DeepwaterHubRules TakeAllLoot";
+        if (conn.ModuleWindow != CollectionWindow)
+        {
+            module.Log($"{player.Character} <= {what}: refused (no Loot window is open)");
+            return;
+        }
+        var wanted = items.Items(CollectionRow).Where(i => itemId is null || i.Id == itemId).ToList();
+        int taken = 0;
+        foreach (var it in wanted)
+            if (await Move(conn, it, CollectionRow, PlayerInventories.MainInventory) is not null) taken++;
+        module.Log($"{player.Character} <= {what}: {taken} of {wanted.Count} taken to the main inventory");
+        if (taken == 0) return;
+        if (items.Items(CollectionRow).Count == 0)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SetQuestFlags(remote, stream, ciphers, conn, [DeepwaterConstants.StoredItems], on: false);
+        }
+        await SendCount(conn);
     }
 
     // ---- the capsule's buttons ----
