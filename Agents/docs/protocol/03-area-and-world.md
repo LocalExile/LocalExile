@@ -171,7 +171,7 @@ Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/Deep
 
 | C→S 0x2ca op | payload | sent by |
 |---|---|---|
-| 0 PlaceLantern | i32 x, i32 y (grid cell) | a click in placement mode (league action 55), on the previewed spot |
+| 0 PlaceLantern | i32 x, i32 y: the cursor cell, not the snapped spot | releasing the held key (V, league action 55, `0x140d5b970`) or a left click in mode 2 (`0x14011bd20`), when the last preview was valid |
 | 2 SendItemsToSurface | – | the capsule window's "Send to Surface" (`0x140427bf0`), which then closes the window |
 | 3 RequestExtraction | – | the capsule window's "Call Bathysphere" (`0x140427c50`) and the HUD's leave button (`0x14044c280`) |
 
@@ -186,9 +186,12 @@ Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/Deep
 | 6 | – | Valerie's ChartFail line |
 | 7 | – | closes the capsule window |
 
-The preview (`0x141683660`, each frame) snaps the cursor with `0x141fc5800`: a spot exactly BaseLanternPlacementRange
-(115) from a mode-0 anchor, no anchor within 110, under 100 cells from the player, walkable (else the nearest walkable
-cell within 9) and with a clear path. Without an anchor nothing can be placed. The module checks the same, ±10 cells.
+The preview (`0x141683660`, each frame while the key is held) snaps the cursor with `0x141fc5800`: for each mode-0
+anchor (lit or not; none is ever removed) the spot exactly BaseLanternPlacementRange (115) from it towards the cursor
+(float32, rounded), kept if under 60 cells from the cursor, under 100 from the player, not behind the player when 30 or
+more away, and over 110 from every anchor; the nearest to the cursor wins and no other is tried. It must be walkable
+(layer 0 ≥ 4, else the first walkable cell on rings 1..9, rows outer) with a clear layer-1 line from the player.
+Without an anchor nothing can be placed. The module runs the same snap on the cursor cell.
 
 S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
 client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and

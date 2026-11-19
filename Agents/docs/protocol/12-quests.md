@@ -194,8 +194,9 @@ each object once, where the client has it.
     `10 + (BaseLanternRadius − 10) · clamp01(a) · (0.6 + 0.4 · clamp01(b))` grid cells (110 at a = b = 1, 70 at b = 0),
     tested `dx² + dy² ≤ r²` against the entity's grid position (`0x141684a00`). The server keeps the same floats, so its
     light test follows the client's circle without per-frame messages.
-  - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `f32, f32` on a descending `ExtractionObject`
-    (`landed` 0); it plays the descent timed by the first float. The Gateway sends (seconds left, 0) (a guess).
+  - `DeepwaterBathysphereDrop` (row 155, 0x2387, ctor `0x141640fd0`): `u32 stages, u32 stage` on a descending
+    `ExtractionObject` (`landed` 0); the height is (1 − stage/(stages − 1)) · 1500, and stage ≥ stages plays `land_01`
+    and ends the task (`0x141641310`).
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'

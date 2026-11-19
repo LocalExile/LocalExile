@@ -84,8 +84,9 @@ throws (the out-of-range builder is `0x140e272d0`, the exception type `0x143a5c5
 
 A base-data entity variable is raw u32 name hash, u8 flags (0), u8 value count (1), u8 type (1), raw u32 entity id.
 `0x141dfe5a0` resolves type 1 through the instance entity table and defers an unresolved forward reference.
-Type 9 is an i32 and type 8 an f32 (number reader `0x141806520`), in the same 11-byte shape; GEAL reads them as
-`this.<name>` (an object script's `this.RandomNumber` is `0xe70679eb`).
+Type 9 is an i32 and type 8 an f32 (number reader `0x141806520`), in the same 11-byte shape; 10 is a bool (1 byte), 7 and
+0xb are strings, others are ignored. GEAL reads them as `this.<name>` (an object script's `this.RandomNumber` is
+`0xe70679eb`); an unset one gives GEAL "Expression passed to function gave an empty result".
 The variable-name hash is `0x1406db8f0`, Murmur2 of UTF-16LE with seed 0; `next` is `0x61f4555e`.
 This is distinct from the narrowed-byte metadata type hash.
 
