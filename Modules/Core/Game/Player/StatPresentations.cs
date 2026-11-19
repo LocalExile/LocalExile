@@ -10,13 +10,17 @@ public static partial class Game
     [
         SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
-        SendIncomingAilmentChanges,
+        SendIncomingAilmentChanges, SendLeechBuffs,
     ];
 
     sealed class Presenting
     {
         public volatile bool Pending;
         public Task Running = Task.CompletedTask;
+        // When a presentation's state next changes on its own (PresentIn), on the connection's clock.
+        public double NextAt = double.PositiveInfinity;
+        // The presentations ran once (the verifier compares only after the first stat update showed them).
+        public volatile bool Ran;
         public (bool Ignite, int Chill, bool Freeze, int Shock) Ailments;
     }
 
@@ -71,13 +75,29 @@ public static partial class Game
     /// <summary>What a stat presentation shows changed: they run after the next Stats phase.</summary>
     static void PresentStats(ClientState conn) => PresentingOf.GetOrCreateValue(conn).Pending = true;
 
+    /// <summary>A presentation's state changes on its own in <paramref name="seconds"/> (an expiry): they run again then.</summary>
+    static void PresentIn(ClientState conn, double seconds)
+    {
+        if (PresentVerifyTag.Value is not null) return;
+        var presenting = PresentingOf.GetOrCreateValue(conn);
+        double at = conn.Clock.Elapsed.TotalSeconds + Math.Max(0, seconds);
+        lock (presenting) if (at < presenting.NextAt) presenting.NextAt = at;
+    }
+
     // The Stats phase, after the player's step.
     static void RunStatPresentations(ClientState conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
+        lock (presenting)
+            if (conn.Clock.Elapsed.TotalSeconds >= presenting.NextAt)
+            {
+                presenting.NextAt = double.PositiveInfinity;
+                presenting.Pending = true;
+            }
         if (!presenting.Pending || !presenting.Running.IsCompleted
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates) return;
         presenting.Pending = false;
+        presenting.Ran = true;
         var (remote, stream, ciphers) = conn.Wire;
         presenting.Running = AsPlayer(conn, updates, () => SendPlayerTickBatch(remote, stream, ciphers, conn, async () =>
         {
@@ -96,7 +116,7 @@ public static partial class Game
 
     static async Task VerifyStatPresentations(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        if (!VerifyPresentations) return;
+        if (!VerifyPresentations || !PresentingOf.GetOrCreateValue(conn).Ran) return;
         foreach (var send in StatPresentations)
         {
             PresentVerifyTag.Value = send.Method.Name;

@@ -21,9 +21,26 @@ public sealed class LeechSession
 
     /// <summary>Leeching of a resource started or stopped (the stats that read it follow).</summary>
     public Action? Changed;
+    /// <summary>An instance was granted or removed, or the rates were configured (the orbs' leech buffs follow).</summary>
+    public Action? DisplayChanged;
 
-    // Reports a start or stop against the state before a change.
-    void Report(double now, (bool, bool, bool) before) { if (Active(now) != before) Changed?.Invoke(); }
+    int Count => Life.Count + Mana.Count + EnergyShield.Count;
+
+    // Reports a start or stop, and a granted or removed instance, against the state before a change.
+    void Report(double now, (bool, bool, bool) before, int count)
+    {
+        if (Active(now) != before) Changed?.Invoke();
+        if (Count != count) DisplayChanged?.Invoke();
+    }
+
+    /// <summary>When the next instance ends; null without one.</summary>
+    public double? NextExpiry(double now)
+    {
+        double next = double.PositiveInfinity;
+        foreach (var state in new[] { Life, Mana, EnergyShield })
+            if (state.NextExpiry(now) is double expires) next = Math.Min(next, expires);
+        return double.IsFinite(next) ? next : null;
+    }
 
     /// <summary>When the leech of a resource next stops on its own; null while none leeches.</summary>
     public double? NextChangeAt(double now)
@@ -37,8 +54,10 @@ public sealed class LeechSession
     public void Configure(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws = 0)
     {
         var before = Active(now);
+        int count = Count;
         ConfigureCore(now, value, get, equippedClaws);
-        Report(now, before);
+        Report(now, before, count);
+        DisplayChanged?.Invoke();
     }
 
     void ConfigureCore(double now, LeechLimits.Snapshot value, Func<string, int> get, int equippedClaws)
@@ -81,8 +100,9 @@ public sealed class LeechSession
         bool attack = false)
     {
         var before = Active(now);
+        int count = Count;
         var instant = HitCore(now, amounts, lifeFull, manaFull, shieldFull, attack);
-        Report(now, before);
+        Report(now, before, count);
         return instant;
     }
 
@@ -112,8 +132,9 @@ public sealed class LeechSession
     public void ClearFull(double now, bool life, bool mana, bool shield)
     {
         var before = Active(now);
+        int count = Count;
         ClearFullCore(now, life, mana, shield);
-        Report(now, before);
+        Report(now, before, count);
     }
 
     void ClearFullCore(double now, bool life, bool mana, bool shield)
@@ -145,8 +166,9 @@ public sealed class LeechSession
     public void Clear(double now)
     {
         var before = Active(now);
+        int count = Count;
         Life.Clear(now); Mana.Clear(now); EnergyShield.Clear(now);
-        Report(now, before);
+        Report(now, before, count);
         LifeInstantCarry = ManaInstantCarry = 0;
         InstantLifeChanged = InstantManaChanged = false;
     }

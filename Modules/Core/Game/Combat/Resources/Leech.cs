@@ -174,8 +174,15 @@ public static partial class Game
         }
     }
 
-    public static Task SendLeechBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+    // A stat presentation: on a granted or removed instance (DisplayChanged), and when the next one ends.
+    public static Task SendLeechBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        lock (conn.Monsters)
+        {
+            double now = ProjectileWorldTime(conn);
+            if (LeechOf(conn).NextExpiry(now) is double expires) PresentIn(conn, expires - now);
+        }
+        return Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -184,4 +191,5 @@ public static partial class Game
                 return LeechBuffPresentation(conn);
             }
         });
+    }
 }
