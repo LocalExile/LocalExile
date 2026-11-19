@@ -485,12 +485,12 @@ public sealed class MonsterElementalAilments
 
     // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
     // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
-    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    // Voltaxic Rift). Shock Nova adds its gem's flat maximum to the cap.
     static int ChillCap(Func<string, int> attacker) =>
         attacker("elementalist_chill_maximum_magnitude_override") is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<string, int> attacker) =>
-        50 + (attacker("unique_voltaxic_rift_shock_maximum_magnitude_override") != 0 ? 40 : 0);
+        50 + attacker("shock_maximum_magnitude_+") + (attacker("unique_voltaxic_rift_shock_maximum_magnitude_override") != 0 ? 40 : 0);
 
     static double EffectModifier(Kind kind, Func<string, int> attacker, Func<string, int> target) =>
         EffectModifier(attacker($"virtual_{Name(kind)}_effect_+%"),

@@ -87,6 +87,8 @@ public class InflictedAilmentTests
         Assert.Equal(30, Magnitude(Chill, Taken(cold: 100), With()));
         Assert.Equal(40, Magnitude(Chill, Taken(cold: 100), With(("elementalist_chill_maximum_magnitude_override", 40))));
         Assert.Equal(50, Magnitude(Shock, Taken(lightning: 300), With()));   // floor(50 × 3^0.4) is 77
+        Assert.Equal(60, Magnitude(Shock, Taken(lightning: 300), With(("shock_maximum_magnitude_+", 10))));
+        Assert.Equal(70, Magnitude(Shock, Taken(lightning: 300), With(("shock_maximum_magnitude_+", 20))));
         Assert.Equal(77, Magnitude(Shock, Taken(lightning: 300),
             With(("unique_voltaxic_rift_shock_maximum_magnitude_override", 100))));
 

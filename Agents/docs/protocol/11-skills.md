@@ -1743,6 +1743,9 @@ Frostbolts around the aim first. Without a bolt, the Ice Nova and Vortex actions
 on the owner. An eligible actor at that id supplies its current cell. Otherwise the caster or cursor centre stands.
 Runegraft of the Novamark grants `nova_spells_cast_at_marked_target`. Its calculator (0x14289d270) requires that
 stat, `casting_spell` and `skill_is_nova_skill` to set 0x5361.
+For ordinary Shock Nova, NewShockNova (0x141d20bd0) reads cursor targeting before the mark on each hit.
+At contact its ring spans 14–26 cells. A child action (0x141d176e0) selects again 100 ms later for a 33-cell disc.
+The three radii use the skill's radius percentage. Both edges include the victim's positioned size (0x141d2542f).
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
 Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff

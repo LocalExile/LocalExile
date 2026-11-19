@@ -1693,14 +1693,19 @@ public static partial class Game
                         $"action {m.ActionGeneration}, recovery until {m.FlinchUntil:0.000}");
                     // Animation.dat row 5 selects TakeHit through this actor's native ACT. Keep clip selection and
                     // completion with Actor recovery instead of following it with a rig-only 0x1b2 override.
-                    var flinch = TakeHitPacket(conn, id, m, m.FlinchUntil, now);
-                    BroadcastMonsterMessage(conn, id, flinch);
-                    return flinch;
+                    return SharedTakeHitPacket(conn, id, m, m.FlinchUntil, now);
                 }
             });
             if (checkedAtGate) return;
             await AreaWait(PlayerUpdateRole.MonsterAction, 16);
         }
+    }
+
+    static byte[] SharedTakeHitPacket(ClientState conn, uint id, SpawnedMonster monster, double until, double now)
+    {
+        var packet = TakeHitPacket(conn, id, monster, until, now);
+        BroadcastMonsterMessage(conn, id, packet);
+        return packet;
     }
 
     // A monster's 0x1d1 TakeHit for the recovery from `now` until `until` (its FlinchUntil when that is still the hit's),

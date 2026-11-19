@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -39,6 +40,102 @@ public sealed class AreaSpellTimingTests
             CastAnimationKind.Area, 0, .65, false)!.Value.LateFrom, 6);
         Assert.Null(contacts.SpellMoveWindow("Metadata/None.ao", wand, CastAnimationKind.Projectile, 0, .65, false));
         await VortexDetonatesSelectedBolts();
+        await ShockNovaSamplesBothContacts();
+    }
+
+    static async Task ShockNovaSamplesBothContacts()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Shock Nova", "Assassin's Mark");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        battle.AdvanceBy(12);
+        conn.Clock.Start();
+        conn.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;
+        conn.PlayerStats[Program.Stats.Key("nova_spells_cast_at_marked_target")!.Value] = 1;
+        var nova = Game.GemSkillEffects(conn).Single(s => s.Name == "Shock Nova");
+        var mark = Game.GemSkillEffects(conn).Single(s => s.Name == "Assassin's Mark");
+        long release = ProjectileRuntime.Time(Game.CastMs(conn, nova.Effect, nova.Id)!.Value / 1000d
+            * Game.Animations.SpellAreaRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        long gap = ProjectileRuntime.QuantaPerSecond / 10;
+        SpawnedMonster At(int x) =>
+            conn.Monsters[(uint)x] = new("nova witness", new(x, 100, 0), 0, 0, 1100) { Hostile = true };
+        Task Cast() => Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, nova.Id,
+            (100, 100), (500, 100), conn.ActionInterruptionGeneration);
+
+        var marked = At(300);
+        lock (conn.Monsters)
+            Assert.True(Game.ApplyCurseLocked(conn, marked, mark.Id, Game.ProjectileWorldTime(conn), aura: false));
+        var hole = At(311);
+        var inner = At(312);
+        var outer = At(328);
+        var beyondRing = At(329);
+        var discEdge = At(335);
+        var beyondDisc = At(336);
+        long contact = session.Runtime.Now + release;
+        var cast = Cast();
+        session.AdvanceTo(contact - 1);
+        Assert.All(conn.Monsters.Values, m => Assert.Equal(m.MaxLife, m.Life));
+        session.AdvanceTo(contact);
+        Assert.True(inner.Life < inner.MaxLife && outer.Life < outer.MaxLife);
+        Assert.True(inner.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, Game.ProjectileWorldTime(conn)) > 0);
+        Assert.All(new[] { marked, hole, beyondRing, discEdge, beyondDisc }, m => Assert.Equal(m.MaxLife, m.Life));
+        uint first = inner.Life;
+        session.AdvanceTo(contact + gap - 1);
+        Assert.Equal(first, inner.Life);
+        Assert.Equal(hole.MaxLife, hole.Life);
+        session.AdvanceTo(contact + gap);
+        await cast;
+        Assert.True(inner.Life < first);
+        Assert.All(new[] { marked, hole, beyondRing, discEdge }, m => Assert.True(m.Life < m.MaxLife));
+        Assert.Equal(0, hole.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, Game.ProjectileWorldTime(conn)));
+        Assert.Equal(beyondDisc.MaxLife, beyondDisc.Life);
+
+        // The disc samples the marked actor again. A target can leave its area or arrive after contact.
+        contact = session.Runtime.Now + release;
+        cast = Cast();
+        session.AdvanceTo(contact);
+        first = inner.Life;
+        marked.Walk.Teleport(500, 100, Game.ProjectileWorldTime(conn));
+        var arrival = At(535);
+        session.AdvanceTo(contact + gap);
+        await cast;
+        Assert.Equal(first, inner.Life);
+        Assert.True(arrival.Life < arrival.MaxLife);
+
+        // Cursor targeting wins over the mark. Quadruple area doubles each radius before adding the target's size.
+        marked.Walk.Teleport(300, 100, Game.ProjectileWorldTime(conn));
+        conn.PlayerStats[Program.Stats.Key("nova_spells_cast_at_target_location")!.Value] = 1;
+        conn.PlayerStats[Program.Stats.Key(SkillArea.BaseIncreased)!.Value] = 300;
+        uint scale = Program.Stats.Key("total_skill_area_of_effect_radius_+%_including_final")!.Value;
+        Assert.Contains((scale, 100), Game.PlayerSkills(conn).Single(s => s.Id == nova.Id).Stats!);
+        var enlargedRing = At(554);
+        var enlargedDisc = At(568);
+        var outside = At(569);
+        const uint shared = 0x08000055;
+        conn.Monsters[shared] = new("shared", new(510, 100, 0), 0, 0, 100000) { HitAnimations = [new(0, 1)] };
+        conn.Instance.World.MonsterOrigins[shared] = new(123, new(510, 100, 23, []), 0, 1, MonsterRarity.Normal);
+        conn.PlayerStats[Program.Stats.Key("always_stun_enemies_that_are_on_full_life")!.Value] = 1;
+        var observer = SpellTotemExecutionTests.Connection("Nova observer", conn.Instance);
+        var observed = new List<byte[]>();
+        observer.AwakeMonsters = [shared];
+        observer.Outbox = (bytes, _) => { observed.Add(bytes); return Task.CompletedTask; };
+        conn.Instance.PublishPlayer(new(observer.PeerId, 7, new("Observer", 1, 500, 100, 50, 40), 500, 100, 50, observer));
+        uint beforeMark = marked.Life;
+        contact = session.Runtime.Now + release;
+        cast = Cast();
+        session.AdvanceTo(contact);
+        Assert.True(enlargedRing.Life < enlargedRing.MaxLife);
+        Assert.Equal(enlargedDisc.MaxLife, enlargedDisc.Life);
+        session.AdvanceTo(contact + gap);
+        await cast;
+        await battle.FlushOutput();
+        Assert.True(enlargedDisc.Life < enlargedDisc.MaxLife);
+        Assert.Equal(outside.MaxLife, outside.Life);
+        Assert.Equal(beforeMark, marked.Life);
+        Assert.True(conn.Monsters[shared].FlinchUntil > Game.ProjectileWorldTime(conn));
+        var flinch = InstanceProtocol.ActorAnimation(shared, .35f, PlayerHitRecovery.TakeHitAnimation);
+        Assert.Single(observed, bytes => bytes.SequenceEqual(flinch));
     }
 
     static async Task VortexDetonatesSelectedBolts()

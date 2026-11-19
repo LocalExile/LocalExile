@@ -1822,6 +1822,9 @@ public static partial class Game
                 sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         string? nova = SkillsFor(conn).EffectId(gem.Effect);
+        if (nova == "ShockNova")
+            return CastShockNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
+                criticalRoll, sacrifice, spellRepeats, seals, reoccurrenceMore);
         if (nova is "IceNovaAltX" or "Vortex" or "VortexAltX")
             return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
                 criticalRoll, sacrifice, supported, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");
@@ -2118,11 +2121,11 @@ public static partial class Game
         double radiusMore = 1, SacrificeUse? sacrifice = null, double? swingAt = null, Func<bool>? triggeredCurrent = null,
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0,
-        HolySweepHammers.Settings? hammer = null, bool finalSpellRepeat = false, double? novaStartedAt = null) =>
+        HolySweepHammers.Settings? hammer = null, bool finalSpellRepeat = false, double? novaStartedAt = null, ShockNovaPulse? shockNova = null) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
-            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, finalSpellRepeat, novaStartedAt);
+            singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, finalSpellRepeat, novaStartedAt, shockNova);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2132,7 +2135,7 @@ public static partial class Game
         double radiusMore, SacrificeUse? sacrifice, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos,
-        HolySweepHammers.Settings? hammer, bool finalSpellRepeat, double? novaStartedAt = null)
+        HolySweepHammers.Settings? hammer, bool finalSpellRepeat, double? novaStartedAt = null, ShockNovaPulse? shockNova = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -2156,7 +2159,7 @@ public static partial class Game
         var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
         var meleeKillTrigger = spell ? null : CaptureMeleeKillTriggerSource(conn, skillId);
         sacrifice ??= new SacrificeUse(conn, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
-        var admittedGem = SupportedSkill(conn, skillId);
+        var admittedGem = shockNova?.Gem ?? SupportedSkill(conn, skillId);
         var skillStats = admittedGem.Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
@@ -2299,7 +2302,7 @@ public static partial class Game
                     ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && e.Distance <= reachLimit
+                    && (shockNova is { } pulse ? pulse.Covers(e.Distance, LivingCollision.Size(e.Value)) : e.Distance <= reachLimit)
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
@@ -2659,6 +2662,7 @@ public static partial class Game
         string shape = wave
             ? $"in a wave {waveLength:0.#} cells long from ({from.X}, {from.Y}) toward ({waveDir.X:0.##}, {waveDir.Y:0.##}), "
                 + $"half angle {waveHalfAngle:0.#} deg at {GroundSlamWave.CellsPerSecond:0.#} cells/s"
+            : shockNova is { Inner: > 0 } annulus ? $"in the {annulus.Inner}–{radius} cell ring at ({centre.X}, {centre.Y})"
             : $"within {radius} cells of ({centre.X}, {centre.Y})";
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"

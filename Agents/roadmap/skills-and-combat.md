@@ -30,7 +30,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Verify Ice Nova of Frostbolts live at the 100-cell targeting boundary and follow its rings on two moving Frostbolts.
 - Verify Vortex in a native session, including the explosion, removal of predicted Frostbolts, ground coverage on
   spawning or emerging monsters, marked-target placement and worn effects. Check triggered or proxy Vortex releases
-  and Runegraft of the Novamark on other nova actions.
+  and Runegraft of the Novamark on other nova actions. Verify ordinary Shock Nova placement and timing live,
+  including worn effects. Trace the directional repeats of Shock Nova of Procession and proxy releases.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats

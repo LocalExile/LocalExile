@@ -38,10 +38,10 @@ public static partial class Game
         bolt * 0.1 + expansion * (IceNovaRing.Seconds(artVariation) + 0.3);
 
     static bool ManualMarkedNova(ClientState conn, ushort id, SupportedGem gem) =>
-        (SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action || SkillsFor(conn).EffectId(gem.Effect) is "Vortex" or "VortexAltX")
+        (SkillsFor(conn).ActionHash(gem.Effect) == IceNovaRing.Action || SkillsFor(conn).EffectId(gem.Effect) is "Vortex" or "VortexAltX" or "ShockNova")
             && !IsTotemSkill(conn, id) && PlacedKind(gem) is { Trap: false, Mine: false } && TriggerOnlyReason(gem) is null;
 
-    // Both native actions resolve the owner's mark at release, after looking for Frostbolts.
+    // Resolve the owner's current recipient at the instant a nova requests a marked centre.
     static (int X, int Y)? MarkedNovaCentreLocked(ClientState conn, ushort id, SupportedGem gem, double now) =>
         MarkedMonsterLocked(conn) is { } target && SkillsFor(conn).IsNova(gem.Effect) && SkillsFor(conn).IsSpell(gem.Effect)
             && GolemStat(CharacterPlayerStats(conn), "nova_spells_cast_at_marked_target") != 0 && ManualMarkedNova(conn, id, gem)
@@ -53,48 +53,17 @@ public static partial class Game
         SupportedGem gemStats, int repeats, int seals, double sealMore, bool vortex)
     {
         var own = gemStats.Stats;
-        if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
         var session = ProjectilesFor(remote, stream, ciphers, conn);
-        int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         int limit = GolemStat(own, vortex ? "frost_bolt_nova_number_of_frost_bolts_to_detonate" : "ice_nova_number_of_frost_bolts_to_cast_on");
         double boltMore = 1 + GolemStat(own, vortex ? "active_skill_if_used_through_frostbolt_damage_+%_final"
             : "ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100d;
-        double cast = castMs / 1000d;
         int variation = vortex ? SkillCosmeticStat(conn, gem.Gem, "ground_maelstrom_art_variation") : SkillArtVariation(conn, gem.Gem);
         bool redirected = false;
-        var releases = new List<Task>();
-        using (ProjectileMutation(conn))
-        {
-            long first = session.Runtime.Now + ProjectileRuntime.Time(cast
-                * Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
-            for (int release = 0; release <= repeats + seals; release++)
-            {
-                int repeat = Math.Max(0, release - seals);
-                bool seal = release > 0 && release <= seals;
-                long at = first + ProjectileRuntime.Time(Math.Min(release, seals) * cast / 10 + repeat * cast);
-                releases.Add(At(at, () => Release(repeat, seal)));
-            }
-        }
-        await Task.WhenAll(releases);
-
-        // Selection and every later position sample run at the flight simulator's exact instant, even if one
-        // pump tick covers both a ring start and the end of the projectile. Only the released hit awaits output.
-        async Task At(long at, Func<Task> start)
-        {
-            var result = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
-            session.Runtime.Schedule(at, () =>
-            {
-                try { result.SetResult(start()); }
-                catch (Exception error) { result.SetException(error); }
-            });
-            await Task.WhenAny(result.Task, session.OutputCompleted);
-            if (result.Task.IsCompleted) await result.Task.Unwrap();
-        }
+        await ScheduleNovaReleases(session, skillId, gem.Effect, actionToken, cooldownUse, sacrifice, repeats, seals, Release);
 
         async Task Release(int repeat, bool seal)
         {
-            if (redirected && repeat > 0 || !session.Active || conn.PlayerLife == 0 || !sacrifice.Current
-                || !(cooldownUse?.Current(conn) ?? PlayerActionCurrent(conn, action))) return;
+            if (redirected && repeat > 0) return;
             var bolts = FrostboltNovaTargets(conn, aim, limit, forVortex: vortex);
             double more = seal ? sealMore : 1;
             if (bolts.Length == 0)
@@ -119,7 +88,7 @@ public static partial class Game
                     else
                     {
                         session.ReservedVortexBolts.Add(bolt.Id);
-                        detonations.Add(At(released + i * ProjectileRuntime.QuantaPerSecond / 2, () =>
+                        detonations.Add(AtNovaTime(session, released + i * ProjectileRuntime.QuantaPerSecond / 2, () =>
                         {
                             session.ReservedVortexBolts.Remove(bolt.Id);
                             return Detonate(bolt);
@@ -150,7 +119,7 @@ public static partial class Game
                 for (int expansion = 0; expansion <= (seal ? 0 : repeats); expansion++)
                 {
                     long at = contact + ProjectileRuntime.Time(FrostboltNovaDelay(i, expansion, variation));
-                    rings.Add(At(at, () => session.Active && conn.PlayerLife > 0 && sacrifice.Current
+                    rings.Add(AtNovaTime(session, at, () => session.Active && conn.PlayerLife > 0 && sacrifice.Current
                         && session.Runtime.Projectiles.Contains(bolt) ? Hit(FrostboltCell(bolt), 0, false, more * boltMore)
                         : Task.CompletedTask));
                 }

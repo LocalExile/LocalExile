@@ -67,6 +67,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Manual Vortex and Vortex of Projection leave non-stacking cold damage and chill. Projection consumes nearby
   owned Frostbolts in sequence. Without a bolt, Runegraft of the Novamark centres Vortex and Ice Nova on the
   caster's marked enemy. Monsters entering chilling ground receive chill and Vortex damage on becoming targetable.
+  Manual Shock Nova hits with its ring and then its disc, using the cursor, own mark or caster in that order.
   Native presentation and triggered casts remain open.
 - Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
