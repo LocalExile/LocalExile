@@ -719,7 +719,12 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
 - **+0x30** `0x141f32a70` (after a record's graph is read, only for a record whose world area is of type 52): record 0
   becomes N × N "graph" nodes at (23x, 23y), each `[biome .dgr, "1", "1"]` (a `Next(1)` per cell over the room's world
   area's topologies: DeepwaterRooms +0x3c, else its biome's +8). Records 2 … N² + 1 are the cells in node order: one
-  node with the room's `.arm` tag at the cell's orientation, cell 0 also `default` and `killzone=3`.
+  node with the room's `.arm` tag at the cell's orientation, cell 0 also `default` and `killzone=3`. Cell 0's
+  `default` marks the start: the server arrives at its room's `default` point (`GenerationResult.Start`); the boat's
+  node (record 1) also says `default`.
+- **Board** (as the client draws it, `0x140420dc0`): cell N·y + x at column x from the left, row y from the bottom;
+  cell 0, the start, is bottom-left. Mask bits 1/2/4/8 = Left/Up/Right/Down (DeepwaterConnectionStrings); orientation
+  o turns a room o quarter turns counter-clockwise (Right → Up, as a node's orientation code o).
 - **+0x28** `0x141f331e0` → `0x141f34ee0` (where the port calls Delve's join): ground checks off (map +0x10), then per
   cell, y then x, with the room's mask (+0x10) turned right by the orientation in 4 bits: bit 4 joins the cell to x + 1
   along the record's right edge (`0x141f33de0`, x = right − 3, every 3 rows), bit 2 to y + 1 along its bottom
@@ -730,15 +735,17 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   plain fill takes a 3 × 3 fill tile of its ground (`0x141f33340`: one `Next(total)` over every FillTiles list, always
   drawn, then `Next(8)`), else nine 1 × 1 (each `Next(8)`), else the TileSet's tiles of the old tag
   (`0x141d85600`, `Next(total)`); with nothing, the grounds left out of keys go and it tries again, then "Cannot find
-  matching tile key to connect Deepwater cell". For no ground or a ground with flag 4 a fill tile also needs flags
+  matching tile key to connect Deepwater cell". The fill lists go in file order: `0x141ff6ba0` visits the `"default"`
+  list (+0x100, rooms +0x120) before the named lists, which for the Deepwater `.gft` files is file order.
+  For no ground or a ground with flag 4 a fill tile also needs flags
   0x40 | 0x80 (+0x16c) and no bit 8 in its first slot's F (+0x90 → +0x30). The vertical seam is
   first trimmed from both ends (`0x141f34200`) to the first column where both tiles are plain fills or neither has an
-  edge on the far side. Two equal edges at a trimmed end would go through the missing EdgeCombination (not ported:
-  the port stops).
+  edge on the far side. Equal edges at a trimmed end go through the master's EdgeCombination with no null check
+  (`0x141f34200` → `0x1401297c0`); no Deepwater master has one, so the client crashes and the port refuses the level.
 
 No trace of a sent grid exists yet. Open: the record WorldArea switch to the biome's
-(+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the FillTiles lists' order in
-the client (it matters only for a ground with tiles in two lists), and the cell stats' and mods' meaning.
+(+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the cell stats' and mods'
+meaning, and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
 
 ## 3d. Tile graphs (`.tgr`): first stages (`TileGraph.cs`, `FortuneVoronoi.cs`, `VoronoiCells.cs`)
 

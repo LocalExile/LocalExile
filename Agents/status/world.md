@@ -212,7 +212,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Allflame encounter areas (DeepwaterEncounter, DeepwaterEncounterVoyage) are built from the terrain plugin state
   0x1d sends, or the client's default 2 × 2 grid without one ([011](../docs/re/011-level-generation.md) §3c4). Verified
   live (3.29.3d, 2026-11-18): the client's tile hash equals the port's for a one-room chart and a 3 × 3 Voyage grid.
-  Their walk grids are not compared yet, so the Gateway does not generate them.
+  The Gateway generates them (`server_level_areas`); their walk grids are not compared with a capture yet.
   An unattended tour of every WorldAreas row with a topology (2026-10-27, `scripts/re/levelgen/tourloop.py`, which
   restarts and logs in the client by itself) left 234 of the 1932 rows with no client-side level to match: 17 without a
   topology, 202 that need data from the server (Incursion temples, Delve cells and biomes, Heist contracts, Synthesis

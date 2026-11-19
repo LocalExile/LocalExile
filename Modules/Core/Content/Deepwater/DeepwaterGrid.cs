@@ -26,7 +26,7 @@ internal static class DeepwaterGrid
     /// <summary>The area holds a DeepwaterPlugin (the client creates one there at every generation).</summary>
     public static bool IsEncounter(string areaId) => Areas.Value.ContainsKey(areaId);
 
-    // The rooms a random grid takes: (DeepwaterRooms row, connection mask __col2).
+    // The rooms a random grid takes: (DeepwaterRooms row, connection mask __col2, bits 1/2/4/8 = Left/Up/Right/Down).
     static readonly Lazy<(int Row, int Mask)[]> Rooms = new(() =>
     {
         var biomes = ClientTables.TableOrEmpty("DeepwaterBiomes").Where(b => Biomes.Contains(b.Text("Id"))).Select(b => (long)b.Index).ToHashSet();
@@ -36,7 +36,10 @@ internal static class DeepwaterGrid
     });
 
     /// <summary>The state for a new instance of the area (null outside the encounter areas): u8 N, per cell (row-major,
-    /// N·y + x) u8 DeepwaterRooms row, u8 orientation, u8 stat count (0), then u8 mod count (0).</summary>
+    /// N·y + x) u8 DeepwaterRooms row, u8 orientation, u8 stat count (0), then u8 mod count (0). Cell N·y + x is at
+    /// column x from the left and row y from the bottom of the board (<c>0x140420dc0</c>); cell 0, bottom-left, is the
+    /// start, where the player arrives. Orientation o turns the room o quarter turns counter-clockwise
+    /// (Right → Up).</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)>? For(ushort areaHash)
     {
         if (PluginId.Value is not { } plugin || Areas.Value.FirstOrDefault(a => a.Value == areaHash).Key is not { } id || Rooms.Value.Length == 0)
@@ -49,12 +52,14 @@ internal static class DeepwaterGrid
         return [(plugin, [.. state])];
     }
 
-    /// <summary>The client's turn of a room's mask by the cell's orientation (<c>0x141f34ee0</c>): bit 4 opens to x + 1,
-    /// bit 2 to y + 1, and by the same turn bit 1 to x − 1, bit 8 to y − 1.</summary>
+    /// <summary>The client's turn of a room's mask by the cell's orientation (<c>0x141f34ee0</c>). Mask bits 1/2/4/8 are
+    /// Left/Up/Right/Down (DeepwaterConnectionStrings): bit 4 opens to x + 1, bit 2 to y + 1, bit 1 to x − 1, bit 8 to
+    /// y − 1; each turn moves Right → Up → Left → Down.</summary>
     static int Open(int mask, int turn) => ((mask << (4 - turn)) | (mask >> turn)) & 15;
 
     /// <summary>A random n × n board whose shared sides agree (both open or both closed; a side on the rim may be open)
-    /// and whose every cell is reached from cell 0 (the start). Without one after many tries, Cross rooms.</summary>
+    /// and whose every cell is reached from cell 0 (the bottom-left start). Without one after many tries, Cross
+    /// rooms.</summary>
     static (int Row, int Turn)[] Board(int n, Random rng)
     {
         var rooms = Rooms.Value;

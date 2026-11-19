@@ -150,6 +150,8 @@ Picture: [../re/evidence/1_1_town-walkability.png](../re/evidence/1_1_town-walka
 The Gateway spawns at **(197, 261)**, the walkable cell farthest from any edge (clearance 32). The old (115, 69) was sea.
 Result: [../re/evidence/2026-10-16-spawn-on-land.jpg](../re/evidence/2026-10-16-spawn-on-land.jpg) (beach, pier,
 minimap marker inside the town outline). The character model is not visible yet.
+An area whose terrain plugin marks a start room (the Allflame encounters: cell 0, [011](../re/011-level-generation.md)
+§3c4) arrives at that room's `default` point instead of the first fitted room's.
 
 ## 8. S→C 0x1f: add a ruleset
 

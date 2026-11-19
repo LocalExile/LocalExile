@@ -60,9 +60,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     rooms ("Unknown Incursion Temple room hash").
   - Sanctum (4): the floors (`SanctumCellar`, `SanctumCrypt`, `SanctumNave`, `SanctumVaults`); the client rebuilds
     the floor graph from the rooms the server sends.
-  - Deepwater (2): DeepwaterEncounter and DeepwaterEncounterVoyage are ported (011 §3c4) and match the client's tile
-    hash with a sent grid; left: run the gate on their seed-1 traces (the default grid), compare the walk grids of a
-    capture with a module grid (`pluginStates` in the trace), then list them in `server_level_areas`.
+  - Deepwater (2): generated on the server (status); left: run the gate on their seed-1 traces (the default grid; not
+    possible on the host that ported them) and compare the walk grids of a capture with a module grid (`levelgen walk`
+    reads the trace's `pluginStates`).
 - The daily Labyrinth layout is step 1 of [The Labyrinth](#the-labyrinth).
 - **Done when:** any seed gets its layout without a capture.
 
@@ -123,13 +123,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
   1. Encounter levels: the grid and ruleset 171 are sent and the level is generated (status, "The Sovereign"); left:
-     the direction of the orientation byte and which board corner is cell 0 (the start), the "Deepwater (2)" item of
-     [server-side level generation](#server-side-level-generation) (the gate, the walk grids, `server_level_areas`), and
-     the chart's own room, rotation, level, cell stats and border mods once charts exist (step 3).
+     the gate and the walk grids of the "Deepwater (2)" item of
+     [server-side level generation](#server-side-level-generation), and the chart's own room, rotation, level, cell
+     stats and border mods once charts exist (step 3).
   2. In-map encounters and lanterns: the Coral Nest, Cursed Treasure and Brinerot Plunder that `ExtraTerrainFeatures`
      already rolls (their guarded chest always drops a Chart; buffs Craiceann's Call, Possession, Sailor's Lantern),
      then inside a Chart the Allflame Lanterns (DeepwaterConstants: 6 per Chart, radius 110, range 115), Drowning
-     outside their light, Sulphur from luminous coral, the collapse and the Bathysphere extraction, and Dredge items.
+     outside their light, Sulphur from luminous coral, the collapse and the Bathysphere extraction, and Dredge items;
+     the Bathysphere (`ExtractionObject`, shared state `landed` = 2) at the start and `killzone=3` (011 §3c4).
   3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
      Chart Locker (inventory 112, DeepwaterLockerLayout), the 3x3 Voyage board, border modifiers (0x2c9 mode 1,
      rerolls from 3000 Sulphur doubling, at most 5), Allflame Capsules (60 cells) and the deck's collection chest

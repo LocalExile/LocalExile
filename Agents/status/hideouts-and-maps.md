@@ -215,8 +215,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
-  [03](../docs/protocol/03-area-and-world.md) §8). Their level generation is in the [world status](world.md)
-  ("Level generator port").
+  [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
+  point; the board's layout and orientation are from the client's code). Their level generation is in the
+  [world status](world.md) ("Level generator port").
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
