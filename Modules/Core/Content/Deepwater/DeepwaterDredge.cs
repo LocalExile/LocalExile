@@ -11,13 +11,19 @@ namespace GameServer.Modules.Deepwater;
 /// sent through a capsule, and the items removed on any other end and at the next entry outside the run.
 /// <para>G (the mechanism; the rule is H): a pickup is matched by the new item ids of the picked type that appear in the
 /// main inventory, the expanded inventory or on the cursor after the ground item is gone. A stackable merged into a stack
-/// the player already had is not marked (its id is old), nor is a picked-up gem once it is socketed. The client's Dredge
-/// marker on the item is not sent (its field is unknown).</para></summary>
+/// the player already had is not marked (its id is old), nor is a picked-up gem once it is socketed.</para>
+/// <para>H: a Dredged item carries <see cref="DredgeFlags"/> in its header flags (bit 1 the client's contraband gate,
+/// 0x141d65f80: only the main/expanded inventories and the capsule's 113 take it, and 113 only with it; bit 2 the Dredge
+/// symbol). G: the items keep it while in 113 and lose it on reaching the collection (114) or on a Bathysphere end.</para></summary>
 internal static class DeepwaterDredge
 {
     /// <summary>The character save's key: the item ids, comma-separated.</summary>
     public const string Key = "deepwater-dredge";
     const double PickupWait = 20;
+    /// <summary>Item header flags bit 1 (contraband, +0x29) and bit 2 (the Deepwater marker, +0x2a).</summary>
+    public const ushort DredgeFlags = 0x0006;
+
+    public static bool Dredged(Item item) => (item.HeaderFlags & DredgeFlags) == DredgeFlags;
 
     sealed record Pending(uint GroundId, uint TypeHash, HashSet<uint> Before, double Until);
 
@@ -55,9 +61,10 @@ internal static class DeepwaterDredge
         lock (list) list.Add(new(groundId, ground.Item.TypeHash, before, conn.Clock.Elapsed.TotalSeconds + PickupWait));
     }
 
-    /// <summary>Per tick: a noted pickup whose ground item is gone marks the new items of its type. Nothing to do (one
-    /// table lookup) without a pickup in flight.</summary>
-    public static void Tick(IModuleContext module, ClientState conn)
+    /// <summary>Per tick: a noted pickup whose ground item is gone marks the new items of its type, in the save's list and
+    /// on the item (re-sent as a removal and an add of the same id). Nothing to do (one table lookup) without a pickup in
+    /// flight. The ground item cannot carry the flag before the pickup: the Game module takes it by reference.</summary>
+    public static async Task Tick(IModuleContext module, ClientState conn)
     {
         if (!Pickups.TryGetValue(conn, out var list)) return;
         Pending[] due;
@@ -75,14 +82,39 @@ internal static class DeepwaterDredge
         if (marked.Count == 0) return;
         Change(conn, ids => ids.UnionWith(marked));
         module.Log($"{CharacterName(conn)}: Dredge: items {string.Join(", ", marked)} picked up in the run");
+        await Flag(conn, marked, on: true, live: true);
     }
 
-    /// <summary>A Bathysphere end: what the player carries is theirs.</summary>
-    public static void Clear(IModuleContext module, ClientState conn)
+    /// <summary>Sets or clears <see cref="DredgeFlags"/> on these items wherever the player holds them (the cursor too);
+    /// <paramref name="live"/> re-sends each changed row as one 0xbf removing and re-adding the same ids.</summary>
+    static async Task Flag(ClientState conn, IEnumerable<uint> ids, bool on, bool live)
+    {
+        var items = ItemsOf(conn);
+        var changed = new Dictionary<byte, List<InventoryItem>>();
+        foreach (uint id in ids)
+        {
+            byte? row = items.RowOf(id) ?? (items.Items(PlayerInventories.Cursor).Any(i => i.Id == id) ? PlayerInventories.Cursor : null);
+            if (row is not { } r || items.Items(r).FirstOrDefault(i => i.Id == id) is not { } it || Dredged(it.Item) == on) continue;
+            if (items.Change(r, id, i => i with { HeaderFlags = (ushort)(on ? i.HeaderFlags | DredgeFlags : i.HeaderFlags & ~DredgeFlags) }) is { } now)
+                (changed.TryGetValue(r, out var l) ? l : changed[r] = []).Add(now);
+        }
+        if (!live) return;
+        foreach (var (row, list) in changed)
+            await PlayerOf(conn).Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [.. list.Select(i => i.Id)], list),
+                $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {list.Count} items {(on ? "marked" : "no longer")} Dredge (header flags 0x{DredgeFlags:x4})");
+    }
+
+    /// <summary>Clears the Dredge mark from these items (the list is the caller's to change).</summary>
+    public static Task Unmark(ClientState conn, IEnumerable<uint> ids, bool live) => Flag(conn, ids, on: false, live);
+
+    /// <summary>A Bathysphere end: what the player carries is theirs, and unmarked.</summary>
+    public static async Task Clear(IModuleContext module, ClientState conn)
     {
         Pickups.Remove(conn);
-        if (Ids(conn).Count == 0) return;
+        var held = Ids(conn);
+        if (held.Count == 0) return;
         Change(conn, ids => ids.Clear());
+        await Unmark(conn, held, live: !conn.Closed && !conn.LeavingArea);
         module.Log($"{CharacterName(conn)}: Dredge cleared (the Bathysphere)");
     }
 

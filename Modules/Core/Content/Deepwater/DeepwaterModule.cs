@@ -122,7 +122,7 @@ public sealed partial class DeepwaterModule : IModule
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
             await DeepwaterExtraction.Tick(module, conn, run, (c, why) => RunFailed(module, c, why));
-            DeepwaterDredge.Tick(module, conn);
+            await DeepwaterDredge.Tick(module, conn);
         });
         // Dredge: a pickup from the ground during a run, or in a failed run's dead instance, is noted; the Game module
         // picks it up. What is noted after a failure goes at the next entry elsewhere (StartRun).
@@ -144,8 +144,17 @@ public sealed partial class DeepwaterModule : IModule
             // Leaving a run any way but the Bathysphere ends it as a failure.
             if (RunOf(conn) is { Phase: not DeepwaterRun.RunPhase.Ended }) await RunFailed(module, conn, $"left ({reason})");
         });
-        // Inventory 113 takes items only through an open capsule window.
-        GameEvents.InventoryRefusal.Add(id, (conn, row, _) => row == DeepwaterExtraction.CapsuleRow ? DeepwaterExtraction.CapsuleRefusal(conn, RunOf(conn), row) : null);
+        // Inventory 113 takes only Dredge items, through an open capsule window; a Dredge item goes nowhere else but the
+        // main and expanded inventories (the client's own gate).
+        GameEvents.InventoryRefusal.Add(id, (conn, row, item) => row == DeepwaterExtraction.CapsuleRow
+            ? DeepwaterExtraction.CapsuleRefusal(conn, RunOf(conn), row, item) : DeepwaterExtraction.DredgeRefusal(row, item));
+        // C→S 0x0112: Ctrl + click into or out of an open capsule.
+        GameEvents.Packet(InstanceItems.ExtractionMoveId).Add(id, async (conn, bytes) =>
+        {
+            if (RunOf(conn) is not { } run || bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
+            await DeepwaterExtraction.QuickMove(module, conn, run, InstanceItems.ReadLeagueWindowMove(bytes));
+            return true;
+        });
         GameEvents.PlayerStatSources.Add(id, _light.WithSlow);
         GameEvents.StateBuilding.Add(id, RunState);
         // The run's chests and interactables; the league's monsters' map-related drops and the Golden Lantern stacks.

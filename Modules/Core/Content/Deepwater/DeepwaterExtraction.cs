@@ -246,12 +246,63 @@ internal static class DeepwaterExtraction
         return true;
     }
 
-    /// <summary>Why the held item may not go into inventory 113: only through an open capsule window of a running run.</summary>
-    public static string? CapsuleRefusal(ClientState conn, DeepwaterRun? run, byte row)
+    /// <summary>Why the held item may not go into inventory 113: only a Dredge item (the client's own gate, the item's
+    /// contraband flag) through an open capsule window of a running run.</summary>
+    public static string? CapsuleRefusal(ClientState conn, DeepwaterRun? run, byte row, Item item)
     {
         if (row != CapsuleRow) return null;
         if (run is null || run.Phase == DeepwaterRun.RunPhase.Ended) return "no Allflame run here";
+        if (!DredgeItem(conn, item)) return "only Dredge items go into a capsule";
         lock (run.Gate) return run.OpenCapsule.ContainsKey(CharacterName(conn)) && conn.ModuleWindow == CapsuleWindow ? null : "no capsule window is open";
+    }
+
+    /// <summary>The held item is in the Dredge list (by its id on the cursor) and carries the flag.</summary>
+    static bool DredgeItem(ClientState conn, Item item) =>
+        DeepwaterDredge.Dredged(item) && ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault(i => ReferenceEquals(i.Item, item) || i.Item == item) is { } held
+            && DeepwaterDredge.Ids(conn).Contains(held.Id);
+
+    /// <summary>Why a Dredge item may not go into this row: the client keeps a contraband item out of every inventory but
+    /// the main and expanded ones (InventoryIdKey 0) and the capsule's (0x41) (0x141d65f80); the server mirrors it (G: the
+    /// exact rows, by Inventories row).</summary>
+    public static string? DredgeRefusal(byte row, Item item) =>
+        row is PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or CapsuleRow || !DeepwaterDredge.Dredged(item)
+            ? null : "a Dredge item goes only into the main inventory or a capsule";
+
+    /// <summary>C→S 0x0112, Ctrl + click with the capsule window open: an item from the main (or expanded) inventory into
+    /// the first free cell of 113, or one from 113 to the first free cell of the main inventory. The client waits for
+    /// nothing but the two 0xbf (B2 of the step's research), so a refusal is only logged.</summary>
+    public static async Task QuickMove(IModuleContext module, ClientState conn, DeepwaterRun run, InstanceItems.LeagueWindowMove move)
+    {
+        var player = PlayerOf(conn);
+        var items = ItemsOf(conn);
+        byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : CapsuleRow;
+        byte to = move.Into ? CapsuleRow : PlayerInventories.MainInventory;
+        string what = $"0x0112 Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} the capsule";
+        var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
+        string? why = null;
+        if (it is null) why = $"not in row {from}";
+        else if (run.Phase == DeepwaterRun.RunPhase.Ended) why = "the run ended";
+        else if (OpenCapsuleOf(conn, run) is null || conn.ModuleWindow != CapsuleWindow) why = "no capsule window is open";
+        else if (move.Into && !(DeepwaterDredge.Dredged(it.Item) && DeepwaterDredge.Ids(conn).Contains(it.Id))) why = "only Dredge items go into a capsule";
+        var shape = it is null ? default : ShapeOf(it.Item) ?? new(1, 1, "");
+        (byte X, byte Y)? cell = why is null ? items.FreeCell(to, shape.Width, shape.Height, ShapeOf) : null;
+        if (why is null && cell is null) why = $"no room in row {to}";
+        InventoryItem? placed = null;
+        if (why is null)
+            Saves.Atomically(() =>
+            {
+                if (items.Remove(from, it!.Id) is { } taken) placed = items.Put(to, taken with { X = cell!.Value.X, Y = cell.Value.Y });
+            });
+        if (placed is null)
+        {
+            module.Log($"{player.Character} <= {what}: refused ({why ?? "it moved"})");
+            return;
+        }
+        module.Log($"{player.Character} <= {what}: row {from} → row {to} at ({placed.X}, {placed.Y})");
+        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from), [placed.Id], []),
+            $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {placed.Id}");
+        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [placed]),
+            $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {placed.Id} at ({placed.X}, {placed.Y})");
     }
 
     // ---- the capsule's buttons ----
@@ -310,7 +361,13 @@ internal static class DeepwaterExtraction
                 if (items.FreeCell(CollectionRow, shape.Width, shape.Height, ShapeOf) is not { } cell) break;
                 if (items.Remove(CapsuleRow, it.Id) is null) continue;
                 removed.Add(it.Id);
-                moved.Add(items.Put(CollectionRow, it with { X = cell.X, Y = cell.Y }));
+                // The items arrive no longer Dredge (G: the wiki's "unmarked … by placing items in the storage space of
+                // an Allflame Capsule" read as the send).
+                moved.Add(items.Put(CollectionRow, it with
+                {
+                    X = cell.X, Y = cell.Y,
+                    Item = it.Item with { HeaderFlags = (ushort)(it.Item.HeaderFlags & ~DeepwaterDredge.DredgeFlags) },
+                }));
             }
         });
         if (removed.Count > 0)
@@ -526,7 +583,7 @@ internal static class DeepwaterExtraction
         {
             var member = members[i];
             var (remote, stream, ciphers) = member.Wire;
-            DeepwaterDredge.Clear(module, member);
+            await DeepwaterDredge.Clear(module, member);
             await SetQuestFlags(remote, stream, ciphers, member,
                 [DeepwaterConstants.CanExtract, DeepwaterConstants.LanternController, DeepwaterConstants.MapOwner, DeepwaterConstants.VoyageDefend], on: false);
             if (deck is not { } at)
