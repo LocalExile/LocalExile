@@ -212,8 +212,28 @@ Part of [Status](../Status.md); what to build next in this area is in
   Sovereign, and after that first visit the Deepwater pin and `/boat` do too.
   The hub is generated, with its waypoint, the boat gates between the deck and below deck, the stash, the guild stash,
   Valerie and Vesper ([16](../docs/protocol/16-waypoints.md) §4, [17](../docs/protocol/17-npcs.md)).
-  A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
-  of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
+  Charts start the runs from the deck as 3.29 did; not verified live yet ([03](../docs/protocol/03-area-and-world.md)
+  §8, [05](../docs/protocol/05-inventories-and-ui.md) §3).
+  Charts drop normal, magic or rare with the Mods domain 39 affixes, the drop area's level and a room; Valerie gives
+  the tutorial's level 2 magic Sandy Seabed chart.
+  The Chart Locker (inventory 112, one tab region per base), Valerie's "Chart Area" (103, Descend) and "Plan Voyage"
+  (the charted charts in 104: move, rotate, delete; a 2 × 2 first Voyage, then 3 × 3 with 12 border mods and up to 5
+  rerolls from 3000 Sulphur doubling) open their windows.
+  The Bathysphere (IsMapOwner) then takes the owner into a DeepwaterEncounter or Voyage instance whose grid is the
+  chart or board (rooms, rotations, cell stats, border mods), at the chart's level or the board's average + 10 capped
+  at the highest chart.
+  A charted chart gets a gt37 implicit and moves to 104; a Voyage's charts are used up unless their not-consume roll
+  succeeds.
+  The Maiden Voyage tracker follows the run flags and league flags 1820-1823, 1881-1883, 1892 and 1893.
+  Guesses (G in the code): saved per character, not per account; the hub's first character is its map owner; the
+  rotate direction; the drop rarity (world.db `deepwater_chart_*`), the room and implicit pools and the uniform border
+  pool; Sulphur from the locker first; a failed Chart loses its chart; mode 2's collection goes to the main inventory;
+  the tracker's triggers.
+  Not applied: the chart stats for objects and conversions (strongboxes, monoliths, torment, Izaro, Ducat chests,
+  anchors, golden lanterns, gold and Stacked Deck conversions, lanterns not consumed).
+  Kishara's Rest never rolls, and the Active Voyage window (0x72) is not opened.
+  A new instance of an encounter area by `/goto DeepwaterEncounter` or `/goto DeepwaterEncounterVoyage` gets a random
+  grid of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
   [03](../docs/protocol/03-area-and-world.md) §8). The player arrives in the bottom-left chart (cell 0's `default`
   point; the board's layout and orientation are from the client's code). Their level generation is in the
@@ -239,8 +259,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Craiceann's Call, Possession or Sailor's Lantern (`Modules/Core/Content/Deepwater`, `DeepwaterEncounters.cs`,
   `DeepwaterBuffs.cs`). Verified live 2026-11-19 in 1_2_1 and 1_1_4_1; a Standard character gets none. The trigger
   distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`,
-  `deepwater_*_chance`). Charts drop only from these chests, at normal rarity, with the area's level and a random room of
-  their biome (no chart mods yet). Not built: removing Possession by right-clicking its buff, and its monster touches
+  `deepwater_*_chance`).
+  Charts drop only from these chests ("The Sovereign" for their rolls).
+  Not built: removing Possession by right-clicking its buff, and its monster touches
   outside torment maps; the Drowned Crawlers' possessed rares; the Brinerot barrels' own monsters and `free` state
   (plain Brinerots stand in); dungeon areas such as The Submerged Passage, where the port rolls the room but does not
   place it.

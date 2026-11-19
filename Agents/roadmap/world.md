@@ -117,32 +117,30 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([03](../docs/protocol/03-area-and-world.md) §8). Valerie (NPCs 789) waits for the flag that ends the tutorial, which
   the client data does not name. The boat gates are written as plain AreaTransitions, so the client highlights them on
   hover (Boat_AreaTransition_Animate has `no_highlight`).
-  The chart item's `DeepwaterChart` component is written, its second byte (+0x31) the rotation
-  ([13](../docs/protocol/13-items.md) §2).
-  NPCTalk's league quest flag columns (`__col15` set, `__col16` required, `__col18` refused) are read as data
-  (`NpcCatalog.Talk.LeagueFlags*`) but applied generically nowhere; 1168 rows of many leagues use them, so applying
-  them for every NPC is a follow-up that needs its own verification.
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
 - **Start**, one pull request per step, in this order:
   1. Encounter levels: the grid and ruleset 171 are sent and the level is generated (status, "The Sovereign"); left:
      the gate of the "Deepwater (2)" item of
-     [server-side level generation](#server-side-level-generation), and the chart's own room, rotation, level, cell
-     stats and border mods once charts exist (step 3).
+     [server-side level generation](#server-side-level-generation).
   2. The rest of a Chart (the run is in the status, "The Sovereign"; the in-area encounters, "Allflame encounters in
      ordinary areas"): in a Chart the
      Pointer arrow, auto-placement (league flag 1841), Valerie's lantern lines (the lantern's Functions; no trigger
      found), the other interactables, the rare-class and Anchor chests, the special rooms' encounters and the unique
      monsters.
-  3. Charts and Voyages: the Bathysphere and Valerie's "Chart Area"/"Plan Voyage" (`open_deepwater_device[_1x1]`), the
-     Chart Locker (inventory 112, DeepwaterLockerLayout; its Ctrl+click C→S 0x0111 is framed, not handled), the 3x3
-     Voyage board, border modifiers (row 172 DeepwaterHubRules' 0x2c9 mode 1, rerolls from 3000 Sulphur doubling, at
-     most 5), the hub's own collection chest (the deck's Loot window and its takes work),
-     and the charts' mods, rarity and room.
+  3. The rest of Charts and Voyages (the deck's flow is in the status, "The Sovereign"): the live checks (the first
+     Voyage's 2 × 2 board and the window's flag test 0x764, 1892 or 1893; the rotate direction; the locker window's u32;
+     the order of 3930's reward and device window); the boss room Kishara's Rest (its encounter, then charts may roll
+     it); the chart stats not applied yet (objects and conversions); the Chart Locker and charted storage per account
+     and league (`Inventories.__col6` = 1) instead of per character, which needs an account-wide inventory store; and
+     NPCTalk's league quest flag columns (`__col15` set, `__col16` required, `__col18` refused), read as data
+     (`NpcCatalog.Talk.LeagueFlags*`) and applied only for Valerie: 1168 rows of many leagues use them, so applying
+     them for every NPC needs its own verification.
   4. Economy and crafting: Dead Man's Sulphur, Vesper's Allflame crafting (inventories 105/106,
      DeepwaterCraftingCurrencies' costs and league quest flag gates, 2 to 4 Ghostly Copies), Ducats, Cursed Ducats and
      the upgrade pieces.
-  5. Progression: Maiden Voyage, The Spirit Flame and Turning the Tide (Quest 209-211) with Valerie's variant per
+  5. Progression: the rest of Maiden Voyage (Valerie 789 after the tutorial, the post-tutorial quests), The Spirit
+     Flame and Turning the Tide (Quest 209-211) with Valerie's variant per
      stage (her `ValeriePlacer*` markers), the Deepwater Fairgraves and the Allflame on The Ship Graveyard, Velka;
      league quest flag 1834 DeepwaterBoatUnlocked only after the first boarding (the Gateway gives it to everyone
      today), the pin and `/boat` gated on 1834 instead of QuestFlags 3556, and the below-deck stash and crafting bench.

@@ -161,7 +161,7 @@ a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0
 when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
 HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
 
-S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-7
+S→C 0x2c9 (the ruleset's data) and C→S 0x2ca (its actions; The Sovereign's opcodes 0-9
 come from `0x14041b5d0` and its neighbours) share the layout `u16 id, u8 Rulesets row, compact-uint n, n bytes`
 (Core `InstanceRulesets`; the Gateway frames 0x2ca by that length). The payload's first byte is an opcode or mode, the
 rest little-endian. The sender `0x1421a1960` takes a lambda whose slot 2 writes the payload; the action `i32, i32, u8`
@@ -198,6 +198,31 @@ more away, and over 110 from every anchor; the nearest to the cursor wins and no
 Without an anchor nothing can be placed. The module runs the same snap on the cursor cell; as its estimate of the
 player trails the client's, it retries the player tests 10 cells looser when none fits and only logs the line test.
 
+Row 172 (ClientDeepwaterHub, the deck's windows; `DeepwaterHubRuleset.cs`; op names from the lambdas' type names). There
+is no op 3. Adding a chart to the Voyage board sends nothing (`0x14041c610`): the board reaches the server only in op 0.
+
+| C→S 0x2ca op | payload | sent by |
+|---|---|---|
+| 0 OpenMission | u8 n, n × u8: per board slot the chart's x in inventory 104, 0xff empty; n 4 (2 × 2, slot i = cell i) or 9 | the Voyage window's "Set Forth!" (`0x14041b5d0`), only when its validator `0x141fbeda0` passes |
+| 1 Open1x1Mission | – | the Chart window's "Descend" (`0x14040cea0`): needs an identified chart in 103 and room in 104 (ClientStrings 8466, 8426) |
+| 2 DoCraft | u32, u32 | Vesper's crafting (`0x140412df0`) |
+| 4 MoveStoredChart | u8 from, u8 to | a drag inside 104 (`0x140414530`) |
+| 5 RotateStoredChart | u8 x in 104 | a right click on a stored chart or a board slot (`0x140413f10`, `0x14041c3b0`); the client leaves the item alone, so the server turns the chart's rotation ([13](13-items.md) §2) and resends it |
+| 6 DeleteStoredChart | u8 x in 104 | `0x140419390` from a callback (a confirm, M) |
+| 7 RerollBorderModifiers | – | the reroll button (`0x140419720`): shown only on a 3 × 3 board |
+| 8 ConfirmEnterMission | – | Yes on mode 2's popup (`0x140dea550`) |
+| 9 TakeAllLoot | – | the Loot window's Take All |
+
+| S→C 0x2c9 mode (reader `0x141683030`) | after the mode | client effect |
+|---|---|---|
+| 0 | – | nothing |
+| 1 | u32 cost, u8 k, k × (u16 Mods HASH16, a compact int per stat) | the next reroll's Dead Man's Sulphur cost (ClientStrings 8470, `<unmet>` when short; **0xFFFFFFFF disables the button**) and the 12 border mods, used only when k = 12, in segment order: cell x + 3y, y = 0 → mod[x], x = 2 → mod[3 + y], y = 2 → mod[8 − x], x = 0 → mod[11 − y] (`0x141fbe2d0`) |
+| 2 | – | the HUD's ClientStrings 8445 popup ("will remove all items from the capsule collection inventory"); Yes sends op 8 |
+
+The Voyage window's board side is 2 + a league quest flag test, `0x764` (`0x1404179e0`): 1893
+Deepwater3x3VoyagesEnabled if the test is 0-based on the row, else 1892 (open). Its area level text and the validator
+use (sum of chart levels / count) + 10, capped at the highest chart, 1..100; a boss room needs level ≥ 83, at most one.
+
 S→C 0x1e is a ruleset event by name: `u16 0x001e, u32 entity BE, u16 length BE, ASCII` (reader `0x1421a44a0`); the
 client passes it to every ruleset's slot 3. Row 171 acts only on `update_collection_chest` and
 `trigger_npc_completion_textaudio`, which its own scripts raise, so the run sends none.
@@ -211,7 +236,9 @@ there only, after 0x7d; the client keeps it there (3.29.3d, 2026-11-18). Whether
 DeepwaterHubRules alone (no per-frame code). The encounter areas take it too, and both get it before 0x21: the in-game
 UI attaches its windows to the area once (`0x140dba5d0`), and the deck's Loot window (0x7b kind 0x6f, shown by
 `0x140dac350` without attaching again) builds its grid over inventory 114 only if row 172 was there then
-(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The capsule window attaches again when
+(`0x1404244b0`). Sent after 0x21 the window stayed empty (3.29.3d, 2026-11-19). The Chart and Voyage windows (0x7b
+kinds 0x67, 0x6a) attach the same way (`0x1403feb40`, `0x1404179e0`) and build nothing without row 172.
+The capsule window attaches again when
 shown (`0x140425400`), so row 171 after 0x21 is enough for it. Row 171's area type 53 checks are for the Sovereign that the plugin adds
 inside an encounter as a secondary area (`0x141f32870`).
 

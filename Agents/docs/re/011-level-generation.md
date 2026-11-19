@@ -712,7 +712,10 @@ DeepwaterPlugin (`0x141d93260` → `0x141f32690`) builds a fixed 2 × 2 grid (Th
 CoralReefCross1 0, CoralForestCross1 0). Both seed-1 traces of the gate are that grid. State (`0x141f35280`, LE):
 u8 N; per cell, index N·y + x (`0x141f350c0`): u8 DeepwaterRooms row (`0x141f565f0`, no range check), u8 orientation,
 u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods HASH16, a compact int per stat,
-`0x141e4c7e0`). Generation reads neither the stats nor the mods. The plugin's vtable hooks:
+`0x141e4c7e0`). Generation reads neither the stats nor the mods.
+The Gateway sends as a cell's stats the planner's cell stats (M, `0x141fbe9d0`: its chart's mods, the neighbours' adjacent ones, its border mods, the per-connection conversions), and
+the mods are the 12 border mods in segment order ([03](../protocol/03-area-and-world.md) §8, mode 1); the orientation
+is the chart's rotation ([13](../protocol/13-items.md) §2). The plugin's vtable hooks:
 
 - **+0x20** `0x141f32870`: record 0 is N × N room units (master.tsi 30, buffer 3: 30N + 6), and DeepwaterHub is added as
   a sub-area (`0x14204d8e0`: `Next(count)`, `Next(840)`); record 1 is the boat, its interior the last record.
@@ -743,8 +746,7 @@ u8 k, k × (u32 stat, u32 value); then u8 m and m mods (`0x142436e50`: u16 Mods 
   (`0x141f34200` → `0x1401297c0`); no Deepwater master has one, so the client crashes and the port refuses the level.
 
 A sent one-room chart and a 3 × 3 Voyage were traced and captured live (3.29.3d, [world](../../status/world.md)).
-Open: the record WorldArea switch to the biome's (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, the cell stats' and mods'
-meaning, and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
+Open: the record WorldArea switch to the biome's (+0x30; environments and doodads may read it), the hub record's +0x90 bits 0x10 / 0x20, and `killzone=3`, which the client never parses (guess: a server rule, a monster-free radius at the start).
 
 ## 3d. Tile graphs (`.tgr`): first stages (`TileGraph.cs`, `FortuneVoronoi.cs`, `VoronoiCells.cs`)
 

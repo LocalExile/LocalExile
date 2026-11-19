@@ -141,6 +141,24 @@ buttons was not found). "Send to Surface" (ruleset op 2, [03](03-area-and-world.
 2020 `IsMapOwner` and a non-empty 113 (else ClientStrings 8441 "final Capsule" or 8439); "Call Bathysphere" (op 3)
 only with 113 empty (8442), and with IsMapOwner it first asks 8440 "There are unused Capsules".
 
+The deck's chart windows (0x7b kinds; all need ruleset 172 before 0x21, [03](03-area-and-world.md) §8):
+
+| Kind | Window | Inventories | Notes |
+|---|---|---|---|
+| 0x67 | DeepwaterChartWindow ("Chart Area") | 103 (1 × 1) | the chart to run; "Descend" is op 1 |
+| 0x6a | DeepwaterVoyageWindow ("Plan Voyage") | 104 (120 × 1, two pages of 60), 115/116 | the charted charts and a client-side board of 4 or 9 slots |
+| 0x6e | DeepwaterLockerWindow (Chart Locker) | 112 | the first u32 goes to its listeners (`0x140401df0`); the Gateway sends the ChartLocker's object id (M) |
+| 0x72 | DeepwaterActiveVoyageWindow | 109 (not read) | the running chart; the Gateway does not open it |
+
+0x67/0x6a/0x72 ignore the u32s. A finished Chart moves 103 → 109 → 104 (M: the Descend gate needs room in 104);
+"charted" is not an item field. The locker window (`0x140427f30`, layout reader `0x14042b930`) cuts 112 into tabs by
+`DeepwaterLockerLayout`: `__col7`/`__col8` the tab's first column and row, `__col5` × `__col6` a page, `__col12` the
+pages (0 = one), `__col4` the cell size in pixels. Rows 0-2 are the Sandy, Coral Forest and Coral Reef charts (12 × 25
+each, 5 pages), row 3 Dead Man's Sulphur (9 × 4 at row 75); 12 × (3 · 25 + 4) = 12 × 79. The client shows each base by
+its region, so the server refuses an item outside its tab. Ctrl + click with the locker open is C→S 0x0111 (as 0x0112:
+u32 item id, u8, u8), handled by the Allflame module: into the item's tab (Sulphur onto its stacks first) or out to
+the main inventory.
+
 ## 4. S→C 0x3d: passive slots
 
 Dispatcher case 0x11. Class `0x1435e6708` (0x38 bytes, ctor `0x1421a5480`), write `0x1421a54b0`.
