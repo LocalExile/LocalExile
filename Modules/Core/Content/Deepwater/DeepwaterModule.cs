@@ -62,8 +62,8 @@ public sealed partial class DeepwaterModule : IModule
         public (int X, int Y) LockerAt, PortalAt;
         public int LockerReach, PortalReach;
         public bool LockerOpen;
-        // Valerie's "Take Chart": the chart device opens once its reward is taken.
-        public bool DeviceAfterReward;
+        // Valerie's "Take Chart": the chart device opens with its reward window, and again once the reward is taken.
+        public bool DeviceAfterReward, DeviceWithReward;
         // A started Chart or Voyage waiting at the deck's Bathysphere (DeepwaterStart), when its opening ends (instance
         // seconds, 0 once open), and a start waiting for the collection's confirmation (op 8).
         public MapDevice.Run? Armed;

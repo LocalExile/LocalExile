@@ -32,11 +32,21 @@ public sealed partial class DeepwaterModule
             PlayerOf(conn).AreaId == HubId && DeepwaterPlanner.Message(conn, DeepwaterPlanner.Current(conn)) is { } border
                 ? [("0x02c9 DeepwaterHubRules mode 1 (border modifiers)", border)] : []);
         GameEvents.NpcOptionPicked.Add(id, (conn, talk) => ValerieOption(module, conn, talk));
-        // Offer 130 (Valerie's tutorial chart) taken: the chart device opens, as her 3930's script says after the reward.
+        // Offer 130 (Valerie's tutorial chart): the chart device opens with the reward window, as her 3930's script says
+        // (FinishNPCChat, open_deepwater_device_1x1). The client lets the chart be picked from the reward window only while
+        // the device's window is open (live 2026-11-19: no C→S 0x88 or 0x8a without it, and the pick and 0x88 with it).
+        // Once the reward is taken the device opens again, where the chart goes (tracker 1976, QF 3554).
         GameEvents.MessagesHandled.Add(id, async (conn, _) =>
         {
-            if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward || conn.NpcRewardOffer is not null) return;
-            state.DeviceAfterReward = false;
+            if (!_states.TryGetValue(PlayerOf(conn), out var state) || !state.DeviceAfterReward) return;
+            if (conn.NpcRewardOffer is not null)
+            {
+                if (conn.NpcRewardOffer != DeepwaterCharts.TutorialOfferRow.Value || state.DeviceWithReward) return;
+                state.DeviceWithReward = true;
+                await PlayerOf(conn).Send(InstanceWaypoints.OpenUi(ChartUi), $"0x007b open DeepwaterChartWindow (kind 0x{ChartUi:x2}) with Valerie's chart offer");
+                return;
+            }
+            (state.DeviceAfterReward, state.DeviceWithReward) = (false, false);
             if (!ClientHasQuestFlag(conn, TutorialChartTaken)) return;
             // LQF 1820 DeepwaterQuestChartTaken once the chart is taken (G: the trigger).
             if (!HasLeagueFlag(conn, DeepwaterConstants.ChartTakenLeagueFlag))
@@ -72,7 +82,21 @@ public sealed partial class DeepwaterModule
             (state.Locker, state.LockerAt, state.LockerReach) = (l.Id, (locker.X, locker.Y), l.Reach);
         if (lines.FirstOrDefault(o => o.Type == ChartPortal) is { } portal
             && await SpawnStateObject(module, conn, portal, "ready", 0) is { } p)
-            (state.Portal, state.PortalAt, state.PortalReach) = (p.Id, (portal.X, portal.Y), p.Reach);
+            (state.Portal, state.PortalAt, state.PortalReach) = (p.Id, (portal.X, portal.Y), OffFloorReach(conn, (portal.X, portal.Y), p.Reach));
+    }
+
+    /// <summary>The Bathysphere hangs over the water, about 32 cells from the nearest deck cell (live 2026-11-19): a walk-up
+    /// size whose range (InWalkUpRange: the distance within twice the size + 3) takes in the nearest walkable cell, plus a
+    /// little slack for the walk's stop.</summary>
+    static int OffFloorReach(ClientState conn, (int X, int Y) at, int reach, int search = 48)
+    {
+        var layout = conn.Layout;
+        double nearest = double.MaxValue;
+        for (int y = at.Y - search; y <= at.Y + search; y++)
+            for (int x = at.X - search; x <= at.X + search; x++)
+                if (layout.WalkableFor(x, y, 1))
+                    nearest = Math.Min(nearest, Math.Sqrt((double)(x - at.X) * (x - at.X) + (double)(y - at.Y) * (y - at.Y)));
+        return nearest == double.MaxValue ? reach : Math.Max(reach, (int)Math.Ceiling((nearest + 2) / 2));
     }
 
     // A server object of the deck with its StateMachine's defaults and one state set, as the rowboat.
@@ -179,8 +203,8 @@ public sealed partial class DeepwaterModule
     /// <summary>GameEvents.NpcOptionPicked for Valerie's rows: the row's league quest flag columns (NPCTalk <c>__col15/16/18</c>,
     /// which the server applies only for its own NPCs), and her device rows: "Chart Area" opens the chart device (0x7b
     /// 0x67) and "Plan Voyage" the planner (mode 1, then 0x7b 0x6a) after FinishNPCChat (M: the ruleset event names are
-    /// server-side). "Take Chart" (3930) opens the device once its reward was taken. <c>CallOnClient( ChartCallout )</c> (a
-    /// voice line) has no known message and is skipped.</summary>
+    /// server-side). "Take Chart" (3930) opens the device with its reward window and again once the reward is taken.
+    /// <c>CallOnClient( ChartCallout )</c> (a voice line) has no known message and is skipped.</summary>
     async Task<bool> ValerieOption(IModuleContext module, ClientState conn, NpcCatalog.Talk talk)
     {
         if (Array.IndexOf(ValerieNpcs, talk.Npc) < 0) return true;
@@ -202,8 +226,9 @@ public sealed partial class DeepwaterModule
             module.Log($"{player.Character}: Valerie NPCTalk {talk.Row} CallOnClient( ChartCallout ) skipped (no known message)");
         if (device && talk.RewardOffer is not null)
         {
-            // 3930 "Take Chart": the device (and LQF 1820) once the reward is taken.
-            _states.GetOrCreateValue(player).DeviceAfterReward = true;
+            // 3930 "Take Chart": the device with the reward window, and again (with LQF 1820) once the reward is taken.
+            var deck = _states.GetOrCreateValue(player);
+            (deck.DeviceAfterReward, deck.DeviceWithReward) = (true, false);
             return true;
         }
         if (!device) return true;

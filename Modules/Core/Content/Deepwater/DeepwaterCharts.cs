@@ -70,7 +70,7 @@ internal static class DeepwaterCharts
         return item with { ItemLevel = level, Chart = new ChartData(level, 0, Room(type.Row, Random.Shared)) };
     }
 
-    static readonly Lazy<int> TutorialOfferRow = new(() =>
+    internal static readonly Lazy<int> TutorialOfferRow = new(() =>
         ClientTables.TableOrEmpty("QuestRewardOffers").FirstOrDefault(r => r.Text("Id") == TutorialOffer) is { Table: not null } row ? row.Index : -1);
 
     // ---- the charted implicit ----
