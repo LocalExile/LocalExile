@@ -833,6 +833,7 @@ public static partial class Game
             }
         }
         if (state is null) return;
+        StartRighteousFireBurn(conn, state);
         var current = state;
         string sourceLabel = current.SourceLifetime!.Key.ToString() ?? "exact";
         byte[] playerBuff = InstanceEntities.AddBuff(PlayerId, current.Buff, RighteousFireBuffRow, PlayerId,
@@ -946,7 +947,6 @@ public static partial class Game
                     || conn.Instance.PlayersExcept(conn.PeerId).Any(p => p.Current && p.Auras.Count > 0))
                     await SendOwnAuraChanges(remote, stream, ciphers, conn);
                 await VerifyStatPresentations(remote, stream, ciphers, conn);
-                await SendTotems(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
                 if (!PlayerUpdatesCurrent(conn, updates)) return false;
@@ -971,24 +971,8 @@ public static partial class Game
                 await TickEssenceDrains(remote, stream, ciphers, conn);
             }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            RighteousFireState? rf;
-            lock (conn.Monsters) rf = conn.RighteousFire;
-            if (conn.PlayerLife == 0)
-            {
-                await EndAurasOnDeath(remote, stream, ciphers, conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death", rf);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                await EndBladefallTrarthus(remote, stream, ciphers, conn, "death");
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                continue;
-            }
-            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
-            // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
-            if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
-                await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // What death and an empty mana pool end follows their conditions (SendLifeAndManaEndings).
+            if (conn.PlayerLife == 0) continue;
             lock (conn.Monsters)
                 if (HardcoreProgressBlocked(conn)) continue;
             if (conn.Layout.Waypoint is { } waypoint
@@ -1314,6 +1298,12 @@ public static partial class Game
 
     // Righteous Fire's damage to the hostile monsters within its radius for one tick, with their aura buff on while they
     // are inside.
+    // Righteous Fire burns the enemies around the player every PlayerTickMs while it runs.
+    static void StartRighteousFireBurn(ClientState conn, RighteousFireState rf) =>
+        EveryAsPlayer(conn, PlayerTickMs, () => ReferenceEquals(conn.RighteousFire, rf), (remote, stream, ciphers, conn) =>
+            conn.PlayerLife == 0 || InGracePeriod(conn) ? Task.CompletedTask
+                : BurnAround(remote, stream, ciphers, conn, rf, EverySeconds(PlayerTickMs)));
+
     public static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, RighteousFireState rf, double seconds)
     {
         if (!CurrentGameWork) return;

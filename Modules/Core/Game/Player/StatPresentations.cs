@@ -12,8 +12,24 @@ public static partial class Game
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
-        SendPhysicalAegis, SendUnhinged, SyncPhasing,
+        SendPhysicalAegis, SendUnhinged, SyncPhasing, SendLifeAndManaEndings,
     ];
+
+    // Death ends the auras, Righteous Fire and Bladefall of Trarthus; an empty mana pool ends Bladefall (the resource
+    // writer spends it). Both are stat conditions, so their flip runs this.
+    static async Task SendLifeAndManaEndings(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (conn.PlayerLife == 0)
+        {
+            await EndAurasOnDeath(remote, stream, ciphers, conn);
+            RighteousFireState? rf;
+            lock (conn.Monsters) rf = conn.RighteousFire;
+            if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death", rf);
+            if (conn.BladefallTrarthus is not null) await EndBladefallTrarthus(remote, stream, ciphers, conn, "death");
+        }
+        else if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
+            await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
+    }
 
     sealed class Presenting
     {

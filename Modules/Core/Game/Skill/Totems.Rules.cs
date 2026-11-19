@@ -268,6 +268,7 @@ public static partial class Game
             placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(conn, placed);
             var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
+            StartTotemTimer(conn);
             if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
             // A totem blocks paths on the client as any body does.
             if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
@@ -578,6 +579,24 @@ public static partial class Game
     public static void TickTotemUses(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters) TickTotemUsesLocked(remote, stream, ciphers, conn, new WorldRecordBuilder(conn, null));
+    }
+
+    // While the player has totems, every PlayerTickMs: their casts and uses, expiry, removal, life and aura.
+    static readonly RuleTable<ClientState, object> TotemTimers = new();
+
+    static void StartTotemTimer(ClientState conn)
+    {
+        if (TotemTimers.TryGetValue(conn, out _)) return;
+        TotemTimers.AddOrUpdate(conn, new());
+        EveryAsPlayer(conn, PlayerTickMs, () =>
+        {
+            lock (conn.Monsters)
+            {
+                if (conn.Totems.All.Count > 0) return true;
+                TotemTimers.Remove(conn);
+                return false;
+            }
+        }, SendTotems);
     }
 
     static Task SendTotems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
