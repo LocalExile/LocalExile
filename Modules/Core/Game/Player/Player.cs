@@ -1839,6 +1839,7 @@ public static partial class Game
         if (ExtraPlayerMessages is { } extra)
             foreach (var (log, message) in extra(conn))
                 messages.Add((log, message));
+        messages.AddRange(GameEvents.RunBeforeEnterMessages(conn));
         var (passives, passivesLabel) = PassivesMessage(conn);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.

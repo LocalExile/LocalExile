@@ -180,6 +180,10 @@ public static class GameEvents
     /// <summary>Messages sent as the player enters an area, before its objects: a log line and the message.</summary>
     public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> EnterMessages = new();
 
+    /// <summary>Messages sent with the player's own, before 0x21 activates the area: what the client's UI reads once as
+    /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
+    public static readonly GameEvent<Func<ClientState, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<ClientState, AreaHeader?>> AreaHeader = new();
 
@@ -269,6 +273,14 @@ public static class GameEvents
     {
         var messages = new List<(string, byte[])>();
         foreach (var (owner, run) in EnterMessages.Subscribers(conn)) GameEventOwners.Guard(owner, nameof(EnterMessages), () => messages.AddRange(run(conn)));
+        return messages;
+    }
+
+    public static List<(string Log, byte[] Message)> RunBeforeEnterMessages(ClientState conn)
+    {
+        var messages = new List<(string, byte[])>();
+        foreach (var (owner, run) in BeforeEnterMessages.Subscribers(conn))
+            GameEventOwners.Guard(owner, nameof(BeforeEnterMessages), () => messages.AddRange(run(conn)));
         return messages;
     }
 

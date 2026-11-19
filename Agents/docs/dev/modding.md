@@ -168,7 +168,7 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `InventoryRefusal` | the held item about to go into an inventory row (C→S 0x2a, 0x4a) | a reason refuses it; the first one wins |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
 | `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like the `gm-commands` mod's `/god`: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
-| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
+| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `BeforeEnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area (after 0x21, or before it for what the client's UI reads as it attaches to the area), the area header, a picked NPC option | |
 
 The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other
 modules; a mod subscribes to them the same way.
