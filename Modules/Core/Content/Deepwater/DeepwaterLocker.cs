@@ -164,33 +164,172 @@ internal static class DeepwaterLocker
         return null;
     }
 
-    /// <summary>Sulphur the player holds for a reroll: the locker's and the main inventory's.</summary>
+    /// <summary>C→S 0x010e, Ctrl + click with the Chart window (inventory 103) open: a chart from the main (or expanded)
+    /// inventory into slot 103 at (0, 0) (swapping with an existing chart in 103 if it fits back), or a chart out of 103
+    /// into the first free cell of the main inventory (or expanded if granted).</summary>
+    public static async Task QuickMoveChart(IModuleContext module, ClientState conn, InstanceItems.LeagueWindowMove move)
+    {
+        var player = PlayerOf(conn);
+        var items = ItemsOf(conn);
+        byte from = move.Into ? move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory : UnchartedRow;
+        string what = $"0x010e Ctrl + click item {move.ItemId} {(move.Into ? "into" : "out of")} the Chart window";
+        var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
+        string? why = it is null ? $"not in row {from}" : move.Into ? Refusal(conn, UnchartedRow, it.Item) : null;
+        if (why is not null)
+        {
+            module.Log($"{player.Character} <= {what}: refused ({why})");
+            return;
+        }
+        if (move.Into)
+        {
+            var src = it!;
+            var existing = items.Items(UnchartedRow).FirstOrDefault();
+            if (existing is not null)
+            {
+                var itShape = ShapeOf(src.Item) ?? new(1, 1, "");
+                var existingShape = ShapeOf(existing.Item) ?? new(1, 1, "");
+                if (existingShape.Width > itShape.Width || existingShape.Height > itShape.Height)
+                {
+                    module.Log($"{player.Character} <= {what}: refused (existing chart does not fit back into cell ({src.X}, {src.Y}))");
+                    return;
+                }
+            }
+            InventoryItem? placed = null, swapped = null;
+            Saves.Atomically(() =>
+            {
+                if (items.Remove(from, src.Id) is not { } taken) return;
+                var prev = existing is null ? null : items.Remove(UnchartedRow, existing.Id);
+                placed = items.Put(UnchartedRow, taken with { X = 0, Y = 0 });
+                if (prev is not null) swapped = items.Put(from, prev with { X = src.X, Y = src.Y });
+            });
+            if (placed is null)
+            {
+                module.Log($"{player.Character} <= {what}: refused (item moved)");
+                return;
+            }
+            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(from), items.NextRevision(from),
+                    [src.Id], swapped is null ? [] : [swapped]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(from)}: remove item {src.Id}" + (swapped is null ? "" : $", swap in {swapped.Id}"));
+            await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow),
+                    existing is null ? [] : [existing.Id], [placed]),
+                $"0x00bf inventory {PlayerInventories.InventoryId(UnchartedRow)}: place chart {placed.Id}");
+            module.Log($"{player.Character} <= {what}: moved row {from} → {UnchartedRow}" + (swapped is null ? "" : $" (swapped with {swapped.Id})"));
+            return;
+        }
+        var shape = ShapeOf(it!.Item) ?? new(1, 1, "");
+        byte to = PlayerInventories.MainInventory;
+        var cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
+        if (cell is null && ExpandedInventoryGranted(conn))
+        {
+            to = PlayerInventories.ExpandedInventory;
+            cell = items.FreeCell(to, shape.Width, shape.Height, ShapeOf);
+        }
+        if (cell is not { } dest)
+        {
+            module.Log($"{player.Character} <= {what}: refused (no room)");
+            return;
+        }
+        InventoryItem? moved = null;
+        Saves.Atomically(() =>
+        {
+            if (items.Remove(UnchartedRow, it.Id) is { } taken) moved = items.Put(to, taken with { X = dest.X, Y = dest.Y });
+        });
+        if (moved is null)
+        {
+            module.Log($"{player.Character} <= {what}: refused (item moved)");
+            return;
+        }
+        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(UnchartedRow), items.NextRevision(UnchartedRow), [moved.Id], []),
+            $"0x00bf inventory {PlayerInventories.InventoryId(UnchartedRow)}: remove item {moved.Id}");
+        await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(to), items.NextRevision(to), [], [moved]),
+            $"0x00bf inventory {PlayerInventories.InventoryId(to)}: add item {moved.Id} at ({moved.X}, {moved.Y})");
+        module.Log($"{player.Character} <= {what}: moved row {UnchartedRow} → {to} at ({moved.X}, {moved.Y})");
+    }
+
+    /// <summary>Sulphur the player holds across the inventories the client sums (<c>0x140410110</c>, <c>0x141d6b020</c>):
+    /// the Chart Locker (112), main inventory (0), expanded inventory (84) and personal stash tabs.</summary>
     public static int SulphurHeld(ClientState conn)
     {
         var items = ItemsOf(conn);
-        return items.Count(LockerRow, SulphurHash) + items.Count(PlayerInventories.MainInventory, SulphurHash);
+        long total = (long)items.Count(LockerRow, SulphurHash)
+            + items.Count(PlayerInventories.MainInventory, SulphurHash)
+            + items.Count(PlayerInventories.ExpandedInventory, SulphurHash)
+            + PersonalStashOf(conn).CountOf(SulphurHash);
+        return (int)Math.Clamp(total, 0, int.MaxValue);
     }
 
-    /// <summary>Pays <paramref name="amount"/> Sulphur from the locker first, then the main inventory (G), and sends both
-    /// rows' changes; false (nothing taken) when the player holds less.</summary>
-    public static async Task<bool> PaySulphur(ClientState conn, int amount)
+    /// <summary>The inventory and stash changes recorded by <see cref="TryPaySulphurInTransaction"/>, ready to send to the client.</summary>
+    internal readonly record struct SulphurPayment(List<(byte Row, PlayerInventories.Payment Paid)> Rows, AccountStash? Stash, AccountStash.Payment? StashPaid);
+
+    /// <summary>Deducts <paramref name="amount"/> Sulphur inside an active <see cref="Saves.Atomically"/> transaction in
+    /// priority order: Chart Locker (112), main inventory (0), expanded inventory (84), then personal stash (G: order).
+    /// Returns false (nothing taken) when the player holds less.</summary>
+    internal static bool TryPaySulphurInTransaction(ClientState conn, int amount, out SulphurPayment payment)
+    {
+        var rows = new List<(byte Row, PlayerInventories.Payment Paid)>();
+        AccountStash? touchedStash = null;
+        AccountStash.Payment? stashPaid = null;
+        if (amount <= 0)
+        {
+            payment = new(rows, null, null);
+            return true;
+        }
+        var items = ItemsOf(conn);
+        var stash = PersonalStashOf(conn);
+        int inLocker = items.Count(LockerRow, SulphurHash);
+        int inMain = items.Count(PlayerInventories.MainInventory, SulphurHash);
+        int inExpanded = items.Count(PlayerInventories.ExpandedInventory, SulphurHash);
+        int inStash = stash.CountOf(SulphurHash);
+        if ((long)inLocker + inMain + inExpanded + inStash < amount)
+        {
+            payment = new(rows, null, null);
+            return false;
+        }
+        int remaining = amount;
+        int fromLocker = Math.Min(inLocker, remaining);
+        if (fromLocker > 0 && items.Pay(LockerRow, SulphurHash, fromLocker) is { } a) { rows.Add((LockerRow, a)); remaining -= fromLocker; }
+        int fromMain = Math.Min(inMain, remaining);
+        if (fromMain > 0 && items.Pay(PlayerInventories.MainInventory, SulphurHash, fromMain) is { } b) { rows.Add((PlayerInventories.MainInventory, b)); remaining -= fromMain; }
+        int fromExpanded = Math.Min(inExpanded, remaining);
+        if (fromExpanded > 0 && items.Pay(PlayerInventories.ExpandedInventory, SulphurHash, fromExpanded) is { } c) { rows.Add((PlayerInventories.ExpandedInventory, c)); remaining -= fromExpanded; }
+        if (remaining > 0)
+        {
+            stashPaid = stash.Pay(SulphurHash, remaining);
+            if (stashPaid is null)
+            {
+                payment = new(rows, null, null);
+                return false;
+            }
+            touchedStash = stash;
+        }
+        payment = new(rows, touchedStash, stashPaid);
+        return true;
+    }
+
+    /// <summary>Sends the 0x00bf updates for a completed <see cref="SulphurPayment"/>.</summary>
+    internal static async Task SendSulphurPayment(ClientState conn, SulphurPayment payment)
     {
         var items = ItemsOf(conn);
-        var payments = new List<(byte Row, PlayerInventories.Payment Paid)>();
-        bool paid = false;
-        Saves.Atomically(() =>
-        {
-            int inLocker = items.Count(LockerRow, SulphurHash), inMain = items.Count(PlayerInventories.MainInventory, SulphurHash);
-            if (inLocker + inMain < amount) return;
-            int fromLocker = Math.Min(inLocker, amount);
-            if (fromLocker > 0 && items.Pay(LockerRow, SulphurHash, fromLocker) is { } a) payments.Add((LockerRow, a));
-            if (amount - fromLocker > 0 && items.Pay(PlayerInventories.MainInventory, SulphurHash, amount - fromLocker) is { } b) payments.Add((PlayerInventories.MainInventory, b));
-            paid = true;
-        });
         var player = PlayerOf(conn);
-        foreach (var (row, p) in payments)
+        foreach (var (row, p) in payment.Rows)
             await player.Send(InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [.. p.Removed, .. p.Changed.Select(c => c.Id)], p.Changed),
                 $"0x00bf inventory {PlayerInventories.InventoryId(row)}: paid Sulphur");
+        if (payment.Stash is { } stash && payment.StashPaid is { } stashPaid)
+        {
+            var (remote, stream, ciphers) = conn.Wire;
+            await SendStashPayment(remote, stream, ciphers, conn, stash, stashPaid);
+        }
+    }
+
+    /// <summary>Pays <paramref name="amount"/> Sulphur from the locker (112), main inventory (0), expanded inventory (84),
+    /// then personal stash (G: priority order), and sends every modified row's or tab's 0x00bf; false (nothing taken) when
+    /// the player holds less.</summary>
+    public static async Task<bool> PaySulphur(ClientState conn, int amount)
+    {
+        SulphurPayment payment = default;
+        bool paid = false;
+        Saves.Atomically(() => paid = TryPaySulphurInTransaction(conn, amount, out payment));
+        if (paid) await SendSulphurPayment(conn, payment);
         return paid;
     }
 }
