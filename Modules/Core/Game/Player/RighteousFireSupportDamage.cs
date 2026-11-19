@@ -1,13 +1,13 @@
 public static partial class Game
 {
     static void SetRighteousFireSupportProfileLocked(ClientState conn, RighteousFireState rf,
-        IReadOnlyDictionary<uint, int> own)
+        IReadOnlyDictionary<uint, int> own, double now)
     {
         var more = (own.GetValueOrDefault(Stats.Key(Lifetap.DamageStat)!.Value),
             own.GetValueOrDefault(Stats.Key(InspirationElementalMore)!.Value));
         if (rf.ConditionalSupportMore == more) return;
         rf.ConditionalSupportMore = more;
-        RecordRighteousFireSupportChangeLocked(conn, rf, AreaTime(conn));
+        RecordRighteousFireSupportChangeLocked(conn, rf, now);
     }
 
     // Keep earned changes until the player tick consumes them. A new payment or link change replaces

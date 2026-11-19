@@ -572,6 +572,9 @@ public static partial class Game
     // and carry the righteous_fire_aura buff (row 13). It ends at death or on leaving the area; casting it again does nothing.
     public static bool IsRighteousFire(int effect) => Skills.EffectId(effect) == "RighteousFire";
 
+    static double RighteousFireActiveSeconds(RighteousFireState rf, double end, double elapsed) =>
+        Math.Max(0, Math.Min(elapsed, end - rf.StartedAt));
+
     sealed record RighteousFireDetachRecord(uint Id, byte[] Packet, bool RemovesObject = false);
     sealed record RighteousFireDetachPlan(RighteousFireState State, IReadOnlyList<RighteousFireDetachRecord> Packets);
 
@@ -677,7 +680,7 @@ public static partial class Game
                 int more = Stats.Key("righteous_fire_spell_damage_+%_final") is uint key
                     ? supported.Stats.GetValueOrDefault(key) : 0;
                 int radius = RighteousFireRadius(conn, supported.Stats);
-                SetRighteousFireSupportProfileLocked(conn, rf, supported.Stats);
+                SetRighteousFireSupportProfileLocked(conn, rf, supported.Stats, AreaTime(conn));
                 bool changed = rf.SpellDamageMore != more || rf.Radius != radius;
                 if (!changed) return;
                 rf.SpellDamageMore = more;
@@ -710,6 +713,12 @@ public static partial class Game
     {
         if (conn.RighteousFire is not { } rf || expected is not null && !ReferenceEquals(rf, expected)) return null;
         conn.RighteousFire = null;
+        conn.Minions.StatRevision++;
+        return PlanRighteousFireVisualRemovalLocked(rf);
+    }
+
+    static RighteousFireDetachPlan PlanRighteousFireVisualRemovalLocked(RighteousFireState rf)
+    {
         var packets = new List<RighteousFireDetachRecord>
         {
             new(PlayerId, InstanceEntities.RemoveBuff(PlayerId, rf.Buff)),
@@ -719,7 +728,6 @@ public static partial class Game
         foreach (var (monster, buff) in rf.Auras)
             packets.Add(new(monster, InstanceEntities.RemoveBuff(monster, buff)));
         rf.Auras.Clear();
-        conn.Minions.StatRevision++;
         return new(rf, packets);
     }
 
@@ -741,11 +749,18 @@ public static partial class Game
         source.Id == expected.Id && source.Effect == expected.Effect
         && source.Identity == expected.Identity;
 
-    public static async Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,
+    public static Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,
         int effect, int level, int quality, uint gem, RighteousFireState? expectedRelight = null,
-        PlayerSkillSource? expectedRelightSource = null)
+        PlayerSkillSource? expectedRelightSource = null) =>
+        StartRighteousFire(remote, stream, ciphers, conn, skillId, expectedRelight, expectedRelightSource);
+
+    static async Task<bool> StartRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, ushort skillId, RighteousFireState? expectedRelight, PlayerSkillSource? expectedRelightSource,
+        string? restyleReason = null)
     {
-        RighteousFireState? state = null;
+        var restyled = restyleReason is null ? null : expectedRelight;
+        RighteousFireDetachPlan? oldVisuals = null;
+        RighteousFireState state;
         object? area = null;
         int variation = 0;
         ushort? buffVisual = null, auraVisual = null;
@@ -767,22 +782,22 @@ public static partial class Game
                         || !conn.GemSourceLifetimes.IsCurrent(expectedLifetime)
                         || expectedRelightSource.Identity != expectedLifetime.Key
                         || expectedRelight.Skill != expectedRelightSource.Id))
-                    return;
+                    return false;
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-                    || conn.RighteousFire is not null)
-                    return;
+                    || !ReferenceEquals(conn.RighteousFire, restyled))
+                    return false;
                 var supported = SupportedSkill(conn, skillId);
                 var source = CurrentPlayerSkillSourceLocked(conn, skillId);
                 if (!supported.RequirementsMet || supported.Effect < 0
                     || SkillsFor(conn).EffectId(supported.Effect) != "RighteousFire"
                     || source is not { Active: true } || source.Effect != supported.Effect)
-                    return;
+                    return false;
                 var lifetime = CaptureGemSourceLifetimeLocked(conn, source);
-                if (!conn.GemSourceLifetimes.IsCurrent(lifetime) || source.Identity != lifetime.Key) return;
+                if (!conn.GemSourceLifetimes.IsCurrent(lifetime) || source.Identity != lifetime.Key) return false;
                 if (expectedRelightSource is { } expectedSource
                     && (expectedRelight is null || !SamePlayerSkillSource(source, expectedSource)
                         || !ReferenceEquals(lifetime, expectedRelight.SourceLifetime)))
-                    return;
+                    return false;
 
                 // A worn skill effect's art and the skill's current supported stats are authoritative here, not the
                 // caller's snapshot from before the action reached this mutation.
@@ -799,10 +814,12 @@ public static partial class Game
                 if (ringAo is not null) ring = conn.TakeObjectId();
                 at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 area = conn.Instance;
+                double now = AreaTime(conn);
                 state = new RighteousFireState(buff, aura, skillId,
                     DamagePctPerMinute: Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
                     BurnPctPerMinute: Get("base_nonlethal_fire_damage_%_of_maximum_life_taken_per_minute", 5400))
                 {
+                    StartedAt = restyled?.StartedAt ?? now,
                     Ring = ring,
                     Radius = radius,
                     RingArt = ringAo,
@@ -814,8 +831,16 @@ public static partial class Game
                     SourceLifetime = lifetime,
                     Instance = conn.Instance,
                 };
+                if (restyled is not null)
+                {
+                    // Only the presentation changes. Move the still-unsettled support history before publishing old IDs.
+                    state.ConditionalSupportMore = restyled.ConditionalSupportMore;
+                    state.SupportDamageChanges = restyled.SupportDamageChanges;
+                    restyled.SupportDamageChanges = null;
+                    oldVisuals = PlanRighteousFireVisualRemovalLocked(restyled);
+                }
                 conn.RighteousFire = state;
-                SetRighteousFireSupportProfileLocked(conn, state, supported.Stats);
+                SetRighteousFireSupportProfileLocked(conn, state, supported.Stats, now);
                 conn.Minions.StatRevision++;
                 // The initial create/wake/receipt are immutable originals captured in the same admission mutation. A
                 // profile writer after this boundary can replace the retained ring but cannot change what this
@@ -831,7 +856,8 @@ public static partial class Game
                 }
             }
         }
-        if (state is null) return;
+        if (oldVisuals is not null)
+            await PublishRighteousFireDetach(remote, stream, ciphers, conn, oldVisuals, restyleReason!);
         var current = state;
         string sourceLabel = current.SourceLifetime!.Key.ToString() ?? "exact";
         byte[] playerBuff = InstanceEntities.AddBuff(PlayerId, current.Buff, RighteousFireBuffRow, PlayerId,
@@ -862,7 +888,7 @@ public static partial class Game
         // The big burning circle is not a buff visual: it is MiscAnimated RighteousFireRing, an effect object of its own
         // (EffectObject), attached to the player: the client carries it along itself, so it stays on the player whatever
         // the latency (server glides arrived a round trip behind the client's own walk).
-        if (ringCreate is null || ringWake is null) return;
+        if (ringCreate is null || ringWake is null) return true;
         // Scale: the art is drawn for a radius of MiscAnimated __col4 world units (RighteousFireRing 400, about 37 cells of
         // 250/23 units, where the skill's base radius is 18), so it is scaled to the radius the fire burns in.
         await SendWorldCreate(conn, ringId!.Value, () => RingCurrent() ? ringCreate : null,
@@ -870,6 +896,7 @@ public static partial class Game
             $"scale {RighteousFireRingScale(initialRadius, ringArt!):0.###} for radius {initialRadius}",
             still: RingCurrent, transport: (remote, stream, ciphers));
         await SendWorldRecord(remote, stream, ciphers, conn, ringId!.Value, ringWake, null, atGate: () => RingCurrent() ? ringWake : null);
+        return true;
     }
 
     public static async Task<bool> EndRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
@@ -1078,7 +1105,7 @@ public static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
-            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds, tickNow);
+            if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, null, seconds, tickNow);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
             if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
@@ -1267,8 +1294,9 @@ public static partial class Game
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);
-                    burnCarry += (InGracePeriod(conn) ? 0 : burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now))
-                        * seconds * takenFactor;
+                    if (rf is not null && !InGracePeriod(conn))
+                        burnCarry += burnPerSecond * conn.ElementalAilments.DamageTakenFactor(now)
+                            * RighteousFireActiveSeconds(rf, now, seconds) * takenFactor;
                     int burnWhole = (int)Math.Truncate(burnCarry); burnCarry -= burnWhole;
                     int lifeBurn = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, burnWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref conn.NonChaosDotBypassCarry);
@@ -1465,15 +1493,18 @@ public static partial class Game
         BurnAround(remote, stream, ciphers, conn, rf, seconds, null);
 
     static async Task BurnAround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        RighteousFireState rf, double seconds, double? tickEnd)
+        RighteousFireState? expected, double seconds, double? tickEnd)
     {
+        RighteousFireState rf;
         if (!CurrentGameWork) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var entered = new List<(uint Id, SpawnedMonster M, ushort Buff)>();
         var left = new List<(uint Id, ushort Buff)>();
         using (ProjectileMutation(conn))
         {
-            if (!CurrentGameWork) return;
+            // The worker settles the current owner under this lock. Direct callers pass an exact owner.
+            if (!CurrentGameWork || (expected ?? conn.RighteousFire) is not { } current) return;
+            rf = current;
             if (CurrentRighteousFireSkillLocked(conn, rf) is not { } supported)
             {
                 if (PlanRighteousFireDetachLocked(conn, rf) is { } stale)
@@ -1481,6 +1512,9 @@ public static partial class Game
                 return;
             }
             double now = ProjectileWorldTime(conn);
+            double end = tickEnd ?? now;
+            seconds = RighteousFireActiveSeconds(rf, end, seconds);
+            if (seconds == 0) return;
             double perSecond;
             Dictionary<uint, int> playerStats;
             using (new PlayerStatScope(conn, fresh: true))
@@ -1488,7 +1522,7 @@ public static partial class Game
                 playerStats = CharacterPlayerStats(conn);
                 perSecond = RighteousFireEnemyDps(conn, rf, playerStats, supported.Stats);
             }
-            perSecond *= RighteousFireTimedSupportFactor(rf, tickEnd ?? now, seconds);
+            perSecond *= RighteousFireTimedSupportFactor(rf, end, seconds);
             var damageOverTime = new SkillDamageContext(SkillHitKind.Spell, playerStats)
                 .OverTime(new DamageOverTime(DamageType.Fire, perSecond, seconds));
             var here = conn.Walk.Position(now);

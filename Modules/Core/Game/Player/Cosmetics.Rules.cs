@@ -60,9 +60,7 @@ public static partial class Game
         return slots;
     }
 
-    // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
-    // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
-    // awaits; null means no RF was present and never late-binds to one that appeared later.
+    // Restyle the exact RF owner observed before the producer's awaits. Both burn clocks keep running.
     public static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
@@ -83,12 +81,7 @@ public static partial class Game
                 || source.Identity != lifetime.Key || (gem is uint type && source.Gem != type))
                 return false;
         }
-        if (!await EndRighteousFire(remote, stream, ciphers, conn, why, expectedRelight, source,
-                expectedRelight.Instance))
-            return false;
-        await ActivateRighteousFire(remote, stream, ciphers, conn, source.Id, source.Effect, source.Level,
-            source.Quality, source.Gem, expectedRelight, source);
-        return true;
+        return await StartRighteousFire(remote, stream, ciphers, conn, source.Id, expectedRelight, source, why);
     }
 
     /// <summary>A creature the character is drawn as: the client's morph number (the value of

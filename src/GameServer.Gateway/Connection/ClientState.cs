@@ -520,6 +520,8 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
 // enemies and to the player), its current radius in cells, and the aura buff instance on each monster inside it.
 public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute)
 {
+    /// <summary>The area time when this source started burning.</summary>
+    public double StartedAt { get; init; }
     /// <summary>The current ring object, replaced in place when the retained fire's radius changes.</summary>
     public uint? Ring { get; set; }
     /// <summary>The retained fire's current radius in cells.</summary>

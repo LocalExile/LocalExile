@@ -77,6 +77,9 @@ public class ArrowRainAndMirageTests
         public readonly SpawnedMonster Enemy = new("target", new(120, 100, 0), 0, 0, 100000) { Hostile = true };
         public readonly SpawnedMonster Ally = new("friendly", new(120, 100, 0), 0, 0, 100000) { Hostile = false };
 
+        public void AdvanceBy(double seconds) => Session.AdvanceTo(ProjectileRuntime.Time(
+            Math.Max(Conn.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(Conn)) + seconds));
+
         public async Task FlushOutput()
         {
             Assert.True(Session.Active, $"closed={Conn.Closed}, rules={Game.CurrentGameRules}, retired={Conn.RageRetired}");
@@ -611,6 +614,7 @@ public class ArrowRainAndMirageTests
         Game.ActivateRighteousFire("elemental-dot", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         double baseDps = (c.PlayerMaxLife + c.Pools.EnergyShield) * .7;
         void Burn(double factor)
         {
@@ -697,13 +701,14 @@ public class ArrowRainAndMirageTests
 
     sealed class ProjectileClock : IPlayerUpdateSchedule
     {
-        public readonly Queue<Action> Steps = [];
-        public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
-        public Task Wait(int milliseconds, CancellationToken stopping)
+        public readonly Queue<Func<Task>> Steps = [];
+        public void OnWait(Action step) => Steps.Enqueue(() =>
         {
-            Steps.Dequeue()();
+            step();
             return Task.CompletedTask;
-        }
+        });
+        public double Now(ClientState conn) => Game.ProjectileWorldTime(conn);
+        public Task Wait(int milliseconds, CancellationToken stopping) => Steps.Dequeue()();
     }
 
     static async Task SwapRighteousFireSocket(Battle b, uint host, int index, string name, byte quality = 0)
@@ -768,6 +773,9 @@ public class ArrowRainAndMirageTests
             At(3.375);
             Pay(8, 0);
             Assert.Equal(2, c.SupportGems.InspirationCharges);
+            At(3.4375);
+            Assert.True(await Game.RelightRighteousFire("rf-time", b.Stream, b.Ciphers, c, "skill art", rf, gem.Gem));
+            rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
             await Tick(3.5, 1.1 * (.25 + .5 * 1.03 + .25 * 1.06));
 
             At(5);
@@ -810,17 +818,23 @@ public class ArrowRainAndMirageTests
             await Tick(32.5, 1.015);
 
             At(33);
+            var retired = rf;
             await Swap(0, "Righteous Fire");
             Assert.Null(c.RighteousFire);
             gem = Game.GemSkillEffects(c).Single(g => g.Name == "Righteous Fire");
             await Game.ActivateRighteousFire("rf-time", b.Stream, b.Ciphers, c, gem.Id, gem.Effect, gem.Level, gem.Quality, gem.Gem);
             rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
-            await Tick(33.75, 1.03); // The new source starts while an existing Inspiration charge is active.
+            uint beforeStale = b.Enemy.Life;
+            await Game.BurnAround("rf-time", b.Stream, b.Ciphers, c, retired, .5);
+            Assert.Equal(beforeStale, b.Enemy.Life);
+            Assert.Same(rf, c.RighteousFire);
+            await Tick(33.25, .5 * 1.03); // Only the new source's quarter second, with its existing Inspiration charge.
+            await Tick(33.75, 1.03);
 
             // A payment arrives after the player tick sampled [43, 43.5] but before its queued publications finish.
             At(43);
-            clock.Steps.Enqueue(() => At(43.5));
-            clock.Steps.Enqueue(updates.Stop.Cancel);
+            clock.OnWait(() => At(43.5));
+            clock.OnWait(updates.Stop.Cancel);
             uint laterMana = 0;
             using var paidDuringTick = GameEvents.Tick.Add("Game", (actor, elapsed) =>
             {
@@ -844,6 +858,108 @@ public class ArrowRainAndMirageTests
         }
         finally
         {
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
+            updates.Stop.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Righteous_fire_burns_only_after_activation_and_continues_through_a_cosmetic_change(bool recovery)
+    {
+        using var b = new Battle("Righteous Fire");
+        var c = b.Conn;
+        c.Pools = Game.PoolsFor(c, 100);
+        c.PlayerLife = c.PlayerMaxLife;
+        Assert.Equal(0u, c.Pools.EnergyShield);
+        b.Enemy.Walk.Teleport(105, 100, 0);
+        var gem = Assert.Single(Game.GemSkillEffects(c));
+        var clock = new ProjectileClock();
+        var updates = new PlayerUpdatesState(Game.CombatLifetime!, clock);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            double origin = Math.Ceiling(Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c))) + 1;
+            void At(double time) => b.Session.AdvanceTo(ProjectileRuntime.Time(origin + time));
+            Task Ignite() => Game.OnUseObject("rf-start", b.Stream, b.Ciphers, c,
+                new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
+            uint startingLife = recovery ? c.PlayerLife : b.Enemy.Life;
+            var losses = new List<int>();
+            void Observe()
+            {
+                if (!recovery && losses.Count == 0)
+                    Assert.DoesNotContain(200u, Assert.IsType<RighteousFireState>(c.RighteousFire).Auras.Keys);
+                losses.Add((int)(startingLife - (recovery ? c.PlayerLife : b.Enemy.Life)));
+            }
+
+            // The player loop samples 0.5, then admits RF at 0.75 while publishing that tick.
+            // Recovery samples under the actor lock and first sees the new owner at 1.0.
+            At(0);
+            using var afterSample = GameEvents.Tick.Add("Game", async (actor, elapsed) =>
+            {
+                if (!ReferenceEquals(actor, c) || c.RighteousFire is not null) return;
+                At(.75);
+                await Ignite();
+            });
+            clock.OnWait(() => At(.5));
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                if (recovery)
+                {
+                    At(.75);
+                    await Ignite();
+                }
+                At(1);
+            });
+            clock.Steps.Enqueue(async () =>
+            {
+                Observe();
+                At(1.25);
+                var original = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                var gate = Program.SendGates.GetValue(b.Ciphers, _ => new(1, 1));
+                Assert.True(gate.Wait(0));
+                Task<bool> restyle;
+                RighteousFireState? duringOutput;
+                bool waiting;
+                try
+                {
+                    restyle = Game.RelightRighteousFire("rf-start", b.Stream, b.Ciphers, c,
+                        "restyled by the skill pick", original, gem.Gem);
+                    waiting = !restyle.IsCompleted;
+                    duringOutput = c.RighteousFire;
+                }
+                finally { gate.Release(); }
+                Assert.True(await restyle);
+                Assert.True(waiting);
+                var restyled = Assert.IsType<RighteousFireState>(c.RighteousFire);
+                Assert.Same(duringOutput, restyled);
+                Assert.NotSame(original, restyled);
+                Assert.Same(original.SourceLifetime, restyled.SourceLifetime);
+                At(1.5);
+            });
+            clock.OnWait(() => { Observe(); updates.Stop.Cancel(); });
+            c.Wire = ("rf-start", b.Stream, b.Ciphers);
+            c.PlayerUpdatesState = updates;
+            Assert.True(c.PlayerUpdatesWorker.TryStart(c, updates.Rules, null, updates, out updates.Generation));
+            c.Clock.Start();
+            if (recovery) await Game.RunResourceRecovery("rf-start", b.Stream, b.Ciphers, c, updates);
+            else await Game.RunPlayerTick("rf-start", b.Stream, b.Ciphers, c, updates);
+            var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+            Assert.Empty(clock.Steps);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            double rate = recovery
+                ? DamageModel.Mitigate(c.PlayerMaxLife * rf.BurnPctPerMinute / 6000d,
+                    Game.Resistance(c, DamageType.Fire), Game.MaxResistance(c, DamageType.Fire))
+                : c.PlayerMaxLife * rf.DamagePctPerMinute / 6000d;
+            Assert.Equal(new[] { 0, (int)(rate * .25), (int)(rate * .75) }, losses);
+        }
+        finally
+        {
+            c.Clock.Stop();
             Game.AreaUpdateContext.Value = previous;
             if (ReferenceEquals(c.PlayerUpdatesState, updates)) c.RetirePlayerUpdates();
             updates.Stop.Dispose();
@@ -901,6 +1017,7 @@ public class ArrowRainAndMirageTests
         await Game.OnUseObject("rf-links", b.Stream, b.Ciphers, c, new(Program.PlayerId, gem.Id, 1, 0), c.Clock.Elapsed.TotalSeconds);
         c.Clock.Stop();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         async Task Replace(int index, string name, byte quality = 0)
         {
@@ -967,6 +1084,7 @@ public class ArrowRainAndMirageTests
         await Game.ActivateRighteousFire("rf-link", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem);
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         var owner = Assert.IsType<GemSourceLifetimes.SourceLifetime>(rf.SourceLifetime);
         Task Tick(double factor) => AssertRighteousFireTick(b, rf, factor);
         await Tick(1.2);
@@ -1029,6 +1147,7 @@ public class ArrowRainAndMirageTests
         Game.ActivateRighteousFire("rf-increases", b.Stream, b.Ciphers, c, gem.Id,
             gem.Effect, gem.Level, gem.Quality, gem.Gem).GetAwaiter().GetResult();
         var rf = Assert.IsType<RighteousFireState>(c.RighteousFire);
+        b.AdvanceBy(1);
         Assert.Equal(4200, rf.DamagePctPerMinute);
         Assert.Equal(4200, rf.EnergyShieldDamagePctPerMinute);
         Assert.Equal(5400, rf.BurnPctPerMinute);
