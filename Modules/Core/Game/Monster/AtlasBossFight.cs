@@ -50,7 +50,7 @@ abstract class AtlasBossFight
     {
         var placed = new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, []);
         if (placed.Of("Metadata/MiscellaneousObjects/ArenaMiddle").FirstOrDefault() is { } middle) return (middle.X, middle.Y);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         lock (conn.Monsters) return boss.Walk.Position(now);
     }
 
@@ -119,7 +119,7 @@ abstract class AtlasBossFight
         int action;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var at = boss.Walk.Position(now);
             boss.Walk.Order(at.X, at.Y, now);
             action = ++boss.ActionGeneration;
@@ -170,7 +170,7 @@ abstract class AtlasBossFight
         if (on)
         {
             await All(InstanceEntities.AddBuff(id, shieldBuff, ImmunityRow, id), monster: true);
-            shieldEffect = await Effect(conn, boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldArt, 600, 1);
+            shieldEffect = await Effect(conn, boss.Walk.Position(AreaTime(conn)), ShieldArt, 600, 1);
         }
         else
         {
@@ -180,7 +180,7 @@ abstract class AtlasBossFight
             {
                 var gone = shieldEffect;
                 shieldEffect = 0;
-                await Effect(conn, boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldOffArt, 1.5, 1);
+                await Effect(conn, boss.Walk.Position(AreaTime(conn)), ShieldOffArt, 1.5, 1);
                 await RemoveEffect(gone);
             }
         }
@@ -193,7 +193,7 @@ abstract class AtlasBossFight
         var obj = new EffectObject(at.X, at.Y, ao) { Scale = scale };
         await All(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));
         await All(InstanceProtocol.EnterWakeZone(effect));
-        effects.Add((effect, conn.Clock.Elapsed.TotalSeconds + life));
+        effects.Add((effect, AreaTime(conn) + life));
         return effect;
     }
 
@@ -220,7 +220,7 @@ abstract class AtlasBossFight
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 ||
                     InGracePeriod(conn) || boss.Dead) return null;
-                double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                 outcome = CommitMonsterHitLocked(conn, id, boss, attack, now, conn.Walk.Position(now), from, false,
                     conn.NextActionSequence());
                 return outcome?.HitPacket;
@@ -269,7 +269,7 @@ abstract class AtlasBossFight
         stopped = true;
         Phases.DamageTakenPercent = 100;
         if (players.FirstOrDefault() is { } conn)
-            lock (conn.Monsters) boss.Walk.SetSpeed(boss.Variety?.MovementSpeed ?? 30, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters) boss.Walk.SetSpeed(boss.Variety?.MovementSpeed ?? 30, AreaTime(conn));
     }
 
     protected static double Distance((int X, int Y) a, (int X, int Y) b) =>

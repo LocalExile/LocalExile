@@ -105,7 +105,7 @@ public static partial class Game
             var charges = ChargesOf(conn);
             int removable = charges.Converted(ChargeType.Endurance) ? 0 : Math.Min(5,
                 Math.Max(0, charges.Effective(ChargeType.Endurance) - charges.Limits(ChargeType.Endurance).Minimum));
-            if (!RandomRolls.Chance(Get(Stat.ImmortalCallPctChanceToNotConsumeEnduranceCharges), 100, Random.Shared))
+            if (!RandomRolls.Chance(Get(Stat.ImmortalCallPctChanceToNotConsumeEnduranceCharges), 100, AreaRng(conn)))
                 charges.State.Lose(ChargeType.Endurance, removable, charges.Limits(ChargeType.Endurance));
             guard.Remaining = removable;
             duration *= Math.Max(0, 1 + removable * Get(Stat.BuffEffectDurationPlusPctPerRemovableEnduranceChargeLimitedTo5) / 100d);
@@ -123,7 +123,7 @@ public static partial class Game
         }
         guard.Until = now + duration;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
-        AfterSeconds(conn, duration, () => { lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds); });
+        AfterSeconds(conn, duration, () => { lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, AreaTime(conn)); });
         double recovery = Math.Max(0, 1 + Get(Stat.VirtualCooldownSpeedPlusPct) / 100d + Own(Stat.BaseCooldownSpeedPlusPct) / 100d);
         guard.RecoverySeconds = recovery > 0 ? SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
         conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -149,7 +149,7 @@ public static partial class Game
 
     public static Dictionary<uint, int> WithTriggeredGuard(Player conn, Dictionary<uint, int> stats)
     {
-        if (CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds) is not { Until: > 0 } guard) return stats;
+        if (CurrentTriggeredGuard(conn, AreaTime(conn)) is not { Until: > 0 } guard) return stats;
         void Add(uint name, int value)
         {
             if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;

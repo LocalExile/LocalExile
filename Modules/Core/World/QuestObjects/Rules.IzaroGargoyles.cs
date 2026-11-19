@@ -81,7 +81,7 @@ static partial class QuestobjectsRules
         {
             if (GargoyleDead(conn, g)) return;
             g.Buff = buff = conn.NextBuff++;
-            (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds + seconds, true, false);
+            (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace) = (AreaTime(conn) + seconds, true, false);
             (g.Monster.EncounterStats, g.Monster.StunImmuneUntil) = (null, double.NegativeInfinity);
             UpdateIzaroStats(arena);
         }
@@ -140,7 +140,7 @@ static partial class QuestobjectsRules
             }
             await Send(conn, [.. bytes], "0x02bc Izaro's gargoyles up");
             await Task.Delay(TimeSpan.FromSeconds(IzaroGargoyles.StandSeconds));
-            foreach (var g in own.OrderBy(_ => Random.Shared.Next()))
+            foreach (var g in own.OrderBy(_ => AreaRng(conn).Next()))
             {
                 uint beam;
                 ushort awaken = 0;
@@ -149,7 +149,7 @@ static partial class QuestobjectsRules
                 {
                     if (arena.Over || !here()) return;
                     if (GargoyleDead(conn, g)) continue;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     from = g.Monster.Walk.Position(now);
                     to = arena.Boss!.Walk.Position(now);
                     g.Monster.EncounterStats = null;

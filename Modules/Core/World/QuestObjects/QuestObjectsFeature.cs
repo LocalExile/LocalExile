@@ -126,7 +126,7 @@ static class QuestObjectsFeature
         var at = nest.At;
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
         int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var (here, stop, arrive) = conn.Walk.WalkUpTo(at.X, at.Y, GlyphQuest.NestSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
@@ -165,7 +165,7 @@ static class QuestObjectsFeature
     {
         if (conn.Glyphs?.Wall is not { } wall) return;
         int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var (here, stop, arrive) = conn.Walk.WalkUpTo(wall.X, wall.Y, GlyphQuest.WallSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
             await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),

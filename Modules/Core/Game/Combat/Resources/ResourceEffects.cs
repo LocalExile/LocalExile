@@ -133,7 +133,7 @@ public static partial class Game
     {
         if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) return 0;
         return conn.LeavingArea && conn.RampageTransferAt is double at ? at
-            : conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
+            : conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : AreaTime(conn);
     }
     public static void ManaSpentLocked(Player conn, uint amount, IReadOnlyDictionary<uint, int> player)
     {

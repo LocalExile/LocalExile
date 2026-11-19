@@ -204,7 +204,7 @@ public static partial class Game
                 if (animated.Ground is { } item) aim = (item.GridX, item.GridY);
             }
         }
-        if (definition.Id == "SummonSkeletonsAltY") path = $"Metadata/Monsters/RaisedSkeletons/RaisedSkeletonSpellcaster{Random.Shared.Next(1, 4)}Jewel";
+        if (definition.Id == "SummonSkeletonsAltY") path = $"Metadata/Monsters/RaisedSkeletons/RaisedSkeletonSpellcaster{AreaRng(conn).Next(1, 4)}Jewel";
         if (definition.Id == "SummonHolyRelicAltX") path = "Metadata/Monsters/Relic/HolyRelicSkull";
         if (definition.Family == "Clone" && restoredVariety is null)
         {

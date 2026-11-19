@@ -20,7 +20,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             var session = FortificationOf(conn);
-            session.Read(conn.Clock.Elapsed.TotalSeconds);
+            session.Read(AreaTime(conn));
             if (conn.Pools.FortificationRevision != session.Revision) conn.Pools = PoolsFor(conn, conn.Pools.Level);
         }
     }
@@ -38,7 +38,7 @@ public static partial class Game
             int Get(uint key) => sources.GetValueOrDefault(key);
             var session = FortificationOf(conn);
             if (conn.PlayerLife == 0 && session.Value.Uncapped > 0) session.Clear();
-            var value = session.Observe(conn.Clock.Elapsed.TotalSeconds, Get);
+            var value = session.Observe(AreaTime(conn), Get);
             void Add(uint name, int added)
             {
                 if (name is var key)
@@ -70,8 +70,8 @@ public static partial class Game
             return (int)Math.Clamp((long)player.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
-        return FortificationOf(conn).Hit(conn.Clock.Elapsed.TotalSeconds, rawDamage, target.MaxLife,
-            target.Rarity, Get, random ?? Random.Shared);
+        return FortificationOf(conn).Hit(AreaTime(conn), rawDamage, target.MaxLife,
+            target.Rarity, Get, random ?? AreaRng(conn));
     }
 
     /// <summary>A successful melee stun (HitReaction.TryFlinch): roll the character's chance to Fortify and grant the
@@ -82,15 +82,15 @@ public static partial class Game
         if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
         var player = CharacterPlayerStats(conn);
         int Get(uint key) => player.GetValueOrDefault(key);
-        return FortificationOf(conn).FortifyFromStun(conn.Clock.Elapsed.TotalSeconds, rawDamage, maximumLife, rarity,
-            Get, random ?? Random.Shared);
+        return FortificationOf(conn).FortifyFromStun(AreaTime(conn), rawDamage, maximumLife, rarity,
+            Get, random ?? AreaRng(conn));
     }
 
     public static int FortificationDamageTaken(Player conn, int damage)
     {
         lock (conn.Monsters)
         {
-            var value = FortificationOf(conn).Read(conn.Clock.Elapsed.TotalSeconds);
+            var value = FortificationOf(conn).Read(AreaTime(conn));
             return (int)((long)Math.Max(0, damage) * (100 - Math.Min(100, value.Current)) / 100);
         }
     }
@@ -109,7 +109,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            FortificationOf(conn).ConfigureRecovery(conn.Clock.Elapsed.TotalSeconds, maximumLife,
+            FortificationOf(conn).ConfigureRecovery(AreaTime(conn), maximumLife,
                 false,
                 PanelStats.LifeRegenerationMultiplier(get));
         }
@@ -122,7 +122,7 @@ public static partial class Game
             var session = FortificationOf(conn);
             if (conn.PlayerLife > 0)
             {
-                var transfer = session.State.Carry(conn.Clock.Elapsed.TotalSeconds);
+                var transfer = session.State.Carry(AreaTime(conn));
                 if (transfer.Grants.Count > 0) CarriedFortification[ticket] = (DateTime.UtcNow, transfer);
             }
             session.Clear();
@@ -136,7 +136,7 @@ public static partial class Game
         lock (conn.Monsters)
             if (CarriedFortification.TryRemove(conn.Ticket, out var entry)
                 && DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && conn.PlayerLife > 0)
-                FortificationOf(conn).Restore(entry.State, conn.Clock.Elapsed.TotalSeconds);
+                FortificationOf(conn).Restore(entry.State, AreaTime(conn));
     }
 
     // Construct buffs, stats and Actor records together inside the send gate from the current owner state. A stat
@@ -149,17 +149,17 @@ public static partial class Game
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.Paused) return null;
                 var session = FortificationOf(conn);
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 using var snapshot = session.Capture(now);
                 if (conn.PlayerLife == 0) { if (session.Value.Uncapped > 0) session.Clear(); }
-                session.Read(conn.Clock.Elapsed.TotalSeconds);
+                session.Read(AreaTime(conn));
                 if (session.PresentedRevision == session.Revision) return null;
                 ReconcileOwnAuras(conn);
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 return WithOwnAuraChanges(conn, () =>
                 {
                     // Build and acknowledge the tail AFTER any aura prefix, in the same order as its wire packets.
-                    var value = session.Read(conn.Clock.Elapsed.TotalSeconds);
+                    var value = session.Read(AreaTime(conn));
                     var packets = new List<byte[]>();
                     if (session.Buff != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, session.Buff));
                     session.Buff = 0;

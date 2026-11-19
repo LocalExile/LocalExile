@@ -126,7 +126,7 @@ static partial class Game
             var runtime = conn.OrbRuntime;
             if (runtime is null || runtime.Stages <= 0 || runtime.PresentedStages == runtime.Stages) return;
             stages = runtime.Stages;
-            double left = runtime.Channelling ? 0 : runtime.ExpiresAt - conn.Clock.Elapsed.TotalSeconds;
+            double left = runtime.Channelling ? 0 : runtime.ExpiresAt - AreaTime(conn);
             // The same instance is updated in place: replacing it (0x1c2 + a new 0x1c1) restarted the client's timer with
             // every stage, so a duration it draws could never be seen running.
             ushort instance = runtime.PresentedBuff;
@@ -159,7 +159,7 @@ static partial class Game
                 conn.OrbRuntime = runtime;
                 created = true;
             }
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             runtime.SkillId = skillId;
             runtime.Gem = gem;
             runtime.Action = action;
@@ -217,7 +217,7 @@ static partial class Game
             var runtime = conn.OrbRuntime;
             if (runtime is null || !runtime.Channelling || runtime.ChannelGeneration != generation
                 || runtime.Action != action) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             double duration = WinterOrbDuration(conn, runtime);
             runtime.Channelling = false;
             runtime.ExpiresAt = now + duration;
@@ -278,7 +278,7 @@ static partial class Game
                 lock (conn.Monsters)
                 {
                     if (!Current()) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     if (conn.Paused) wait = .1;
                     else
                     {
@@ -315,7 +315,7 @@ static partial class Game
                 lock (conn.Monsters)
                 {
                     if (!Current()) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     // Fixed cadence: a late volley must not stretch every later one.
                     double interval = WinterOrbFireSeconds(conn, runtime.SkillId, runtime.Gem.Effect, runtime.Stages,
                         runtime.Channelling);

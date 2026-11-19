@@ -154,7 +154,7 @@ public static partial class Game
                         return;
                     }
                     conn.Minions.Attacks.Remove(id);
-                    landed = MinionHitLocked(conn, id, m, target, now, Random.Shared);
+                    landed = MinionHitLocked(conn, id, m, target, now, AreaRng(conn));
                     if (landed is { Hit.StageStarts: true } staged)
                     {
                         CommitBossStage(conn, target.Id, target.Monster, now);

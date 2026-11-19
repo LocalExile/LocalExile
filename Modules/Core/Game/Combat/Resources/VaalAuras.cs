@@ -27,7 +27,7 @@ public static partial class Game
         if (!VaalAuraStates.TryGetValue(conn, out var aura)) return;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (conn.PlayerLife > 0 && aura.Stat is uint key && aura.Until > now)
             {
                 stats[key] = 1;
@@ -55,7 +55,7 @@ public static partial class Game
                 lock (conn.Monsters)
                 {
                     if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || aura.Token != token) return null;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     var bytes = new List<byte>();
                     // A use while the last one still runs replaces it.
                     if (aura.Buff != 0 || aura.Source != 0)

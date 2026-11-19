@@ -10,7 +10,7 @@ public sealed partial class DeliriumModule
     List<Item> RollRewards(Player conn, Run run)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
-        var random = Random.Shared;
+        var random = AreaRng(conn);
         var catalog = ItemsFor(conn);
         var drops = DropsFor(conn);
         var uniques = UniquesFor(conn);
@@ -19,7 +19,7 @@ public sealed partial class DeliriumModule
         var all = catalog.All.Where(t => t.Supported && t.DropLevel <= level && !t.Components.Contains("Quest")).ToArray();
         var gemRows = GemSources.DropPool(catalog);
         // The server's reward-tier rate is tunable; its population/clear-speed formula is not published by GGG.
-        int tier = Math.Clamp(2 + run.Kills / 40 + (conn.Clock.Elapsed.TotalSeconds - run.Started < 90 ? 1 : 0), 2, 7);
+        int tier = Math.Clamp(2 + run.Kills / 40 + (AreaTime(conn) - run.Started < 90 ? 1 : 0), 2, 7);
         var result = new List<Item>();
         UniqueCatalog.Definition[]? uniquePool = null;
         foreach (int kind in run.Rewards)

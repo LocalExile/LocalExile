@@ -160,7 +160,7 @@ public static class CosmeticsFeature
         lock (conn.Pets) { old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
         foreach (uint id in old)
             await global::Game.SendWorldRemoval(conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var (px, py) = conn.Walk.Position(now);
         foreach (var worn in WornCosmetics(conn).Where(w => w.Slot is 18 or 19))
         {
@@ -198,7 +198,7 @@ public static class CosmeticsFeature
                 lock (conn.Pets)
                 {
                     if (conn.Closed || conn.LeavingArea || !conn.Pets.TryGetValue(id, out var pet)) return null;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     var to = PetSpot(conn, conn.Walk.Position(now), pet.Side);
                     pet.Walk.Teleport(to.X, to.Y, now);
                     pet.Target = to;
@@ -215,7 +215,7 @@ public static class CosmeticsFeature
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused || !conn.Pets.TryGetValue(id, out var pet)) return null;
                 pet.Target = null; // No owner-follow destination while this walk is running.
-                return PetMove(conn, id, pet, to, conn.Clock.Elapsed.TotalSeconds);
+                return PetMove(conn, id, pet, to, AreaTime(conn));
             }
         }, still: still);
 
@@ -267,9 +267,9 @@ public static class CosmeticsFeature
                 {
                     lock (conn.Pets)
                         return !conn.Closed && !conn.LeavingArea && conn.Pets.TryGetValue(id, out var pet)
-                            ? PetSpeedUpdate(conn, id, pet, conn.Clock.Elapsed.TotalSeconds) : null;
+                            ? PetSpeedUpdate(conn, id, pet, AreaTime(conn)) : null;
                 });
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var player = conn.Walk.Position(now);
             var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();
             lock (conn.Pets)

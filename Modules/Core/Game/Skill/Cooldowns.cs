@@ -173,7 +173,7 @@ public static partial class Game
             int key = skillId is ushort requestedKey ? CooldownKey(conn, effect, requestedKey) : effect;
             var sharedUses = new List<(SingleUseCooldownState State, int Version, ushort Skill)>();
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                || requestedAt is double asked && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds)
+                || requestedAt is double asked && PlayerActionBlocked(conn, asked, AreaTime(conn))
                 || actionToken is int original && conn.ActionCount != original) return false;
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
@@ -183,7 +183,7 @@ public static partial class Game
             {
                 if (CurrentStanceSourceLocked(conn, requestedSkill, effect) is not { } stanceSource) return false;
                 plan = CooldownPlan(conn, stanceSource.Supported, CharacterPlayerStats(conn));
-                double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+                double acceptedAt = AreaTime(conn);
                 if (reserve && !TryPlanStanceLocked(conn, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
             if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(conn, manual)) is not null) return false;
@@ -221,7 +221,7 @@ public static partial class Game
             if (payer is ushort paying && !CanPaySkillCost(conn, paying)) return false;
             if (plan is { } cooldown)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 state = CooldownStateLocked(conn, key, cooldown, now);
                 var peers = SharedCooldownPeers(conn, effect, key, cooldown, now);
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
@@ -290,7 +290,7 @@ public static partial class Game
                 .FirstOrDefault(plan => plan is not null));
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             foreach (var (key, state) in conn.SingleUseCooldowns.ToArray())
             {
                 if (!plans.TryGetValue(key, out var plan)) continue; // Removal does not reset a spent use.
@@ -308,7 +308,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return null;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var updates = new List<SingleUseCooldownUpdate>();
             var synchronized = new List<SingleUseCooldownState>();
             foreach (var (id, effect) in currentSkills())

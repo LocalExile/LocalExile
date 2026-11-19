@@ -100,7 +100,7 @@ public static partial class Game
         presenting.GoldCheckedAt = await PickUpNearbyGold(conn, presenting.GoldCheckedAt);
         lock (conn.Monsters)
             if (HardcoreProgressBlocked(conn)) return;
-        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var at = conn.Walk.Position(AreaTime(conn));
         // Quests that start when the player comes near a monster (a1q1: Hillock, "Kill Hillock").
         if (watched is { Count: > 0 })
         {
@@ -155,27 +155,27 @@ public static partial class Game
         int incomingEpoch;
         lock (conn.Monsters)
         {
-            nextIncoming = conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+            nextIncoming = conn.IncomingAilments.Snapshot(AreaTime(conn));
             presented = conn.PresentedIncomingAilments ??
                 new(false, double.NegativeInfinity, 0, double.NegativeInfinity, 0, 0);
             incomingEpoch = conn.IncomingHitEpoch;
         }
         if (nextIncoming == presented) return;
         {
-            foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, conn.Clock.Elapsed.TotalSeconds))
+            foreach (var (packet, log) in IncomingAilmentBuffs(presented, nextIncoming, AreaTime(conn)))
                 await Send(conn, [], log, atGate: () =>
                 {
                     lock (conn.Monsters)
                     {
                         if (conn.Closed || conn.LeavingArea || conn.IncomingHitEpoch != incomingEpoch
-                            || conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != nextIncoming)
+                            || conn.IncomingAilments.Snapshot(AreaTime(conn)) != nextIncoming)
                             return null;
                         return packet;
                     }
                 });
             lock (conn.Monsters)
                 if (!conn.Closed && !conn.LeavingArea && conn.IncomingHitEpoch == incomingEpoch
-                    && conn.IncomingAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) == nextIncoming)
+                    && conn.IncomingAilments.Snapshot(AreaTime(conn)) == nextIncoming)
                 {
                     conn.PresentedIncomingAilments = nextIncoming;
                     conn.PresentedIncomingAilmentEpoch = incomingEpoch;
@@ -187,7 +187,7 @@ public static partial class Game
     static async Task SendElementalAilmentChanges(Player conn)
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
-        var next = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+        var next = conn.ElementalAilments.Snapshot(AreaTime(conn));
         if (next == presenting.Ailments) return;
         var before = presenting.Ailments;
         presenting.Ailments = next;
@@ -207,7 +207,7 @@ public static partial class Game
     {
         if (PresentVerifyTag.Value is not null) return;
         var presenting = PresentingOf.GetOrCreateValue(conn);
-        double at = conn.Clock.Elapsed.TotalSeconds + Math.Max(0, seconds);
+        double at = AreaTime(conn) + Math.Max(0, seconds);
         lock (presenting) if (at < presenting.NextAt) presenting.NextAt = at;
     }
 
@@ -216,7 +216,7 @@ public static partial class Game
     {
         var presenting = PresentingOf.GetOrCreateValue(conn);
         lock (presenting)
-            if (conn.Clock.Elapsed.TotalSeconds >= presenting.NextAt)
+            if (AreaTime(conn) >= presenting.NextAt)
             {
                 presenting.NextAt = double.PositiveInfinity;
                 presenting.Pending = true;
@@ -262,7 +262,7 @@ public static partial class Game
         if (!VerifyPresentations || !presenting.Ran) return;
         // What is still to run (a mark, a due end, a pending or running presentation) is not missed yet.
         if (StatsUnsettled(conn) || presenting.Pending || presenting.NearbyPending || !presenting.Running.IsCompleted
-            || conn.Clock.Elapsed.TotalSeconds >= presenting.NextAt) return;
+            || AreaTime(conn) >= presenting.NextAt) return;
         foreach (var send in StatPresentations.Concat(NearbyPresentations).Concat(StatPresentationsAfter))
         {
             PresentVerifyTag.Value = send.Method.Name;

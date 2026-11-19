@@ -251,7 +251,7 @@ static partial class KitavaActTen
             {
                 lock (p.Monsters)
                 {
-                    double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
+                    double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
                     if (stopped || !CurrentGameWork || stage is not (2 or 3 or 4) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                     var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())

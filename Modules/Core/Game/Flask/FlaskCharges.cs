@@ -70,7 +70,7 @@ public static partial class Game
             spent = done;
             if (accepted is not null)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 if (conn.EntryProtection.End(now, conn.Walk.Position(now), action: true) is ushort buff)
                     Automation(conn).Packets.Add(new(InstanceEntities.RemoveBuff(PlayerId, buff),
                         "Grace Period ends: movement, action or deadline", WorldId: PlayerId));
@@ -121,12 +121,12 @@ public static partial class Game
     {
         var activeEffect = conn.UtilityFlaskEffects.Of(flask.Id);
         if (FlaskEnchantments.BlocksGain(ItemModStats.Local(flask.Item, ItemsFor(conn).Mods),
-                activeEffect is not null && activeEffect.Ends > conn.Clock.Elapsed.TotalSeconds)) return false;
+                activeEffect is not null && activeEffect.Ends > AreaTime(conn))) return false;
         var rules = LeagueFor(conn).Rules;
         if (rules.UtilityFlaskChargesWhileActive || ItemsFor(conn).ByHash(flask.Item.TypeHash) is not { } type
             || ItemsFor(conn).UtilityFlaskOf(type) is null) return true;
         var active = conn.UtilityFlaskEffects.Of(flask.Id);
-        bool running = active is not null && active.Ends > conn.Clock.Elapsed.TotalSeconds;
+        bool running = active is not null && active.Ends > AreaTime(conn);
         bool exception = rules.UtilityFlaskExceptionStat is { } stat && Stats.Key(stat) is uint key
             && CharacterPlayerStats(conn).GetValueOrDefault(key) > 0;
         return LeagueGameplay.CanGainUtilityCharges(!rules.UtilityFlaskChargesWhileActive, running, exception);
@@ -144,7 +144,7 @@ public static partial class Game
     // (FlaskCharges.CritCooldown), looked at before anything else.
     public static async Task GainFlaskChargesOnCrit(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (!conn.FlaskChargeCarry.CritReady(now)) return;
         var bar = CritFlaskBar(conn);
         if (bar.All(f => f.Full)) return;
@@ -152,7 +152,7 @@ public static partial class Game
         int Get(uint key) => character.GetValueOrDefault(key);
         bool precision;
         lock (conn.Monsters) precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, now, Random.Shared.Next);
+        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, now, AreaRng(conn).Next);
         if (gains.Count > 0)
             await GainFlaskCharges(conn, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");
     }

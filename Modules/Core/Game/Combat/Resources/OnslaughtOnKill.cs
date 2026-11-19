@@ -96,11 +96,11 @@ public static partial class Game
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
-    // Random.Shared, so a projectile commit's own draws stay in order.
+    // AreaRng(conn), so a projectile commit's own draws stay in order.
     // Onslaught from kills and hits lasts until its deadline (on the connection clock); the reading step runs again then.
     static bool KillOnslaughtActiveLocked(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds, until = KillOnslaughtOf(conn).Until;
+        double now = AreaTime(conn), until = KillOnslaughtOf(conn).Until;
         if (conn.PlayerLife == 0 || now >= until) return false;
         StatsChangeIn(until - now);
         return true;
@@ -109,7 +109,7 @@ public static partial class Game
     public static bool OnslaughtOnKill(Player conn)
     {
         lock (conn.Monsters)
-            return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared)
+            return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(AreaTime(conn), AreaRng(conn))
                 && Marked(conn, PlayerStatStep.Onslaught);
     }
 
@@ -140,7 +140,7 @@ public static partial class Game
             var onslaught = ItemsFor(conn).Onslaught;
             bool hidden = onslaught is null || conn.UtilityFlaskEffects.ShowsOnslaught
                 || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null);
-            if (o.Present(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife > 0, hidden) is not var (removed, seconds, stats))
+            if (o.Present(AreaTime(conn), conn.PlayerLife > 0, hidden) is not var (removed, seconds, stats))
                 return null;
             var bytes = new List<byte>();
             if (removed != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, removed));

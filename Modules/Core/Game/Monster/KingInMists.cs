@@ -322,7 +322,7 @@ public static class KingInMists
 
         public async Task Run()
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             _origin = conn.KingOrigin ?? boss.Walk.Position(now);
             // A kept instance restores the monsters where the player left them, so a re-entered phase-1 fight would
             // start the intro on the King's old cell (live 2026-11-01 20:26: (301,587) instead of the mapboss point
@@ -404,7 +404,7 @@ public static class KingInMists
                     await Game.SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 0)]),
                         $"0x01b3 King in the Mists 0x{id:x} shows its overhead life bar");
                     // The intro is over: damage now counts and the boss bar may open.
-                    _graceUntil = conn.Clock.Elapsed.TotalSeconds;
+                    _graceUntil = AreaTime(conn);
                     boss.KingGrace = false;
                 }
                 while (true)
@@ -412,7 +412,7 @@ public static class KingInMists
                     await Task.Delay(50);
                     if (!Present()) return;
                     if (conn.Paused) continue;
-                    now = conn.Clock.Elapsed.TotalSeconds;
+                    now = AreaTime(conn);
                     if (conn.KingPortentStacks > 0 && now >= conn.KingPortentUntil)
                     {
                         conn.KingPortentStacks = 0;
@@ -488,7 +488,7 @@ public static class KingInMists
         {
             await ClearActionBeforeAnimation($"0x01ac King in the Mists ends the previous action before it {label}");
             if (!Present()) return;
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             var (playerX, playerY) = conn.Walk.Position(startedAt);
             var (toX, toY) = place(playerX, playerY);
             if (playerFirst)
@@ -519,13 +519,13 @@ public static class KingInMists
                 // with a fast 0x1ba glide; without this the next teleport can look like a 2-3 cell jump because the two
                 // positions disagree.
                 bool settleFlinching;
-                lock (conn.Monsters) settleFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+                lock (conn.Monsters) settleFlinching = AreaTime(conn) < boss.FlinchUntil;
                 if (!settleFlinching)
                     await Game.SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id),
                         $"0x01ac King in the Mists {label} ends before settle");
                 await Task.Delay(80);
                 if (!Present()) return;
-                double nativeAt = conn.Clock.Elapsed.TotalSeconds;
+                double nativeAt = AreaTime(conn);
                 lock (conn.Monsters) boss.Walk.Teleport(toX, toY, nativeAt);
                 await Game.SendWorldRecord(conn, id, InstanceProtocol.MoveTo(id, toX, toY, 0.1f, InstanceProtocol.FollowTerrain),
                     $"0x01ba King in the Mists {label} settle at ({toX}, {toY})");
@@ -536,11 +536,11 @@ public static class KingInMists
             // 0x1b7 on a monster plays the client's own teleport effect (the fire column) on top of teleport_01.
             // 0x1ba glides the object to the same cell without that effect; the speed is high enough to be a snap.
             bool flinching;
-            lock (conn.Monsters) flinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+            lock (conn.Monsters) flinching = AreaTime(conn) < boss.FlinchUntil;
             if (!flinching)
                 await Game.SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id),
                     $"0x01ac King in the Mists {label} ends");
-            double movedAt = conn.Clock.Elapsed.TotalSeconds;
+            double movedAt = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(toX, toY, movedAt);
             await Game.SendWorldRecord(conn, id, InstanceProtocol.MoveTo(id, toX, toY, 0.1f, InstanceProtocol.FollowTerrain),
                 $"0x01ba King in the Mists {label} to ({toX}, {toY})");
@@ -552,7 +552,7 @@ public static class KingInMists
         async Task ClearActionBeforeAnimation(string label)
         {
             bool flinching;
-            lock (conn.Monsters) flinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+            lock (conn.Monsters) flinching = AreaTime(conn) < boss.FlinchUntil;
             if (flinching) return;
             await Game.SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id), label);
             // The client's clip can still be finishing when the action ends; a longer gap keeps the next native move from
@@ -598,7 +598,7 @@ public static class KingInMists
                 (tx, ty) = conn.Layout.Near((wantX, wantY));
                 if (!Sane(tx, ty) || Distance(mx, my, tx, ty) < 10 || Distance(px, py, tx, ty) < 25)
                 {
-                    _nextBlink = conn.Clock.Elapsed.TotalSeconds + 1.0;
+                    _nextBlink = AreaTime(conn) + 1.0;
                     return;
                 }
             }
@@ -609,7 +609,7 @@ public static class KingInMists
             // Play only the actor's teleport_01 clip (0x1b2 kind 0), not the 0x4009 skill action: the action also runs
             // the skill's ActiveSkill teleport effect, which is the extra fire column. The clip index 35 is
             // teleport_01 (1.333 s); the cell update then follows with a fast glide.
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             lock (conn.Monsters)
             {
                 ++boss.ActionGeneration;
@@ -623,7 +623,7 @@ public static class KingInMists
             // at the end made the client play both stages at the old cell and only then jump.
             await Task.Delay(TimeSpan.FromSeconds(0.70));
             if (!Present()) return;
-            double blinkAt = conn.Clock.Elapsed.TotalSeconds;
+            double blinkAt = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(tx, ty, blinkAt);
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, tx, ty),
                 $"0x01b7 King in the Mists blink to ({tx}, {ty})");
@@ -632,16 +632,16 @@ public static class KingInMists
             // Lock the cell a second time after the clip. The first 0x1b7 can move the rendered model while the
             // client's actor/path position still points at the old cell; a following strafe then starts from there
             // and lands on the player. This final same-cell update commits the new actor position.
-            double settleAt = conn.Clock.Elapsed.TotalSeconds;
+            double settleAt = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(tx, ty, settleAt);
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, tx, ty),
                 $"0x01b7 King in the Mists blink settle at ({tx}, {ty})");
-            _nextBlink = conn.Clock.Elapsed.TotalSeconds + 3.0;
+            _nextBlink = AreaTime(conn) + 3.0;
             // A centre-fallback can land close to the player: go straight into the strafe phase from there.
             if (centerFallback && Distance(px, py, tx, ty) <= 38)
-                _nextStrafe = conn.Clock.Elapsed.TotalSeconds;
+                _nextStrafe = AreaTime(conn);
             else
-                _nextStrafe = Math.Max(_nextStrafe, conn.Clock.Elapsed.TotalSeconds + 1.8);
+                _nextStrafe = Math.Max(_nextStrafe, AreaTime(conn) + 1.8);
         }
 
         async Task Strafe(double now, int px, int py, double distance)
@@ -675,14 +675,14 @@ public static class KingInMists
             {
                 // The first dash's 0.5 s clip is over; allow the paired dash immediately instead of waiting the
                 // normal 2.2 s cooldown. MoveWithSkill's post-clip padding is cleared for this one case.
-                _nextStrafe = conn.Clock.Elapsed.TotalSeconds;
-                lock (conn.Monsters) boss.BusyUntil = conn.Clock.Elapsed.TotalSeconds;
+                _nextStrafe = AreaTime(conn);
+                lock (conn.Monsters) boss.BusyUntil = AreaTime(conn);
             }
             else
-                _nextStrafe = conn.Clock.Elapsed.TotalSeconds + 2.2;
+                _nextStrafe = AreaTime(conn) + 2.2;
             // A strafe can close the distance to the player; do not chain it straight into a blink. The dash is the
             // escape action for this beat, the blink only becomes available again after the strafe settles.
-            _nextBlink = Math.Max(_nextBlink, conn.Clock.Elapsed.TotalSeconds + 2.5);
+            _nextBlink = Math.Max(_nextBlink, AreaTime(conn) + 2.5);
         }
 
         async Task ApproachBlink(double now, int px, int py, double distance)
@@ -714,13 +714,13 @@ public static class KingInMists
                 && Distance(px, py, tx, ty) >= 18;
             if (!sane)
             {
-                _nextApproach = conn.Clock.Elapsed.TotalSeconds + 1.0;
+                _nextApproach = AreaTime(conn) + 1.0;
                 return;
             }
             await ClearActionBeforeAnimation("0x01ac King in the Mists ends the previous action before the approach blink");
             if (!Present()) return;
             _dashesSinceBlink = 0;
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             lock (conn.Monsters)
             {
                 ++boss.ActionGeneration;
@@ -731,18 +731,18 @@ public static class KingInMists
                 "0x01b2 King in the Mists approach blink (teleport_01)");
             await Task.Delay(TimeSpan.FromSeconds(0.70));
             if (!Present()) return;
-            double blinkAt = conn.Clock.Elapsed.TotalSeconds;
+            double blinkAt = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(tx, ty, blinkAt);
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, tx, ty),
                 $"0x01b7 King in the Mists approach blink to ({tx}, {ty})");
             await Task.Delay(TimeSpan.FromSeconds(0.63));
             if (!Present()) return;
-            double settleAt = conn.Clock.Elapsed.TotalSeconds;
+            double settleAt = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(tx, ty, settleAt);
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, tx, ty),
                 $"0x01b7 King in the Mists approach settle at ({tx}, {ty})");
-            _nextApproach = conn.Clock.Elapsed.TotalSeconds + 2.0;
-            _nextBlink = Math.Max(_nextBlink, conn.Clock.Elapsed.TotalSeconds + 1.5);
+            _nextApproach = AreaTime(conn) + 2.0;
+            _nextBlink = Math.Max(_nextBlink, AreaTime(conn) + 1.5);
         }
 
         async Task DashBackward(double now, int px, int py, double distance)
@@ -760,9 +760,9 @@ public static class KingInMists
                 },
                 actionSeconds: 0.65, playerFirst: true, sync: MoveSync.None, target: Program.PlayerId);
             ++_dashesSinceBlink;
-            _nextBackward = conn.Clock.Elapsed.TotalSeconds + 2.5;
+            _nextBackward = AreaTime(conn) + 2.5;
             // Same as a strafe: the backward dash is the escape action; let it settle before another blink.
-            _nextBlink = Math.Max(_nextBlink, conn.Clock.Elapsed.TotalSeconds + 2.0);
+            _nextBlink = Math.Max(_nextBlink, AreaTime(conn) + 2.0);
         }
 
         async Task StepToward(double now, int px, int py, double distance)
@@ -773,8 +773,8 @@ public static class KingInMists
             int wantX = (int)Math.Round(px + (mx - px) / length * 20);
             int wantY = (int)Math.Round(py + (my - py) / length * 20);
             var (tx, ty) = conn.Layout.Near((wantX, wantY));
-            if (Distance(mx, my, tx, ty) < 3) { _nextStep = conn.Clock.Elapsed.TotalSeconds + 1.5; return; }
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            if (Distance(mx, my, tx, ty) < 3) { _nextStep = AreaTime(conn) + 1.5; return; }
+            double startedAt = AreaTime(conn);
             // 0x2909 is the official move order, but the client does not path this immobile humanoid with it: the
             // server's forced teleport at the end left the model ~20 cells behind, and the next settle or teleport
             // dragged it across the arena (live 2026-11-01, `KingInMists` step at 20:12:52). Move both sides with one
@@ -789,9 +789,9 @@ public static class KingInMists
                 $"0x01ba King in the Mists steps toward ({tx}, {ty}) in {seconds:0.00} s");
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             if (!Present()) return;
-            double at = conn.Clock.Elapsed.TotalSeconds;
+            double at = AreaTime(conn);
             lock (conn.Monsters) boss.Walk.Teleport(tx, ty, at);
-            _nextStep = conn.Clock.Elapsed.TotalSeconds + 1.8;
+            _nextStep = AreaTime(conn) + 1.8;
         }
 
         // The humanoid has no unarmed strike: when the player closes in it blinks away, and at medium range it strafes
@@ -888,7 +888,7 @@ public static class KingInMists
                     u68: BitConverter.SingleToUInt32Bits(8f)),
                 $"0x01c1 player {(move ? "Ritual of Meditation" : "Ritual of Dance")} (BuffDefinitions row {row})");
             Console.WriteLine($"[gateway] {conn.Remote} King in the Mists 0x{id:x} phase 1: {(move ? "Ritual of Meditation" : "Ritual of Dance")} hex");
-            _nextHex = conn.Clock.Elapsed.TotalSeconds + 25.0;
+            _nextHex = AreaTime(conn) + 25.0;
         }
 
         async Task PhaseOne(double now, double distance, int px, int py)
@@ -1005,7 +1005,7 @@ public static class KingInMists
         async Task Cast(ushort skill, string label, uint? target = null, double seconds = 1.5,
             ushort? flags = null, ushort header = 0)
         {
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             int action;
             lock (conn.Monsters)
             {
@@ -1018,7 +1018,7 @@ public static class KingInMists
             await SendMonsterAction(conn, id, boss, action,
                 () =>
                 {
-                    double at = conn.Clock.Elapsed.TotalSeconds;
+                    double at = AreaTime(conn);
                     var here = boss.Walk.Position(at);
                     boss.Walk.Order(here.X, here.Y, at);   // a cast stops the chase
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, here.X, here.Y, skill,
@@ -1048,7 +1048,7 @@ public static class KingInMists
                 {
                     // Order only when the action actually reaches the gate: a flinch between the decision and the send
                     // invalidates it, and the server walk must not advance under a cancelled move.
-                    double sentAt = conn.Clock.Elapsed.TotalSeconds;
+                    double sentAt = AreaTime(conn);
                     var here = boss.Walk.Position(sentAt);
                     boss.Walk.Order(tx, ty, sentAt);
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, tx, ty, MoveSkill,
@@ -1060,7 +1060,7 @@ public static class KingInMists
         async Task Use(MonsterAttack attack, bool area, double radius, string label)
         {
             int action;
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             lock (conn.Monsters)
             {
                 var at = boss.Walk.Position(startedAt);
@@ -1080,7 +1080,7 @@ public static class KingInMists
             // 2026-11-01). Follow the same landing on the server; no packet is needed, the model is already there.
             if (attack.Projectile is not null)
             {
-                double at = conn.Clock.Elapsed.TotalSeconds;
+                double at = AreaTime(conn);
                 var (bx, by) = boss.Walk.Position(at);
                 double d = Distance(bx, by, aim.X, aim.Y);
                 if (d > 18.5)
@@ -1156,7 +1156,7 @@ public static class KingInMists
                 await Task.Delay(750);
                 if (!Present()) return;
                 bool teleportFlinching;
-                lock (conn.Monsters) teleportFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+                lock (conn.Monsters) teleportFlinching = AreaTime(conn) < boss.FlinchUntil;
                 if (!teleportFlinching)
                     await Game.SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id),
                         "0x01ac King in the Mists teleport ends");
@@ -1165,7 +1165,7 @@ public static class KingInMists
                 // short settle, then repeat the cell with a 0x1ba glide so the model is definitely at the fetish.
                 await Task.Delay(150);
                 if (!Present()) return;
-                double movedAt = conn.Clock.Elapsed.TotalSeconds;
+                double movedAt = AreaTime(conn);
                 lock (conn.Monsters) boss.Walk.Teleport(x, y, movedAt);
                 await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, x, y),
                     $"0x01b7 King in the Mists teleports to ({x}, {y})");
@@ -1186,7 +1186,7 @@ public static class KingInMists
                 int ritual;
                 lock (conn.Monsters)
                 {
-                    startedAt = conn.Clock.Elapsed.TotalSeconds;
+                    startedAt = AreaTime(conn);
                     var here = boss.Walk.Position(startedAt);
                     boss.Walk.Order(here.X, here.Y, startedAt);   // a channel stops the teleport/chase
                     ritual = ++boss.ActionGeneration;
@@ -1209,7 +1209,7 @@ public static class KingInMists
                 // The fetish stays immune through the channel; its immunity (and hidden bar) is released when the whole
                 // ritual animation is over, before the return teleport.
                 double until = startedAt + 3.4;
-                while (conn.Clock.Elapsed.TotalSeconds < until)
+                while (AreaTime(conn) < until)
                 {
                     await Task.Delay(50);
                     if (!Present()) return;
@@ -1222,7 +1222,7 @@ public static class KingInMists
                 // The action's end has the client play the channel's end (ChannelEnd: call_end_01), unless a hit reaction
                 // owns the actor (the flinch ends it).
                 bool ritualFlinching;
-                lock (conn.Monsters) ritualFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+                lock (conn.Monsters) ritualFlinching = AreaTime(conn) < boss.FlinchUntil;
                 if (!ritualFlinching)
                     await Game.SendWorldRecord(conn, id, InstanceProtocol.ActionEnded(id),
                         "0x01ac King in the Mists ends the ritual channel (call_end_01)");
@@ -1234,7 +1234,7 @@ public static class KingInMists
                 await MakeFetishVulnerable(which);
                 // A hit reaction owns the actor until its recovery ends; starting the return action before that would
                 // replace the flinch and leave the model at the fetish.
-                while (Present() && conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil) await Task.Delay(50);
+                while (Present() && AreaTime(conn) < boss.FlinchUntil) await Task.Delay(50);
                 if (!Present()) return;
                 await ReturnToCentre();
             }
@@ -1246,7 +1246,7 @@ public static class KingInMists
             if (interrupted)
             {
                 // The ritual did not count: the King tries the same threshold again later.
-                _nextRitualAt = conn.Clock.Elapsed.TotalSeconds + 5;
+                _nextRitualAt = AreaTime(conn) + 5;
                 return;
             }
             _fetishUsed[which] = true;
@@ -1268,9 +1268,9 @@ public static class KingInMists
                 await Task.Delay(500);
                 await Say("Nothingness approaches!");
             }
-            _nextRitualAt = conn.Clock.Elapsed.TotalSeconds + 2.0;
+            _nextRitualAt = AreaTime(conn) + 2.0;
             conn.KingPortentStacks = Math.Min(3, conn.KingPortentStacks + 1);
-            conn.KingPortentUntil = conn.Clock.Elapsed.TotalSeconds + 30;
+            conn.KingPortentUntil = AreaTime(conn) + 30;
             // The Portent Vapors client buff (row 2409) is not applied: it was the last packet before another crash.
             await Summon(PoisonRat, 2 + which);
         }
@@ -1280,7 +1280,7 @@ public static class KingInMists
         // the model returns to the centre and no channel action is started.
         async Task ReturnToCentre()
         {
-            double startedAt = conn.Clock.Elapsed.TotalSeconds;
+            double startedAt = AreaTime(conn);
             var here = boss.Walk.Position(startedAt);
             var (cx, cy) = _origin;
             // If the player is standing on the central return point, do not teleport onto them: shift the return
@@ -1301,7 +1301,7 @@ public static class KingInMists
                 "0x01b2 King in the Mists return teleport (teleport_01)");
             await Task.Delay(700);
             if (!Present()) return;
-            double movedAt = conn.Clock.Elapsed.TotalSeconds;
+            double movedAt = AreaTime(conn);
             lock (conn.Monsters)
             {
                 boss.ActionGeneration++;
@@ -1309,7 +1309,7 @@ public static class KingInMists
             }
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, cx, cy),
                 $"0x01b7 King in the Mists returns to the arena centre at ({cx}, {cy})");
-            var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var (px, py) = conn.Walk.Position(AreaTime(conn));
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Orientation(id, Facing(cx, cy, px, py), locked: false),
                 "0x01b9 King in the Mists unlocks its facing after the ritual");
             await Task.Delay(500);
@@ -1377,7 +1377,7 @@ public static class KingInMists
         // are hostile, stationary and destructible; PlanMonsterAi skips their variety.
         async Task FindOrSpawnFetishes()
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             lock (conn.Monsters)
                 foreach (var (fetishId, m) in conn.Monsters)
                     if (IsFetish(m.Variety))
@@ -1529,7 +1529,7 @@ public static class KingInMists
             SpawnedMonster? fetish;
             lock (conn.Monsters) conn.Monsters.TryGetValue(fetishId, out fetish);
             if (fetish is null) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var (fx, fy) = fetish.Walk.Position(now);
             var (px, py) = conn.Walk.Position(now);
             if (which == 0)
@@ -1568,7 +1568,7 @@ public static class KingInMists
 
         async Task TeleportPlayer(int x, int y)
         {
-            double at = conn.Clock.Elapsed.TotalSeconds;
+            double at = AreaTime(conn);
             using (ProjectileMutation(conn))
             {
                 Interlocked.Increment(ref conn.ActionCount);
@@ -1725,7 +1725,7 @@ public static class KingInMists
 
         async Task MoveWisps(List<(uint Id, int At)> wisps, List<(int X, int Y)> path, int step)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             for (int i = 0; i < wisps.Count; i++)
             {
                 var (wisp, at) = wisps[i];
@@ -1780,7 +1780,7 @@ public static class KingInMists
             await TeleportPlayer(entrance.X, entrance.Y);
             await Say("A sliver of what my home feels like.");
             await AddBranchingAffliction(120);
-            double mazeAt = conn.Clock.Elapsed.TotalSeconds;
+            double mazeAt = AreaTime(conn);
             bool saidWisps = false, saidDraiocht = false;
             var exit = plan?.Exit ?? MazePoint(conn, exit: true) ?? conn.Layout.Near((_origin.X + 80, _origin.Y));
             uint portal = await SpawnEffect(exit.X, exit.Y,
@@ -1788,11 +1788,11 @@ public static class KingInMists
             var (wisps, path) = await SpawnWisps(entrance.X, entrance.Y, exit.X, exit.Y, plan?.Path);
             await SpawnMazeMobs(path);
             Console.WriteLine($"[gateway] {conn.Remote} King in the Mists: maze from ({entrance.X}, {entrance.Y}) to ({exit.X}, {exit.Y}), {path.Count} path cells");
-            double deadline = conn.Clock.Elapsed.TotalSeconds + 120, nextMove = 0;
-            while (Present() && conn.PlayerLife > 0 && !conn.Closed && conn.Clock.Elapsed.TotalSeconds < deadline)
+            double deadline = AreaTime(conn) + 120, nextMove = 0;
+            while (Present() && conn.PlayerLife > 0 && !conn.Closed && AreaTime(conn) < deadline)
             {
                 await Task.Delay(150);
-                double at = conn.Clock.Elapsed.TotalSeconds;
+                double at = AreaTime(conn);
                 // The captured maze taunts: the wisps line ~8 s after the entry, the Draiocht line later on.
                 if (!saidWisps && at - mazeAt >= 8)
                 {
@@ -1819,7 +1819,7 @@ public static class KingInMists
             // The body disintegrates at the central shrine: put the humanoid back on the mapboss point before the
             // transformation, then let BecomeTreant replace it.
             var (bx, by) = conn.KingOrigin ?? _origin;
-            boss.Walk.Teleport(bx, by, conn.Clock.Elapsed.TotalSeconds);
+            boss.Walk.Teleport(bx, by, AreaTime(conn));
             await Game.SendWorldRecord(conn, id, InstanceProtocol.Teleport(id, bx, by),
                 $"0x01b7 King in the Mists returns to the arena centre at ({bx}, {by})");
             foreach (var (wisp, _) in wisps)
@@ -1835,7 +1835,7 @@ public static class KingInMists
             lock (conn.Monsters) boss.Life = huskLife;
             await Game.SendWorldRecord(conn, id, InstanceProtocol.LifeUpdate(id, huskLife),
                 $"0x01b1 King in the Mists humanoid husk set to 25% ({huskLife}/{boss.MaxLife}) before the transformation");
-            await BecomeTreant(conn.Clock.Elapsed.TotalSeconds);
+            await BecomeTreant(AreaTime(conn));
         }
 
         async Task BecomeTreant(double now)
@@ -1859,7 +1859,7 @@ public static class KingInMists
             await Task.Delay(5500);
             if (!Present()) return;
             if (!Present()) return;
-            at = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            at = boss.Walk.Position(AreaTime(conn));
             lock (conn.Monsters)
             {
                 boss.Dead = true;
@@ -1887,7 +1887,7 @@ public static class KingInMists
         async Task Summon(string varietyId, int count)
         {
 
-            var (x, y) = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var (x, y) = boss.Walk.Position(AreaTime(conn));
             await SummonAt(varietyId, count, x, y);
         }
 

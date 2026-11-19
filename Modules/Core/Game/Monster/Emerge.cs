@@ -32,7 +32,7 @@ public static partial class Game
             {
                 await (rules is null ? Task.Delay(250) : Task.Delay(250, rules.Stopping));
                 if (conn.Paused || conn.PlayerLife == 0) continue;
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
                 bool watching;
                 using (ProjectileMutation(conn))

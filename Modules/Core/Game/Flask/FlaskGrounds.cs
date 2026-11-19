@@ -58,7 +58,7 @@ public static partial class Game
     static void MaybeCreateProfaneGroundLocked(Player conn, (int X, int Y) at, IReadOnlyDictionary<uint, int> player)
     {
         int chance = FlaskGrounds.ProfaneChance(name => name is var key ? player.GetValueOrDefault(key) : 0);
-        if (chance <= 0 || Random.Shared.Next(100) >= chance) return;
+        if (chance <= 0 || AreaRng(conn).Next(100) >= chance) return;
         conn.FlaskGrounds.Add(FlaskGrounds.ProfaneGround(at, AreaTime(conn),
             QueueGroundArtLocked(conn, FlaskGrounds.Kind.ProfaneGround, at, FlaskGrounds.ProfaneRadius)));
         PresentNearby(conn);

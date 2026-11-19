@@ -41,7 +41,7 @@ public static class SolarisLunaris
             f = Fights.GetValue(c.Instance, _ => new(sun.Key, sun.Value, moon.Key, moon.Value, c));
         }
         await f.Gate.WaitAsync();
-        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();

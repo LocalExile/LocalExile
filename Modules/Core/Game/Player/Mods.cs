@@ -12,7 +12,7 @@ public static partial class Game
     public static ItemDrops.Drop? ModDrop(Player conn, string query, int itemLevel)
     {
         if (UniquesFor(conn).Find(query) is { } unique
-            && UniquesFor(conn).Create(unique, Random.Shared) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
+            && UniquesFor(conn).Create(unique, AreaRng(conn)) is { } created && ItemsFor(conn).ByHash(created.TypeHash) is { } uniqueType)
             return new(created, uniqueType);
         if (ItemsFor(conn).Find(query) is not { Supported: true } type) return null;
         if (type.Stackable) return new(ItemCatalog.Create(type), type);
@@ -55,7 +55,7 @@ public static partial class Game
 
         public (int X, int Y) Position
         {
-            get { lock (conn.Monsters) return conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds); }
+            get { lock (conn.Monsters) return conn.Walk.Position(AreaTime(conn)); }
         }
 
         public Task Tell(string text) => conn.Commands is { } commands && !conn.Closed ? commands.Reply(text) : Task.CompletedTask;

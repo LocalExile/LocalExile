@@ -31,9 +31,9 @@ public static partial class Game
     {
         if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls;
-        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
+        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, AreaRng(conn), alone);
         var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-        lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
+        lock (shared) return rolls.SharedMagic(shared, variety, level, AreaRng(conn));
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the

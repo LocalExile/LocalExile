@@ -39,7 +39,7 @@ public static partial class Game
         int Get(uint name) => (int)Math.Clamp((long)RageStat(player, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
-        return conn.Rage.Hit(ProjectileWorldTime(conn), inputs, attack, melee, critical, (random ?? Random.Shared).Next(100),
+        return conn.Rage.Hit(ProjectileWorldTime(conn), inputs, attack, melee, critical, (random ?? AreaRng(conn)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
     }
 
@@ -52,7 +52,7 @@ public static partial class Game
         if (conn.Character is null) return;
         var stats = CharacterPlayerStats(conn);
         conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),
-            Random.Shared.Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
+            AreaRng(conn).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
     }
 
     public static void ClearRageOnDeath(Player conn)
@@ -69,7 +69,7 @@ public static partial class Game
             if (conn.RageRetired || conn.Closed) return;
             var stats = CharacterPlayerStats(conn);
             if (conn.PlayerLife == 0) conn.Rage.Clear();
-            var state = conn.Rage.Carry(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
+            var state = conn.Rage.Carry(AreaTime(conn), RageStats.Inputs(name => RageStat(stats, name)));
             conn.Retire();
             foreach (var (old, entry) in CarriedRage)
                 if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedRage.TryRemove(old, out _);
@@ -85,7 +85,7 @@ public static partial class Game
                 || entry.Character != CharacterName(conn)) return;
             if (!CarriedRage.TryRemove(new KeyValuePair<uint, RageTransfer>(conn.Ticket, entry))) return;
             if (DateTime.UtcNow - entry.At <= TimeSpan.FromMinutes(5) && conn.PlayerLife > 0)
-                conn.Rage.Restore(entry.State, conn.Clock.Elapsed.TotalSeconds);
+                conn.Rage.Restore(entry.State, AreaTime(conn));
         }
     }
 
@@ -133,7 +133,7 @@ public static partial class Game
         conn.SentVaalPrevention = prevention;
         Console.WriteLine($"[gateway] {CharacterName(conn)} Rage {value.Current}/{value.Maximum}, "
             + $"effective {value.Effective}, policy v{RageState.PolicyVersion} "
-            + $"(t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+            + $"(t={AreaTime(conn):0.000})");
         return [.. bytes];
     }
 
@@ -194,7 +194,7 @@ public static partial class Game
         lock (conn.Monsters)
             if (CurrentGameWork && !conn.Closed && !conn.LeavingArea && !conn.RageRetired)
             {
-                var value = conn.Rage.Read(conn.Clock.Elapsed.TotalSeconds, RageStats.Inputs(name => RageStat(stats, name)));
+                var value = conn.Rage.Read(AreaTime(conn), RageStats.Inputs(name => RageStat(stats, name)));
                 if (conn.SentRage != value) changed = value;
             }
         // An unchanged value goes nowhere near the send gate: RagePresentation rebuilds the player's stats under it, and the

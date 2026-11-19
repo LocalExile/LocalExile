@@ -66,7 +66,7 @@ public static class MapEssenceCatalog
         var basis = Game.MonsterModsFor(conn, variety, level, MonsterRarity.Rare, null, false);
         var rows = essences.Select(Find).OfType<Essence>().SelectMany(e => e.MonsterMods).Distinct();
         var extra = rows.Select(Program.Items.Mods.Row).OfType<ModCatalog.Mod>()
-            .Select(m => m.Roll(ModSection.Implicit, Random.Shared));
+            .Select(m => m.Roll(ModSection.Implicit, Game.AreaRng(conn)));
         return Game.MonsterModRolls.Create([.. basis.Mods, .. extra], basis.NameWords, MonsterRarity.Rare, level);
     }
 }

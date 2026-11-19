@@ -365,7 +365,7 @@ static partial class SurvivorsRunRules
         if (what == "unique")
         {
             string wanted = string.Join(' ', args.Skip(1)).Trim();
-            if (wanted.Length == 0 || UniquesFor(conn).Create(wanted, Random.Shared) is not { } unique)
+            if (wanted.Length == 0 || UniquesFor(conn).Create(wanted, AreaRng(conn)) is not { } unique)
             {
                 await conn.Commands!.Reply($"Usage: /survivors unique <name>, e.g. /survivors unique The Searing Touch.");
                 return;
@@ -496,7 +496,7 @@ static partial class SurvivorsRunRules
         // way onward. The stage's clock starts when the run enters it, not on the run's global clock: the gate fight
         // itself takes time, so a global boundary would make the next stage's gate spawn on arrival.
         double stageStart = run.Elapsed;
-        double last = conn.Clock.Elapsed.TotalSeconds, nextSpawn = 0,
+        double last = AreaTime(conn), nextSpawn = 0,
             nextBoss = Math.Max(stageStart + SurvivorsBossDelaySeconds, run.Elapsed + 5),
             nextRing = Math.Max(stageStart + SurvivorsRingIntervalSeconds / 2, run.Elapsed + 10),
             nextRanged = Math.Max(stageStart + SurvivorsRules.RangedWaveIntervalSeconds, run.Elapsed + 5),
@@ -515,7 +515,7 @@ static partial class SurvivorsRunRules
         {
             while (!token.IsCancellationRequested && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && ReferenceEquals(StateOf(conn).Survivors, run))
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 double step = now - last;
                 last = now;
                 if (conn.Paused || step <= 0)
@@ -695,8 +695,8 @@ static partial class SurvivorsRunRules
             // Every third body is a ranged variety when the area has one: the player has to keep moving.
             bool isRanged = ranged.Count > 0 && i % 3 == 2;
             var variety = isRanged
-                ? ranged[Random.Shared.Next(ranged.Count)]
-                : roster.Varieties[pool[Random.Shared.Next(pool.Length)]];
+                ? ranged[AreaRng(conn).Next(ranged.Count)]
+                : roster.Varieties[pool[AreaRng(conn).Next(pool.Length)]];
             if (SurvivorsSpawnCell(conn, 60) is not { } cell) continue;
             horde.Add(await SpawnMonster(conn, variety, roster.Level, SurvivorsRarity(run), cell.X, cell.Y,
                 log: false, extraMods: SurvivorsMonsterMods(run, isRanged)));
@@ -711,12 +711,12 @@ static partial class SurvivorsRunRules
     {
         var ranged = SurvivorsRangedPool(roster);
         if (ranged.Count == 0) return;
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         int count = SurvivorsRules.RangedWaveCount(SurvivorsRules.Progress(run.Elapsed));
         int spawned = 0;
         for (int i = 0; i < count; i++)
         {
-            var variety = ranged[Random.Shared.Next(ranged.Count)];
+            var variety = ranged[AreaRng(conn).Next(ranged.Count)];
             double angle = i * Math.Tau / count;
             int x = (int)Math.Round(px + Math.Cos(angle) * 44), y = (int)Math.Round(py + Math.Sin(angle) * 44);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
@@ -737,7 +737,7 @@ static partial class SurvivorsRunRules
         SurvivorsRun run, SurvivorsRoster roster, HashSet<uint> horde)
     {
         if (roster.Varieties.Count == 0) return;
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         var pool = SurvivorsRules.WavePool(run.Elapsed, roster.Varieties.Count);
         var variety = roster.Varieties[pool.Length == 0 ? 0 : pool[0]];
         int count = 28 + (int)(SurvivorsRules.Progress(run.Elapsed) * 60);
@@ -848,12 +848,12 @@ static partial class SurvivorsRunRules
     /// <summary>A walkable cell on a ring around the player, or null when this area is too cramped for one.</summary>
     internal static (int X, int Y)? SurvivorsSpawnCell(Player conn, double radius)
     {
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         // The wave rings are far from the player, so a cramped area needs more attempts to find a walkable cell.
         for (int attempt = 0; attempt < 24; attempt++)
         {
-            double angle = Random.Shared.NextDouble() * Math.Tau;
-            double distance = radius + Random.Shared.NextDouble() * 8;
+            double angle = AreaRng(conn).NextDouble() * Math.Tau;
+            double distance = radius + AreaRng(conn).NextDouble() * 8;
             int x = (int)Math.Round(px + Math.Cos(angle) * distance), y = (int)Math.Round(py + Math.Sin(angle) * distance);
             if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
             if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;

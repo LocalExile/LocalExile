@@ -109,7 +109,7 @@ public static partial class Game
         if (heal > 0 && conn.PlayerLife > 0)
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
                 (long)conn.PlayerLife + (long)conn.PlayerMaxLife * heal / 100);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (Get(Stat.GainPhysicalDamageImmunityOnRampageThresholdMs) is int immuneMs and > 0)
             conn.PhysicalImmunityUntil = Math.Max(conn.PhysicalImmunityUntil, now + immuneMs / 1000.0);
         if (Get(Stat.PhasingOnRampageThresholdMs) is int phasingMs and > 0)

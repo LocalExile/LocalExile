@@ -103,7 +103,7 @@ static partial class SurvivorsRewards
         var missing = new List<string>();
         foreach (var definition in uniques)
         {
-            if (UniquesFor(conn).Create(definition, Random.Shared) is not { } item) { unsupported++; continue; }
+            if (UniquesFor(conn).Create(definition, AreaRng(conn)) is not { } item) { unsupported++; continue; }
             creatable++;
             if (catalog.Find(definition.BaseTypeId) is not { } type
                 || !ItemModStats.EquipmentRows.Any(row => PlayerInventories.Accepts(row, type.Class))) continue;
@@ -221,7 +221,7 @@ static partial class SurvivorsRewards
         if (!ReferenceEquals(StateOf(conn).Survivors, run) || !run.NeedsOffer) return;
         var blessings = SurvivorsBlessingsFor(conn);
         var supports = SurvivorsSupportsFor(conn);
-        var offer = run.DealOffer(Random.Shared, catalog.Count, blessings.Count, supports.Count,
+        var offer = run.DealOffer(AreaRng(conn), catalog.Count, blessings.Count, supports.Count,
             SurvivorsItemPool(conn, run), SurvivorsLinkRule(conn), StateOf(conn).Stage);
         if (offer.Count == 0) return;
         var items = ItemsOf(conn);
@@ -242,7 +242,7 @@ static partial class SurvivorsRewards
             {
                 if (choice.Index < 0 || choice.Index >= uniques.Count) continue;
                 name = uniques[choice.Index].Name;
-                if (UniquesFor(conn).Create(name, Random.Shared) is not { } unique) continue;
+                if (UniquesFor(conn).Create(name, AreaRng(conn)) is not { } unique) continue;
                 // A run's unique is worn whatever the character's level: the level requirement is a byte we send.
                 created = unique with { RequiredLevel = 0 };
             }

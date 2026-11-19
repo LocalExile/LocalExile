@@ -26,7 +26,7 @@ static partial class Game
         if (conn.PlayerLife == 0 || m.Ailments.Shattered || !IsCorpse(m)) return false;
         var player = CharacterPlayerStats(conn);
         int chance = CorpseKillChance is var key ? player.GetValueOrDefault(key) : 0;
-        if (!RandomRolls.Chance(chance, 100, Random.Shared)) return false;
+        if (!RandomRolls.Chance(chance, 100, AreaRng(conn))) return false;
         m.CorpseConsumed = true;
         NoteCorpseConsumedLocked(conn, m);
         conn.Monsters.Remove(id);

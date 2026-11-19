@@ -61,7 +61,7 @@ static class IzaroIdols
                 {
                     action = ++idol.ActionGeneration;
                     idol.Life = life = Math.Min(idol.Life, 1u);
-                    at = idol.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    at = idol.Walk.Position(AreaTime(conn));
                 }
                 await Send(conn, InstanceProtocol.LifeUpdate(id, life), null);
                 if (!await SendMonsterAction(conn, id, idol, action, () =>
@@ -103,11 +103,11 @@ static class IzaroIdols
     // apart from each other. Under the Monsters lock.
     static List<(int X, int Y)> Spots(Player conn)
     {
-        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var player = conn.Walk.Position(AreaTime(conn));
         var spots = new List<(int X, int Y)> { player };
         for (int tries = 0; spots.Count < IzaroChronos.Circles && tries < 200; tries++)
         {
-            double angle = Random.Shared.NextDouble() * Math.PI * 2, reach = Math.Sqrt(Random.Shared.NextDouble()) * IzaroChronos.PlacementRadius;
+            double angle = AreaRng(conn).NextDouble() * Math.PI * 2, reach = Math.Sqrt(AreaRng(conn).NextDouble()) * IzaroChronos.PlacementRadius;
             (int X, int Y) cell = ((int)Math.Round(player.X + Math.Cos(angle) * reach), (int)Math.Round(player.Y + Math.Sin(angle) * reach));
             if (!conn.Layout.WalkableFor(cell.X, cell.Y, 0) || conn.Barrier.Contains(cell)) continue;
             if (spots.Any(s => Distance(s, cell) < IzaroChronos.CircleSpacing)) continue;
@@ -165,7 +165,7 @@ static class IzaroIdols
                 lock (conn.Monsters)
                 {
                     if (InGracePeriod(conn) || !MonsterPresent(conn, id, idol)) return null;
-                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                    double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                     var here = conn.Walk.Position(now);
                     var nearest = spots.MinBy(s => Distance(s, here));
                     if (Distance(nearest, here) > IzaroChronos.CircleRadius) return null;

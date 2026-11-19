@@ -137,7 +137,7 @@ public static class MapStrongboxes
         {
             box = area.Boxes!.First(b => b.Id == use.TargetId);
             if (box.Phase != 0 || !PlayerActionCurrent(conn, action) || conn.PlayerLife == 0
-                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (box.X, box.Y), 1)) return true;
+                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(AreaTime(conn)), (box.X, box.Y), 1)) return true;
             var guards = Guards(conn, box);
             if (guards.Count == 0)
             {
@@ -177,7 +177,7 @@ public static class MapStrongboxes
             double angle = i * Math.Tau / Math.Max(1, count);
             plans.Add((picked, box.X + (int)Math.Round(Math.Cos(angle) * 10), box.Y + (int)Math.Round(Math.Sin(angle) * 10), MonsterRarity.Normal));
         }
-        var occupied = conn.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(conn.Clock.Elapsed.TotalSeconds)).Append((box.X, box.Y));
+        var occupied = conn.Monsters.Values.Where(m => !m.Dead).Select(m => m.Walk.Position(AreaTime(conn))).Append((box.X, box.Y));
         return AreaPopulation.AtPacks(plans, (x, y) => conn.Layout.WalkableFor(x, y, 1),
             row => Monsters.Find(row.ToString()) is { Supported: true }, random.Next(), MapModsOf(conn)?.PackSizeFactor ?? 1, occupied);
     }
@@ -218,7 +218,7 @@ public static class MapStrongboxes
                 Keep(conn, area);
                 foreach (var member in Members(conn)) await Present(member, opened, true);
                 await Rewards(conn, opened);
-                if (ClosesAgain(MapModsOf(conn)?.Get(Stat.MapStrongboxCloseAfterOpeningChancePct) ?? 0, Random.Shared))
+                if (ClosesAgain(MapModsOf(conn)?.Get(Stat.MapStrongboxCloseAfterOpeningChancePct) ?? 0, AreaRng(conn)))
                 {
                     var closed = opened with { Phase = 0, Cycle = opened.Cycle + 1, Guards = [] };
                     area.Boxes[prior.Index] = closed;
@@ -253,19 +253,19 @@ public static class MapStrongboxes
         var result = new List<ItemDrops.Drop>();
         for (int i = 0; i < count; i++)
         {
-            ItemDrops.Drop? item = box.Type.Contains("Divination", StringComparison.Ordinal) ? drops.Card(Random.Shared, level)
-                : box.Type.Contains("Scarab", StringComparison.Ordinal) ? drops.Scarab(Random.Shared, level) : null;
+            ItemDrops.Drop? item = box.Type.Contains("Divination", StringComparison.Ordinal) ? drops.Card(AreaRng(conn), level)
+                : box.Type.Contains("Scarab", StringComparison.Ordinal) ? drops.Scarab(AreaRng(conn), level) : null;
             if (item is not null) result.Add(item);
         }
         if (box.Type.Contains("Cartographer", StringComparison.Ordinal))
             for (int i = 0; result.Count < count && i < count * 64; i++)
-                if (drops.Map(level, MonsterRarity.Unique, MapRunOf(conn)!.Area.Tier, Random.Shared) is { } map) result.Add(map);
+                if (drops.Map(level, MonsterRarity.Unique, MapRunOf(conn)!.Area.Tier, AreaRng(conn)) is { } map) result.Add(map);
         if (result.Count == 0 && !box.Type.Contains("Cartographer", StringComparison.Ordinal)
             && !box.Type.Contains("Divination", StringComparison.Ordinal) && !box.Type.Contains("Scarab", StringComparison.Ordinal))
-            result.AddRange(drops.Container(level, count, 0, Random.Shared, item => Accepts(box.Type, item)));
+            result.AddRange(drops.Container(level, count, 0, AreaRng(conn), item => Accepts(box.Type, item)));
         foreach (var drop in ItemDrops.Stacked(result))
         {
-            var at = conn.Layout.Near((box.X + Random.Shared.Next(-5, 6), box.Y + Random.Shared.Next(-5, 6)));
+            var at = conn.Layout.Near((box.X + AreaRng(conn).Next(-5, 6), box.Y + AreaRng(conn).Next(-5, 6)));
             var ground = new WorldItemObject(at.X, at.Y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
             await SendGroundItem(conn, id, ground, $"strongbox 0x{box.Id:x} drops {drop.Type.Name}", justDropped: true);

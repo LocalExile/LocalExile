@@ -59,7 +59,7 @@ public static partial class Game
             && a.Spells.Length == b.Spells.Length && a.Spells.Zip(b.Spells)
                 .All(p => p.First.Skill == p.Second.Skill && SameTriggerSource(p.First.Gem, p.Second.Gem));
         int next = state.Rotation.TryGetValue(key, out var previous) && Same(previous.Source, source) ? previous.Next : 0;
-        double now = Math.Max(at, conn.Clock.Elapsed.TotalSeconds);
+        double now = Math.Max(at, AreaTime(conn));
         for (int i = 0; i < source.Spells.Length; i++)
         {
             int index = (next + i) % source.Spells.Length;

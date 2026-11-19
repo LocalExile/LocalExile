@@ -116,7 +116,7 @@ static partial class SurvivorsRunRules
         {
             try
             {
-                double start = conn.Clock.Elapsed.TotalSeconds;
+                double start = AreaTime(conn);
                 _nextMove = start + 4;
                 _nextSummon = start + 6;
                 Console.WriteLine($"[gateway] {conn.Remote} survivors gate fight {kit.Name} begins (0x{bossId:x})");
@@ -135,14 +135,14 @@ static partial class SurvivorsRunRules
                         Defeated = true;
                         return;
                     }
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     if (!_enraged && boss.Life <= boss.MaxLife / 2) await Enrage();
                     if (now >= _nextSummon) { await SummonAdds(boss); _nextSummon = now + kit.SummonSeconds; }
                     if (now >= _nextMove)
                     {
                         var move = kit.Moves[_moveIndex++ % kit.Moves.Count];
                         await Use(move, boss);
-                        _nextMove = conn.Clock.Elapsed.TotalSeconds + Cooldown(move);
+                        _nextMove = AreaTime(conn) + Cooldown(move);
                     }
                     await Task.Delay(SurvivorsStepMs, token);
                 }
@@ -236,14 +236,14 @@ static partial class SurvivorsRunRules
 
         async Task Blink(SpawnedMonster boss)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var (px, py) = conn.Walk.Position(now);
             var (bx, by) = boss.Walk.Position(now);
             double dx = bx - px, dy = by - py, length = Math.Sqrt(dx * dx + dy * dy);
             if (length < 0.01) { dx = 1; dy = 0; length = 1; }
             for (int attempt = 0; attempt < 12; attempt++)
             {
-                double distance = 22 + Random.Shared.NextDouble() * 10;
+                double distance = 22 + AreaRng(conn).NextDouble() * 10;
                 int x = (int)Math.Round(px + dx / length * distance), y = (int)Math.Round(py + dy / length * distance);
                 if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
                 if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
@@ -261,11 +261,11 @@ static partial class SurvivorsRunRules
                 alive = conn.Monsters.Values.Count(m => m.SummonerId == bossId && !m.Dead && m.Life > 0);
             int count = Math.Min(kit.Adds, Math.Max(0, 12 - alive));
             if (count <= 0 || roster.Varieties.Count == 0) return;
-            var (bx, by) = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var (bx, by) = boss.Walk.Position(AreaTime(conn));
             int spawned = 0;
             for (int i = 0; i < count; i++)
             {
-                var variety = roster.Varieties[Random.Shared.Next(roster.Varieties.Count)];
+                var variety = roster.Varieties[AreaRng(conn).Next(roster.Varieties.Count)];
                 if (Near(bx, by) is not { } cell) continue;
                 await SpawnMonster(conn, variety, roster.Level, MonsterRarity.Normal,
                     cell.X, cell.Y, log: false, extraMods: SurvivorsMonsterMods(run),
@@ -279,7 +279,7 @@ static partial class SurvivorsRunRules
         {
             for (int attempt = 0; attempt < 12; attempt++)
             {
-                double angle = Random.Shared.NextDouble() * Math.Tau, distance = 4 + Random.Shared.NextDouble() * 7;
+                double angle = AreaRng(conn).NextDouble() * Math.Tau, distance = 4 + AreaRng(conn).NextDouble() * 7;
                 int sx = (int)Math.Round(x + Math.Cos(angle) * distance), sy = (int)Math.Round(y + Math.Sin(angle) * distance);
                 if (conn.Layout.GridW > 0 && (sx < 0 || sy < 0 || sx >= conn.Layout.GridW || sy >= conn.Layout.GridH)) continue;
                 if (!conn.Layout.WalkableFor(sx, sy, 0) || conn.Barrier.Contains((sx, sy))) continue;

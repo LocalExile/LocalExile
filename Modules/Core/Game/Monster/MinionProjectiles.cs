@@ -89,7 +89,7 @@ public static partial class Game
             return ProjectileHitResult.Miss;
         if (session.ActorKey(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
         double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond,
-            conn.Clock.Elapsed.TotalSeconds);
+            AreaTime(conn));
         var landed = MinionHitTargetLocked(conn, shot.MinionId, shot.Monster, contact.Target.Id, target, now,
             contact.Projectile.RandomSource, checkReach: false, shot.Attack, shot.Accuracy);
         if (landed is not { } accepted) return ProjectileHitResult.Miss;

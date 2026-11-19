@@ -98,7 +98,7 @@ public static partial class Game
         ResourceEffectsOf(conn);
         state.UsedUntil = Math.Max(state.At, at) + RecentEvents.WindowSeconds;
         SettleSiphoning(conn, state, state.At);
-        if (!RandomRolls.Chance(state.Gain, 100, random ?? Random.Shared)) return;
+        if (!RandomRolls.Chance(state.Gain, 100, random ?? AreaRng(conn))) return;
         int Get(uint key) => raw.GetValueOrDefault(key);
         double duration = Charges.BaseDurationMs / 1000d
             * Math.Max(0, 1 + ((long)Get(Stat.ChargeDurationPlusPct) + Get(Stat.BaseChargeDurationPlusPct)) / 100d);

@@ -237,7 +237,7 @@ public static partial class Game
         // action-speed floor has to reach the server's own attack/cast timing too.
         SpiritChieftains.Leadership? leadership;
         lock (conn.Monsters)
-            leadership = conn.PlayerLife > 0 ? conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) : null;
+            leadership = conn.PlayerLife > 0 ? conn.SpiritChieftains.Active(AreaTime(conn)) : null;
         return Math.Max(.01, PlayerActionFactorFrom(conn, name =>
         {
             if (!(name is var key)) return 0;
@@ -252,7 +252,7 @@ public static partial class Game
     public static double PlayerActionFactorFrom(Player conn, Func<uint, int> get)
     {
         double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
-        double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get(Stat.ActionSpeedMinusPct) - extra)
+        double factor = conn.ElementalAilments.TotalActionFactor(AreaTime(conn), get(Stat.ActionSpeedMinusPct) - extra)
             * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is

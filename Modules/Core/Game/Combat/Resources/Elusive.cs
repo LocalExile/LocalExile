@@ -84,7 +84,7 @@ public static partial class Game
         if (!ReferenceEquals(state.Rules, CombatLifetime) || state.Epoch != conn.ProjectileEpoch) return false;
         var input = state.Grant;
         if (state.Source.Length == 0 || state.Effect(now) > 0) return false; // An existing Elusive cannot be refreshed.
-        var rng = random ?? Random.Shared;
+        var rng = random ?? AreaRng(conn);
         bool gained = critical && GameServer.Core.World.RandomRolls.Chance(input.Critical, 100, rng);
         if (!gained && kill) gained = GameServer.Core.World.RandomRolls.Chance(input.Kill, 100, rng);
         if (!gained) return false;

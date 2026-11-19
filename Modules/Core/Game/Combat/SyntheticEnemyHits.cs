@@ -16,7 +16,7 @@ public static partial class Game
         {
             hit = null!;
             if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             int priorContacts = conn.RecentEnemyHits.Count(now);
             using var defenceTime = FortificationOf(conn).Capture(now);
             // Refresh lazy aura/Fortification pools before reading ANY final defence at the accepted contact.

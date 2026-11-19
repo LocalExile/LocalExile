@@ -25,7 +25,7 @@ public sealed class SurvivorsRunModule : IModule
             var conn = kill.Conn;
             kill.Later(() => SurvivorsDropOrb(kill.Conn, kill.At, experience));
             // A share of kills leave a death ground zone: a DOT that lands under the monster or under the player.
-            if (Random.Shared.NextDouble() < SurvivorsRules.DeathZoneChance)
+            if (AreaRng(conn).NextDouble() < SurvivorsRules.DeathZoneChance)
                 kill.Later(() => SurvivorsDropDeathZone(kill.Conn, kill.At));
         });
         GameEvents.LootAllowed.Add(module.Manifest.Id, conn => StateOf(conn).Survivors is null);

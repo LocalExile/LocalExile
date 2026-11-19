@@ -153,7 +153,7 @@ public static partial class Game
         if (ability.Effect == 306)
         {
             var elements = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning };
-            ability = GolemAbilities(conn, m.Variety!, m.Level, g, g.Player, prismatic: elements[Random.Shared.Next(elements.Length)])
+            ability = GolemAbilities(conn, m.Variety!, m.Level, g, g.Player, prismatic: elements[AreaRng(conn).Next(elements.Length)])
                 .Single(a => a.Effect == 306);
         }
         int generation = ++m.ActionGeneration;
@@ -258,7 +258,7 @@ public static partial class Game
             var enemies = conn.Monsters.Values.Where(m => m.Hostile && !m.Dead && m.Life > 0)
                 .Select(m => ProjectileSession.Vector(m.Walk.Position(now))).ToArray();
             double spread = 24 * a.Radius / 10;
-            var landings = RainLandings("RainOfArrows", ProjectileSession.Vector(action.Aim), count, spread, enemies, Random.Shared);
+            var landings = RainLandings("RainOfArrows", ProjectileSession.Vector(action.Aim), count, spread, enemies, AreaRng(conn));
             for (int i = 0; i < landings.Count; i++)
             {
                 var p = landings[i]; double when = now + .35 + i * .04;
@@ -319,7 +319,7 @@ public static partial class Game
                         && Dist(other.Walk.Position(now), splashAt) <= splash.Radius + LivingCollision.Size(other))
                         GolemHitLocked(conn, g, spread, otherId, other, now);
             }
-            if (a.Effect == 136 && Random.Shared.Next(100) < GolemStat(a.Stats, Stat.ChanceToTauntOnHitPct)) g.Taunts[id] = now + 3;
+            if (a.Effect == 136 && AreaRng(conn).Next(100) < GolemStat(a.Stats, Stat.ChanceToTauntOnHitPct)) g.Taunts[id] = now + 3;
         }
         if (a.Effect == 5268)
         {
@@ -402,9 +402,9 @@ public static partial class Game
             int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
                 + g.Monster.Mods.Effects[Stat.AccuracyRating]);
             int evasion = UnderBlind(conn, id, target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0));
-            if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
+            if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), AreaRng(conn).Next(100))) return false;
         }
-        if (MonsterBlocks(target, Random.Shared, a.Attack.Spell)) return false;
+        if (MonsterBlocks(target, AreaRng(conn), a.Attack.Spell)) return false;
         double factor = DoedreSewers.MinionDamageFactor(conn) * MinionTacticsDamage(conn, g, id, target, now);
         if (g.Definition.Kind == "Carrion")
         {
@@ -416,14 +416,14 @@ public static partial class Game
         }
         bool prey = IsPrey(conn, g, id, target, now);
         var effects = g.Monster.Mods.Effects;
-        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? Random.Shared.Next(10_000) : 0;
+        int roll = effects[Stat.Of("never_crit")] == 0 && effects[Stat.AlwaysCrit] == 0 ? AreaRng(conn).Next(10_000) : 0;
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0);
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
-        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, Random.Shared);
+        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(conn));
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
         var resistanceMods = new HitResistances.Mods(
@@ -445,7 +445,7 @@ public static partial class Game
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id,
             flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
             angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, id, target, WorldId: g.Id));
-        PhantasmsOnHitLocked(conn, target, g.Source, now, Random.Shared, g);
+        PhantasmsOnHitLocked(conn, target, g.Source, now, AreaRng(conn), g);
         bool melee = MinionMelee(conn, a);
         double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
         var stun = new StunHit(HitReaction.StunningDamage(damage, physicalShare, melee),
@@ -456,10 +456,10 @@ public static partial class Game
         {
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], Random.Shared);
+                n => target.Mods.Effects[n], AreaRng(conn));
             HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now);
             InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
-                Random.Shared);
+                AreaRng(conn));
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(conn, g, now);

@@ -18,7 +18,7 @@ public static partial class Game
         var events = accepted.Select(e => e.KillEvent ? (ChargeEvent)new ChargeEvent.Kill(e.Rarity, e.Frozen)
             : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect,
                 name => name is var key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary));
-        var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0, Random.Shared);
+        var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(conn), conn.PlayerLife > 0, AreaRng(conn));
         foreach (string line in step.Log) Console.WriteLine($"[gateway] {conn.Remote} {line} (accepted contact)");
         // Charge counts change on almost every hit; the charge ticker publishes the stats once per step instead of
         // rebuilding the full skill list per hit (the 2026-11-05 log: 4 PlayerSkills builds in 80 ms, each inside the
@@ -65,7 +65,7 @@ public static partial class Game
         if (bar.All(f => f.Full)) return;
         int Get(uint key) => player.GetValueOrDefault(key);
         bool precision = AffectingAuras(conn).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, Random.Shared.Next);
+        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), conn.FlaskChargeCarry, at, AreaRng(conn).Next);
         if (gains.Count > 0) conn.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
     }
 

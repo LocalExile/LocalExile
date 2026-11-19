@@ -192,7 +192,7 @@ public sealed partial class DelveModule
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
             await global::Game.SendWorldRecord(player, id, InstanceProtocol.Teleport(id, start.X, start.Y));
         state.CrawlerCell = start;
-        lock (conn.Monsters) { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Teleport(start.X + 10, start.Y, conn.Clock.Elapsed.TotalSeconds); }
+        lock (conn.Monsters) { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Teleport(start.X + 10, start.Y, AreaTime(conn)); }
         await global::Game.SendWorldRecord(player, PlayerId, InstanceProtocol.Teleport(PlayerId, start.X + 10, start.Y));
         await global::Game.SendWorldRecord(player, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1));
         var presentation = new DelveJourney(rail.Points, 0);

@@ -144,7 +144,7 @@ public static partial class Game
         int meleeRepeats = MeleeAttackRepeats(conn, skillId);
         double attackSeconds = SupportedAttackSeconds(conn, skillId);
         double repeatInterval = meleeRepeats > 0 ? attackSeconds : 0;
-        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double acceptedAt = swingAt ?? AreaTime(conn);
         var roll = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
         bool hasFifthMechanic = InitialStat(Stat.MoltenStrikeEvery5thAttackFireXAdditionalProjectiles) > 0
             || InitialStat(Stat.MoltenStrikeEvery5thAttackProjectilesDamagePlusPctFinal) != 0;
@@ -205,7 +205,7 @@ public static partial class Game
         lock (conn.Monsters)
             delay = MoltenStrikeContactDelay(conn, gem.Effect, attackSeconds, sequence,
                 out contactClip, out contactFraction, out earliestContact);
-        double swung = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double swung = swingAt ?? AreaTime(conn);
         // From here on the swing has connected for the client: a later use (accepted from 1 - EarlyAllowance of the
         // attack time, AttackReady) or a queued Move no longer takes it back, as AreaSkillHit's holdsItsSwing and Lightning
         // Strike keep theirs. A later Multistrike swing still belongs to the original action and is cancelled with it.
@@ -219,7 +219,7 @@ public static partial class Game
             if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
             if (repeat > 0) return true;
             if (cannotCancel) return false;
-            if (conn.Clock.Elapsed.TotalSeconds >= earliestAt && PlayerStateAllowsAction(conn)) return false;
+            if (AreaTime(conn) >= earliestAt && PlayerStateAllowsAction(conn)) return false;
             Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: the swing was replaced by action "
                 + $"{conn.ActionCount} before its hit (action {action}), no hit lands");
             return true;
@@ -242,7 +242,7 @@ public static partial class Game
                     stacks: 1),
                 $"0x01c1 player buff molten_strike_fifth_attack_counter armed for skill 0x{skillId:x4}");
 
-        double remaining = swung + delay + repeatDelay - conn.Clock.Elapsed.TotalSeconds;
+        double remaining = swung + delay + repeatDelay - AreaTime(conn);
         if (remaining > 0)
             await Task.Delay(TimeSpan.FromSeconds(remaining));
         await WhilePaused(conn);
@@ -312,7 +312,7 @@ public static partial class Game
             totalTargets = targets.Count;
             if (targets.Count == 0 && !vaalBehaviour)
             {
-                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee swing whiffed at ({to.X}, {to.Y}), no projectiles emitted (t={AreaTime(conn):0.000})");
                 return;
             }
 
@@ -349,7 +349,7 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) evaded ({hitChance}% chance to hit)");
                     continue;
                 }
-                if (MonsterBlocks(m, Random.Shared, spell: false, now, skillStats))
+                if (MonsterBlocks(m, AreaRng(conn), spell: false, now, skillStats))
                 {
                     Console.WriteLine($"[gateway] {conn.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
@@ -358,7 +358,7 @@ public static partial class Game
                 var rolled = WithConditionalSupportDamageLocked(conn, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats)
-                        .RollOutgoingHit(contactHit, Random.Shared)), now);
+                        .RollOutgoingHit(contactHit, AreaRng(conn))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
@@ -372,7 +372,7 @@ public static partial class Game
                     && EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int multiplier = CriticalMultiplierOn(m, criticalMultiplierBase);
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, mods, pen,
-                    gambler.InvertsResistance(Random.Shared));
+                    gambler.InvertsResistance(AreaRng(conn)));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
@@ -400,7 +400,7 @@ public static partial class Game
                 SoulEaterHit(conn, m);
                 if (hit.Life == 0) DevourOnKill(conn, m, skillStats);
                 AilmentsOnHitLocked(conn, id, m, mitigated, spell: false, critical, multiplier, player, skillStats, now,
-                    Random.Shared, reflected: reflected, poison: poison, sourceSkill: skillId,
+                    AreaRng(conn), reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(player, skillStats),
                     attackGains: AttackAilmentGains.Capture(player, attack: true));
                 List<byte[]>? ignited = null, bled = null;
@@ -435,7 +435,7 @@ public static partial class Game
             {
                 var session = ProjectilesFor(conn);
                 emitted = EmitMoltenStrikeBallsLocked(conn, session, skillId, gem, playerAt, to, criticalRoll,
-                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, Random.Shared, fifthAttack);
+                    sequence, (uint)(totalRepeats - repeat), delay, repeatMore, hitOrigins, AreaRng(conn), fifthAttack);
             }
         }
 
@@ -451,11 +451,11 @@ public static partial class Game
             ChargesOnHit(conn, r.Monster, r.Critical, spell: false, gem.Effect, gem.Level, gem.Quality, primary: r.Id == results[0].Id);
         }
         if (reflected.Count > 0 && player is not null)
-            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, AreaRng(conn));
         foreach (var (deadId, dead) in deaths) await MonsterKilled(conn, deadId, dead);
         string contactNote = contactClip is null ? "the attack1 fallback" : contactClip;
         Console.WriteLine($"[gateway] {conn.Remote} skill 0x{skillId:x4} {gem.Name}: melee hit {hitTargets}/{totalTargets} monster(s), "
-            + $"launched {emitted} molten projectile(s), contact {contactFraction:0.###} of the attack ({contactNote}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+            + $"launched {emitted} molten projectile(s), contact {contactFraction:0.###} of the attack ({contactNote}) (t={AreaTime(conn):0.000})");
     }
 
     /// <summary>Distributes and releases Molten Strike's balls across struck targets. Call under the Monsters lock.</summary>

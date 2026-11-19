@@ -179,7 +179,7 @@ public static partial class Game
             if (settings.BossLifeRecoveryFraction <= 0 || conn.PlayerLife != 0 || conn.BossRecoveryHandled) return [];
             conn.BossRecoveryHandled = true;
             if (!settings.BossRecoveryAreaPrefixes.Any(p => conn.Layout.Id.StartsWith(p, StringComparison.Ordinal))) return [];
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var at = conn.Walk.Position(now);
             List<(uint, uint)> changed = [];
             foreach (var (id, monster) in conn.Monsters)

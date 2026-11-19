@@ -124,7 +124,7 @@ static class BenchFeature
         if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || conn.CraftingBenchObject == 0) return;
         var items = ItemsOf(conn);
         var stash = PersonalStashOf(conn);
-        var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, Random.Shared);
+        var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, AreaRng(conn));
         if (result is null)
         {
             var target = items.Items(PlayerInventories.CraftingBench).Select(i => i.Item).FirstOrDefault();

@@ -164,7 +164,7 @@ public static class DepravedTrinity
             return route.Return ? route.Soul : -1;
         if (Portal(t.Model) < 0 && t.SourceType?.Contains("PortalToggleable", StringComparison.Ordinal) != true
             && t.SourceType?.EndsWith("UnholyTrioSubbossPortal", StringComparison.OrdinalIgnoreCase) != true) return -1;
-        return Enumerable.Range(0, 3).FirstOrDefault(i => Soul(c, i) is { } m && Distance(m.Walk.Position(c.Clock.Elapsed.TotalSeconds), (t.GridX, t.GridY)) < 180, -1);
+        return Enumerable.Range(0, 3).FirstOrDefault(i => Soul(c, i) is { } m && Distance(m.Walk.Position(AreaTime(c)), (t.GridX, t.GridY)) < 180, -1);
     }
     public static bool? GateShown(Player c, uint id, AreaTransitionObject t)
     {
@@ -205,7 +205,7 @@ public static class DepravedTrinity
         lock (c.Monsters)
         {
             var dead = c.Monsters.Where(m => Dead(m.Value) && (IsBoss(m.Value.Variety) || Souls.Contains(m.Value.Variety?.Id))).Select(m => m.Key).ToHashSet();
-            double now = c.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(c);
             var gone = c.Monsters.Where(m => m.Value.Hostile && m.Value.OwnerId is null && !Dead(m.Value)
                 && (m.Value.SummonerId is uint parent && dead.Contains(parent)
                     || m.Value.Rarity != MonsterRarity.Unique && safe.Any(at => Distance(at, m.Value.Walk.Position(now)) < 65))).ToArray();
@@ -229,7 +229,7 @@ public static class DepravedTrinity
                 return c.Layout.Near((home.GridX + 10, home.GridY));
             n = Portal(t.Model);
             if (n >= 0 && Soul(c, n) is { } soul)
-            { var p = soul.Walk.Position(c.Clock.Elapsed.TotalSeconds); return c.Layout.Near((p.X - 18, p.Y - 12)); }
+            { var p = soul.Walk.Position(AreaTime(c)); return c.Layout.Near((p.X - 18, p.Y - 12)); }
             if (t.SourceType == "Metadata/QuestObjects/Act9/HarvestFinalBossTransition")
             {
                 if (c.Monsters.Values.Any(m => IsBoss(m.Variety) && Dead(m))) return Landing(c);
@@ -296,7 +296,7 @@ public static class DepravedTrinity
         if (IsMonsterRunner(c))
         {
             var clock = CleanupClocks.GetValue(c.Instance, _ => new());
-            double now = c.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(c);
             if (now >= clock.Next)
             {
                 clock.Next = now + 1;
@@ -311,7 +311,7 @@ public static class DepravedTrinity
         lock (c.Monsters) { var p = c.Monsters.FirstOrDefault(p => IsBoss(p.Value.Variety)); if (p.Value is null) return; found = (p.Key, p.Value); }
         var f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         await f.Gate.WaitAsync();
-        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -350,7 +350,7 @@ public static class DepravedTrinity
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; boss = monster;
-            centre = c.LaterFormPoints.GetValueOrDefault(Boss, monster.Walk.Position(c.Clock.Elapsed.TotalSeconds));
+            centre = c.LaterFormPoints.GetValueOrDefault(Boss, monster.Walk.Position(AreaTime(c)));
             boss.LifePhases ??= new([66, 33]);
             started = !boss.EntranceGrace; submerged = boss.LifePhases.Active;
             hideApplied = submerged;
@@ -475,7 +475,7 @@ public static class DepravedTrinity
                 lock (c.Monsters) generation = ++boss.ActionGeneration;
                 await SendMonsterAction(c, id, boss, generation, () =>
                 {
-                    double at = c.Clock.Elapsed.TotalSeconds; var here = boss.Walk.Position(at);
+                    double at = AreaTime(c); var here = boss.Walk.Position(at);
                     boss.Walk.Order(to.X, to.Y, at);
                     return InstanceProtocol.ActionStarted(id, here.X, here.Y, to.X, to.Y, 0x2909, c.NextActionSequence(), c.MonsterOrderFlags);
                 }, "[Rotting Core] Trinity follows its target");
@@ -596,7 +596,7 @@ public static class DepravedTrinity
             if (Stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.PlayerLife == 0) return;
             lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, ProjectileWorldTime(p)); }
             await SendWorldRecord(p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Rotting Core] blood carried {CharacterName(p)} to Lilly at {to}");
-            await Fx(p, to, Art + "blood_vortex/rig.ao", p.Clock.Elapsed.TotalSeconds + 4, 1);
+            await Fx(p, to, Art + "blood_vortex/rig.ao", AreaTime(p) + 4, 1);
         }
     }
 }

@@ -64,7 +64,7 @@ public static partial class Game
             var resolved = MergeSkillStats(CharacterPlayerStats(conn), SupportedSkill(conn, skillId).Stats);
             int Get(uint key) => resolved.GetValueOrDefault(key);
             _ = definition.Parameters.Resolve(Get, 1, ArrowsFor(conn, effect));
-            var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var at = conn.Walk.Position(AreaTime(conn));
             if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
                 throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
             return true;
@@ -88,7 +88,7 @@ public static partial class Game
         int? cast = attack ? 0 : CastMs(conn, gem.Effect, skillId);
         if (cast is null) return Task.CompletedTask;
         // From the swing's start when it began before now (a lockstep walk-up's goal frame, CastGemSkill's swingAt).
-        double acceptedAt = swingAt ?? conn.Clock.Elapsed.TotalSeconds;
+        double acceptedAt = swingAt ?? AreaTime(conn);
         // A Spectral Throw's own weapon leaves on the client's swing (SpectralThrowRelease), without the server-object lead.
         double? thrown = attack && SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow"
             ? SpectralThrowRelease.Delay(conn, Environment.GetEnvironmentVariable("Game_PLAYER_AO")
@@ -106,7 +106,7 @@ public static partial class Game
         bool Valid() => sacrifice.Current && conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(conn) ?? (cancelOnNewAction
             ? PlayerActionCurrent(conn, action)
-            : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
+            : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(AreaTime(conn)) > 0 && !conn.HitRecovery.Active(AreaTime(conn))))
             && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.

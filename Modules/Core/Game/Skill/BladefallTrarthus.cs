@@ -29,7 +29,7 @@ public static partial class Game
             state = new(conn.NextBuff++, conn.NextBuff++, skillId)
             {
                 ManaPerMinute = BladefallVolleys.ManaPerMinute(Own(Stat.BaseManaCostPctPerMinute), conn.Pools.Mana),
-                NextVolley = conn.Clock.Elapsed.TotalSeconds + BladefallVolleySeconds(conn, Own),
+                NextVolley = AreaTime(conn) + BladefallVolleySeconds(conn, Own),
             };
             conn.BladefallTrarthus = state;
         }
@@ -81,13 +81,13 @@ public static partial class Game
     {
         const double Lands = 1.0;
         uint? bladeRow = Art.MiscAnimatedRow(BladefallVolleys.GroundBladeArt) is int r ? (uint)r : null;
-        var random = new Random();
+        var random = AreaRng(conn);
         try
         {
             while (!conn.Closed && !conn.LeavingArea)
             {
                 await WhilePaused(conn);
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 var landed = new List<uint>();
                 var gone = new List<uint>();
                 lock (conn.Monsters)

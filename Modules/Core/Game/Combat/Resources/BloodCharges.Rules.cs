@@ -92,7 +92,7 @@ public static partial class Game
         if (add != 0)
             await SendWorldRecord(conn, PlayerId, InstanceEntities.AddBuff(PlayerId, add, BloodCharges.BuffRow, PlayerId,
                 stacks: (ushort)Math.Clamp(held, 0, ushort.MaxValue)), $"0x01c1 player buff {add}: blood_scythe_charge (BuffDefinitions row {BloodCharges.BuffRow}) × {held}");
-        Console.WriteLine($"[gateway] {conn.Remote} blood charges {held} ({why}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        Console.WriteLine($"[gateway] {conn.Remote} blood charges {held} ({why}) (t={AreaTime(conn):0.000})");
         await SendChargeStats(conn, $"blood charges {held}");
     }
 }

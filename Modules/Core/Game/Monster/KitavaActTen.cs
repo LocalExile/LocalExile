@@ -83,7 +83,7 @@ static partial class KitavaActTen
             f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
         await f.Gate.WaitAsync();
-        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
     }
     public static Task Leaving(Player c)
@@ -118,7 +118,7 @@ static partial class KitavaActTen
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; body = monster; body.LifePhases ??= Phases(monster.Variety!);
-            anchor = AnchorOf(c, body.Walk.Position(c.Clock.Elapsed.TotalSeconds));
+            anchor = AnchorOf(c, body.Walk.Position(AreaTime(c)));
             heartAt = c.Layout.Near((anchor.X, anchor.Y - 48));
             (int X, int Y) AllyPoint(string type, int x) => c.Layout.Level?.RoomObjects.FirstOrDefault(p => p.Type == type) is { } p
                 ? (p.X, p.Y) : c.Layout.Near((anchor.X + x, anchor.Y - 70));

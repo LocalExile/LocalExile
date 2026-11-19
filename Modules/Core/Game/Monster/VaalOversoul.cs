@@ -71,7 +71,7 @@ public static class VaalOversoul
         if (found is null) return;
         var fight = Fights.GetValue(conn.Instance, _ => new(found.Value.Id, found.Value.M, conn));
         await fight.Gate.WaitAsync();
-        try { await fight.Bind(conn); if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds); }
+        try { await fight.Bind(conn); if (IsMonsterRunner(conn)) await fight.Step(conn, AreaTime(conn)); }
         finally { fight.Gate.Release(); }
     }
     public static Task Leaving(Player conn) { ClearExposure(conn); return Task.CompletedTask; }
@@ -111,11 +111,11 @@ public static class VaalOversoul
         public Fight(uint objectId, SpawnedMonster monster, Player conn)
         {
             (id, boss) = (objectId, monster);
-            centre = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            centre = boss.Walk.Position(AreaTime(conn));
             rising = boss.EntranceGrace;
-            readyAt = rising ? double.NaN : conn.Clock.Elapsed.TotalSeconds;
+            readyAt = rising ? double.NaN : AreaTime(conn);
             nextSummon = readyAt;
-            lastTick = conn.Clock.Elapsed.TotalSeconds;
+            lastTick = AreaTime(conn);
         }
         bool Awake(Player c) { lock (c.Monsters) return c.MonsterViews.ContainsKey(id) && !c.AsleepMonsters.Contains(id); }
         public async Task Bind(Player conn)
@@ -235,7 +235,7 @@ public static class VaalOversoul
             int generation;
             lock (c.Monsters) { generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.BusyUntil = now + seconds; }
             await SendMonsterAction(c, id, boss, generation, () =>
-            { var p = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds); return [.. InstanceProtocol.ActionStarted(id, p.X, p.Y, p.X, p.Y, skill, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)]; },
+            { var p = boss.Walk.Position(AreaTime(c)); return [.. InstanceProtocol.ActionStarted(id, p.X, p.Y, p.X, p.Y, skill, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)]; },
                 $"[Vaal Oversoul] basic 0x{skill:x4}, stance {stance}");
         }
         async Task Cast(Player c, int effect, double now, (int X, int Y)? overrideAim = null)
@@ -353,7 +353,7 @@ public static class VaalOversoul
                 lock (p.Monsters)
                 {
                     if (!CurrentGameWork || stopped || boss.Dead || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    double now = Math.Max(ProjectileWorldTime(p), p.Clock.Elapsed.TotalSeconds);
+                    double now = Math.Max(ProjectileWorldTime(p), AreaTime(p));
                     int effect = Effects[attack.SkillId - 0x4000];
                     var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0,
                         1 + Stat(p, effect, boss.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };

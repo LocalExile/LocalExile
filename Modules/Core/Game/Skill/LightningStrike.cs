@@ -97,7 +97,7 @@ static partial class Game
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         if (hit.Life == 0) session.Packet(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]));
-        if (HitReaction.TryFlinch(monster, stun, now, Random.Shared))
+        if (HitReaction.TryFlinch(monster, stun, now, AreaRng(conn)))
         {
             double until = monster.FlinchUntil;
             session.Packet(() => TakeHitPacket(conn, id, monster, until, now));
@@ -110,10 +110,10 @@ static partial class Game
             $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
-            CommitProjectileCritFlasks(session, now, Random.Shared);
+            CommitProjectileCritFlasks(session, now, AreaRng(conn));
             session.Enqueue(() => MaybeCreateProfaneGround(conn, target));
         }
-        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, Random.Shared);
+        if (settleKill && hit.Life == 0) CommitProjectileKill(session, id, monster, session.Runtime.Now, AreaRng(conn));
         if (monster.ThresholdReached) session.Enqueue(() => QuestThreshold(conn, id, monster));
     }
 }

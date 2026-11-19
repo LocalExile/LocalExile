@@ -163,7 +163,7 @@ static partial class QuestobjectsRules
             while (Here())
             {
                 (int X, int Y) at;
-                lock (conn.Monsters) at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                lock (conn.Monsters) at = conn.Walk.Position(AreaTime(conn));
                 if (at.X >= room.X && at.X < room.X + room.Width && at.Y >= room.Y && at.Y < room.Y + room.Height)
                 {
                     if (conn.Instance.SetState(PrefightSaid))
@@ -239,7 +239,7 @@ static partial class QuestobjectsRules
             while (Here())
             {
                 (int X, int Y) at;
-                lock (conn.Monsters) at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                lock (conn.Monsters) at = conn.Walk.Position(AreaTime(conn));
                 if (InArena(at)) break;
                 await Task.Delay(200);
             }
@@ -305,7 +305,7 @@ static partial class QuestobjectsRules
                 .. InstanceEntities.StatsUpdate(izaro, [(Stat.HideMiniLifeBar, 0)])], $"0x02bc Izaro 0x{izaro:x} fights");
             lock (conn.Monsters)
             {
-                (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown) = (conn.Clock.Elapsed.TotalSeconds, true, false, true);
+                (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown) = (AreaTime(conn), true, false, true);
                 conn.BossBarsSeen.Add(izaro);
             }
             await ShowBossLifeBar(izaro, boss, conn);
@@ -365,23 +365,23 @@ static partial class QuestobjectsRules
     {
         Console.WriteLine($"[gateway] {conn.Remote} Izaro's trial {trial.Number}: Izaro 0x{izaro:x} at {boss.Life}/{boss.MaxLife} life leaves");
         await IzaroSays(conn, izaro, IzaroFights.EndLine(trial));
-        double said = conn.Clock.Elapsed.TotalSeconds;
+        double said = AreaTime(conn);
         // An order during his swing is lost on the client (live: he stood where he was): wait for its end.
         double swing = Math.Min(free, said + IzaroFights.SwingWaitSeconds) - said;
         if (swing > 0) await Task.Delay(TimeSpan.FromSeconds(swing + 0.1));
         if (!here()) return;
-        double arrives = conn.Clock.Elapsed.TotalSeconds;
+        double arrives = AreaTime(conn);
         await Send(conn, InstanceProtocol.ActionEnded(izaro), null);
         await SendMonsterAction(conn, izaro, boss, action, () =>
         {
-            double at = conn.Clock.Elapsed.TotalSeconds;
+            double at = AreaTime(conn);
             var from = boss.Walk.Position(at);
             boss.Walk.Order(elevator.X, elevator.Y, at);
             arrives = boss.Walk.ArrivesAt;
             return InstanceProtocol.ActionStarted(izaro, from.X, from.Y, elevator.X, elevator.Y, IzaroFights.MoveSkill, conn.NextActionSequence(), conn.MonsterOrderFlags);
         }, $"0x01ab Izaro 0x{izaro:x} walks to the elevator's middle ({elevator.X}, {elevator.Y})");
         // On the elevator, he stands a moment (and the line plays out) before it lowers.
-        double wait = Math.Max(arrives + IzaroFights.StandSeconds, said + IzaroFights.LineSeconds) - conn.Clock.Elapsed.TotalSeconds;
+        double wait = Math.Max(arrives + IzaroFights.StandSeconds, said + IzaroFights.LineSeconds) - AreaTime(conn);
         if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(Math.Min(wait, 15)));
         if (!here()) return;
         await Send(conn, [.. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Defeated),

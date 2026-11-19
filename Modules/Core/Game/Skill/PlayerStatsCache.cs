@@ -203,7 +203,7 @@ public static partial class Game
                 break;
             case StatInput.Walk:
                 graph.MarkRule((int)PlayerStatStep.TotemAura);
-                double clock = conn.Clock.Elapsed.TotalSeconds;
+                double clock = AreaTime(conn);
                 frame.MovingCheckAt = conn.Walk.MovingChangesIn(clock) is double next ? clock + next : double.PositiveInfinity;
                 CheckConditions(conn, frame, graph);
                 break;
@@ -222,7 +222,7 @@ public static partial class Game
             | (conn.PlayerLife == 0 ? 8L : 0) | (CriticalOnLowLife(conn, stats) ? 16L : 0)
             | (CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, stats) ? 32L : 0)
             | (PetrifiedBloodCapped(conn, stats) ? 64L : 0)
-            | (conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds) ? 128L : 0);
+            | (conn.Walk.Moving(AreaTime(conn)) ? 128L : 0);
         if (Interlocked.Exchange(ref frame.Conditions, conditions) == conditions) return;
         frame.Updated = true;
         foreach (var step in ConditionReaders) graph.MarkRule((int)step);
@@ -247,7 +247,7 @@ public static partial class Game
             || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         StepOwnAuras(conn);
         var frame = FrameStatsOf.GetValue(conn, _ => new());
-        double clock = conn.Clock.Elapsed.TotalSeconds;
+        double clock = AreaTime(conn);
         frame.Clock = clock;
         var graph = frame.Graph ??= PlayerStatGraph(conn, frame);
         if (!ReferenceEquals(frame.Area, conn.Frames.Area))
@@ -376,7 +376,7 @@ public static partial class Game
     {
         if (!FrameStatsOf.TryGetValue(conn, out var frame) || frame.Graph is not { } graph) return false;
         if (graph.MarksPending) return true;
-        double clock = conn.Clock.Elapsed.TotalSeconds;
+        double clock = AreaTime(conn);
         lock (frame.Timed)
             return frame.Timed.Values.Any(times => times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At));
     }
@@ -390,7 +390,7 @@ public static partial class Game
         var fresh = CharacterPlayerStatsSnapshot(conn, out _, out _);
         // A change made on another thread after the step, or a timed end reached since, is the next step's: its mark waits.
         if (graph.MarksPending) return;
-        double clock = conn.Clock.Elapsed.TotalSeconds;
+        double clock = AreaTime(conn);
         lock (frame.Timed)
             if (frame.Timed.Values.Any(times => times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At))) return;
         var wrong = fresh.Keys.Union(kept.Keys).Where(k => fresh.GetValueOrDefault(k) != kept.GetValueOrDefault(k))

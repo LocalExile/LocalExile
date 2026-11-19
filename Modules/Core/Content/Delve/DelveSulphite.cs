@@ -35,7 +35,7 @@ public sealed partial class DelveModule
             await EnsureSulphite(module, p);
             var conn = ConnOf(p);
             if (!_sulphite.TryGetValue(conn, out var encounter)) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (now >= encounter.GaugeAt)
             {
                 // Outside a mine the native HUD times out its transient resource bar. A loss-side UI event refreshes
@@ -149,7 +149,7 @@ public sealed partial class DelveModule
         var world = WorldOf(PlayerOf(conn));
         if (!await world.WalkUpTo(deposit.X, deposit.Y, 4, requestedAt)) return true;
         var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, conn.Instance) && p.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
-            && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(p.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= 150).ToList();
+            && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(AreaTime(p)), (deposit.X, deposit.Y)) <= 150).ToList();
         if (!recipients.Contains(conn)) recipients.Add(conn);
         List<(Player Conn, ushort Before, ushort After)> awards = [];
         // The instance lock serializes simultaneous clicks, claims and the durable resource credit. No network awaits here.
@@ -176,7 +176,7 @@ public sealed partial class DelveModule
             });
             conn.Instance.SetState(MinedKey(deposit.Index));
             if (MapSulphite.Fumes(encounter.Mods))
-                foreach (var monster in conn.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
+                foreach (var monster in conn.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(AreaTime(conn)), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
                 {
                     var stats = monster.EncounterStats is null ? new Dictionary<uint, int>() : new Dictionary<uint, int>(monster.EncounterStats);
                     stats[MapSulphite.EnragedQuantity] = Math.Max(MapSulphite.FumesQuantity, stats.GetValueOrDefault(MapSulphite.EnragedQuantity));

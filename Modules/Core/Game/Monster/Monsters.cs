@@ -190,7 +190,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (held.Count == 0 || !CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             (int X, int Y)[] players = [.. InGame.Keys.Where(c => ReferenceEquals(c.Instance, conn.Instance)
                 && !c.Closed && !c.LeavingArea && c.PlayerSent).Select(c => c.Walk.Position(now))];
             if (players.Length == 0) return;
@@ -477,7 +477,7 @@ public static partial class Game
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
             // A boss waiting to rise (Yugul) stays out of conn.Monsters until it does, where nothing would wake it: it is
             // created awake, as every other buried monster is; its bar only comes after the rise.
-            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) > WakeZoneRadius;
+            bool farBoss = !waits && variety.BossHealthBar && Dist((x, y), conn.Walk.Position(AreaTime(conn))) > WakeZoneRadius;
             // Bulk (an area's population): the create carries its wake and its rarity glow, so the client reads them in the
             // same admission and the producer waits for neither — each waited for a birth otherwise, a frame per object on
             // a lockstep client (746 monsters, 3.2 s). A far boss still wakes when the player comes near.
@@ -1279,7 +1279,7 @@ public static partial class Game
         lock (conn.Monsters)
             return MonsterPresent(conn, id, m) && conn.PlayerLife > 0
                 && (m.Hostile || KingInMists.IsFetish(m.Variety) || conn.Minions.Owns(id, m)) && !m.StageRunning
-                && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
+                && m.ActionGeneration == action && AreaTime(conn) >= m.FlinchUntil;
     }
 
     public static bool MonsterPresent(Player conn, uint id, SpawnedMonster m) =>
@@ -1655,8 +1655,8 @@ public static partial class Game
                 {
                     if (!MonsterPresent(conn, id, m) || conn.Paused) return null;
                     checkedAtGate = true;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    if (!HitReaction.TryFlinch(m, stun, now, Random.Shared)) return null;
+                    double now = AreaTime(conn);
+                    if (!HitReaction.TryFlinch(m, stun, now, AreaRng(conn))) return null;
                     float seconds = (float)(m.FlinchUntil - now);
                     if (log) Console.WriteLine($"[gateway] {conn.Remote} => 0x01d1 monster 0x{id:x} TakeHit recovery {seconds:0.000} s, " +
                         $"action {m.ActionGeneration}, recovery until {m.FlinchUntil:0.000}");
@@ -1798,7 +1798,7 @@ public static partial class Game
                 begunSeq = m.Sequence;
                 nativeClock = BeginMonsterMeleeClockLocked(conn, m, action, begunSeq, begun, begun);
             }
-            if (ServerTrace.Ai) Console.WriteLine($"[gateway] {conn.Remote} monster 0x{id:x} ({m.Label}) swings at the player from its walk-up, begun {conn.Clock.Elapsed.TotalSeconds - begun:0.000} s ago, attack time {begunSeconds:0.00} s");
+            if (ServerTrace.Ai) Console.WriteLine($"[gateway] {conn.Remote} monster 0x{id:x} ({m.Label}) swings at the player from its walk-up, begun {AreaTime(conn) - begun:0.000} s ago, attack time {begunSeconds:0.00} s");
             // A weapon-stanced monster's swing lands on its stance clip's contact, ahead of the native melee clock.
             double? begunStance = StanceContact(conn, m, a, begunSeq, "Melee");
             if (nativeClock && begunStance is null)
@@ -1952,7 +1952,7 @@ public static partial class Game
         double expires;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var (from, player) = (m.Walk.Position(now), conn.Walk.Position(now));
             double dx = player.X - from.X, dy = player.Y - from.Y, length = Math.Sqrt(dx * dx + dy * dy), ahead = summon.Offset / WorldUnits.PerCell;
             at = summon.AtTarget ? conn.Layout.Near(player)
@@ -1986,7 +1986,7 @@ public static partial class Game
         double startedAt = 0;
         if (!await SendMonsterAction(conn, id, m, action, () =>
         {
-            startedAt = conn.Clock.Elapsed.TotalSeconds;
+            startedAt = AreaTime(conn);
             var from = m.Walk.Position(startedAt);
             aim = conn.Walk.Position(startedAt);
             m.BusyUntil = startedAt + a.Seconds;
@@ -2061,7 +2061,7 @@ public static partial class Game
         if (a.Debuffs.Count == 0) return;
         bool inside;
         lock (conn.Monsters)
-            inside = !InGracePeriod(conn) && conn.PlayerLife > 0 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), aim) <= radius;
+            inside = !InGracePeriod(conn) && conn.PlayerLife > 0 && Dist(conn.Walk.Position(AreaTime(conn)), aim) <= radius;
         if (!inside) return;
         foreach (var spec in a.Debuffs) await AddPlayerDebuff(conn, spec.Row, id, spec.Stats, spec.Seconds);
     }
@@ -2071,7 +2071,7 @@ public static partial class Game
         (int X, int Y) aim, double radius, ushort sequence)
     {
         if (InGracePeriod(conn)) return null;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var here = conn.Walk.Position(now);
         foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
             if (!golem.Monster.Dead && Dist(golem.Monster.Walk.Position(now), aim) <= radius)
@@ -2097,7 +2097,7 @@ public static partial class Game
             // that history) and the connection clock: the runtime is not advanced at this gate, so its time can lag a
             // clock read the life tick or a mortar landing already made, and the fortification and recent-hit trackers
             // refuse to go backwards (review 2026-10-30: the refusal faulted the swing's task and the hit was lost).
-            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
             // A freeze that landed during the swing interrupts it.
             if (MonsterActionFactor(m, now) == 0)
             {
@@ -2271,7 +2271,7 @@ public static partial class Game
         UnhingedHitRecoveryLocked(conn, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
-        if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, Random.Shared))
+        if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(conn)))
             m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
         AilmentsWhenHitLocked(m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);

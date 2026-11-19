@@ -60,7 +60,7 @@ public static partial class Game
         }
         Console.WriteLine($"[gateway] warcry corpse loot: {corpses.Count} new corpse(s) within {radius} cells, {Math.Min(100, chance)}% each");
         foreach (var (monster, corpseAt) in corpses)
-            if (Random.Shared.Next(100) < Math.Min(100, chance))
+            if (AreaRng(conn).Next(100) < Math.Min(100, chance))
                 await DropLoot(conn, monster, corpseAt);
     }
 
@@ -105,7 +105,7 @@ public static partial class Game
                 foreach (var (targetId, m) in conn.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterDamage(m, hit, Random.Shared, default);
+                    int damage = MonsterDamage(m, hit, AreaRng(conn), default);
                     if (ApplyMonsterHitLocked(conn, m, damage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {

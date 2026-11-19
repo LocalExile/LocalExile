@@ -58,7 +58,7 @@ public static partial class Game
             int max = Get(Stat.GlobalMaximumAddedFireDamageVsBurningEnemies);
             if (min > 0 || max > 0)
             {
-                double roll = min + Random.Shared.NextDouble() * (Math.Max(min, max) - min);
+                double roll = min + AreaRng(conn).NextDouble() * (Math.Max(min, max) - min);
                 packet = packet.Add(DamageType.Fire, new(roll, roll));
             }
         }

@@ -28,7 +28,10 @@ public static partial class Game
     public static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
     public static bool CurrentGameWork => QuestKillCommitOutput is not null
         || CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
-    public static double AreaTime(Player conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
+    /// <summary>The rules' time: the area's frame time (AreaFrames.Now), the same for everything in a frame.</summary>
+    public static double AreaTime(Player conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Frames.Now(conn);
+    /// <summary>The rules' randomness: the area's seeded Random (AreaFrames.Rng).</summary>
+    public static Random AreaRng(Player conn) => conn.Frames.Rng;
     public static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
         ? state.Schedule.Wait(role, milliseconds, state.Stop.Token) : Task.Delay(milliseconds);
 

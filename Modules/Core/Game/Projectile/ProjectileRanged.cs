@@ -35,7 +35,7 @@ public static partial class Game
         // hit then lands with the client's release, and a hit recovery, freeze or death before it cancels both; the lead
         // is only for a predictive client's server object.
         bool lockstep = conn.LockstepClient;
-        double acceptedAt = swingAt ?? (lockstep ? LockstepFrameStart(conn) : conn.Clock.Elapsed.TotalSeconds);
+        double acceptedAt = swingAt ?? (lockstep ? LockstepFrameStart(conn) : AreaTime(conn));
         var (delay, release) = OrdinaryRangedContact(conn, attackSeconds, projectileId, sequence, clientClock: lockstep);
         session.Schedule(ProjectileRuntime.Time(lockstep ? LockstepShotAt(acceptedAt, delay) : acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
@@ -187,7 +187,7 @@ public static partial class Game
     // The start of the lockstep frame now being sent, which a player action echoed now begins in.
     static double LockstepFrameStart(Player conn)
     {
-        lock (conn.Monsters) return conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds;
+        lock (conn.Monsters) return conn.LockstepFrame?.Start ?? AreaTime(conn);
     }
 
     /// <summary>

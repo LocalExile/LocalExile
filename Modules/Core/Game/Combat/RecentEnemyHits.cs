@@ -7,7 +7,7 @@ public static partial class Game
     // Read sources, count and clock together. Development input cannot replace either authoritative output.
     public static (int Count, int Chance) RecentEnemyHitStatsLocked(Player conn, IReadOnlyDictionary<uint, int> sources)
     {
-        int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
+        int count = conn.RecentEnemyHits.Count(AreaTime(conn));
         int Get(uint key) => sources.GetValueOrDefault(key);
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
@@ -15,7 +15,7 @@ public static partial class Game
     public static void AddRecentEnemyHitStatsLocked(Player conn, StatMap stats)
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
-        if (conn.RecentEnemyHits.NextChangeIn(conn.Clock.Elapsed.TotalSeconds) is double left) StatsChangeIn(left);
+        if (conn.RecentEnemyHits.NextChangeIn(AreaTime(conn)) is double left) StatsChangeIn(left);
         if (RecentEnemyHits.Counter is var counter) stats[counter] = value.Count;
         if (RecentEnemyHits.VirtualChance is var chance) stats[chance] = value.Chance;
     }

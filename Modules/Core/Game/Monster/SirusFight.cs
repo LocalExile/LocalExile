@@ -52,7 +52,7 @@ sealed class SirusFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFi
     // His position on entry, the point the intermission returns him to.
     static (int X, int Y) Pose(SpawnedMonster boss, Player conn)
     {
-        lock (conn.Monsters) return boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) return boss.Walk.Position(AreaTime(conn));
     }
 
     protected override async Task Ticks(Player conn, double now)
@@ -150,8 +150,8 @@ sealed class SirusFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFi
         var attack = Attack(conn, AtlasBosses.SirusMeteorEffect);
         for (int i = 0; i < 8; i++)
         {
-            double angle = Math.Tau * i / 8 + Random.Shared.NextDouble() * 0.4;
-            double radius = i == 0 ? 0 : 4 + Random.Shared.NextDouble() * 16;
+            double angle = Math.Tau * i / 8 + AreaRng(conn).NextDouble() * 0.4;
+            double radius = i == 0 ? 0 : 4 + AreaRng(conn).NextDouble() * 16;
             var at = conn.Layout.Near((player.X + (int)Math.Round(Math.Cos(angle) * radius),
                 player.Y + (int)Math.Round(Math.Sin(angle) * radius)));
             double land = now + 1.0 + i * 0.35;

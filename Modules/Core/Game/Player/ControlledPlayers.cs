@@ -10,7 +10,7 @@ public static partial class Game
         InitializeCharacterVitals(conn);
         conn.ControlledPrepared = true;
         var at = ControlledFollowerPoint(conn, leader, arrival: true);
-        conn.Walk.Teleport(at.X, at.Y, conn.Clock.Elapsed.TotalSeconds);
+        conn.Walk.Teleport(at.X, at.Y, AreaTime(conn));
         conn.PeerType = InstanceEntities.ObjectTypeHash(SkillsFor(conn).ClassFor(conn.ClassRow).ObjectType);
         conn.PeerTemplate = PlayerForCreation(conn) with { GridX = at.X, GridY = at.Y };
         conn.ClientSkillIds = [.. conn.PeerTemplate.Skills!.Select(s => s.Id)];
@@ -27,7 +27,7 @@ public static partial class Game
     {
         if (conn.Closed || leader.Closed || conn.LeavingArea || conn.Paused || !leader.PlayerSent) return;
         EnsurePlayerUpdates(conn);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (conn.PlayerLife == 0)
         {
             if (double.IsNaN(conn.ControlledDeadSince)) conn.ControlledDeadSince = now;

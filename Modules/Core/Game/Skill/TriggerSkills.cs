@@ -106,7 +106,7 @@ public static partial class Game
                 ushort skillId = request.Skill;
                 var counter = request.Counter; counter.Pending = false;
                 var gem = SupportedSkill(conn, request.Skill);
-                double now = Math.Max(request.At, conn.Clock.Elapsed.TotalSeconds);
+                double now = Math.Max(request.At, AreaTime(conn));
                 if (now < LinkedTriggersOf(conn).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
                 if (!state.Counters.TryGetValue(request.Skill, out var current) || !ReferenceEquals(current, counter)
                     || !SameTriggerSource(counter.Gem, gem)

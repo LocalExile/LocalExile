@@ -37,7 +37,7 @@ public static partial class Game
         var progress = MapRuns.GetValue(instance, _ => new(run.Run, CompletionBosses(run.Area.Id)));
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (progress.Completed || progress.Bosses.Count == 0 || !force && now < progress.NextCheck) return;
             progress.NextCheck = now + 0.25;
             bool alive = false;

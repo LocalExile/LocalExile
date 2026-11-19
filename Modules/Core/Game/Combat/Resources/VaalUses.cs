@@ -90,7 +90,7 @@ public static partial class Game
     {
         deadline = null;
         if (!SkillsFor(conn).IsAttack(plan.Effect)) return true;
-        double now = conn.Clock.Elapsed.TotalSeconds, duration = SupportedAttackSeconds(conn, plan.Skill);
+        double now = AreaTime(conn), duration = SupportedAttackSeconds(conn, plan.Skill);
         if (!AttackTiming.Ready(now, conn.NextAttackAt, duration)) return false;
         deadline = AttackTiming.After(now, conn.NextAttackAt, duration);
         return true;
@@ -134,7 +134,7 @@ public static partial class Game
         if (Get(MaximumPowerOnVaalUse) <= 0) return;
         var session = ChargesOf(conn); session.Observe(Get);
         var step = session.Admit(at, [new ChargeEvent.Grant(ChargeType.Power, session.Limits(ChargeType.Power).Maximum,
-            Stats.Name(MaximumPowerOnVaalUse))], Get, () => WeaponProfileFor(conn), true, Random.Shared);
+            Stats.Name(MaximumPowerOnVaalUse))], Get, () => WeaponProfileFor(conn), true, AreaRng(conn));
         if (step.CountsChanged) { conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed(); }
     }
 

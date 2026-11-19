@@ -82,7 +82,7 @@ sealed partial class BotDirector
                 var claimed = new BotControlLease(BotMcpProtocol.Text(args, "controller", 80), _settings.McpLeaseSeconds);
                 var conn = bot.Combat!;
                 CommandRules.QueueControlledIntent(conn, new(Guid.NewGuid().ToString("N"), "hold",
-                    conn.Clock.Elapsed.TotalSeconds + 3, WallDeadline: claimed.Deadline));
+                    conn.Frames.Now(conn) + 3, WallDeadline: claimed.Deadline));
                 bot.Control = claimed;
                 _console($"bots MCP: {bot.Name} claimed by {bot.Control.Controller}");
                 return new { botId = bot.CharacterId, leaseId = bot.Control.Id, seconds = bot.Control.Remaining,
@@ -129,7 +129,7 @@ sealed partial class BotDirector
             {
                 var conn = bot.Combat!;
                 string command = Guid.NewGuid().ToString("N");
-                CommandRules.QueueControlledIntent(conn, new(command, action, conn.Clock.Elapsed.TotalSeconds + seconds,
+                CommandRules.QueueControlledIntent(conn, new(command, action, conn.Frames.Now(conn) + seconds,
                     skill, target, x, y, flask, lease.Deadline));
                 return new { botId = bot.CharacterId, commandId = command, sequence, status = "queued",
                     detail = "Observe lastCommand for execution; queuing does not certify a cast, hit or flask effect." };

@@ -55,7 +55,7 @@ public static class Arakaali
         if (found.Value is null) return;
         var fight = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         await fight.Gate.WaitAsync();
-        try { fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, AreaTime(c)); }
         finally { fight.Gate.Release(); }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();

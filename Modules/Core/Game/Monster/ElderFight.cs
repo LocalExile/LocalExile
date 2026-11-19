@@ -141,8 +141,8 @@ sealed class ElderFight(uint id, SpawnedMonster boss, Player conn) : AtlasBossFi
         Swing(conn, AtlasBosses.SlammingTentaclesEffect);
         for (int i = 0; i < count; i++)
         {
-            double angle = Math.Tau * i / count + Random.Shared.NextDouble() * 0.4;
-            int radius = 6 + Random.Shared.Next(6);
+            double angle = Math.Tau * i / count + AreaRng(conn).NextDouble() * 0.4;
+            int radius = 6 + AreaRng(conn).Next(6);
             var where = conn.Layout.Near((player.X + (int)Math.Round(Math.Cos(angle) * radius),
                 player.Y + (int)Math.Round(Math.Sin(angle) * radius)));
             await Effect(conn, where, AtlasBosses.ElderTentaclePortalArt, 2.4);

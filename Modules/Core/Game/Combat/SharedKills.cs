@@ -19,7 +19,7 @@ public static partial class Game
     public static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(Player host, (int X, int Y) at)
     {
         var members = new List<Player>();
-        if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(host.Clock.Elapsed.TotalSeconds)) <= ExperienceRange)
+        if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(AreaTime(host))) <= ExperienceRange)
             members.Add(host);
         var seen = new HashSet<Player> { host };
         foreach (var peer in host.Instance?.Presence.PlayersExcept(host.PeerId) ?? [])

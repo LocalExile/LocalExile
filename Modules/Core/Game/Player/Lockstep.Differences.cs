@@ -87,10 +87,10 @@ public static partial class Game
     // does not keep landing at the same point of a slow client's update.
     static async Task ProbeLockstepLatency(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (!conn.LockstepClient || now < conn.LockstepNextProbeAt) return;
         conn.LockstepNextProbeAt = now + (conn.LockstepLatency.Settled ? 2 : .07)
-            + Random.Shared.NextDouble() * .05;
+            + AreaRng(conn).NextDouble() * .05;
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0 && Stopwatch.GetElapsedTime(sent).TotalMilliseconds < LockstepLatency.Lost)
         {

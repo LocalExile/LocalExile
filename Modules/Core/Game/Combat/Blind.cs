@@ -116,7 +116,7 @@ public static partial class Game
         if (!target.Hostile || target.Dead || target.Life == 0
             || !conn.Monsters.TryGetValue(id, out var registered) || !ReferenceEquals(registered, target)) return false;
         if (chance <= 0 || !CurrentGameRules || conn.LeavingArea || conn.Paused
-            || !RandomRolls.Chance(chance, 100, random ?? Random.Shared)) return false;
+            || !RandomRolls.Chance(chance, 100, random ?? AreaRng(conn))) return false;
         var state = ResourceEffectsOf(conn);
         if (!(ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
             .Inflict(at, seconds, effect, target.Mods.Effects[Stat.CannotBeBlinded] != 0))) return false;

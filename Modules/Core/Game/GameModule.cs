@@ -283,7 +283,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         conn.IncomingAilments.Clear();
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
-        Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
+        Rules.LeechOf(conn).Clear(Rules.AreaTime(conn));
         conn.Rage.Clear();
         conn.Rampage.Clear();
         conn.RetireOwnedCombat();

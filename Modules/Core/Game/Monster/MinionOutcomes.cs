@@ -16,7 +16,7 @@ public static partial class Game
         var state = conn.Minions;
         if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(Stat.HideMiniLifeBar, 1)]),
             $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster, WorldId: id));
-        if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
+        if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, AreaRng(conn)))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
         state.OutputQueue.Add(new([], $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {hit.Life}/{monster.MaxLife}{(hit.Life == 0 ? " (dies)" : "")}",
@@ -97,20 +97,20 @@ public static partial class Game
         if (modded is not { Cancel: true })
         {
             int mapTier = MapRunOf(conn)?.Area.Tier ?? 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, AreaRng(conn), IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
-            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
-            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
+            drops.AddRange(PartyCurrency(conn, drops, AreaRng(conn)));
+            if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, AreaRng(conn)) is { } map) drops.Add(map);
+            if (DropsFor(conn).Gold(monster.Level, monster.Rarity, AreaRng(conn),
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
         }
         if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
         drops = ModdedDrops(conn, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(conn, monster),
-            balance.EquipmentRarityMultiplier, Random.Shared);
+            balance.EquipmentRarityMultiplier, AreaRng(conn));
         foreach (var drop in ItemDrops.Stacked(drops))
         {
-            double angle = Random.Shared.NextDouble() * Math.Tau, radius = 3 + Random.Shared.NextDouble() * 3;
+            double angle = AreaRng(conn).NextDouble() * Math.Tau, radius = 3 + AreaRng(conn).NextDouble() * 3;
             int x = at.X + (int)Math.Round(Math.Cos(angle) * radius), y = at.Y + (int)Math.Round(Math.Sin(angle) * radius);
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);

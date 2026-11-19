@@ -10,7 +10,7 @@ namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 // Runs on Game's minion schedule. Neither a worker nor a cipher is retained by this module.
 internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = null)
 {
-    static double Now(Player conn) => conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
+    static double Now(Player conn) => conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : AreaTime(conn);
     DateTimeOffset UtcNow() => utcNow?.Invoke() ?? DateTimeOffset.UtcNow;
     readonly ConditionalWeakTable<Player, State> states = new();
     readonly HarbingerCompanionCatalog normal = new(skills: Skills);

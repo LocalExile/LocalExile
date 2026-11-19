@@ -329,7 +329,7 @@ public static partial class Game
         var grants = types.Select(type =>
             new ChargeEvent.Grant(type, session.Limits(type).Maximum, source)).ToArray();
         var existing = session.State.Carry(now).ToDictionary(c => c.Type);
-        var admitted = session.Admit(entryAt, grants, Get, () => WeaponProfileFor(conn), true, Random.Shared);
+        var admitted = session.Admit(entryAt, grants, Get, () => WeaponProfileFor(conn), true, AreaRng(conn));
         var aged = session.Refresh(now);
         var merged = session.State.Carry(now).ToDictionary(c => c.Type);
         foreach (var (type, carried) in existing)

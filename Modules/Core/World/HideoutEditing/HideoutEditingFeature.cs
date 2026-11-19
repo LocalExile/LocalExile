@@ -44,7 +44,7 @@ static class HideoutEditingFeature
             Console.WriteLine($"[gateway] {conn.Remote} refused 0x0209 target 0x{create.Target:x}: not a known monster");
             return;
         }
-        var (x, y) = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (x, y) = monster.Walk.Position(AreaTime(conn));
         uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),

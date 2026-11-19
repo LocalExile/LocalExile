@@ -25,7 +25,7 @@ public static partial class Game
         // SkillSnapshotInputs), not for a fixed time; a full refresh (SendCharacterStats: weapons, gems, items, passives)
         // drops it at once. The stats carry Rage, charges, Onslaught and the auras, whose attack and cast times the
         // client's actions follow, so those rebuild it too.
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var currentStats = CharacterPlayerStats(conn);
         if (conn.PlayerSkillsCache is { } cached && PlayerSkillsInputs.TryGetValue(conn, out var was) && ReferenceEquals(was.Skills, cached)
             && was.Inputs.Matches(conn, currentStats)) return cached;

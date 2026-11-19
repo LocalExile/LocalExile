@@ -447,11 +447,11 @@ static partial class QuestobjectsRules
         var degen = new TrapDegen();
         try
         {
-            double next = conn.Clock.Elapsed.TotalSeconds + 1, spills = double.PositiveInfinity, drains = double.PositiveInfinity,
+            double next = AreaTime(conn) + 1, spills = double.PositiveInfinity, drains = double.PositiveInfinity,
                 cools = double.PositiveInfinity;
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 if (now >= next)
                 {
                     foreach (var (id, plate) in plates)
@@ -498,7 +498,7 @@ static partial class QuestobjectsRules
         if (o is null) return false;
         var trial = LabyrinthTrials.For(conn.Layout.Id);
         int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         int size = LabyrinthTrials.Size(o.Type);
         var (here, stop, arrive) = conn.Walk.WalkUpTo(o.X, o.Y, size, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
@@ -600,7 +600,7 @@ static partial class QuestobjectsRules
                 lock (conn.Monsters)
                 {
                     Interlocked.Increment(ref conn.ActionCount);
-                    conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+                    conn.Walk.Teleport(to.X, to.Y, AreaTime(conn));
                 }
                 await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
                 await global::Game.SendTransitionFade(conn, to, "the trial's return portal");
@@ -662,7 +662,7 @@ static partial class QuestobjectsRules
             Console.WriteLine($"[gateway] {conn.Remote} statues: {waiting.Count} monster(s) waiting on their pedestals");
             while (!conn.Closed && waiting.Count > 0)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 (int X, int Y) here;
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 double reach = LabyrinthTrials.StatueWakeCells * LabyrinthTrials.StatueWakeCells;
@@ -942,7 +942,7 @@ static partial class QuestobjectsRules
         // A chain's wave takes its step when it starts (so /trial_spike_step applies to whole waves).
         var due = new PriorityQueue<(SpikeTrap Trap, int Stage), double>();
         var chains = traps.Where(t => t.Chain >= 0).GroupBy(t => t.Chain).ToDictionary(g => g.Key, g => g.ToList());
-        double start = conn.Clock.Elapsed.TotalSeconds + 1;
+        double start = AreaTime(conn) + 1;
         foreach (var chain in chains.Values) due.Enqueue((chain[0], Wave), start + (chain[0].Trigger?.Delay ?? 0));
         async Task Fire(SpikeTrap t, double at)
         {
@@ -962,7 +962,7 @@ static partial class QuestobjectsRules
         {
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 while (due.TryPeek(out var next, out double at) && at <= now)
                 {
                     due.Dequeue();
@@ -1032,14 +1032,14 @@ static partial class QuestobjectsRules
     static async Task RunEdgeBlades(Player conn,
         List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)> blades)
     {
-        double start = conn.Clock.Elapsed.TotalSeconds + 1;
+        double start = AreaTime(conn) + 1;
         var next = blades.Select(b => start + LabyrinthTrials.EdgeBladeTimer(b.Blade.Type).Delay).ToArray();
         var impact = blades.Select(_ => double.PositiveInfinity).ToArray();
         try
         {
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 for (int i = 0; i < blades.Count; i++)
                 {
                     var (id, blade, strip) = blades[i];
@@ -1112,13 +1112,13 @@ static partial class QuestobjectsRules
     static async Task RunTileTraps(Player conn, List<TileTrap> traps)
     {
         var degen = new TrapDegen();
-        double first = conn.Clock.Elapsed.TotalSeconds + 1;
+        double first = AreaTime(conn) + 1;
         foreach (var t in traps) t.Start = first + (t.Trap.X * 31 + t.Trap.Y * 17) % 50 / 10.0;
         try
         {
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 (int X, int Y) here;
                 lock (conn.Monsters) here = conn.Walk.Position(now);
                 bool cut = false;
@@ -1214,11 +1214,11 @@ static partial class QuestobjectsRules
         bool changed = t.Blocked != blocked;
         t.Blocked = blocked;
         bool inside;
-        lock (conn.Monsters) inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+        lock (conn.Monsters) inside = t.Wall.Contains(conn.Walk.Position(AreaTime(conn)));
         if (changed && blocked && inside && throwOut) await Knockback(conn, t, outOfStrip: true);
         lock (conn.Monsters)
         {
-            inside = t.Wall.Contains(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+            inside = t.Wall.Contains(conn.Walk.Position(AreaTime(conn)));
             bool bar = blocked && !inside;
             if (bar != t.Barred)
             {
@@ -1259,7 +1259,7 @@ static partial class QuestobjectsRules
         (int X, int Y) to;
         lock (conn.Monsters)
         {
-            var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var at = conn.Walk.Position(AreaTime(conn));
             double cos = Math.Cos(t.Trap.Angle), sin = Math.Sin(t.Trap.Angle);
             double off = (at.X - t.Trap.X) * cos + (at.Y - t.Trap.Y) * sin;
             (int X, int Y)? found = null;
@@ -1272,7 +1272,7 @@ static partial class QuestobjectsRules
             if (found is not { } cellTo) return;
             to = cellTo;
             Interlocked.Increment(ref conn.ActionCount);
-            conn.Walk.Teleport(to.X, to.Y, conn.Clock.Elapsed.TotalSeconds);
+            conn.Walk.Teleport(to.X, to.Y, AreaTime(conn));
         }
         await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
         await global::Game.SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"0x01b7 thrown back from tile trap 0x{t.Id:x} to ({to.X}, {to.Y})");
@@ -1340,7 +1340,7 @@ static partial class QuestobjectsRules
         int damage;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (!spike.Holds(conn.Walk.Position(now))
                 || LabyrinthTrials.SpikeDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int dealt
                 || TrapHitLocked(conn, dealt, now) is not uint left) return;
@@ -1422,7 +1422,7 @@ static partial class QuestobjectsRules
     {
         if (!CannotBleed(conn))
             lock (conn.Monsters)
-                conn.IncomingAilments.ApplyBleed(conn.Clock.Elapsed.TotalSeconds, hit * share, seconds);
+                conn.IncomingAilments.ApplyBleed(AreaTime(conn), hit * share, seconds);
         return Task.CompletedTask;
     }
 
@@ -1497,11 +1497,11 @@ static partial class QuestobjectsRules
         var plates = new Dictionary<uint, (bool Down, double At, bool Left)>();
         try
         {
-            double start = conn.Clock.Elapsed.TotalSeconds + 1;
+            double start = AreaTime(conn) + 1;
             var next = timed.Select(t => start + t.Volley!.Delay).ToArray();
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 for (int i = 0; i < timed.Count; i++)
                 {
                     if (now < next[i]) continue;
@@ -1568,7 +1568,7 @@ static partial class QuestobjectsRules
     {
         var conn = session.Conn;
         if (contact.Target.Id != PlayerId || InGracePeriod(conn)) return ProjectileHitResult.Miss;
-        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
+        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, AreaTime(conn));
         // The dart is an arrow (its skill's skill_can_fire_arrows): a physical hit, which the player's armour reduces.
         if (LabyrinthTrials.ArrowDamage(conn.PlayerMaxLife, conn.EnergyShield.Maximum) is not int share) return ProjectileHitResult.Miss;
         int damage = PlayerHitMitigation.AfterResistance(conn.Pools, GameServer.Core.World.DamageType.Physical, share);
@@ -1594,7 +1594,7 @@ static partial class QuestobjectsRules
         int Get(uint key) => stats.GetValueOrDefault(key);
         if (Get(Stat.CannotBePoisoned) == 0 && Get(Stat.ImmuneToPoison) == 0)
             lock (conn.Monsters)
-                conn.IncomingAilments.ApplyPoison(conn.Clock.Elapsed.TotalSeconds,
+                conn.IncomingAilments.ApplyPoison(AreaTime(conn),
                     hit * LabyrinthTrials.ArrowPoisonPerSecond, LabyrinthTrials.ArrowPoisonSeconds);
         return Task.CompletedTask;
     }
@@ -1624,7 +1624,7 @@ static partial class QuestobjectsRules
         var slow = DartSlows.GetValue(conn, _ => new());
         lock (conn.Monsters)
         {
-            slow.Until = conn.Clock.Elapsed.TotalSeconds + LabyrinthTrials.ArrowSlowSeconds;
+            slow.Until = AreaTime(conn) + LabyrinthTrials.ArrowSlowSeconds;
             if (slow.Active) return;   // the running watch keeps it on to the new end
             (slow.Active, slow.Buff) = (true, conn.NextBuff++);
         }
@@ -1636,7 +1636,7 @@ static partial class QuestobjectsRules
                 double left;
                 lock (conn.Monsters)
                 {
-                    left = conn.PlayerLife == 0 ? 0 : slow.Until - conn.Clock.Elapsed.TotalSeconds;
+                    left = conn.PlayerLife == 0 ? 0 : slow.Until - AreaTime(conn);
                     if (left <= 0) slow.Active = false;   // a hit after this starts a slow of its own
                 }
                 if (left > 0) { await Task.Delay(TimeSpan.FromSeconds(left)); continue; }
@@ -1811,7 +1811,7 @@ static partial class QuestobjectsRules
         {
             while (!conn.Closed)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 foreach (var r in runs)
                 {
                     if (r.Halted != r.Stopped)

@@ -16,7 +16,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            var here = LockstepClientCell(conn, conn.Clock.Elapsed.TotalSeconds);
+            var here = LockstepClientCell(conn, AreaTime(conn));
             if (id == InstanceProtocol.LockstepMoveStartId)
             {
                 var click = InstanceProtocol.ReadLockstepMoveStart(bytes);
@@ -41,7 +41,7 @@ public static partial class Game
                 conn.LockstepHold.Update((here.X + dx, here.Y + dy));
                 conn.LockstepSkill.Update((here.X + dx, here.Y + dy));
                 if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
-                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    conn.LastChannelUpdateAt = AreaTime(conn);
             }
             else if (id == InstanceProtocol.LockstepMoveStopId)
             {
@@ -59,7 +59,7 @@ public static partial class Game
                 conn.LockstepSkill.Clear(finishChannel: true);
                 if (SkillsFor(conn).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
                 {
-                    var aim = conn.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : here;
+                    var aim = conn.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(AreaTime(conn)) : here;
                     conn.LockstepSkill.Press(aim, target, skill, flags, target != PlayerId && LockstepRepeats(conn, skill));
                 }
                 else

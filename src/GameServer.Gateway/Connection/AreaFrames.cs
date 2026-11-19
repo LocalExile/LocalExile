@@ -92,6 +92,8 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     /// <summary>The area's own world (GameArea), made when the first member joins, with that member's area seed; stepped in
     /// every frame after the input phase, before the loops. Its players are its members' player entities.</summary>
     public GameArea? Area { get; private set; }
+    /// <summary>The area's seeded randomness for rules (AreaSeededRandom); the shared one until the first member joins.</summary>
+    public Random Rng { get; private set; } = Random.Shared;
     readonly TaskCompletionSource<GameArea> areaReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     /// <summary>The area's world, once the first member joined.</summary>
     public Task<GameArea> AreaReady => areaReady.Task;
@@ -160,7 +162,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
             double first = await Program.BeginWorldFrames(conn, Program.FrameMs / 1000d);
             GameArea? started = null;
             lock (gate)
-                if (Area is null) areaReady.TrySetResult(Area = started = new GameArea(conn.Seed));
+                if (Area is null) { Rng = new AreaSeededRandom(conn.Seed); areaReady.TrySetResult(Area = started = new GameArea(conn.Seed)); }
             if (started is not null)
             {
                 lock (live) live.Add(new(this));

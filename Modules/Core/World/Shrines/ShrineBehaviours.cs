@@ -26,7 +26,7 @@ sealed class GuardedPacksEffect : IShrineEffect
             int buffed = 0;
             foreach (var pack in shrine.Definition.GuardPacks)
             {
-                int count = Random.Shared.Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
+                int count = AreaRng(conn).Next(Math.Max(1, pack.MinCount), Math.Max(pack.MinCount, pack.MaxCount) + 1);
                 int made = 0;
                 for (int i = 0; i < count; i++)
                 {

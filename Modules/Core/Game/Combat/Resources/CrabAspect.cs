@@ -59,7 +59,7 @@ public static partial class Game
             long gains = Math.Min(ticks, (long)maximum - stacks);
             if (chance <= 0) stacks += (int)gains;
             else for (long i = 0; i < gains && stacks < maximum; i++)
-                stacks = RandomRolls.Chance(chance, 100, random ?? Random.Shared) ? maximum : stacks + 1;
+                stacks = RandomRolls.Chance(chance, 100, random ?? AreaRng(conn)) ? maximum : stacks + 1;
         }
         changed |= state.CrabBarriers != stacks;
         state.CrabBarriers = stacks;

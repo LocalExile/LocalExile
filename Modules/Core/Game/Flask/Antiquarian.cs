@@ -14,7 +14,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             int Get(uint key) => sources.GetValueOrDefault(key);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (Get(AntiquarianEffects.AdrenalineSource) > 0 && conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(now)
                 && StatsChangeInAnd(conn.Antiquarian.AdrenalineUntil - now))
                 foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
@@ -28,7 +28,7 @@ public static partial class Game
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
         lock (conn.Monsters)
-            conn.Antiquarian.Observe(conn.Clock.Elapsed.TotalSeconds, Get(AntiquarianEffects.AdrenalineSource) > 0,
+            conn.Antiquarian.Observe(AreaTime(conn), Get(AntiquarianEffects.AdrenalineSource) > 0,
                 Get(AntiquarianEffects.StunRecoverySource) > 0, conn.PlayerLife > 0 && !conn.RageRetired);
     }
 
@@ -37,7 +37,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             bool active = conn.PlayerLife > 0 && !conn.RageRetired
-                && conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
+                && conn.Antiquarian.Adrenaline(AreaTime(conn));
             if (conn.AppliedAdrenaline != active)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -63,12 +63,12 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
             EnsureAntiquarianPools(conn);
-            conn.Ward.Advance(conn.Clock.Elapsed.TotalSeconds);
+            conn.Ward.Advance(AreaTime(conn));
             var ward = (conn.Ward.Maximum, conn.Ward.Broken);
-            double adrenaline = conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds)
+            double adrenaline = conn.PlayerLife > 0 && conn.Antiquarian.Adrenaline(AreaTime(conn))
                 ? conn.Antiquarian.AdrenalineUntil : double.NegativeInfinity;
-            double recovery = conn.Antiquarian.RecoveryUntil(conn.Clock.Elapsed.TotalSeconds);
-            double cry = conn.EnduringCryRecovery.Rate(conn.Clock.Elapsed.TotalSeconds) > 0
+            double recovery = conn.Antiquarian.RecoveryUntil(AreaTime(conn));
+            double cry = conn.EnduringCryRecovery.Rate(AreaTime(conn)) > 0
                 ? conn.EnduringCryRecovery.Until : double.NegativeInfinity;
             if (conn.SentWard == ward && conn.SentAdrenalineUntil == adrenaline
                 && conn.SentStunRecoveryUntil == recovery && conn.SentEnduringCryUntil == cry)
@@ -85,10 +85,10 @@ public static partial class Game
             if (double.IsFinite(adrenaline))
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.AdrenalineBuff = conn.NextBuff++,
                     AntiquarianEffects.AdrenalineDefinition, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, adrenaline - conn.Clock.Elapsed.TotalSeconds))));
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, adrenaline - AreaTime(conn)))));
             if (double.IsFinite(cry))
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.EnduringCryBuff = conn.NextBuff++, 1541, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, cry - conn.Clock.Elapsed.TotalSeconds))));
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, cry - AreaTime(conn)))));
             bytes.AddRange(PlayerStatsOffFrames(conn));
             // The native client predicts regeneration between corrections. Removing the rate alone leaves
             // its predicted overshoot in place when the server has no further recovery tick to publish.
@@ -116,7 +116,7 @@ public static partial class Game
         {
             if (conn.Closed || conn.RageRetired) return;
             if (conn.PlayerLife == 0) ClearAntiquarianOnDeath(conn);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             conn.Ward.Advance(now);
             foreach (var (old, entry) in CarriedAntiquarian)
                 if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedAntiquarian.TryRemove(old, out _);
@@ -134,7 +134,7 @@ public static partial class Game
                 || carry.Character != CharacterName(conn)
                 || !CarriedAntiquarian.TryRemove(new KeyValuePair<uint, AntiquarianTransfer>(conn.Ticket, carry))) return;
             if (conn.PlayerLife == 0 || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             conn.Antiquarian.Restore(carry.Buffs, now);
             conn.EnduringCryRecovery.Restore(carry.Cry, now);
             conn.Pools = PoolsFor(conn, conn.Pools.Level);

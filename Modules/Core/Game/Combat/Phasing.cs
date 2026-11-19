@@ -41,9 +41,9 @@ public static partial class Game
     {
         uint key = Stat.PhasingFor4SecondsOnKillPct;
         int chance = CharacterStatSources(conn).Stats.GetValueOrDefault(key);
-        if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
+        if (chance <= 0 || AreaRng(conn).Next(100) >= Math.Min(100, chance)) return;
         // The game clock: projectile contacts carry their own quanta origin.
-        double at = conn.Clock.Elapsed.TotalSeconds;
+        double at = AreaTime(conn);
         lock (conn.Monsters)
             conn.PhasingUntil = Math.Max(conn.PhasingUntil, at + 4);
         PresentStats(conn);
@@ -60,7 +60,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             bool active = conn.PlayerLife > 0 && conn.IsPhasing;
             bool timed = active && conn.PhasingUntil > now;
             if (conn.PhasingUntil > now) PresentIn(conn, conn.PhasingUntil - now);

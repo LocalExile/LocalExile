@@ -556,7 +556,7 @@ static partial class SurvivorsSkills
         if (!ownership.Current) return 0;
         var owner = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
         var runtime = ProjectilesFor(conn);
-        long now = ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds);
+        long now = ProjectileRuntime.Time(AreaTime(conn));
         foreach (var aim in aims)
         {
             var use = new ProjectileUse(profile, owner, owner, 1, ProjectileSession.Vector(origin), ProjectileSession.Vector(aim))
@@ -579,7 +579,7 @@ static partial class SurvivorsSkills
         // A cast clip replaces the rig's walk clip while it plays, which reads as the character strafing sideways.
         // Play it only while the player stands still: the skill's own projectile, pulse and hit art still show.
         bool moving;
-        lock (conn.Monsters) moving = conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) moving = conn.Walk.Moving(AreaTime(conn));
         if (moving) return;
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO")
             ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
@@ -684,7 +684,7 @@ static partial class SurvivorsSkills
     internal static async Task SurvivorsCollectOrbs(Player conn, SurvivorsRun run)
     {
         if (StateOf(conn).Survivors is null || conn.PlayerLife == 0) return;
-        var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var here = conn.Walk.Position(AreaTime(conn));
         List<SurvivorsExperienceOrb> taken;
         lock (conn.Monsters)
         {
@@ -737,9 +737,9 @@ static partial class SurvivorsSkills
     internal static async Task SurvivorsDropDeathZone(Player conn, (int X, int Y) at)
     {
         if (StateOf(conn).Survivors is null) return;
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         // 50/50: the zone appears under the monster or under the player.
-        bool underPlayer = Random.Shared.Next(2) == 0;
+        bool underPlayer = AreaRng(conn).Next(2) == 0;
         int x = underPlayer ? px : at.X, y = underPlayer ? py : at.Y;
         uint id;
         lock (conn.Monsters)
@@ -747,7 +747,7 @@ static partial class SurvivorsSkills
             if (StateOf(conn).Survivors is null) return;
             id = conn.TakeObjectId();
             StateOf(conn).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
-                conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
+                AreaTime(conn) + SurvivorsRules.DeathZoneDurationSeconds,
                 SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
         }
         await global::Game.SendWorldCreate(conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -764,7 +764,7 @@ static partial class SurvivorsSkills
     internal static async Task SurvivorsSweepCorpses(Player conn, HashSet<uint> horde)
     {
         if (StateOf(conn).Survivors is null) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         List<uint> remove = [];
         lock (conn.Monsters)
         {
@@ -795,7 +795,7 @@ static partial class SurvivorsSkills
     internal static async Task SurvivorsAdvanceDeathZones(Player conn, double step)
     {
         if (StateOf(conn).Survivors is null) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var here = conn.Walk.Position(now);
         uint[] expired;
         int damagePerSecond = 0;

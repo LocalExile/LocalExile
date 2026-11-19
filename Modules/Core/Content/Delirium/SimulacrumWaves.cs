@@ -20,7 +20,7 @@ public sealed partial class DeliriumModule
 
     Run PrepareWave(Player conn, int wave, Run previous)
     {
-        var random = Random.Shared;
+        var random = AreaRng(conn);
         var effects = new Dictionary<string, int>(StringComparer.Ordinal);
         var descriptions = new List<string>();
         var affixes = new List<ItemMod>();
@@ -85,7 +85,7 @@ public sealed partial class DeliriumModule
 
     async Task SpawnBatch(Player conn, Run run)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         int count = run.SpawnAllowance(now, (int)Math.Clamp(Setting("simulacrum_pack_size", 15), 10, 20),
             (int)Math.Clamp(Setting("simulacrum_active_limit", 100), 20, 100));
         if (count == 0) return;
@@ -106,7 +106,7 @@ public sealed partial class DeliriumModule
             bool omni = run.OmniThisWave && run.Spawned == 20;
             bool kosis = run.KosisThisWave && run.Spawned == 40;
             string? boss = omni ? SimulacrumRules.Omniphobia : kosis ? SimulacrumRules.Kosis : null;
-            var variety = boss is not null ? Monsters.Find(boss) : pool[Random.Shared.Next(pool.Length)];
+            var variety = boss is not null ? Monsters.Find(boss) : pool[AreaRng(conn).Next(pool.Length)];
             if (variety is not { Supported: true })
             {
                 // A boss the client data cannot spawn would stop the wave at this count for good: it goes on without it.
@@ -120,7 +120,7 @@ public sealed partial class DeliriumModule
                 continue;
             }
             variety = variety with { StateMachine = MonsterStates(variety.StateMachine), AggroRange = Math.Max(100, variety.AggroRange) };
-            int rarityRoll = Random.Shared.Next(100);
+            int rarityRoll = AreaRng(conn).Next(100);
             var rarity = boss is not null ? MonsterRarity.Unique : rarityRoll < 4 ? MonsterRarity.Rare
                 : rarityRoll < 20 ? MonsterRarity.Magic : MonsterRarity.Normal;
             int points = run.ProgressGoal > 0 ? Math.Min(ProgressWeight(rarity), run.ProgressGoal - run.SpawnPoints) : 0;

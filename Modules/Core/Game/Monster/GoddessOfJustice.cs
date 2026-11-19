@@ -68,7 +68,7 @@ static class GoddessOfJustice
         var cast = Casts.GetValue(goddess, _ => new());
         // Called when Izaro fights: her first volley a cooldown later.
         lock (conn.Monsters) cast.Fighting = true;
-        double nextVolley = conn.Clock.Elapsed.TotalSeconds + IzaroGoddess.MortarCooldown;
+        double nextVolley = AreaTime(conn) + IzaroGoddess.MortarCooldown;
         try
         {
             while (fighting())
@@ -79,7 +79,7 @@ static class GoddessOfJustice
                 lock (conn.Monsters)
                 {
                     if (goddess.Dead || izaro.Dead) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     var at = izaro.Walk.Position(now);
                     goddess.Walk.Teleport(at.X, at.Y, now);
                     if (now < cast.Until || conn.Paused || conn.PlayerLife == 0 || InGracePeriod(conn)) continue;
@@ -107,7 +107,7 @@ static class GoddessOfJustice
             lock (conn.Monsters)
             {
                 if (goddess.Dead) return false;
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 if (cast.Fighting && now >= cast.Until) { cast.Until = now + seconds; return true; }
             }
             await Task.Delay(100);
@@ -124,7 +124,7 @@ static class GoddessOfJustice
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
         return await SendMonsterAction(conn, id, goddess, action, () =>
         {
-            var from = goddess.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            var from = goddess.Walk.Position(AreaTime(conn));
             return [.. InstanceProtocol.ActionEnded(id),
                 .. InstanceProtocol.ActionStarted(id, from.X, from.Y, at.X, at.Y, AwakenSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: gargoyle)];
         }, $"0x01ab the Goddess of Justice 0x{id:x} beams at gargoyle 0x{gargoyle:x}");
@@ -133,7 +133,7 @@ static class GoddessOfJustice
     /// <summary>Her beam stops (its time is up, the gargoyle died, or the trial ended).</summary>
     internal static async Task EndAwaken(Player conn, uint id, SpawnedMonster goddess)
     {
-        lock (conn.Monsters) Casts.GetValue(goddess, _ => new()).Until = conn.Clock.Elapsed.TotalSeconds;
+        lock (conn.Monsters) Casts.GetValue(goddess, _ => new()).Until = AreaTime(conn);
         await Send(conn, InstanceProtocol.ActionEnded(id), null);
     }
 
@@ -147,7 +147,7 @@ static class GoddessOfJustice
         (int X, int Y) aim = default;
         if (!await SendMonsterAction(conn, id, goddess, action, () =>
         {
-            started = conn.Clock.Elapsed.TotalSeconds;
+            started = AreaTime(conn);
             var from = goddess.Walk.Position(started);
             aim = conn.Walk.Position(started);
             return [.. InstanceProtocol.ActionEnded(id),
@@ -184,7 +184,7 @@ static class GoddessOfJustice
     {
         // Not during a volley or a beam.
         if (!await Hold(conn, goddess, 0.5)) return new double[spots.Count];
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         await Send(conn, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 0.5f, IzaroGoddess.SummonAnimation)],
             $"0x01d1 the Goddess of Justice 0x{id:x} calls her Guardians");
         var session = ProjectilesFor(conn);

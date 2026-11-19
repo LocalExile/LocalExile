@@ -131,9 +131,9 @@ public static partial class Game
     static void AddSpiritLeadershipStats(Player conn, StatMap stats)
     {
         lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) is { } buff)
+            if (conn.PlayerLife > 0 && conn.SpiritChieftains.Active(AreaTime(conn)) is { } buff)
             {
-                StatsChangeIn(buff.Until - conn.Clock.Elapsed.TotalSeconds);
+                StatsChangeIn(buff.Until - AreaTime(conn));
                 foreach (var (key, value) in buff.Stats)
                     stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
             }
@@ -147,7 +147,7 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
             var spirits = conn.SpiritChieftains;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var active = conn.PlayerLife > 0 ? spirits.Active(now) : null;
             if (ReferenceEquals(active, spirits.Sent)) return null;
             var bytes = new List<byte>();
@@ -186,7 +186,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
-            now = conn.Clock.Elapsed.TotalSeconds;
+            now = AreaTime(conn);
             bool alive = conn.PlayerLife > 0;
             summon = alive ? conn.SpiritChieftains.Pending : null;
             if (!alive) conn.SpiritChieftains.Pending = null;

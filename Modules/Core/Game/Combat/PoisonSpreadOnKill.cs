@@ -116,7 +116,7 @@ public static partial class Game
                     || Dist(m.Walk.Position(now), kill.At) > PoisonSpreadRadius) continue;
                 if (m.Effects[Stat.CannotBePoisoned] != 0) continue;
                 int avoid = m.Effects[Stat.AvoidPoisonPct];
-                if (avoid > 0 && RandomRolls.Chance(avoid, 100, Random.Shared)) continue;
+                if (avoid > 0 && RandomRolls.Chance(avoid, 100, AreaRng(conn))) continue;
                 if (m.Poisons.Add(now, dps, seconds * MonsterPoisons.SelfDuration(name => m.Effects[name]))) spread++;
             }
             if (spread > 0) ReservationPoisonLocked(conn, now);
@@ -130,12 +130,12 @@ public static partial class Game
         Console.WriteLine($"[gateway] Bino's: poison spread to {spread} enemies ({dps:0} dps, {seconds:0.0} s)");
         if (!regenerates) return;
         lock (conn.Monsters)
-            if (conn.PlayerLife > 0 && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), kill.At) <= PoisonSpreadRadius)
-                SpreadPoisonRegenerationOf(conn).Grant(conn.Clock.Elapsed.TotalSeconds, seconds);
+            if (conn.PlayerLife > 0 && Dist(conn.Walk.Position(AreaTime(conn)), kill.At) <= PoisonSpreadRadius)
+                SpreadPoisonRegenerationOf(conn).Grant(AreaTime(conn), seconds);
         // Another player's grant is theirs, on their clock; their Stats phase presents it.
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { } other && peer.Current && peer.Life > 0 && Dist((peer.X, peer.Y), kill.At) <= PoisonSpreadRadius
-                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(other.Clock.Elapsed.TotalSeconds, seconds)
+                && !other.Closed && !other.LeavingArea && SpreadPoisonRegenerationOf(other).Grant(AreaTime(other), seconds)
                 && Logged(true, () => PresentStats(other)))
                 Console.WriteLine($"[gateway] Bino's: regeneration granted to player 0x{peer.Id:x} for {seconds:0.0} s");
     }
@@ -160,7 +160,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
-            double now = ProjectileWorldTime(conn), clock = conn.Clock.Elapsed.TotalSeconds;
+            double now = ProjectileWorldTime(conn), clock = AreaTime(conn);
             foreach (var (_, monster) in conn.Monsters)
                 if (AllySpreadPoisonRegenerations.TryGetValue(monster, out var ally) && ally.Until > now)
                     PresentIn(conn, ally.Until - now);
@@ -175,7 +175,7 @@ public static partial class Game
                             u68: BitConverter.SingleToUInt32Bits((float)duration)), null, WorldId: id));
                 }
             var regeneration = SpreadPoisonRegenerationOf(conn);
-            if (regeneration.Present(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife > 0, () => conn.NextBuff++)
+            if (regeneration.Present(AreaTime(conn), conn.PlayerLife > 0, () => conn.NextBuff++)
                 is not var (removed, added, stats)) return null;
             var bytes = new List<byte>();
             if (removed != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, removed));

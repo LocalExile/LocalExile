@@ -66,7 +66,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            var order = arena.Portals.Where(p => p.Lift is not null).OrderBy(_ => Random.Shared.Next()).ToList();
+            var order = arena.Portals.Where(p => p.Lift is not null).OrderBy(_ => AreaRng(conn).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
                 if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroPortals.RiseInterval));
@@ -156,12 +156,12 @@ static partial class QuestobjectsRules
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var from = p.Monster.Walk.Position(now);
             var towards = arena.Centre is { } centre ? (centre.X, centre.Y) : conn.Walk.Position(now);
             double dx = towards.Item1 - from.X, dy = towards.Item2 - from.Y, length = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
             (dx, dy) = (dx / length, dy / length);
-            int edge = (p.Monster.Variety?.ObjectSize ?? 3) + 1, aside = Random.Shared.Next(-IzaroPortals.ExitSpread, IzaroPortals.ExitSpread + 1);
+            int edge = (p.Monster.Variety?.ObjectSize ?? 3) + 1, aside = AreaRng(conn).Next(-IzaroPortals.ExitSpread, IzaroPortals.ExitSpread + 1);
             (int X, int Y) at = ((int)Math.Round(from.X + dx * edge), (int)Math.Round(from.Y + dy * edge));
             (int X, int Y) to = ((int)Math.Round(at.X + dx * ahead - dy * aside), (int)Math.Round(at.Y + dy * ahead + dx * aside));
             return (at, conn.Layout.WalkableFor(to.X, to.Y, 0) && !conn.Barrier.Contains(to) ? to : at);
@@ -181,7 +181,7 @@ static partial class QuestobjectsRules
         }
         await SendMonsterAction(conn, id, m, action, () =>
         {
-            double at = conn.Clock.Elapsed.TotalSeconds;
+            double at = AreaTime(conn);
             var from = m.Walk.Position(at);
             m.Walk.Order(to.X, to.Y, at);
             m.BusyUntil = m.Walk.ArrivesAt;

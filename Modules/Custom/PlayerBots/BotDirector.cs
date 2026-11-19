@@ -691,7 +691,7 @@ sealed partial class BotDirector
         await Program.SetPartySize(current, PartyRoster.Size(bot.Party));
         await rules.StepControlled(current, leader);
         if (bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Combat, current)) return;
-        var position = current.Walk.Position(current.Clock.Elapsed.TotalSeconds);
+        var position = current.Walk.Position(current.Frames.Now(current));
         bool levelChanged = bot.Level != current.Pools.Level;
         (bot.X, bot.Y, bot.Level) = (position.X, position.Y, current.Pools.Level);
         if (levelChanged) await SendParty(leader, bot.Party);

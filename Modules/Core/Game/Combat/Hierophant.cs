@@ -84,7 +84,7 @@ public static class Hierophant
         lock (conn.Monsters)
         {
             var state = Of(conn);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             double elapsed = double.IsNaN(state.LastTick) || conn.Paused ? 0 : Math.Max(0, now - state.LastTick);
             state.LastTick = now;
             bool alive = conn.PlayerLife > 0;

@@ -31,7 +31,7 @@ public static partial class Game
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         lock (conn.Monsters)
-            if (PlayerActionBlocked(conn, requestedAt, conn.Clock.Elapsed.TotalSeconds)) return;
+            if (PlayerActionBlocked(conn, requestedAt, AreaTime(conn))) return;
         if (SkillsFor(conn).IsGemSkill(use.SkillId))
         {
             var requested = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
@@ -68,7 +68,7 @@ public static partial class Game
         if (use.TargetId == PlayerId && SkillsFor(conn).IsGemSkill(use.SkillId))
         {
             var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
-            double at = conn.Clock.Elapsed.TotalSeconds;
+            double at = AreaTime(conn);
             (int X, int Y) self = default;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                 gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
@@ -230,8 +230,8 @@ public static partial class Game
         await Send(conn, [.. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionMoveSeconds),
                 .. InstanceProtocol.FadeMove(PlayerId, to.X, to.Y, TransitionDarkenSeconds)],
             $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
-        double until = conn.Clock.Elapsed.TotalSeconds + 0.8 * TransitionDarkenSeconds;
-        while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < until) await Task.Delay(16);
+        double until = AreaTime(conn) + 0.8 * TransitionDarkenSeconds;
+        while (!conn.Closed && AreaTime(conn) < until) await Task.Delay(16);
     }
 
     public static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
@@ -534,7 +534,7 @@ public static partial class Game
         CarryRage(conn, r.Ticket);
         CarryVaalSouls(conn, r.Ticket);
         conn.Retire();
-        lock (conn.Monsters) LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) LeechOf(conn).Clear(AreaTime(conn));
         conn.InvalidateIncomingHits(); // Recent enemy contacts never cross an area connection.
         if (t.AtWaypoint) WaypointArrivals[r.Ticket] = 0;
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;

@@ -30,9 +30,9 @@ public static partial class Game
             if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state))
                 state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200));
             // A new immunity removes the ailments it rejects; the stats that read them follow.
-            var ailments = conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds);
+            var ailments = conn.ElementalAilments.Snapshot(AreaTime(conn));
             conn.ElementalAilments.Reconcile(Get);
-            if (conn.ElementalAilments.Snapshot(conn.Clock.Elapsed.TotalSeconds) != ailments)
+            if (conn.ElementalAilments.Snapshot(AreaTime(conn)) != ailments)
                 foreach (var step in PlayerStatChangeReaders[(int)PlayerStatChange.ElementalAilments]) MarkPlayerStats(conn, step);
             if (conn.IncomingAilments.Reconcile(Get))
             {

@@ -292,7 +292,7 @@ public static partial class Game
     // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
     public static (int X, int Y) NextToPlayer(Player conn)
     {
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })
             if (conn.Layout.Walkable is not { } w || w(px + dx, py + dy)) return (px + dx, py + dy);
         return (px, py);

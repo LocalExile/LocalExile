@@ -390,7 +390,7 @@ public static partial class Game
             if (placed.Offense?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(conn, id),
                     m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
-            var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
+            var rolled = profile.Hit.Scale(more).Roll(AreaRng(conn));
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesMitigated(m, mitigated, spell, now);
             if (placed.Mine)
@@ -411,7 +411,7 @@ public static partial class Game
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
             AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical: false, 100, player, placed.Own, now,
-                Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false);
+                AreaRng(conn), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
@@ -488,7 +488,7 @@ public static partial class Game
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
-                        conn.RecentEvents.Record(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds);
+                        conn.RecentEvents.Record(StatConditions.DetonatedMine, AreaTime(conn));
                     PlacedDamageLocked(conn, placed, now, bytes);
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
                     if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")

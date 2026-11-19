@@ -101,18 +101,18 @@ public static partial class Game
                 actionToken: actionToken, cooldownUse: cooldownUse, damageMore: More(at), radiusOverride: radius, once: once);
         // The step pass may end the run early, on a body or a wall.
         double Arrival() => Math.Min(arrivesAt, conn.Walk.ArrivesAt);
-        for (double tick = conn.Clock.Elapsed.TotalSeconds; tick < Arrival(); tick += ShieldChargePathSeconds)
+        for (double tick = AreaTime(conn); tick < Arrival(); tick += ShieldChargePathSeconds)
         {
-            double wait = tick - conn.Clock.Elapsed.TotalSeconds;
+            double wait = tick - AreaTime(conn);
             if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
             await WhilePaused(conn);
             if (!Current()) return;
-            await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargePathRadius, pathHit);
+            await Hit(conn.Walk.Position(AreaTime(conn)), ShieldChargePathRadius, pathHit);
         }
-        double rest = Arrival() - conn.Clock.Elapsed.TotalSeconds;
+        double rest = Arrival() - AreaTime(conn);
         if (rest > 0) await Task.Delay(TimeSpan.FromSeconds(rest));
         if (!ShieldChargeRuns.TryGetValue(conn, out var run) || run.Token != token || conn.Closed) return;
-        await Hit(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), ShieldChargeEndRadius, null);
+        await Hit(conn.Walk.Position(AreaTime(conn)), ShieldChargeEndRadius, null);
         lock (conn.Monsters)
         {
             run.Percent = 0;

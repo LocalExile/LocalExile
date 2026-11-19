@@ -54,5 +54,5 @@ public static partial class Game
     /// them granted, as the one buff on the character shows it (BuffDefinitions 1815: "Skills supported by Cruelty
     /// Support deal more damage over time"); 0 when none is running. The caller checks the skill's own support.</summary>
     public static int CrueltyActivePct(Player conn, ushort skillId) =>
-        conn.SupportGems.CrueltyActiveAt(conn.Clock.Elapsed.TotalSeconds).Pct;
+        conn.SupportGems.CrueltyActiveAt(AreaTime(conn)).Pct;
 }

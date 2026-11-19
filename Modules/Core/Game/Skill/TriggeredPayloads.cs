@@ -25,8 +25,8 @@ public static partial class Game
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !TriggerPayloadAvailable(conn, gem)) return null;
         if (TriggerGuardSpell(conn, gem))
-            return TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
-                ? () => StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
+            return TriggerGuardReady(conn, AreaTime(conn))
+                ? () => StartTriggeredGuard(conn, session, id, AreaTime(conn)) : null;
         if (TriggerSummonSpell(conn, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));
         if (UsesProjectileRuntime(gem.Effect))

@@ -41,7 +41,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             double left = Math.Max(conn.HitRecovery.Until, conn.ElementalAilments.FreezeUntil(now)) - now;
             return left <= limit ? Math.Max(left, 0) : 0;
         }
@@ -109,7 +109,7 @@ public static partial class Game
                 }
                 lock (conn.Monsters)
                 {
-                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
+                    if (PlayerActionBlocked(conn, conn.ClockAt(readAt), AreaTime(conn)))
                     {
                         // The client starts the newest click when it can again: the server walks it then (ReleaseHeldMove).
                         if (!InstanceProtocol.IsChannelUpdate(id))
@@ -218,9 +218,9 @@ public static partial class Game
                         // 2026-10-26: 6 mana per attack time while attack-moving), and the server pays only for a swing: the
                         // pool gives the cost back, or the client's orb falls behind and its flasks are refused as "full".
                         // The client repeats this packet every frame while the button is held, so at most four a second.
-                        if (conn.Clock.Elapsed.TotalSeconds - conn.LastManaResyncAt >= 0.25)
+                        if (AreaTime(conn) - conn.LastManaResyncAt >= 0.25)
                         {
-                            conn.LastManaResyncAt = conn.Clock.Elapsed.TotalSeconds;
+                            conn.LastManaResyncAt = AreaTime(conn);
                             await SendPlayerMana(conn,
                                 $"0x01b1 player mana {conn.PlayerMana} (attack-move, cost back)");
                         }
@@ -237,7 +237,7 @@ public static partial class Game
                     if (!valid)
                     {
                         Console.WriteLine($"[gateway] {conn.Remote} skill 0x{use.SkillId:x4} {gem.Name}: invalid Dash location " +
-                            $"({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                            $"({use.X}, {use.Y}) (t={AreaTime(conn):0.000})");
                         continue;
                     }
                 }
@@ -248,7 +248,7 @@ public static partial class Game
                 bool leapSkill = attack && !IsTotemSkill(conn, use.SkillId) && IsLeapSlam(conn, gem.Effect);
                 if (attack && !leapSkill && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
-                    Console.WriteLine($"[gateway] {conn.Remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                    Console.WriteLine($"[gateway] {conn.Remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={AreaTime(conn):0.000})");
                     continue;
                 }
                 if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
@@ -256,7 +256,7 @@ public static partial class Game
                     if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at, flags: use.Flags))
                     {
                         Console.WriteLine($"[gateway] {conn.Remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before action admission " +
-                            $"at ({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                            $"at ({use.X}, {use.Y}) (t={AreaTime(conn):0.000})");
                         continue;
                     }
                     if (!await CastGemSkill(conn, use.SkillId, dashUse!.From, (use.X, use.Y),
@@ -336,7 +336,7 @@ public static partial class Game
                 {
                     using (ProjectileMutation(conn))
                     {
-                        if (PlayerActionBlocked(conn, at, conn.Clock.Elapsed.TotalSeconds)) continue;
+                        if (PlayerActionBlocked(conn, at, AreaTime(conn))) continue;
                         StartAction();
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
@@ -398,7 +398,7 @@ public static partial class Game
                 // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (leap is { } jump)
                     ResyncAfter(conn,
-                        Math.Max(0, jump.At + jump.Timing.End - conn.Clock.Elapsed.TotalSeconds), gem.Name!);
+                        Math.Max(0, jump.At + jump.Timing.End - AreaTime(conn)), gem.Name!);
                 else if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(conn, MovementSeconds(conn, gem.Effect, gem.Level, use.SkillId), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
@@ -447,7 +447,7 @@ public static partial class Game
                 // An instant skill (skill_is_instant: Haste, Righteous Fire) has no action: the walk and a pending hit go on,
                 // and the client waits for no echo.
                 var (target, skill) = InstanceProtocol.ReadUseInstantSkill(bytes);
-                var spot = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                var spot = conn.Walk.Position(AreaTime(conn));
                 Console.WriteLine($"[gateway] {conn.Remote} <= 0x0191 instant skill 0x{skill:x4} on 0x{target:x} at ({spot.X}, {spot.Y})");
                 if (SkillsFor(conn).IsGemSkill(skill)) _ = UseInstantSkill(conn, skill, target, spot);
             }
@@ -674,9 +674,9 @@ public static partial class Game
                 using (ProjectileMutation(conn))
                 {
                     t = Math.Max(t, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
-                    if (PlayerActionBlocked(conn, t, conn.Clock.Elapsed.TotalSeconds)) continue;
+                    if (PlayerActionBlocked(conn, t, AreaTime(conn))) continue;
                     ChannelAimedAt(conn, cx, cy, t);
-                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+                    conn.LastChannelUpdateAt = AreaTime(conn);
                 }
             }
             else if (id == InstanceProtocol.ChannelEndId)

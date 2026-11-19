@@ -103,7 +103,7 @@ public static class Slayer
         lock (conn.Monsters)
         {
             if (conn.PlayerLife == 0) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var state = Of(conn);
             state.Kills.Enqueue(now);
             if (Raw(conn, MovementOnKill) != 0) state.MovementUntil = now + HeadsmanSeconds;
@@ -158,7 +158,7 @@ public static class Slayer
         lock (conn.Monsters)
         {
             var state = Of(conn);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             bool alive = conn.PlayerLife > 0;
             if (!alive)
             {

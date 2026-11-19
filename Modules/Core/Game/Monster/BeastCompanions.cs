@@ -63,7 +63,7 @@ public static partial class Game
                 || !conn.Minions.Owns(active.Id, active.Monster)
                 || !conn.Monsters.TryGetValue(active.Id, out var held)
                 || !ReferenceEquals(held, active.Monster)))
-            RetireBeastCompanionLocked(conn, active, conn.Clock.Elapsed.TotalSeconds,
+            RetireBeastCompanionLocked(conn, active, AreaTime(conn),
                 output: ReferenceEquals(active.Area, conn.Instance) && ReferenceEquals(active.Lifetime, CombatLifetime));
         if (conn.Beasts.Pending is { } pending && !BeastSourceGenerationCurrentLocked(conn, pending.Source))
             conn.Beasts.Pending = null;
@@ -190,7 +190,7 @@ public static partial class Game
             at = NextToPlayer(conn);
         }
         var native = MonsterModRolls.Create(
-            MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared), [], MonsterRarity.Normal, summon.MinionLevel);
+            MonsterModRolls.Species(variety.SpeciesModsOrEmpty, AreaRng(conn)), [], MonsterRarity.Normal, summon.MinionLevel);
         var prepared = BeastCombatInputs(summon.Source, summon.SkillId, summon.MinionKind, summon.Variety,
             summon.SkillStats, native.Effects);
         var mods = GolemModifiers(conn, prepared, CharacterPlayerStats(conn), AreaTime(conn));

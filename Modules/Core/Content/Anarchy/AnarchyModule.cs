@@ -95,7 +95,7 @@ public sealed class AnarchyModule : IModule
         int two = stats.GetValueOrDefault(Stat.MapBossHasTwoRoguesExilesChancePct);
         if (guards <= 0 && two <= 0) return;
         List<(int X, int Y)> bosses = [];
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         lock (conn.Monsters)
             foreach (var m in conn.Monsters.Values)
                 if (m.Hostile && !m.Dead && m.Rarity == MonsterRarity.Unique && m.Variety is { BossHealthBar: true }

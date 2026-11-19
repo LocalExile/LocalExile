@@ -95,7 +95,7 @@ public static partial class Game
         {
             conn.StashOpened = true;
             conn.StashForcedTab = stash.LastTab;
-            conn.StashForcedUntil = conn.Clock.Elapsed.TotalSeconds + StashForcedWindow;
+            conn.StashForcedUntil = AreaTime(conn) + StashForcedWindow;
             await Send(conn, InstanceWaypoints.OpenUi(InstanceStash.OpenStashUi, conn.StashObject, StashSelectAffinity),
                 $"0x007b open the stash on tab {stash.LastTab} \"{stash.NameOf(stash.LastTab)}\" (affinity {StashSelectAffinity})",
                 still: () => PlayerActionCurrent(conn, action));
@@ -125,7 +125,7 @@ public static partial class Game
         // The panel asks for the tab it shows: as it opens (its tab before the selection) and when a tab without contents
         // is picked. The client sends its queue newest first, so during the first open the forced tab's request comes before
         // the panel's old one; that one is answered but not taken as the player's choice.
-        bool forcedOpen = !stash.IsGuild && conn.StashForcedTab >= 0 && conn.Clock.Elapsed.TotalSeconds < conn.StashForcedUntil;
+        bool forcedOpen = !stash.IsGuild && conn.StashForcedTab >= 0 && AreaTime(conn) < conn.StashForcedUntil;
         bool chosen = !forcedOpen || tab == conn.StashForcedTab;
         Console.WriteLine($"[gateway] {conn.Remote} <= 0x00c7 stash tab {tab} \"{stash.NameOf(tab)}\" ({stash.TypeOf(tab)})" +
             (chosen ? "" : $" (the panel's tab before it opened on {conn.StashForcedTab}: not kept as the last tab)"));

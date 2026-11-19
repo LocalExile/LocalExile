@@ -37,18 +37,18 @@ static partial class QuestobjectsRules
     {
         try
         {
-            double start=conn.Clock.Elapsed.TotalSeconds;
+            double start=AreaTime(conn);
             // Finish the selected voice line, then play the whole bite before handing over to the combat monster.
             // Use the paused instance clock for both waits.
-            while (!conn.Closed && !skipped.IsCompleted && conn.Clock.Elapsed.TotalSeconds < start+biteAt)
+            while (!conn.Closed && !skipped.IsCompleted && AreaTime(conn) < start+biteAt)
                 await Task.Delay(50);
             await WhilePaused(conn);
             if(conn.Closed) return;
-            double biteStarted = conn.Clock.Elapsed.TotalSeconds;
+            double biteStarted = AreaTime(conn);
             int component=npc.Npc.Components!.ToList().IndexOf("Transitionable");
             if(component>=0) await global::Game.SendWorldRecord(conn, id, InstanceEntities.TransitionableUpdate(id,(byte)component,2),"0x02bc wounded exile bitten");
             if(conn.TutorialSceneId!=0) await Send(conn,TutorialObjects.BiteAnimation(conn.TutorialSceneId,1),"0x01b2 opening zombie bites exile");
-            while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < biteStarted+TutorialObjects.BiteSeconds)
+            while (!conn.Closed && AreaTime(conn) < biteStarted+TutorialObjects.BiteSeconds)
                 await Task.Delay(50);
             if(conn.Closed) return;
             if(conn.TutorialSceneId!=0) await global::Game.SendWorldRemoval(conn, conn.TutorialSceneId,null);

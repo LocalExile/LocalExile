@@ -86,7 +86,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.PlayerLife == 0) ChargesOf(conn).Die();
-            carried = ChargesOf(conn).State.Carry(conn.Clock.Elapsed.TotalSeconds);
+            carried = ChargesOf(conn).State.Carry(AreaTime(conn));
         }
         foreach (var (old, entry) in CarriedCharges)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedCharges.TryRemove(old, out _);
@@ -144,7 +144,7 @@ public static partial class Game
         foreach (var (stat, value) in ItemChargeCosts.Expand(Coefficient, t => held[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
         int poisonStacks;
-        lock (conn.Monsters) poisonStacks = conn.IncomingAilments.PoisonStacks(conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) poisonStacks = conn.IncomingAilments.PoisonStacks(AreaTime(conn));
         foreach (var (stat, value) in IncomingAilmentEffects.Expand(Coefficient, poisonStacks))
             finalAdded[stat] = finalAdded.GetValueOrDefault(stat) + value;
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
@@ -191,7 +191,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            int priorContacts = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
+            int priorContacts = conn.RecentEnemyHits.Count(AreaTime(conn));
             var stats = CharacterPlayerStats(conn);
             bool relevant = amount > 0 && (type == DamageType.Physical
                 || PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => name is var key ? stats.GetValueOrDefault(key) : 0) > 0
@@ -219,7 +219,7 @@ public static partial class Game
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
         return FortificationDamageTaken(conn, (int)Math.Round(value
-            * conn.ElementalAilments.DamageTakenFactor(conn.Clock.Elapsed.TotalSeconds, increased)));
+            * conn.ElementalAilments.DamageTakenFactor(AreaTime(conn), increased)));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
@@ -258,19 +258,19 @@ public static partial class Game
         var player = AreaPlayerStats(conn);
         int Player(uint key) => player.GetValueOrDefault(key);
         double castSeconds = WarcryCastSeconds(conn, effect, player, own);
-        double until = conn.Clock.Elapsed.TotalSeconds + castSeconds;
+        double until = AreaTime(conn) + castSeconds;
         int epoch = conn.ProjectileEpoch;
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         double buffEffect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.WarcryBuffEffectPlusPct)) / 100d);
         _ = Task.Run(async () =>
         {
             // The game clock: a pause holds the cry.
-            while (!conn.Closed && conn.Clock.Elapsed.TotalSeconds < until) await Task.Delay(16);
+            while (!conn.Closed && AreaTime(conn) < until) await Task.Delay(16);
             if (!conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
             double taunt = TauntSeconds(Player);
             foreach (var (k, v) in own) player[k] = v;
             int radius = SkillArea.Radius(WarcryRadius, name => name is var key ? player.GetValueOrDefault(key) : 0, spell: false);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             int power, taunted;
             (int X, int Y) here;
             lock (conn.Monsters)
@@ -398,8 +398,8 @@ public static partial class Game
                         name => name is var k ? recipient.GetValueOrDefault(k) : 0));
                 }
                 step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
-                    inTown: InTown(conn), Random.Shared,
-                    mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds));
+                    inTown: InTown(conn), AreaRng(conn),
+                    mineDetonatedRecently: conn.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(conn)));
                 presentationPending = ChargePresentationPending(session);
                 var refresh = ChargePoolRefreshes.GetOrCreateValue(conn);
                 if (refresh.Pending) step = step with { CountsChanged = true };

@@ -897,7 +897,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {conn.Remote} <= 0x0029 drop: nothing held");
             return;
         }
-        var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (x, y) = conn.Walk.Position(AreaTime(conn));
         var ground = new WorldItemObject(x, y, held.Item) { PlayerDropped = true };
         uint id = conn.Instance.Ground.Add(ground, conn);
         await SendGroundItem(conn, id, ground,
@@ -941,7 +941,7 @@ public static partial class Game
             // pending on the server until that completion has passed; the walk-up itself remains interruptible.
             if (conn.LockstepClient && use.Started)
                 conn.LockstepBusyUntil = Math.Max(conn.LockstepBusyUntil,
-                    (conn.LockstepFrame?.Start ?? conn.Clock.Elapsed.TotalSeconds) + .1);
+                    (conn.LockstepFrame?.Start ?? AreaTime(conn)) + .1);
         }
         if (IsGold(ground))
         {
@@ -1016,7 +1016,7 @@ public static partial class Game
     internal static async Task<(int X, int Y)> PickUpNearbyGold(Player conn,
         (int X, int Y)? from = null)
     {
-        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var at = conn.Walk.Position(AreaTime(conn));
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0
             || !GameEvents.AllowsLoot(conn)) return at;
         var start = from is { } f && Dist(f, at) <= GoldPathLimit ? f : at;
@@ -1079,7 +1079,7 @@ public static partial class Game
                     || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return null;
                 if (how == "auto-looted")
                 {
-                    var here = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    var here = conn.Walk.Position(AreaTime(conn));
                     if (DistanceToPath((ground.GridX, ground.GridY), pathFrom ?? here, here) > SystemSettings.Default.GoldAutoLootRadius) return null;
                 }
                 var (by, shared) = conn.Instance.Ground.Origin(id);
@@ -1325,7 +1325,7 @@ public static partial class Game
     }
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is
-    /// Random.Shared normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
+    /// AreaRng(conn) normally and <see cref="ItemRolls.ForeseeRandom"/> for a Hinekora preview/commit.</summary>
     static Item? CurrencyResult(Player conn, Item target, uint currencyTypeHash, Random random)
     {
         const string Wisdom = "Metadata/Items/Currency/CurrencyIdentification";
@@ -1430,7 +1430,7 @@ public static partial class Game
         // no currency at all: the wiki says a mirrored copy cannot be altered in any way except a Reflective Oil, which
         // is not modelled.
         bool foreseeing = target.Item.Foreseeing;
-        var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : Random.Shared;
+        var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : AreaRng(conn);
         Item? result = type?.Id == CurrencyEffects.HinekorasLock
             ? RollsFor(conn).ApplyLock(target.Item, random)
             : target.Item.Mirrored || target.Item.Vestigial ? null

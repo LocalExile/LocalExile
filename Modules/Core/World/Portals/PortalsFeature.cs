@@ -265,7 +265,7 @@ static class PortalsFeature
         uint inventoryId = PlayerInventories.InventoryId(row);
         await Send(conn, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
             $"0x00bf inventory {inventoryId}: {type.Name} used" + (taken.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         await OpenTownPortal(conn, px, py, type.Name);
     }
 

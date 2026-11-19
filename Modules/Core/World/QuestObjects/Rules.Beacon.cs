@@ -86,7 +86,7 @@ static partial class QuestobjectsRules
             var view = BeaconViews.GetValue(conn, _ => new());
             if (!view.Loaded) await CreateBeacon(conn, run, view);
             if (run.Carts.Count != 2) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             double seconds = Math.Max(0, now - run.LastAt);
             run.LastAt = now;
             var players = run.Players.Select(w => w.TryGetTarget(out var c) ? c : null)
@@ -159,7 +159,7 @@ static partial class QuestobjectsRules
             run.Controllers = placed.Of("Metadata/QuestObjects/Act6/BeaconPayload_SpawnController");
             foreach (string suffix in new[] { "GhostPirateSpawner", "GhostPirateSpawnerMagic", "GhostPirateSpawnerRare", "GhostTotemSpawner" })
                 run.Spawners.AddRange(placed.Of("Metadata/QuestObjects/Act6/BeaconPayload_" + suffix));
-            run.LastAt = conn.Clock.Elapsed.TotalSeconds;
+            run.LastAt = AreaTime(conn);
             run.Loaded = true;
             Console.WriteLine($"[gateway] Beacon: {run.Carts.Count}/2 fuel carts, {run.Controllers.Count} encounter triggers");
         }
@@ -191,7 +191,7 @@ static partial class QuestobjectsRules
         if (ClientHasQuestFlag(conn, BeaconDelivered)) conn.Instance.SetState(Act6Objects.BeaconIgnited);
         if (!run.Players.Any(w => w.TryGetTarget(out var player) && !player.Closed && !player.LeavingArea))
         {
-            run.LastAt = conn.Clock.Elapsed.TotalSeconds;
+            run.LastAt = AreaTime(conn);
             foreach (var cart in run.Carts) cart.Update(0, []);
         }
         run.Players.RemoveAll(w => !w.TryGetTarget(out var player) || player.Closed || player.LeavingArea);

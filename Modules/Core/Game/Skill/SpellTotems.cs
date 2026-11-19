@@ -84,7 +84,7 @@ public static partial class Game
     public static bool SpellTotemCurrent(Player conn, TotemState.Totem totem)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-            || !totem.Alive(conn.Clock.Elapsed.TotalSeconds)) return false;
+            || !totem.Alive(AreaTime(conn))) return false;
         var source = GemSkillEffects(conn).FirstOrDefault(g => g.Id == totem.SkillId);
         return source.Name is not null && source.Effect == totem.Effect && source.Gem == totem.SourceGem
             && SupportedSkill(conn, totem.SkillId) is var supported && supported.Host == totem.SourceHost
@@ -105,7 +105,7 @@ public static partial class Game
 
     static void TickSpellTotemsLocked(Player conn, WorldRecordBuilder bytes)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
         {
             if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; MarkPlayerStats(conn, PlayerStatStep.TotemAura); continue; }

@@ -186,7 +186,7 @@ static class DivinationFeature
             || card.MaxStack != reward.Stack || slot[0].Item.StackSize != reward.Stack) return null;
         // Every refusal precedes the only persistent mutation. A reward with missing data never consumes the cards.
         var result = DivinationRewards.Create(reward, ItemsFor(conn), UniquesFor(conn), RollsFor(conn),
-            random ?? Random.Shared, conn.Pools.Level);
+            random ?? AreaRng(conn), conn.Pools.Level);
         return result is null ? null : items.Change(Row, slot[0].Id, _ => result);
     });
 }

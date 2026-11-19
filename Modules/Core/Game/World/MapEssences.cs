@@ -180,7 +180,7 @@ public static class MapEssences
         {
             monolith = area.Monoliths!.First(m => m.Id == use.TargetId);
             if (!PlayerActionCurrent(conn, action) || conn.PlayerLife == 0 || monolith.Stage >= 4
-                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (monolith.X, monolith.Y), 20)) return true;
+                || !PlayerWalk.InWalkUpRange(conn.Walk.Position(AreaTime(conn)), (monolith.X, monolith.Y), 20)) return true;
             if (monolith.Stage == 3)
             {
                 if (Monsters.Find(monolith.Variety) is not { Supported: true } variety) return true;

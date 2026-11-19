@@ -155,7 +155,7 @@ public static partial class Game
         int gain = Get(Stat.EnergyShieldGainWhenYouHitEnemyAffectedBySpidersWeb);
         if (gain > 0) conn.EnergyShield.Recover((uint)gain);
         if (RandomRolls.Chance(Get(Stat.ChanceToGainPowerChargeOnHittingEnemyAffectedBySpidersWebPct),
-                100, random ?? Random.Shared))
+                100, random ?? AreaRng(conn)))
             ChargesOf(conn).Enqueue(new ChargeEvent.Grant(ChargeType.Power, 1, "Spider's Web hit"));
     }
 }

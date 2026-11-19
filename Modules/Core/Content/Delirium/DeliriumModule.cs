@@ -203,7 +203,7 @@ public sealed partial class DeliriumModule : IModule
                 run.ProgressGoal = prepared.ProgressGoal; run.SpawnPoints = run.KillPoints = 0; run.MonsterPoints.Clear();
                 run.Affixes = prepared.Affixes; run.Next = null;
                 run.ModifierNames = prepared.ModifierNames; run.OmniThisWave = prepared.OmniThisWave; run.KosisThisWave = prepared.KosisThisWave;
-                run.Monsters.Clear(); run.Bodies.Clear(); run.Started = conn.Clock.Elapsed.TotalSeconds; run.NextSpawnAt = run.Started;
+                run.Monsters.Clear(); run.Bodies.Clear(); run.Started = AreaTime(conn); run.NextSpawnAt = run.Started;
                 cleared = ClearGround(conn.Instance.Ground);
                 // This client hears of its own at once; the others' ground syncs remove theirs.
                 foreach (uint id in cleared)

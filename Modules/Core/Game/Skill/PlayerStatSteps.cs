@@ -74,7 +74,7 @@ public static partial class Game
             lock (conn.Monsters) nodes = [.. conn.Passives];
             foreach (var (k, v) in CharacterStatSources(conn, nodes).Stats) stats[k] = v;
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (conn.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             lock (conn.Monsters)
@@ -198,7 +198,7 @@ public static partial class Game
         Step(PlayerStatStep.Recovery, (conn, stats, outputs) =>
         {
             int Get(uint name) => GetIn(stats, name);
-            double statsAt = conn.Clock.Elapsed.TotalSeconds;
+            double statsAt = AreaTime(conn);
             bool moving = conn.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)
@@ -212,7 +212,7 @@ public static partial class Game
         {
             lock (conn.Monsters)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 if (conn.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
                 if (conn.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(conn.EnduringCryRecovery.Until - now);
                 // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
@@ -234,7 +234,7 @@ public static partial class Game
         Step(PlayerStatStep.TailCritical, (conn, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var ailments = conn.ElementalAilments.Snapshot(now);
             if (conn.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (now - conn.LastEnemyHitAt <= RecentlySeconds) StatsChangeIn(conn.LastEnemyHitAt + RecentlySeconds - now + 1e-6);
@@ -258,7 +258,7 @@ public static partial class Game
         {
             lock (conn.Monsters)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 bool brokenNow = conn.Ward.Broken && now < conn.Ward.RestoresAt;
                 if (brokenNow) StatsChangeIn(conn.Ward.RestoresAt - now);
                 if (Stat.Ward is var ward) stats[ward] = (int)conn.Ward.Maximum;
@@ -280,7 +280,7 @@ public static partial class Game
         var (_, lifeRegenerationToEnergyShield) = PanelStats.LifeRegeneration(
             name => name is var key ? stats.GetValueOrDefault(key) : 0, conn.Pools.Life);
         return ReadStatSnapshotTailInputs(conn, stats, mainLocal, offLocal,
-            lifeRegenerationToEnergyShield, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds));
+            lifeRegenerationToEnergyShield, conn.Walk.Moving(AreaTime(conn)));
     }
 
     /// <summary>Runs one step (a player stat graph rule).</summary>

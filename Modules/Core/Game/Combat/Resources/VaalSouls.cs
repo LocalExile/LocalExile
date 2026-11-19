@@ -71,7 +71,7 @@ public static partial class Game
             if (!monster.Hostile || monster.Variety is null || conn.Character is null || conn.Closed
                 || conn.LeavingArea || conn.VaalSoulsRetired || conn.RageRetired || conn.Paused
                 || conn.PlayerLife == 0 || InTown(conn)) return false;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (Dist(monster.Walk.Position(now), conn.Walk.Position(now)) > ExperienceRange) return false;
             RefreshVaalSouls(conn);
             var stats = CharacterPlayerStats(conn);

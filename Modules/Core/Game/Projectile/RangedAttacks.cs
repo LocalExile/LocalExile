@@ -9,7 +9,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             return conn.ProjectileActive(epoch) && !conn.RageRetired && conn.PlayerLife > 0 && conn.ActionCount == action
                 && conn.ElementalAilments.ActionFactor(now) > 0 && !conn.HitRecovery.Active(now);
         }

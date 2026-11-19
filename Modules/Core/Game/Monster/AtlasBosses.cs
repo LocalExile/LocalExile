@@ -313,7 +313,7 @@ static class AtlasBosses
             try
             {
                 await fight.Bind(conn);
-                if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds);
+                if (IsMonsterRunner(conn)) await fight.Step(conn, AreaTime(conn));
             }
             catch (Exception ex)
             {

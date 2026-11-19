@@ -123,7 +123,7 @@ public static partial class Game
         uint[] expired;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             expired = [.. conn.Monsters.Where(p => p.Value.ExpiresAt <= now && !p.Value.Dead).Select(p => p.Key)];
         }
         return expired.Length == 0 ? Task.CompletedTask

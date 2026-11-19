@@ -84,9 +84,9 @@ static class KitavaActFive
     public static async Task Tick(Player c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
-        if (c.HasQuestFlag(Complete) && c.Clock.Elapsed.TotalSeconds >= Docks.GetOrCreateValue(c).Next)
+        if (c.HasQuestFlag(Complete) && AreaTime(c) >= Docks.GetOrCreateValue(c).Next)
         {
-            Docks.GetOrCreateValue(c).Next = c.Clock.Elapsed.TotalSeconds + 1;
+            Docks.GetOrCreateValue(c).Next = AreaTime(c) + 1;
             await ClearDock(c);
         }
         if (!Fights.TryGetValue(c.Instance, out var f))
@@ -97,7 +97,7 @@ static class KitavaActFive
             f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
         await f.Gate.WaitAsync();
-        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
     }
     internal static List<uint> RetireDockCreatures(Player c)
@@ -107,7 +107,7 @@ static class KitavaActFive
         if (points.Length == 0) return [];
         lock (c.Monsters)
         {
-            double now = c.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(c);
             bool Safe((int X, int Y) at) => points.Any(a => points.Any(b => Fight.LineDistance(at, a, b) < 75));
             var gone = c.Monsters.Where(m => m.Value.Hostile && m.Value.OwnerId is null && !m.Value.Dead
                 && m.Value.Rarity != MonsterRarity.Unique && Safe(m.Value.Walk.Position(now))).ToArray();
@@ -174,7 +174,7 @@ static class KitavaActFive
         // 0 emerge, 1 first body, 2 change form, 3 second body, 4 expose, 5 heart, 6 recover, 7 enrage, 8 beam, 9 rescue, 10 complete.
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
-            id = objectId; body = monster; anchor = AnchorOf(c, monster.Walk.Position(c.Clock.Elapsed.TotalSeconds));
+            id = objectId; body = monster; anchor = AnchorOf(c, monster.Walk.Position(AreaTime(c)));
             var sign = c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == Sign);
             signAt = sign is null ? (anchor.X, anchor.Y - 100) : (sign.X, sign.Y);
             heartAt = c.Layout.Near(((anchor.X + signAt.X) / 2, (anchor.Y + signAt.Y) / 2));
@@ -488,7 +488,7 @@ static class KitavaActFive
             {
                 lock (p.Monsters)
                 {
-                    now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
+                    now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
                     if (stopped || !CurrentGameWork || stage is not (1 or 3) || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                     var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())

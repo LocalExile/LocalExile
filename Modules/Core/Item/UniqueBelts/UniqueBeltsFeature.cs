@@ -12,10 +12,10 @@ static class UniqueBeltsFeature
         if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
         var stats = CharacterPlayerStats(conn);
         var catalog = ItemsFor(conn).Mods;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (stats.GetValueOrDefault(StolenMods.SourceStat) > 0)
             conn.StolenMods.Steal(m.Mods, catalog, now);
-        conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, Random.Shared);
+        conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(StolenMods.RandomSourceStat), now, AreaRng(conn));
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
@@ -49,7 +49,7 @@ static class UniqueBeltsFeature
         {
             foreach (var packet in StepMagebloodBuffs(conn))
                 await Send(conn, packet, "0x01c1/0x01c2 Mageblood flask buff");
-            if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0, out var belt, out var jewel) is null)
+            if (conn.StolenMods.Step(AreaTime(conn), conn.PlayerLife == 0, out var belt, out var jewel) is null)
                 return;
             List<byte[]> packets = [];
             lock (conn.Monsters)

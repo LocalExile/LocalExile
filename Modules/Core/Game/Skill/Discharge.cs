@@ -47,7 +47,7 @@ static partial class Game
         int keepChance, int hit)
     {
         if (!use.TakeSpend()) return false;
-        bool keep = keepChance > 0 && Random.Shared.Next(100) < keepChance;
+        bool keep = keepChance > 0 && AreaRng(conn).Next(100) < keepChance;
         if (!keep)
             foreach (var (type, count) in use.Charges)
                 if (count > 0) ChargesOf(conn).Enqueue(new ChargeEvent.Spend(type, count, skill));

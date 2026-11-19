@@ -70,7 +70,7 @@ public static partial class Game
         var old = world.Runner;
         world.Runner = conn;
         if (old is null || ReferenceEquals(old, conn)) return;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         int count = 0;
         foreach (var (id, m) in world.Monsters.Concat(world.DormantMonsters).OrderBy(e => e.Key))
         {
@@ -162,7 +162,7 @@ public static partial class Game
             var minions = new List<SharedMonster>();
             lock (world.Monsters)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 foreach (var (id, m) in world.Monsters)
                     if (conn.MinionOrigins.TryGetValue(id, out var origin) && !m.Dead && m.Life > 0)
                     {
@@ -739,7 +739,7 @@ public static partial class Game
             {
                 var bars = DeadBars.GetOrCreateValue(conn);
                 if (!ReferenceEquals(bars.World, world)) { bars.World = world; bars.Hidden.Clear(); }
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 foreach (uint gone in conn.MonsterViews.Keys.Where(id => world.Monsters.TryGetValue(id, out var m) && m.WorldHidden
                     || !world.Monsters.ContainsKey(id) && !world.DormantMonsters.ContainsKey(id)).ToList())
                 {

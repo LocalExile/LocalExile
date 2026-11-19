@@ -31,7 +31,7 @@ public static partial class Game
     static void CurseCharges(Player conn, SpawnedMonster target, bool death)
     {
         foreach (var (kind, name) in new[] { (ChargeType.Power, "power"), (ChargeType.Frenzy, "frenzy"), (ChargeType.Endurance, "endurance") })
-            if (RandomRolls.Chance(target.Curses[Stat.Of(death ? $"chance_to_grant_{name}_charge_on_death_%" : $"grant_attacker_{name}_charge_when_hit_%_chance")], 100, Random.Shared))
+            if (RandomRolls.Chance(target.Curses[Stat.Of(death ? $"chance_to_grant_{name}_charge_on_death_%" : $"grant_attacker_{name}_charge_when_hit_%_chance")], 100, AreaRng(conn)))
                 ChargesOf(conn).Enqueue(new ChargeEvent.Grant(kind, 1, "curse"));
     }
 
@@ -62,7 +62,7 @@ public static partial class Game
         int Get(uint n) => GolemStat(player, n) + Own(n);
         if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
-            && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, Random.Shared)) return false;
+            && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(conn))) return false;
         double factor = Math.Max(0, 1 + (Get(Stat.CurseEffectPlusPct) + Get(Stat.Of(definition.Mark ? "mark_effect_+%" : "hex_effect_+%"))
             + (definition.Mark ? Get(Stat.MarkSkillsCurseEffectPlusPct) : 0)
             + Get(Stat.Of(ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant()) + "_curse_effect_+%"))
@@ -92,7 +92,7 @@ public static partial class Game
         if (target.Dead || target.Life == 0 || conn.Reservations.Secondary) return;
         var source = sourceSkill != 0 ? SupportedSkill(conn, sourceSkill) : null;
         bool hextouch = source is not null && GolemStat(source.Stats, Stat.ApplyLinkedCursesOnHitPct) is var chance
-            && RandomRolls.Chance(chance, 100, Random.Shared);
+            && RandomRolls.Chance(chance, 100, AreaRng(conn));
         if (!hextouch && (spell || target.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique))) return;
         var player = CharacterPlayerStats(conn);
         foreach (var skill in GemSkillEffects(conn))
@@ -138,7 +138,7 @@ public static partial class Game
                     if (currentSource is not { Active: true } || currentSource.Identity != source.Identity
                         || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                         || GemSkillInstanceDisabled(conn, currentGem.Effect, skill) is not null) return false;
-                    RecordCompletedCurseCast(conn, effect, conn.Clock.Elapsed.TotalSeconds);
+                    RecordCompletedCurseCast(conn, effect, AreaTime(conn));
                     int radius = CurseRadius(conn, skill, false, currentGem, player);
                     foreach (var (id, m) in conn.Monsters)
                         if (CurseCatalog.All[effect].Mark ? id == target : Dist(m.Walk.Position(now), aim) <= radius)

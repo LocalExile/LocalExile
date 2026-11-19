@@ -177,7 +177,7 @@ public static partial class Game
         sources = WithSpreadPoisonRegeneration(conn, sources);
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             int Get(uint k) => sources.GetValueOrDefault(k);
             FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
             conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
@@ -257,7 +257,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
-            conditionNow = conn.Clock.Elapsed.TotalSeconds;
+            conditionNow = AreaTime(conn);
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
             strength = (int)conn.Pools.Strength;
@@ -967,7 +967,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            using var snapshot = FortificationOf(conn).Capture(conn.Clock.Elapsed.TotalSeconds);
+            using var snapshot = FortificationOf(conn).Capture(AreaTime(conn));
             var state = ConditionalItemPools.GetOrCreateValue(conn);
             bool building = state.Building;
             state.Building = true;
@@ -1218,7 +1218,7 @@ public static partial class Game
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
-        conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
+        conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(AreaTime(conn));
         ConfigureFortificationRecovery(conn, pools.Life, sources);
         pools = pools with { EnergyShield = IncomingResourceDefences.Maximum(pools.EnergyShield,
             pools.Life, pools.Mana, pools.EnergyShieldPct,
@@ -1711,7 +1711,7 @@ public static partial class Game
     public static PendingTransfer AscendancyReload(Player conn)
     {
         lock (conn.Monsters)
-            return new(conn.Layout.Hash, conn.InstanceNumber, false, ArriveAt: conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds));
+            return new(conn.Layout.Hash, conn.InstanceNumber, false, ArriveAt: conn.Walk.Position(AreaTime(conn)));
     }
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the

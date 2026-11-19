@@ -108,11 +108,11 @@ static partial class QuestobjectsRules
     {
         var spots = new List<(int X, int Y)>();
         if (arena.Centre is not { } centre || arena.Boss is not { } boss) return spots;
-        var from = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var from = boss.Walk.Position(AreaTime(conn));
         for (int tries = 0; tries < 200 && spots.Count < IzaroGoddess.Circles; tries++)
         {
-            (int X, int Y) at = (centre.X + Random.Shared.Next(-IzaroGoddess.ArenaReach, IzaroGoddess.ArenaReach + 1),
-                centre.Y + Random.Shared.Next(-IzaroGoddess.ArenaReach, IzaroGoddess.ArenaReach + 1));
+            (int X, int Y) at = (centre.X + AreaRng(conn).Next(-IzaroGoddess.ArenaReach, IzaroGoddess.ArenaReach + 1),
+                centre.Y + AreaRng(conn).Next(-IzaroGoddess.ArenaReach, IzaroGoddess.ArenaReach + 1));
             if (!conn.Layout.WalkableFor(at.X, at.Y, 2) || conn.Barrier.Contains(at)) continue;
             if (Math.Sqrt((double)(at.X - from.X) * (at.X - from.X) + (double)(at.Y - from.Y) * (at.Y - from.Y)) < IzaroGoddess.MinimumRange) continue;
             if (spots.Any(s => Math.Abs(s.X - at.X) + Math.Abs(s.Y - at.Y) < 20)) continue;

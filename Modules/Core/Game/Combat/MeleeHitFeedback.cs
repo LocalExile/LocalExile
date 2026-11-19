@@ -40,7 +40,7 @@ public static partial class Game
             if (!created) { conn.ProjectileObjects.Remove(id); return; }
             if (!session.Active) return;
             // Existing connection scheduler/outbox: no per-hit task, timer or worker.
-            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds))
+            long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(conn)))
                 + ProjectileRuntime.Time(2);
             session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
             {

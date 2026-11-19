@@ -190,10 +190,10 @@ public static partial class Game
         {
             if (!RampageEffectCurrent(conn, epoch) || conn.Paused || target.Dead || !target.Hostile
                 || target.OwnerId is not null || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), target)) return false;
-            if (attack && !RampageAttackHits(conn, id, target, accuracy, ProjectileWorldTime(conn), Random.Shared)) return false;
-            if (MonsterBlocks(target, Random.Shared, !attack)) return false;
-            bool critical = Random.Shared.Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0);
-            (damage, _) = MonsterDamage(target, packet.Roll(Random.Shared), critical, attack, default);
+            if (attack && !RampageAttackHits(conn, id, target, accuracy, ProjectileWorldTime(conn), AreaRng(conn))) return false;
+            if (MonsterBlocks(target, AreaRng(conn), !attack)) return false;
+            bool critical = AreaRng(conn).Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0);
+            (damage, _) = MonsterDamage(target, packet.Roll(AreaRng(conn)), critical, attack, default);
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(conn)));
             hit = ApplyMonsterHitLocked(conn, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
@@ -256,7 +256,7 @@ public static partial class Game
         RampageStunToken token)
     {
         var target = token.Target;
-        double Now() => Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+        double Now() => Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
         bool Current() => token.Stun > 0 && target.StunSerial == token.Stun && target.ActionGeneration == token.Action
             && conn.IncomingHitEpoch == token.IncomingEpoch && conn.ProjectileEpoch == token.ProjectileEpoch
             && target.FlinchUntil == token.Until && token.Until > Now() && !target.StageRunning

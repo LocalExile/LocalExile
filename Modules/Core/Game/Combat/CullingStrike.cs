@@ -48,7 +48,7 @@ public static partial class Game
             bool applies = false;
             if (Get(Stat.CullingStrikeOnBurningEnemies) != 0 && BurningTarget(conn, m)) applies = true;
             if (Get(Stat.CullingStrikeOnFrozenEnemies) != 0
-                && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, conn.Clock.Elapsed.TotalSeconds) > 0) applies = true;
+                && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, AreaTime(conn)) > 0) applies = true;
             if (Get(Stat.CullingStrikeVsCursedEnemies) != 0 && m.Curses.All.Count > 0) applies = true;
             if (Get(Stat.CullingStrikeVsMarkedEnemy) != 0 && m.Curses.All.Values.Any(c => c.Mark)) applies = true;
             if (Get(Stat.CullingStrikeOnEnemiesAffectedByPoachersMark) != 0

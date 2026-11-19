@@ -204,7 +204,7 @@ public static partial class Game
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The
         // runtime's fixtures run their simulation ahead of the clock; there the contact time wins.
-        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, conn.Clock.Elapsed.TotalSeconds);
+        double now = Math.Max(contact.At / (double)ProjectileRuntime.QuantaPerSecond, AreaTime(conn));
         var here = conn.Walk.Position(now);
         var from = ((int)Math.Round(contact.Position.X), (int)Math.Round(contact.Position.Y));
         return CommitMonsterHitLocked(conn, shot.MonsterId, shot.Monster, shot.Attack with { Damage = shot.Attack.Damage.Scale(contact.Multiplier) }, now, here, from,

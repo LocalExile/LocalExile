@@ -48,7 +48,7 @@ public static partial class Game
         if (!target.Hostile || conn.LeavingArea || conn.PlayerLife == 0
             || !(Stat.GainArcaneSurgeOnSpellHitByYouOrYourTotems is var key)
             || player.GetValueOrDefault(key) == 0) return;
-        GainArcaneSurgeLocked(conn, conn.Clock.Elapsed.TotalSeconds, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
+        GainArcaneSurgeLocked(conn, AreaTime(conn), ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
             ArcaneSurgeManaRegenPct);
     }
 
@@ -98,7 +98,7 @@ public static partial class Game
             else
             {
                 int before = conn.SupportGems.InspirationCharges;
-                if (gain >= 100 || Random.Shared.Next(100) < gain)
+                if (gain >= 100 || AreaRng(conn).Next(100) < gain)
                 {
                     int durationPct = Get(Stat.InspirationChargeDurationPlusPct);
                     conn.SupportGems.InspirationUntil = now + 10 * Math.Max(0, 1 + durationPct / 100.0);
@@ -123,8 +123,8 @@ public static partial class Game
         lock (conn.Monsters)
         {
             stats = WithTriggeredGuard(conn, stats);
-            if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
-            StatsChangeIn(conn.SupportGems.ArcaneSurgeUntil - conn.Clock.Elapsed.TotalSeconds);
+            if (!conn.SupportGems.ArcaneSurgeActiveAt(AreaTime(conn))) return stats;
+            StatsChangeIn(conn.SupportGems.ArcaneSurgeUntil - AreaTime(conn));
             int Get(uint k) => stats.GetValueOrDefault(k);
             void Add(uint name, long value)
             {
@@ -175,7 +175,7 @@ public static partial class Game
     static List<byte[]> PresentationLocked(Player conn)
     {
         var state = conn.SupportGems;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         var packets = new List<byte[]>();
         foreach (double ends in state.CrueltyInstances.Values.Append(state.ArcaneSurgeUntil)
             .Append(state.InspirationCharges > 0 ? state.InspirationUntil : 0))

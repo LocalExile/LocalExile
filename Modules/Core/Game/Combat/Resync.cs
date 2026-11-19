@@ -16,7 +16,7 @@ public static partial class Game
 
     public static async Task KeepWakeZone(Player conn)
     {
-        double checkedAt = conn.Clock.Elapsed.TotalSeconds;
+        double checkedAt = AreaTime(conn);
         if (checkedAt < conn.NextWakeZoneAt || !conn.PlayerSent) return;
         conn.NextWakeZoneAt = checkedAt + WakeZoneSeconds;
         await Send(conn, [], null, atGate: () =>
@@ -24,7 +24,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 var player = conn.Walk.Position(now);
                 var packets = new List<byte>();
                 List<(uint Id, int X, int Y)> back = [];
@@ -213,7 +213,7 @@ public static partial class Game
     // The server has the player landed while the client is on its way there, so nothing resyncs until the action is over.
     public static void ResyncAfter(Player conn, double seconds, string why)
     {
-        conn.LandingUntil = Math.Max(conn.LandingUntil, conn.Clock.Elapsed.TotalSeconds + seconds);
+        conn.LandingUntil = Math.Max(conn.LandingUntil, AreaTime(conn) + seconds);
         SendAfter(seconds, () => SendResync(conn, why));
     }
 
@@ -230,7 +230,7 @@ public static partial class Game
         Send(conn, [], $"0x0128 resync ({why})", atGate: () =>
         {
             lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea || conn.LockstepClient || conn.Clock.Elapsed.TotalSeconds < conn.LandingUntil ? null
-                    : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds);
+                return conn.Closed || conn.LeavingArea || conn.LockstepClient || AreaTime(conn) < conn.LandingUntil ? null
+                    : ResyncPacketLocked(conn, AreaTime(conn));
         });
 }

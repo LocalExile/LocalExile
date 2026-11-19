@@ -30,7 +30,7 @@ public static class BrineKing
     {
         if (Tides.TryGetValue(conn, out var tide) && tide.Active && Stat.ActionSpeedMinusPct is var key)
             sources[key] = sources.GetValueOrDefault(key) + 30;
-        if (Tides.TryGetValue(conn, out tide) && tide.MaimUntil > conn.Clock.Elapsed.TotalSeconds && Stat.MovementVelocityPlusPct is var movement)
+        if (Tides.TryGetValue(conn, out tide) && tide.MaimUntil > AreaTime(conn) && Stat.MovementVelocityPlusPct is var movement)
             sources[movement] = sources.GetValueOrDefault(movement) - 30;
         return sources;
     }
@@ -68,10 +68,10 @@ public static class BrineKing
     {
         var stats = CharacterPlayerStats(conn);
         int Get(uint key) => stats.GetValueOrDefault(key);
-        if (Get(Stat.Of("cannot_be_maimed")) != 0 || Random.Shared.Next(100) < Get(Stat.Of("base_avoid_maim_%"))) return;
+        if (Get(Stat.Of("cannot_be_maimed")) != 0 || AreaRng(conn).Next(100) < Get(Stat.Of("base_avoid_maim_%"))) return;
         var tide = Tides.GetValue(conn, _ => new());
         if (tide.MaimActive) await RemoveTideBuff(conn, tide.MaimBuff);
-        tide.MaimActive = true; tide.MaimUntil = conn.Clock.Elapsed.TotalSeconds + 4; tide.MaimBuff = conn.NextBuff++;
+        tide.MaimActive = true; tide.MaimUntil = AreaTime(conn) + 4; tide.MaimBuff = conn.NextBuff++;
         await Send(conn, InstanceEntities.AddBuff(PlayerId, tide.MaimBuff, 513,
             u68: BitConverter.SingleToUInt32Bits(4)), "[Brine King] cleave maim");
         await RefreshPlayerStats(conn);
@@ -140,7 +140,7 @@ public static class BrineKing
 
     public static async Task Tick(Player conn)
     {
-        if (Tides.TryGetValue(conn, out var tide) && tide.MaimActive && (conn.PlayerLife == 0 || conn.Clock.Elapsed.TotalSeconds >= tide.MaimUntil))
+        if (Tides.TryGetValue(conn, out var tide) && tide.MaimActive && (conn.PlayerLife == 0 || AreaTime(conn) >= tide.MaimUntil))
         { tide.MaimActive = false; tide.MaimUntil = 0; await RemoveTideBuff(conn, tide.MaimBuff); await RefreshPlayerStats(conn); }
         if (conn.Layout.Id != Area || !conn.PlayerSent || conn.Closed || conn.LeavingArea) return;
         (uint Id, SpawnedMonster Monster)? found;
@@ -152,7 +152,7 @@ public static class BrineKing
         try
         {
             await fight.Bind(conn);
-            if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds);
+            if (IsMonsterRunner(conn)) await fight.Step(conn, AreaTime(conn));
         }
         finally { fight.Gate.Release(); }
     }
@@ -195,7 +195,7 @@ public static class BrineKing
             (id, boss) = (objectId, monster);
             var placed = new QuestObjectTypes.AreaPlacements(conn.Layout.Id, conn.Seed, []);
             var middle = placed.Of("Metadata/MiscellaneousObjects/ArenaMiddle").FirstOrDefault();
-            center = middle is null ? boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : (middle.X, middle.Y);
+            center = middle is null ? boss.Walk.Position(AreaTime(conn)) : (middle.X, middle.Y);
             spawners = placed.Of("Metadata/Monsters/BrineKing/Minion/BrineKingMinionSpawner");
             radius = spawners.Count == 0 ? 67 : spawners.Average(p => Distance((p.X, p.Y), center));
             speed = boss.Walk.Speed;
@@ -203,7 +203,7 @@ public static class BrineKing
             lock (conn.QuestObjects)
                 waveId = conn.QuestObjects.Where(p => p.Value.Rule.ObjectType == Wave).Select(p => p.Key).FirstOrDefault();
             waveState = (byte)(Phases.Active ? 3 + 4 * Phases.Completed : Phases.Completed == 1 ? 5 : Phases.Completed == 2 ? 9 : 11);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             nextSlam = now + 2; nextRush = now + 8; nextStorm = now + 1; nextOrb = now + 2;
             Console.WriteLine($"[gateway] Brine King controller: arena {center}, radius {radius:0.0}, {spawners.Count} minion markers");
         }
@@ -225,7 +225,7 @@ public static class BrineKing
                 }
                 await SendWorldRecord(conn, id, InstanceEntities.PlayerSkillsChange(id, skills,
                     boss.Attack is { } old && !skills.Any(s => s.Id == old.SkillId) ? [old.SkillId] : []), "[Brine King] full actor skill list");
-                if (Phases.Active && floodStep >= 2) await Basic(conn, "ChangeToStance2", conn.Clock.Elapsed.TotalSeconds, viewer: conn);
+                if (Phases.Active && floodStep >= 2) await Basic(conn, "ChangeToStance2", AreaTime(conn), viewer: conn);
             }
             if (waveId != 0 && waveViews.Add(conn))
             {
@@ -368,7 +368,7 @@ public static class BrineKing
             if (rushUntil <= now && now >= nextSlam && distance <= 48)
             {
                 nextSlam = now + 5;
-                int effect = Phases.Completed >= 2 && Random.Shared.Next(2) == 0 ? (Random.Shared.Next(2) == 0 ? 6759 : 6761) : 6668;
+                int effect = Phases.Completed >= 2 && AreaRng(conn).Next(2) == 0 ? (AreaRng(conn).Next(2) == 0 ? 6759 : 6761) : 6668;
                 if (await Cast(conn, effect, player, now) is not { } generation) return;
                 var attack = Attack(conn, boss.Variety!, boss.Level, effect);
                 hits.Add((now + attack.Seconds * 0.65, player, effect == 6668 ? 12 : 18, attack, generation));
@@ -401,7 +401,7 @@ public static class BrineKing
             }
             bool sent = await SendMonsterAction(conn, id, boss, generation, () =>
             {
-                var p = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                var p = boss.Walk.Position(AreaTime(conn));
                 return InstanceProtocol.ActionStarted(id, p.X, p.Y, target.X, target.Y, Skill(effect), conn.NextActionSequence(), 0x0408);
             }, $"[Brine King] skill {effect}, phase {Phases.Completed}");
             return sent ? generation : null;
@@ -413,8 +413,8 @@ public static class BrineKing
             lock (conn.Monsters) generation = ++boss.ActionGeneration;
             await SendMonsterAction(conn, id, boss, generation, () =>
             {
-                var here = boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-                boss.Walk.Order(target.X, target.Y, conn.Clock.Elapsed.TotalSeconds);
+                var here = boss.Walk.Position(AreaTime(conn));
+                boss.Walk.Order(target.X, target.Y, AreaTime(conn));
                 return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, 0x2909, conn.NextActionSequence(), 0x0408);
             }, "[Brine King] move");
         }
@@ -471,8 +471,8 @@ public static class BrineKing
                 nextStorm = now + 3;
                 for (int i = 0; i < 5; i++)
                 {
-                    double angle = Random.Shared.NextDouble() * Math.Tau;
-                    double reach = radius * 0.45 * Math.Sqrt(Random.Shared.NextDouble());
+                    double angle = AreaRng(conn).NextDouble() * Math.Tau;
+                    double reach = radius * 0.45 * Math.Sqrt(AreaRng(conn).NextDouble());
                     var at = i == 0 ? conn.Walk.Position(now)
                         : ((int)Math.Round(center.X + Math.Cos(angle) * reach), (int)Math.Round(center.Y + Math.Sin(angle) * reach));
                     await Effect(conn, at, Art + "lightning_strike/buildup.ao", now + 0.9);
@@ -483,7 +483,7 @@ public static class BrineKing
             {
                 nextOrb = now + 2.4;
                 var target = conn.Walk.Position(now);
-                double angle = Random.Shared.NextDouble() * Math.Tau;
+                double angle = AreaRng(conn).NextDouble() * Math.Tau;
                 var from = ((int)Math.Round(center.X + Math.Cos(angle) * radius * 0.75), (int)Math.Round(center.Y + Math.Sin(angle) * radius * 0.75));
                 double distance = Math.Max(1, Distance(from, target));
                 var to = ((int)Math.Round(from.Item1 + (target.X - from.Item1) / distance * radius * 1.5),
@@ -553,7 +553,7 @@ public static class BrineKing
                 lock (conn.Monsters)
                 {
                     if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0 || InGracePeriod(conn) || boss.Dead) return null;
-                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                    double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                     outcome = CommitMonsterHitLocked(conn, id, boss, attack, now, conn.Walk.Position(now), from, false, conn.NextActionSequence());
                     return outcome?.HitPacket;
                 }
@@ -570,7 +570,7 @@ public static class BrineKing
             var variety = Monsters.Find("Metadata/Monsters/BrineKing/BrineKingMinion_");
             if (variety is not { Supported: true }) return;
             lock (conn.Monsters) if (conn.Monsters.Values.Count(m => m.SummonerId == id && !m.Dead && m.Life > 0) >= 20) return;
-            var source = spawners.Count == 0 ? null : spawners[Random.Shared.Next(spawners.Count)];
+            var source = spawners.Count == 0 ? null : spawners[AreaRng(conn).Next(spawners.Count)];
             var at = conn.Layout.Near(source is null ? center : (source.X, source.Y));
             uint spawned = await SpawnMonster(conn, variety, boss.Level, MonsterRarity.Normal, at.X, at.Y);
             lock (conn.Monsters) if (conn.Monsters.TryGetValue(spawned, out var minion)) minion.SummonerId = id;
@@ -616,7 +616,7 @@ public static class BrineKing
             stopped = true;
             Phases.DamageTakenPercent = 100;
             if (players.FirstOrDefault() is { } conn)
-                lock (conn.Monsters) boss.Walk.SetSpeed(speed, conn.Clock.Elapsed.TotalSeconds);
+                lock (conn.Monsters) boss.Walk.SetSpeed(speed, AreaTime(conn));
         }
         static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
     }

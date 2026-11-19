@@ -40,7 +40,7 @@ static partial class Sirus
     }
     internal static Dictionary<uint, int> PlayerStats(Player c, Dictionary<uint, int> stats)
     {
-        if (Exposures.TryGetValue(c, out var e) && e.BeamUntil > c.Clock.Elapsed.TotalSeconds)
+        if (Exposures.TryGetValue(c, out var e) && e.BeamUntil > AreaTime(c))
         {
             foreach (var (name, value) in new[] { (global::Stat.ActionSpeedMinusPct, e.BeamStacks * 6), (global::Stat.BaseDamageTakenPlusPct, e.BeamStacks * 10) })
                 if (name is var key) stats[key] = stats.GetValueOrDefault(key) + value;
@@ -101,7 +101,7 @@ static partial class Sirus
         }
         async Task ClearNearbyStorms(Player c, (int X, int Y) at, double radius)
         {
-            foreach (var s in storms.Where(s => Distance(s.Monster.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) < radius).ToArray())
+            foreach (var s in storms.Where(s => Distance(s.Monster.Walk.Position(AreaTime(c)), at) < radius).ToArray())
             { storms.Remove(s); await Retire(c, s.Id); }
         }
         async Task ClearWalls(Player c)
@@ -164,7 +164,7 @@ static partial class Sirus
             }
             else if (kind == 1)
             {
-                var at = RingPoint(c, aim, 30 + Random.Shared.Next(20), now);
+                var at = RingPoint(c, aim, 30 + AreaRng(c).Next(20), now);
                 await Cast(c, id, 6809, at, now); await Teleport(c, id, at, now);
                 deferred.Add(new(now + .5, body.ActionGeneration, c, at, aim));
                 ready = now + .5 + (Round == 3 ? 2.5 : 2) + 1;
@@ -184,7 +184,7 @@ static partial class Sirus
         {
             for (int i = 0; i < 16; i++)
             {
-                double a = Random.Shared.NextDouble() * Math.Tau;
+                double a = AreaRng(c).NextDouble() * Math.Tau;
                 var at = (X: origin.X + (int)(Math.Cos(a) * radius), Y: origin.Y + (int)(Math.Sin(a) * radius));
                 if (c.Layout.WalkableFor(at.X, at.Y, 2) && Distance(at, scene.Centre) < 110
                     && storms.All(s => Distance(at, s.Monster.Walk.Position(now)) > 50)) return at;
@@ -244,7 +244,7 @@ static partial class Sirus
             double start = now + Attack(c, body!.Variety!, body.Level, 10973).Seconds;
             double until = start + Stat(c, 10973, body.Level, global::Stat.BaseSkillEffectDuration) / 1000d;
             await Fx(c, at, Art + "beam_core.ao", until, clip: null);
-            quads.Add(new(at, start, until, Random.Shared.NextDouble() * Math.Tau));
+            quads.Add(new(at, start, until, AreaRng(c).NextDouble() * Math.Tau));
             for (int i = 0; i < 4; i++)
             {
                 double a = i * Math.PI / 2;
@@ -256,7 +256,7 @@ static partial class Sirus
         async Task Clones(Player c, double now)
         {
             special = 3; specialUntil = ready = now + 5.33; var aim = c.Walk.Position(now);
-            int real = Random.Shared.Next(12);
+            int real = AreaRng(c).Next(12);
             double angle = Math.Tau * real / 12;
             var at = c.Layout.Near((aim.X + (int)(Math.Cos(angle) * 35), aim.Y + (int)(Math.Sin(angle) * 35)));
             await Teleport(c, id, at, now);
@@ -291,7 +291,7 @@ static partial class Sirus
             else
                 for (int i = 0; i < (kind == 1 ? 5 : 9); i++)
                 {
-                    var at = c.Layout.Near((aim.X + Random.Shared.Next(-24, 25), aim.Y + Random.Shared.Next(-24, 25)));
+                    var at = c.Layout.Near((aim.X + AreaRng(c).Next(-24, 25), aim.Y + AreaRng(c).Next(-24, 25)));
                     double contact = now + 1.4 + i * .28;
                     await Fx(c, at, Art + "maze_meteor_incoming.ao", contact, clip: null);
                     hits.Add(new(contact, c.Monsters[apparition].ActionGeneration, ++group, kind == 1 ? 7032 : 10956, at, at, kind == 1 ? 9 : 12, ApparitionHit: true));
@@ -382,7 +382,7 @@ static partial class Sirus
             {
                 lock (p.Monsters)
                 {
-                    double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
+                    double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
                     if (stopped || !CurrentGameWork || stage != 4 || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                     var ma = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect, body.Level,
                         global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };

@@ -115,7 +115,7 @@ public static partial class Game
 
     public static bool InGracePeriod(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         return conn.EntryProtection.Protects(now, conn.Walk.Position(now));
     }
 
@@ -130,7 +130,7 @@ public static partial class Game
 
     public static async Task StartGracePeriod(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         ushort buff;
         lock (conn.Monsters) buff = conn.NextBuff++;
         bool hideout = HideoutCatalog.ByArea(conn.Layout.Hash) is not null;
@@ -141,7 +141,7 @@ public static partial class Game
 
     public static async Task EndGracePeriod(Player conn, bool action = false)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (conn.EntryProtection.End(now, conn.Walk.Position(now), action) is ushort buff)
             await SendWorldRecord(conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff),
                 "Grace Period ends: movement, action or deadline");
@@ -198,7 +198,7 @@ public static partial class Game
             conn.InvalidateIncomingHits();
             conn.DeathNotificationEpoch = deathEpoch = conn.IncomingHitEpoch;
             FortificationOf(conn).Clear();
-            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
+            LeechOf(conn).Clear(AreaTime(conn));
             ClearRageOnDeath(conn);
             conn.Rampage.Clear();
             // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel
@@ -215,8 +215,8 @@ public static partial class Game
             VaalAuraStates.Remove(conn); // CancelOnDeath: it cannot return after resurrection.
             ClearAntiquarianOnDeath(conn);
             conn.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
-            conn.SpiritChieftains.End(conn.Clock.Elapsed.TotalSeconds);   // the chieftain minion dies with the player
-            conn.Totems.KillAll(conn.Clock.Elapsed.TotalSeconds);   // and his totems (the tick sends their deaths)
+            conn.SpiritChieftains.End(AreaTime(conn));   // the chieftain minion dies with the player
+            conn.Totems.KillAll(AreaTime(conn));   // and his totems (the tick sends their deaths)
             // Every "Recently" ends at death, the enemies' "hit by you" and "hit you" recently too.
             foreach (var monster in conn.Monsters.Values) monster.PlayerHitAt = monster.HitPlayerAt = double.NegativeInfinity;
         }
@@ -336,8 +336,8 @@ public static partial class Game
             {
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired
                     || (!conn.PlayerObjectCreated && !conn.PlayerSent)) return null;
-                if (conn.Lifetap.Until > conn.Clock.Elapsed.TotalSeconds)
-                    PresentIn(conn, conn.Lifetap.Until - conn.Clock.Elapsed.TotalSeconds);
+                if (conn.Lifetap.Until > AreaTime(conn))
+                    PresentIn(conn, conn.Lifetap.Until - AreaTime(conn));
                 return Lifetap.PresentationRecords(conn);
             }
         });
@@ -373,8 +373,8 @@ public static partial class Game
                 // damage came within the delay, full or not, so the rate goes out then too (live 2026-11-13: the globe
                 // stayed below full after a cast, the server's last update being full with no rate).
                 bool active = conn.EnergyShield.Recharging || Get(Stat.KeystoneEldritchBattery) != 0
-                    && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
-                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 || conn.IncomingAilments.Bleeding(conn.Clock.Elapsed.TotalSeconds) ? 0 : (int)Math.Round(
+                    && conn.EnergyShield.RechargeReady(AreaTime(conn), Get);
+                int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 || conn.IncomingAilments.Bleeding(AreaTime(conn)) ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
                     return null;
@@ -495,12 +495,12 @@ public static partial class Game
             {
                 conn.PlayerLife -= (uint)life;
                 lifeCost = (uint)life;
-                Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
+                Lifetap.Spend(conn, own, life, AreaTime(conn));
                 PresentStats(conn);
             }
             ManaSpentLocked(conn, cost, player);
-            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
-            ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
+            SupportManaSpentLocked(conn, skillId, own, cost, AreaTime(conn));
+            ConsumeCombatRush(conn, skillId, supported, AreaTime(conn));
             return true;
         }
     }
@@ -690,7 +690,7 @@ public static partial class Game
                     {
                         uint ring = conn.TakeObjectId();
                         rf.Ring = ring;
-                        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                        var at = conn.Walk.Position(AreaTime(conn));
                         QueueRighteousFireRingLocked(conn, rf, ring, at);
                     }
                     else
@@ -796,7 +796,7 @@ public static partial class Game
                 ushort buff = conn.NextBuff++, aura = conn.NextBuff++;
                 uint? ring = null;
                 if (ringAo is not null) ring = conn.TakeObjectId();
-                at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                at = conn.Walk.Position(AreaTime(conn));
                 area = conn.Instance;
                 state = new RighteousFireState(buff, aura, skillId,
                     DamagePctPerMinute: Get(Stat.BaseRighteousFirePctOfMaxLifeToDealToNearbyPerMinute, 4200),
@@ -1011,10 +1011,10 @@ public static partial class Game
                     rates.Stale = false;
                     recoveryStats = CharacterPlayerStatsCore(conn, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
-                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)), conn.Pools.Mana) / 60;
+                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(AreaTime(conn))), conn.Pools.Mana) / 60;
                     conn.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
-                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)));
+                        PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(AreaTime(conn))));
                     int periodic = RecoveryStat(Stat.VirtualGainLifeRegenerationPerMinutePctFor1SecondEvery4Seconds);
                     periodicRegenStart = periodic > 0 && conn.PlayerLife > 0 ? periodicRegenStart ?? now : null;
                     periodicRegenPerSecond = conn.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
@@ -1077,7 +1077,7 @@ public static partial class Game
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
                     conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
-                    double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
+                    double fortificationLife = FortificationOf(conn).TakeRecovery(AreaTime(conn));
                     if (convertLifeRegen) conn.EnergyShield.Gain(fortificationLife);
                     double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
                     if (convertLifeRegen) conn.EnergyShield.Gain(antiquarianLife);
@@ -1310,7 +1310,7 @@ public static partial class Game
         if (InGracePeriod(conn)) return [.. Enum.GetValues<DamageType>()];
         prepared ??= CharacterPlayerStats(conn);
         var result = DamageImmunities.From(name => name is var key ? prepared.GetValueOrDefault(key) : 0);
-        if (conn.Clock.Elapsed.TotalSeconds < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
+        if (AreaTime(conn) < conn.PhysicalImmunityUntil) result.Add(DamageType.Physical);
         return result;
     }
 
@@ -1319,7 +1319,7 @@ public static partial class Game
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         bool fullLife, fullEnergyShield, hitRecently;
         lock (conn.Monsters)
         {
@@ -1373,7 +1373,7 @@ public static partial class Game
         {
             if (conn.PlayerLife > 0) return;
             conn.InvalidateIncomingHits();
-            LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
+            LeechOf(conn).Clear(AreaTime(conn));
             conn.PlayerLife = LifeCap(conn);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, refill: true);
             conn.HitRecovery.Clear();
@@ -1413,7 +1413,7 @@ public static partial class Game
         lock (conn.Waypoints)
             activated = WaypointCatalog.Areas.Find(conn.Layout.Hash) is { } entry && conn.Waypoints.Contains(entry.Id);
         var (x, y) = conn.Layout.Checkpoint(activated);
-        conn.Walk.Teleport(x, y, conn.Clock.Elapsed.TotalSeconds);
+        conn.Walk.Teleport(x, y, AreaTime(conn));
         await SendWorldRecord(conn, PlayerId, InstanceProtocol.Teleport(PlayerId, x, y),
             $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && conn.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
         await SendWorldRecord(conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(Stat.HideMiniLifeBar, 0)]),

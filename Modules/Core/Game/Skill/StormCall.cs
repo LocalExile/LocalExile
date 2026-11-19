@@ -72,7 +72,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!TokenCurrent() || !sacrifice.Current) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             marker = new(conn.TakeObjectId(), skillId, at, now + duration, repeat, conn.ProjectileEpoch,
                 sacrifice.AddedChaos(() => paid = true), new StormCallUse(criticalRoll, sacrifice, damageMore));
             conn.StormCall.Place(marker);
@@ -90,7 +90,7 @@ public static partial class Game
         }
         // Quality: a chance that lightning strikes the new marker as it is set; the marker stays for its own strike.
         int chance = Own(Stat.StormCallChanceToStrikeOnCastPct);
-        if (chance > 0 && Random.Shared.Next(100) < chance)
+        if (chance > 0 && AreaRng(conn).Next(100) < chance)
         {
             Console.WriteLine($"[gateway] {conn.Remote} storm call strike on cast at marker 0x{marker.Object:x} ({chance}% chance)");
             await StormCallStrike(conn, marker, removeMarker: false);
@@ -105,17 +105,17 @@ public static partial class Game
         {
             while (true)
             {
-                double wait = at - conn.Clock.Elapsed.TotalSeconds;
+                double wait = at - AreaTime(conn);
                 if (wait > 0) await Task.Delay(TimeSpan.FromSeconds(wait));
                 await WhilePaused(conn);
                 if (conn.Closed) return;
-                if (conn.Clock.Elapsed.TotalSeconds >= at) break;
+                if (AreaTime(conn) >= at) break;
             }
             IReadOnlyList<StormCallMarkers.Marker> struck;
             lock (conn.Monsters)
             {
                 if (conn.Closed || conn.LeavingArea || conn.ProjectileEpoch != epoch) return;
-                struck = conn.StormCall.TakeStrikes(conn.Clock.Elapsed.TotalSeconds, epoch);
+                struck = conn.StormCall.TakeStrikes(AreaTime(conn), epoch);
             }
             if (struck.Count == 0) return;
             Console.WriteLine($"[gateway] {conn.Remote} storm call strike: {struck.Count} marker(s) "

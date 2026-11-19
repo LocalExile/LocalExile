@@ -59,7 +59,7 @@ public static partial class Game
     static void ReservationHitLocked(Player conn, SpawnedMonster target)
     {
         if (target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && AffectingAuras(conn).Any(a => a.EffectId == "Zealotry")
-            && RandomRolls.Chance(GolemStat(CharacterPlayerStats(conn), Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, Random.Shared))
+            && RandomRolls.Chance(GolemStat(CharacterPlayerStats(conn), Stat.CreateConsecratedGroundOnHitPctVsRareOrUniqueEnemy), 100, AreaRng(conn)))
         {
             var at = target.Walk.Position(AreaTime(conn));
             conn.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
@@ -68,7 +68,7 @@ public static partial class Game
         }
         if (ReservationAura(conn, "HeraldOfPurity") is { } purity && !target.Dead
             && target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
-            && RandomRolls.Chance(ReservationStat(conn, purity, Stat.HeraldOfLightSummonChampionOnUniqueOrRareEnemyHitPct), 100, Random.Shared))
+            && RandomRolls.Chance(ReservationStat(conn, purity, Stat.HeraldOfLightSummonChampionOnUniqueOrRareEnemyHitPct), 100, AreaRng(conn)))
             conn.Reservations.Procs.Enqueue(new(purity.SkillId, target.Walk.Position(AreaTime(conn))));
     }
 
@@ -212,11 +212,11 @@ public static partial class Game
                     : Player(Stat.GlobalCannotCrit) != 0 || Own(Stat.GlobalCannotCrit) != 0 ? 0
                     : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
                         (long)Player(Stat.CriticalStrikeChancePlusPct) + Own(Stat.CriticalStrikeChancePlusPct), Player, Own);
-                bool critical = RandomRolls.Chance(criticalChance, 10000, Random.Shared);
+                bool critical = RandomRolls.Chance(criticalChance, 10000, AreaRng(conn));
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
                     : CriticalHitMultiplier(150L + Player(Stat.BaseCriticalStrikeMultiplierPlus)
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), player, skill.Stats);
-                var rolled = targetPacket.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
+                var rolled = targetPacket.Roll(AreaRng(conn)).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
                 int damage = MonsterTakesMitigated(m, mitigated, spell, now);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
@@ -226,7 +226,7 @@ public static partial class Game
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (aura.EffectId == "HeraldOfThunder" && Stat.NeverShock is var noShock) own[noShock] = 1;
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now,
-                        Random.Shared, poison: profile.Poison,
+                        AreaRng(conn), poison: profile.Poison,
                         blind: BlindHitInput.Capture(player, own));
                     if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)

@@ -15,7 +15,7 @@ public static partial class Game
 
     public static (int X, int Y) ControlledFollowerPoint(Player conn, Player leader, bool arrival = false, double? atTime = null)
     {
-        double now = atTime ?? conn.Clock.Elapsed.TotalSeconds;
+        double now = atTime ?? AreaTime(conn);
         var origin = leader.Walk.Position(now);
         var destination = leader.Walk.Destination;
         double dx = destination.X - origin.X, dy = destination.Y - origin.Y;

@@ -131,8 +131,8 @@ public static partial class Game
                 if (!Active) { Invalidate(); return; }
                 if (!Conn.Paused)
                 {
-                    TickChannelTriggers(Conn, this, Conn.Clock.Elapsed.TotalSeconds);
-                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                    TickChannelTriggers(Conn, this, AreaTime(Conn));
+                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Conn))));
                 }
             }
         }
@@ -489,7 +489,7 @@ public static partial class Game
             // finds the list already in its contact order (id, then generation) and does not sort it again at every step.
             // A totem's id and place never change, so it keeps one record for as long as it is listed.
             var totems = Conn.Totems.All;
-            double clock = Conn.Clock.Elapsed.TotalSeconds;
+            double clock = AreaTime(Conn);
             for (int i = 0; i < totems.Count; i++)
                 if (totems[i].Alive(clock)) InOrder(result, TotemActor(totems[i]));
             if (Conn.PlayerLife > 0)
@@ -1044,7 +1044,7 @@ public static partial class Game
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
     public static IDisposable ProjectileMutation(Player conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
     public static double ProjectileWorldTime(Player conn) => conn.ProjectileRuntime is { Active: true } session
-        ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
+        ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : AreaTime(conn);
 
     public sealed class ProjectileMutationScope : IDisposable
     {
@@ -1059,7 +1059,7 @@ public static partial class Game
             try
             {
                 if (advance && !conn.Paused && conn.ProjectileRuntime is { Active: true } session)
-                    session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds)));
+                    session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(conn))));
                 if (ChargeSessions.TryGetValue(conn, out var charges)) charges.SettleDegeneration(ResourceEffectsTime(conn));
             }
             catch { Dispose(); throw; }

@@ -59,7 +59,7 @@ public static partial class Game
         if (!DebuffsOf.TryGetValue(conn, out var set)) return false;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             return ReferenceEquals(set.Area, conn.Layout) && set.Active.Any(d => d.Row == row && d.Until > now);
         }
     }
@@ -74,7 +74,7 @@ public static partial class Game
         ushort instance;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (!ReferenceEquals(set.Area, conn.Layout)) { set.Active.Clear(); set.Area = conn.Layout; }
             if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
             {
@@ -121,7 +121,7 @@ public static partial class Game
         {
             if (set.Active.Count == 0) return;
             areaChanged = !ReferenceEquals(set.Area, conn.Layout);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
             {
                 if (!areaChanged) gone.Add(d.Instance);
@@ -161,7 +161,7 @@ public static partial class Game
     static double DebuffDegenLocked(Player conn)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return 0;
-        double now = conn.Clock.Elapsed.TotalSeconds, total = 0;
+        double now = AreaTime(conn), total = 0;
         var immune = PlayerImmunities(conn);
         foreach (var type in new[] { DamageType.Physical, DamageType.Fire, DamageType.Cold, DamageType.Lightning, DamageType.Chaos })
         {
@@ -178,7 +178,7 @@ public static partial class Game
     public static Dictionary<uint, int> PlayerDebuffStats(Player conn, Dictionary<uint, int> sources)
     {
         if (!DebuffsOf.TryGetValue(conn, out var set) || !ReferenceEquals(set.Area, conn.Layout)) return sources;
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         foreach (var debuff in set.Active.Where(d => d.Until > now))
             foreach (var (name, value) in debuff.Stats)
                 sources[name] = sources.GetValueOrDefault(name) + value;

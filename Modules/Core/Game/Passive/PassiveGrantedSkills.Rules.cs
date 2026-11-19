@@ -121,7 +121,7 @@ public static partial class Game
         {
             if (RelicTriggerOf(conn) is not { } relic) return false;
             var (grant, radius) = relic;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (allyAt is { } ally && Dist(ally, conn.Walk.Position(now)) > radius) return false;
             if (now < conn.SkillReadyAt.GetValueOrDefault(grant.Effect) - 1e-9) return false;
             var own = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
@@ -354,12 +354,12 @@ public static partial class Game
                 var profile = m.SpiderWebs.Count(ProjectileWorldTime(conn)) is > 0 and var webs
                     ? Profile(Blinded(conn, id) ? additionalIncreased : 0, webs)
                     : Blinded(conn, id) ? blindedProfile : normalProfile;
-                if (MonsterBlocks(m, Random.Shared, spell: true)) continue;
-                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, Random.Shared);
+                if (MonsterBlocks(m, AreaRng(conn), spell: true)) continue;
+                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, AreaRng(conn));
                 bool critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(conn);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
-                    gambler.InvertsResistance(Random.Shared));
+                    gambler.InvertsResistance(AreaRng(conn)));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, player, own));
                 var stun = OwnerStun(conn, m, damage, mitigated, melee: false, spell: true, critical, player, own);
                 var applied = ApplyMonsterHitLocked(conn, m, damage);
@@ -370,7 +370,7 @@ public static partial class Game
                 }
                 if (applied is not null)
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell: true, critical, multiplier, player, own, hitAt,
-                        Random.Shared, reflected, poison: profile.Poison, blind: BlindHitInput.Capture(player, own));
+                        AreaRng(conn), reflected, poison: profile.Poison, blind: BlindHitInput.Capture(player, own));
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
                 if (applied is not null && m.Life > 0 && rolled[DamageType.Fire].Max > 0)
                     foreach (var packet in IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, hitAt) ?? [])
@@ -380,7 +380,7 @@ public static partial class Game
                 conn.RecentEvents.RecordCriticalOutcome(hitAt, critical);
                 if (critical)
                 {
-                    CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);
+                    CommitAcceptedCritFlasksLocked(conn, player, AreaTime(conn));
                     MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
                 }
                 CommitAcceptedHitLocked(conn, id, m, landed, damage, hitAt,
@@ -390,7 +390,7 @@ public static partial class Game
                 if (landed.Life == 0) deaths.Add((id, m));
             }
             // All accepted hit consequences and reflected ailments precede the sweep's attributed kills.
-            if (reflected.Count > 0) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+            if (reflected.Count > 0) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, AreaRng(conn));
             foreach (var (id, m) in deaths) CommitAcceptedKillLocked(conn, id, m, ProjectileWorldTime(conn), playerKill: true, charges);
             if (charges.Count > 0) CommitAcceptedChargeBatchLocked(conn, charges, player);
         }

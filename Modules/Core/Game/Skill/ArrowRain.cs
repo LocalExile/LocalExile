@@ -55,7 +55,7 @@ public static partial class Game
         double spread = blast ? radius * .85 : SkillArea.Radius(24, Get, false);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
-        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, Random.Shared);
+        var landings = RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(conn));
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");
         string? down = toxic ? ArtOf("toxic_rain_arrow_down") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_drop.ao" : ArtOf("expanding_rain_of_arrows_arrow");
         string? impact = toxic ? null : blast ? "Metadata/Effects/Spells/blast_rain/blastrainexplosion_aoe.ao" : ArtOf("expanding_rain_of_arrows_explosion");

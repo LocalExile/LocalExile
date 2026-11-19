@@ -32,7 +32,7 @@ public static partial class Game
                 throw new InvalidOperationException("The party bot is not ready for an order.");
             if (intent.Action is not ("auto" or "hold" or "move" or "attack" or "cast" or "flask" or "focus" or "pickup"))
                 throw new ArgumentException("Unknown bot action.");
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (!double.IsFinite(intent.Until) || intent.Until <= now || intent.Until > now + 5.01)
                 throw new ArgumentException("Order lifetime must be between 0 and 5 game seconds.");
             var brain = ControlledBrains.GetOrCreateValue(conn);
@@ -221,7 +221,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var here = conn.Walk.Position(now);
             var origin = leader.Walk.Position(now);
             object Cell((int X, int Y) p) => new { x = p.X, y = p.Y };

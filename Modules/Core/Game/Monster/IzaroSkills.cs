@@ -163,7 +163,7 @@ static class IzaroSkills
         if (boss.Variety is not { } variety || boss.Attack is not { } plain) return;
         var moves = MovesOf(variety).Select(m => (Move: m, Use: Attack(conn, plain, m, boss.Level))).ToList();
         var ready = new Dictionary<Move, double>();
-        double next = conn.Clock.Elapsed.TotalSeconds + FirstSeconds;
+        double next = AreaTime(conn) + FirstSeconds;
         // Holding the AI back until `next`: its BusyUntil is ours, to give up when no skill is ready.
         bool held = false;
         void Hold(double until)
@@ -183,7 +183,7 @@ static class IzaroSkills
                 lock (conn.Monsters)
                 {
                     if (boss.Dead || boss.Life == 0) return;
-                    double now = conn.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(conn);
                     // A monster in its hit recovery starts no action (07 §6), as the ordinary AI keeps.
                     if (now < next || (!held && now < boss.BusyUntil) || now < boss.FlinchUntil || !boss.Aggro || conn.Paused || InGracePeriod(conn)
                         || conn.AsleepMonsters.Contains(id) || MonsterActionFactor(boss, now) == 0) continue;
@@ -198,7 +198,7 @@ static class IzaroSkills
                         continue;
                     }
                     held = false;
-                    chosen = usable[Random.Shared.Next(usable.Count)];
+                    chosen = usable[AreaRng(conn).Next(usable.Count)];
                     action = ++boss.ActionGeneration;
                     // Not a walk-up swing the AI may call off (a predictive client's), and the chase stops.
                     boss.SwingGeneration = null;
@@ -208,16 +208,16 @@ static class IzaroSkills
                 await Use(conn, id, boss, action, chosen.Value.Move, chosen.Value.Use);
                 lock (conn.Monsters)
                 {
-                    double now = conn.Clock.Elapsed.TotalSeconds, free = Math.Max(now, boss.BusyUntil);
+                    double now = AreaTime(conn), free = Math.Max(now, boss.BusyUntil);
                     // Out of his plain attack's reach he runs at the player for a moment: held at every gap, he would not chase.
                     if (Dist(boss.Walk.Position(now), conn.Walk.Position(now)) > plain.Range)
                     {
-                        next = free + RunMinSeconds + Random.Shared.NextDouble() * (RunMaxSeconds - RunMinSeconds);
+                        next = free + RunMinSeconds + AreaRng(conn).NextDouble() * (RunMaxSeconds - RunMinSeconds);
                         held = false;
                     }
                     else
                     {
-                        next = free + GapMinSeconds + Random.Shared.NextDouble() * (GapMaxSeconds - GapMinSeconds);
+                        next = free + GapMinSeconds + AreaRng(conn).NextDouble() * (GapMaxSeconds - GapMinSeconds);
                         Hold(next + HeldPastGap);
                     }
                 }
@@ -237,7 +237,7 @@ static class IzaroSkills
             if (AreaTime(conn) < boss.FlinchUntil
                 || MonsterSwingOrderLocked(conn, boss, use, action, generic: false, use.Seconds, AreaTime(conn)) is not { } order)
             {
-                boss.BusyUntil = conn.Clock.Elapsed.TotalSeconds;
+                boss.BusyUntil = AreaTime(conn);
                 return null;
             }
             (startedAt, from, aim) = (order.StartedAt, order.From, order.Player);
@@ -263,7 +263,7 @@ static class IzaroSkills
         if (!await WaitMonsterActionTime(conn, id, boss, action, contact)) return;
         // The leap and the charge carry him to where they aimed (the client's action moves its copy).
         if (move.Shape is Shape.Leap or Shape.Charge && conn.Layout.WalkableFor(aim.X, aim.Y, 0))
-            lock (conn.Monsters) boss.Walk.Teleport(aim.X, aim.Y, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters) boss.Walk.Teleport(aim.X, aim.Y, AreaTime(conn));
         if (move.Art is { } art) await ShowArt(conn, id, art);
         if (move.Shape == Shape.Self)
         {
@@ -339,7 +339,7 @@ static class IzaroSkills
                 lock (conn.Monsters)
                 {
                     if (InGracePeriod(conn) || !MonsterPresent(conn, id, boss)) return null;
-                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                    double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
                     var here = conn.Walk.Position(now);
                     if (!Inside(move, from, aim, here)) return null;
                     outcome = CommitMonsterHitLocked(conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
@@ -394,7 +394,7 @@ static class IzaroSkills
         lock (conn.Monsters)
         {
             effect = conn.NextObjectId++;
-            at = conn.Monsters.TryGetValue(id, out var boss) ? boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : default;
+            at = conn.Monsters.TryGetValue(id, out var boss) ? boss.Walk.Position(AreaTime(conn)) : default;
         }
         var layout = conn.Layout;
         var blob = art.OnHim ? new EffectObject(at.X, at.Y, art.Ao) { Parent = id, AttachKind = 0, AttachFlags = 3 }.Blob()
@@ -443,7 +443,7 @@ static class IzaroSkills
         if (!await SendMonsterAction(conn, id, boss, action, () =>
         {
             if (InGracePeriod(conn)) return null;
-            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
             foreach (var golem in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())
                 if (!golem.Monster.Dead && Inside(move, from, aim, golem.Monster.Walk.Position(now), spike))
                     GolemTakeHitLocked(conn, golem, id, boss, use, now, area: true);

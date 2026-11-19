@@ -152,7 +152,7 @@ public static partial class Game
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
     {
         double factor, speed;
-        lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(AreaTime(conn));
         speed = Stat.SummonTotemCastSpeedPlusPct is var k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
         // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
         double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) || NativeProjectileTotem(conn, effect) ? .6
@@ -257,7 +257,7 @@ public static partial class Game
         }
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
@@ -361,7 +361,7 @@ public static partial class Game
     {
         int pct = TotemRedirectStat is var key ? stats.GetValueOrDefault(key) : 0;
         // The totems live on the connection clock; the hit's world time places the player.
-        double clock = conn.Clock.Elapsed.TotalSeconds;
+        double clock = AreaTime(conn);
         if (pct <= 0 || conn.Totems.Nearest(conn.Walk.Position(now), clock) is not { } totem) return (nonChaos, chaos);
         var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, totem.Life);
         var (keptChaos, left) = TotemState.Redirect(chaos, pct, life);
@@ -395,7 +395,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var covering = TotemAuraCovering(conn, now);
             // The player walking in or out of an aura is its zone's event; a totem's end is timed.
             double? next = null;
@@ -420,7 +420,7 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
             var totems = conn.Totems;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (totems.Expire(now).Count > 0) TotemsDiedLocked(conn, now, CharacterPlayerStats(conn));
             foreach (var t in totems.All)
             {
@@ -548,21 +548,21 @@ public static partial class Game
         foreach (var (id, m) in conn.Monsters.ToArray())
         {
             if (!TotemTargetable(m) || conn.AsleepMonsters.Contains(id)
-                || Dist(m.Walk.Position(now), totem.At) > strike.Radius || MonsterBlocks(m, Random.Shared, spell: true)) continue;
+                || Dist(m.Walk.Position(now), totem.At) > strike.Radius || MonsterBlocks(m, AreaRng(conn), spell: true)) continue;
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
-                GameEvents.WithOutgoingDamage(conn, caster, m, hit.Roll(Random.Shared)), now);
+                GameEvents.WithOutgoingDamage(conn, caster, m, hit.Roll(AreaRng(conn))), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
                 SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
             bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                GamblerFor(caster).InvertsResistance(Random.Shared));
+                GamblerFor(caster).InvertsResistance(AreaRng(conn)));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: totem.At) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared, blind: blind);
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(conn), blind: blind);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "totem", playerKill: false);
         }
     }
@@ -577,7 +577,7 @@ public static partial class Game
     /// totems.</summary>
     static void TickTotemUsesLocked(Player conn, WorldRecordBuilder bytes)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         foreach (var t in conn.Totems.Living(now).Where(t => t.Effect < 0).ToArray())
             TotemUseLocked(conn, t, now, bytes);
     }

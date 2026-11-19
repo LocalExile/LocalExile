@@ -78,7 +78,7 @@ public static class LesserShrines
 
     static void Observe(State state, Player conn, Grant? grant, double cooldown)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (state.Clock is { } old && !ReferenceEquals(old, conn.Clock)) state.Trigger.Rebase(old.Elapsed.TotalSeconds, now);
         state.Clock = conn.Clock;
         state.Trigger.Observe(grant?.Source ?? "", now, cooldown);
@@ -96,7 +96,7 @@ public static class LesserShrines
             lock (state)
             {
                 Observe(state, conn, grant, cooldown);
-                if (grant is null || !state.Trigger.TryUse(conn.Clock.Elapsed.TotalSeconds, cooldown)) return;
+                if (grant is null || !state.Trigger.TryUse(AreaTime(conn), cooldown)) return;
             }
             var stats = SkillsFor(conn).EffectStats(grant.Effect, grant.Level).ToDictionary(s => s.Item1, s => s.Item2);
             var player = CharacterPlayerStats(conn);
@@ -107,7 +107,7 @@ public static class LesserShrines
             if (seconds <= 0 || choices.Length == 0) return;
             // This request is committed synchronously with the kill, including atomic projectile kills.
             // The tick publishes it through the same instance gate as generated shrines and claims.
-            Pending.GetOrCreateValue(conn).Add(new(kill.At, seconds, choices[Random.Shared.Next(choices.Length)].Id));
+            Pending.GetOrCreateValue(conn).Add(new(kill.At, seconds, choices[AreaRng(conn).Next(choices.Length)].Id));
         }
     }
 

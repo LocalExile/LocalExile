@@ -40,7 +40,7 @@ public static class Yugul
         if (found.Value is null) return;
         var fight = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         await fight.Gate.WaitAsync();
-        try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, AreaTime(c)); }
         finally { fight.Gate.Release(); }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -63,7 +63,7 @@ public static class Yugul
         async Task Hide(Player c)
         {
             if (!c.MonsterViews.ContainsKey(id) || c.AsleepMonsters.Contains(id)) return;
-            var at = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds);
+            var at = boss.Walk.Position(AreaTime(c));
             await SendWorldRecord(c, id,
                 InstanceProtocol.ActionStartedNow(id, at.X, at.Y, at.X, at.Y, HideSkill,
                     c.NextActionSequence(), 0x0800, id), "[Yugul] dive for mirror interval");

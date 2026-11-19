@@ -50,7 +50,7 @@ internal static class ArenaHazards
             lock (p.Monsters)
             {
                 if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
+                double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
                 var minion = attack with { Damage = attack.Damage.Scale(minionFactor) };
                 foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     if (!g.Monster.Dead && inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, source, minion, now, area: true);

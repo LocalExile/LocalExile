@@ -142,7 +142,7 @@ static partial class Game
         if (hits.Count == 0) return;
         essenceDrainLogDamage += hits.Sum(h => (long)h.Damage);
         essenceDrainLogLeech += leeched;
-        double clock = conn.Clock.Elapsed.TotalSeconds;
+        double clock = AreaTime(conn);
         if (clock - essenceDrainLogAt < 1) return;
         Console.WriteLine($"[gateway] essence drain ticks: {essenceDrainLogDamage} damage, {essenceDrainLogLeech:0.##} life " +
             $"leeched over {Math.Min(clock - essenceDrainLogAt, 99):0.#} s (player life {conn.PlayerLife}/{conn.PlayerMaxLife})");

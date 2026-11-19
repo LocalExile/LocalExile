@@ -171,7 +171,7 @@ public static partial class MonsterSkills
         List<(uint Id, string Label, (int X, int Y) At)> taken = [];
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (!conn.Monsters.TryGetValue(corpseId, out var first) || !IsCorpse(first)) return [];
             var centre = first.Walk.Position(now);
             foreach (var (id, corpse) in conn.Monsters.ToArray()
@@ -197,7 +197,7 @@ public static partial class MonsterSkills
         if (!await SendMonsterAction(conn, id, m, action, () =>
         {
             if (InGracePeriod(conn) || m.Dead) return null;
-            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
             outcome = CommitMonsterHitLocked(conn, id, m, hit, now, conn.Walk.Position(now), from, checkRange: true, sequence: seq);
             return outcome?.HitPacket;
         }, $"0x01af monster 0x{id:x} hit on the player from ({from.X}, {from.Y})")) return;
@@ -306,7 +306,7 @@ public static partial class MonsterSkills
         SpawnedMonster m, int action, MonsterAttack a, MonsterSkillUse use)
     {
         // The skill goes on its cooldown here too: its order may come from a walk-up the kit's choice did not consume.
-        lock (conn.Monsters) BossKits.Consume(m, a, conn.Clock.Elapsed.TotalSeconds);
+        lock (conn.Monsters) BossKits.Consume(m, a, AreaTime(conn));
         if (use.OnCorpse)
         {
             await OnCorpse(conn, id, m, action, a, use);
@@ -388,7 +388,7 @@ public static partial class MonsterSkills
         if (corpses.Count == 0) return;
         if (use.Shape == MonsterSkillShape.Travel)
         {
-            lock (conn.Monsters) m.Walk.Teleport(corpseAt.X, corpseAt.Y, conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters) m.Walk.Teleport(corpseAt.X, corpseAt.Y, AreaTime(conn));
             if (!a.Damage.IsZero) await HitFrom(conn, id, m, action, seq, a, corpseAt, use.Reach);
             return;
         }
@@ -402,11 +402,11 @@ public static partial class MonsterSkills
             {
                 if (!shots) { await HitFrom(conn, id, m, action, seq, a, from, use.Reach); continue; }
                 // An orb or a projectile flies to where the player is, and hits if the player is still near it.
-                double flight = Dist(from, conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds)) / CorpseShotSpeed;
+                double flight = Dist(from, conn.Walk.Position(AreaTime(conn))) / CorpseShotSpeed;
                 var corpse = from;
                 _ = Task.Delay(TimeSpan.FromSeconds(flight)).ContinueWith(async _ =>
                 {
-                    var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+                    var player = conn.Walk.Position(AreaTime(conn));
                     if (Dist(corpse, player) <= use.Reach) await HitFrom(conn, id, m, action, seq, a, player, LandingRadius);
                 }).Unwrap();
             }
@@ -479,7 +479,7 @@ public static partial class MonsterSkills
                     || AreaTime(conn) >= until) break;
             await AreaWait(PlayerUpdateRole.MonsterAction, 16);
         }
-        lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, conn.Clock.Elapsed.TotalSeconds); m.Walk.ChargesThrough = false; }
+        lock (conn.Monsters) { m.Walk.SetSpeed(walkSpeed, AreaTime(conn)); m.Walk.ChargesThrough = false; }
         if (!conn.Closed && !m.Dead)
             await SendWorldRecord(conn, id, InstanceEntities.StatsUpdate(id, [(Stat.MovementVelocityPlusPct, ownPct)]), null);
         if (arrived && !a.Damage.IsZero)
@@ -511,7 +511,7 @@ public static partial class MonsterSkills
         lock (conn.Monsters)
         {
             buff = conn.NextBuff++;
-            until = conn.Clock.Elapsed.TotalSeconds + use.Seconds;
+            until = AreaTime(conn) + use.Seconds;
             buffs.Active.Add((buff, use.Stats, until));
             m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
         }

@@ -97,14 +97,14 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                         lock (conn.Monsters)
                         {
                             if (monster.Dead || monster.Invulnerable) continue;
-                            var mitigated = DamageModel.Mitigate(packet.Roll(Random.Shared), type => MonsterHitResistance(monster, type, default));
+                            var mitigated = DamageModel.Mitigate(packet.Roll(AreaRng(conn)), type => MonsterHitResistance(monster, type, default));
                             dealt = MonsterTakesMitigated(monster, mitigated, spell: true);
                         }
                         if (dealt <= 0 || !await HitMonster(conn, id, monster, dealt, cold ? "shrine Ice Nova" : "shrine Shock Nova", log: false)) continue;
                         lock (conn.Monsters)
                             if (!monster.Dead && monster.Life > 0)
                                 monster.Ailments.Inflict(DamagePacket.Of(spell.Element, dealt, dealt), false,
-                                    monster.MaxLife, now, _ => 0, name => monster.Effects[name], Random.Shared);
+                                    monster.MaxLife, now, _ => 0, name => monster.Effects[name], AreaRng(conn));
                     }
                 }
             }
@@ -196,7 +196,7 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
             foreach (var player in ShrineManager.NearbyPlayers(conn, (0, 0), double.MaxValue))
             {
                 // Each player's ailments and walk run on that player's own clock.
-                double at = player.Clock.Elapsed.TotalSeconds;
+                double at = AreaTime(player);
                 if (!grounds.Any(g => Dist(g.At, player.Walk.Position(at)) <= g.Radius)) continue;
                 var stats = CharacterPlayerStats(player);
                 var playerKind = cold ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;

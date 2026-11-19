@@ -48,7 +48,7 @@ public static partial class Game
         LinkSkills.Link link;
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
             if (LinkTargetLocked(conn, targetId, Player, now) is not uint target)
             {

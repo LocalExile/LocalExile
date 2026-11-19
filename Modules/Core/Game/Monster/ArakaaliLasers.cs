@@ -20,7 +20,7 @@ public static class ArakaaliLasers
         if (found.Value is null) return;
         var field = Fields.GetValue(c.Instance, _ => new(c, found.Key, found.Value));
         await field.Gate.WaitAsync();
-        try { await field.Bind(c); if (IsMonsterRunner(c)) await field.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await field.Bind(c); if (IsMonsterRunner(c)) await field.Step(c, AreaTime(c)); }
         finally { field.Gate.Release(); }
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -131,7 +131,7 @@ public static class ArakaaliLasers
                 lock (p.Monsters)
                 {
                     if (stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p) || boss.Dead || boss.Life == 0 || boss.StageRunning || boss.LifePhases?.Active == true) return null;
-                    double now = Math.Max(p.Clock.Elapsed.TotalSeconds, ProjectileWorldTime(p));
+                    double now = Math.Max(AreaTime(p), ProjectileWorldTime(p));
                     var minionAttack = attack with { Damage = attack.Damage.Scale(.5) };
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Inside(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, bossId, boss, minionAttack, now, area: true);

@@ -30,7 +30,7 @@ public static partial class Game
             double angle = Math.Tau * i / count;
             var at = (aim.X + (int)(Math.Cos(angle) * 6), aim.Y + (int)(Math.Sin(angle) * 6));
             if (!conn.Layout.WalkableFor(at.Item1, at.Item2, 0)) at = aim;
-            await SpawnMonster(conn, pool[Random.Shared.Next(pool.Length)], level, MonsterRarity.Normal,
+            await SpawnMonster(conn, pool[AreaRng(conn).Next(pool.Length)], level, MonsterRarity.Normal,
                 at.Item1, at.Item2, damagedLife: 0, mods: MonsterModSet.None, unrisen: false,
                 ownedCurrent: () => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && conn.PlayerLife > 0,
                 owned: (id, corpse) =>

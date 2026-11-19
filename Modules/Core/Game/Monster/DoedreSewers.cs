@@ -114,7 +114,7 @@ public static class DoedreSewers
             fight = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
         }
         await fight.Gate.WaitAsync();
-        try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await fight.Bind(c); if (IsMonsterRunner(c)) await fight.Step(c, AreaTime(c)); }
         finally { fight.Gate.Release(); }
     }
     public static async Task<bool> Use(Player c, InstanceTransfer.UseSkillOnObject use, double requestedAt)
@@ -131,7 +131,7 @@ public static class DoedreSewers
         {
             if (!PlayerWalk.InReach(stop, f.ValveAt, 3, c.Layout.Walkable)) return true;
             await f.Gate.WaitAsync();
-            try { await f.Turn(c, c.Clock.Elapsed.TotalSeconds); } finally { f.Gate.Release(); }
+            try { await f.Turn(c, AreaTime(c)); } finally { f.Gate.Release(); }
         }
         finally { await SendWorldRecord(c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null); }
         return true;
@@ -174,7 +174,7 @@ public static class DoedreSewers
             cloudDps = catalog.EffectStats(744, catalog.MaxLevelAt(744, boss.Level))
                 .Where(s => s.Item1 == Stat.BaseChaosDamageToDealPerMinute).Sum(s => s.Item2) / 60d;
             var placements = new QuestObjectTypes.AreaPlacements(Area, c.Seed, []);
-            centre = boss.Walk.Position(c.Clock.Elapsed.TotalSeconds);
+            centre = boss.Walk.Position(AreaTime(c));
             foreach (string name in new[] { "DoedreCauldronValve", "DoedreSewersCauldron", "DoedreSewerFaceDoor" })
                 foreach (var at in placements.Of(Objects + name))
                 {
@@ -195,8 +195,8 @@ public static class DoedreSewers
             if (scene.FirstOrDefault(s => s.Type.EndsWith("Cauldron")) is { } cauldron)
             {
                 centre = (cauldron.At.X, cauldron.At.Y);
-                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 3, Art + "cauldron/cauldron_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
-                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 5, Art + "pipe/pipe_brown.ao", Moved: c.Clock.Elapsed.TotalSeconds));
+                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 3, Art + "cauldron/cauldron_brown.ao", Moved: AreaTime(c)));
+                hazards.Add(new(c.TakeObjectId(), centre, double.PositiveInfinity, 5, Art + "pipe/pipe_brown.ao", Moved: AreaTime(c)));
             }
             boss.LifePhases ??= new([]);
             if (!boss.Dead && boss.Life > 0)
@@ -225,7 +225,7 @@ public static class DoedreSewers
             if (bound.Add(c))
             {
                 foreach (var s in scene) await Create(c, s);
-                foreach (var h in hazards) await CreateHazard(c, h with { At = h.Position(c.Clock.Elapsed.TotalSeconds) });
+                foreach (var h in hazards) await CreateHazard(c, h with { At = h.Position(AreaTime(c)) });
             }
             if (Awake(c) && !boss.Dead && actors.Add(c))
             {
@@ -330,7 +330,7 @@ public static class DoedreSewers
             boss.Target = target; boss.Aggro = true;
             if (!boss.BossBarShown)
             { boss.BossBarShown = true; await ShowBossLifeBar(id, boss, target); }
-            int effect = now >= nextWarp ? Warp : now >= nextBurst ? Burst : Distance(pos, target.Walk.Position(now)) < 10 && Random.Shared.Next(3) == 0 ? Melee : Wand;
+            int effect = now >= nextWarp ? Warp : now >= nextBurst ? Burst : Distance(pos, target.Walk.Position(now)) < 10 && AreaRng(c).Next(3) == 0 ? Melee : Wand;
             if (effect == Warp) nextWarp = now + 9;
             if (effect == Burst) nextBurst = now + 5;
             await Cast(target, effect, now, target.Walk.Position(now));
@@ -389,7 +389,7 @@ public static class DoedreSewers
                 lock (p.Monsters)
                 {
                     if (!CurrentGameWork || stopped || boss.Dead || draining || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
-                    double now = p.Clock.Elapsed.TotalSeconds;
+                    double now = AreaTime(p);
                     foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
                         if (!g.Monster.Dead && Contains(g.Monster.Walk.Position(now))) GolemTakeHitLocked(p, g, id, boss, attack with { Damage = attack.Damage.Scale(.6) }, now, area: true);
                     if (p.PlayerLife == 0 || !Contains(p.Walk.Position(now))) return null;
@@ -409,7 +409,7 @@ public static class DoedreSewers
         }
         async Task<uint> Effect(Player c, (int X, int Y) at, string model, double ends, int kind)
         {
-            uint fx = c.TakeObjectId(); var h = new Hazard(fx, at, ends, kind, model, Moved: c.Clock.Elapsed.TotalSeconds); hazards.Add(h);
+            uint fx = c.TakeObjectId(); var h = new Hazard(fx, at, ends, kind, model, Moved: AreaTime(c)); hazards.Add(h);
             foreach (var p in Present) await CreateHazard(p, h, model);
             return fx;
         }
@@ -459,7 +459,7 @@ public static class DoedreSewers
                 if (target is not null)
                 {
                     var aim = target.Walk.Position(now);
-                    double angle = Random.Shared.NextDouble() * Math.Tau;
+                    double angle = AreaRng(c).NextDouble() * Math.Tau;
                     var at = Floor(c, (aim.X + (int)(Math.Cos(angle) * 8), aim.Y + (int)(Math.Sin(angle) * 8)));
                     if (Distance(at, centre) <= 65)
                     {

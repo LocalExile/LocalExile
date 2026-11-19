@@ -43,7 +43,7 @@ public static partial class Game
     /// <summary>The chills and shocks without damage (MonsterElementalAilments.WithoutDamage) a monster hit that lands on
     /// the player puts on its monster: "Chill Enemy for X seconds when Hit, reducing their Action Speed by 30%" (The
     /// Pandemonius) on every one, blocked too, as Brine Bound's freeze, and "X% chance to Chill/Shock Attackers for 4
-    /// seconds on Block" on a blocked one, each on its own roll of Random.Shared so the incoming hit's draws stay in order.
+    /// seconds on Block" on a blocked one, each on its own roll of AreaRng(conn) so the incoming hit's draws stay in order.
     /// Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
     public static void AilmentsWhenHitLocked(SpawnedMonster m, Func<uint, int> player, bool blocked, double now)
@@ -223,8 +223,8 @@ public static partial class Game
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(conn, targetId, m, now, blind, spell, critical, random);
-        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
-        WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
+        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(conn));
+        WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(conn));
         int poisonStacksBefore = m.Poisons.Stacks(now);
         if (TryPoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random,
                 out double poisonDps, out double poisonSeconds)
@@ -237,13 +237,13 @@ public static partial class Game
             for (int i = 0; i < accepted && conn.IncomingAilments.PoisonStacks(now) < 100; i++)
                 conn.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
         }
-        // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
+        // Fleeing (MonsterFlee): its own draws (AreaRng(conn)), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
-                m.Effects[Stat.MonsterChanceToNotFleePct], Random.Shared))
+                m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(conn)))
         {
             int size = Math.Max(0, LivingCollision.Size(m));
             m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), conn.Walk.Position(now),
-                (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), Random.Shared);
+                (x, y) => conn.Layout.WalkableFor(x, y, size) && !conn.Barrier.Contains((x, y)), AreaRng(conn));
             m.Fleeing = m.FleeTo is not null;
         }
         if (added.Count == 0 || conn.PlayerLife == 0

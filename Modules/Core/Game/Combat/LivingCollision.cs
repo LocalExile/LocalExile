@@ -57,7 +57,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.FreezeShown == conn.FreezeGeneration) return null;
-                double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
+                double now = AreaTime(conn), left = conn.ElementalAilments.FreezeUntil(now) - now;
                 if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
                 conn.FreezeShown = conn.FreezeGeneration;
                 if (conn.LockstepClient) conn.Walk.Cancel(now);
@@ -98,7 +98,7 @@ public static partial class Game
         var line = new System.Text.StringBuilder();
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var p = conn.Walk.Position(now);
             line.Append($"[sync] qpc={System.Diagnostics.Stopwatch.GetTimestamp()} peer={conn.PeerId:x} speed={conn.Walk.Speed:0.###} ");
             line.Append($"moving={(conn.Walk.Moving(now) ? 1 : 0)} p={p.X},{p.Y} m=");
@@ -141,7 +141,7 @@ public static partial class Game
             conn.PeerTemplate = template = template with
             { Stats = [.. (template.Stats ?? []).Where(s => s.Key != ActorScale.Final), (ActorScale.Final, scale)] };
         if (!conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
-        var p = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var p = conn.Walk.Position(AreaTime(conn));
         SharedAura[] shared = conn.PlayerLife == 0 || InTown(conn) ? []
             : conn.Auras.Values.Where(a => AuraCatalog.Shared(a.EffectId)).Select(a => new SharedAura(a,
                 AuraRadius.Of(a, conn.Pools.AuraAreaPct, SkillsFor(conn), Stats),
@@ -228,7 +228,7 @@ public static partial class Game
                     {
                         packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
                         lock (conn.Monsters)
-                            if (conn.PeerWalks.TryGetValue(peer.Id, out var jumped)) jumped.Teleport(peer.X, peer.Y, conn.Clock.Elapsed.TotalSeconds);
+                            if (conn.PeerWalks.TryGetValue(peer.Id, out var jumped)) jumped.Teleport(peer.X, peer.Y, AreaTime(conn));
                     }
                     else if (!ordered && destination == (peer.X, peer.Y) && heading != destination)
                     {

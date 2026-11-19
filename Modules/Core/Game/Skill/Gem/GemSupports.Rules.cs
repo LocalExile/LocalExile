@@ -483,7 +483,7 @@ public static partial class Game
         }
         if (proxy && Stat.MainHandAttackSpeedPlusPct is var proxySpeed)
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get(Stat.TotemSkillAttackSpeedPlusPct)
-                + Get(Stat.TotemsAttackSpeedPlusPctPerActiveTotem) * conn.Totems.Living(conn.Clock.Elapsed.TotalSeconds).Count()
+                + Get(Stat.TotemsAttackSpeedPlusPctPerActiveTotem) * conn.Totems.Living(AreaTime(conn)).Count()
                 + Get(Stat.AttackSpeedPlusPctPerMaximumTotem) * TotemLimit(conn, skillId);
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get(Stat.SupportMeleePhysicalDamageAttackSpeedPlusPctFinal) / 100.0)
             * Math.Max(.01, 1 + Get(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100.0)
@@ -517,7 +517,7 @@ public static partial class Game
             stats[frenzyBucket] = stats.GetValueOrDefault(frenzyBucket) + skillPerFrenzy * frenzy;
         }
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
-        more *= CombatRushMore(conn, skillId, gem, conn.Clock.Elapsed.TotalSeconds);
+        more *= CombatRushMore(conn, skillId, gem, AreaTime(conn));
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         int additional = SkillAttackTiming.AdditionalMilliseconds(stats);

@@ -15,7 +15,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     public bool Current(Player conn)
     {
         lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
-            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))
+            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(Game.AreaTime(conn)) > 0 && !conn.HitRecovery.Active(Game.AreaTime(conn)))
             && (State is null || !Reserved || State.Uses > 1 || State.UseVersion == UseVersion)
             && (Stance is null || Stance.CurrentLocked(conn));
     }

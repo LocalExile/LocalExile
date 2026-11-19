@@ -57,7 +57,7 @@ public static partial class Game
     // The stacks now; the reading step runs again when the next soul is lost.
     static int SoulEaterStacks(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         int stacks = conn.SoulEater.Stacks(now);
         if (conn.SoulEater.NextLossAt is double at) StatsChangeIn(at - now);
         return stacks;
@@ -103,7 +103,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             if (Dist(at, conn.Walk.Position(now)) > SoulEaterRadius) return;
             conn.SoulEater.Soul(now);
             QueueSoul(conn, id, at);
@@ -120,7 +120,7 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
             if (monster.Rarity is not (MonsterRarity.Rare or MonsterRarity.Unique)) return;
-            conn.SoulEater.TryHitSoul(conn.Clock.Elapsed.TotalSeconds);
+            conn.SoulEater.TryHitSoul(AreaTime(conn));
         }
     }
 
@@ -144,7 +144,7 @@ public static partial class Game
             if (conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
             // Refresh the source before deciding what to publish. Recovery flasks can start/end without a soul gain.
             var currentStats = CharacterPlayerStats(conn);
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             bool active = conn.SoulEater.Enabled && conn.PlayerLife > 0;
             bool usingFlask = Stat.UsingFlask is var flaskKey && currentStats.GetValueOrDefault(flaskKey) != 0;
             int stacks = SoulEaterCount(conn, now);

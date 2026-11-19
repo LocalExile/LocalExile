@@ -59,7 +59,7 @@ public static partial class Game
         if (!await SendMonsterAction(conn, id, attacker, action, () =>
         {
             if (!TargetCurrent()) return null;
-            startedAt = conn.Clock.Elapsed.TotalSeconds;
+            startedAt = AreaTime(conn);
             var from = attacker.Walk.Position(startedAt); var to = weapon.Walk.Position(startedAt);
             attacker.BusyUntil = startedAt + attack.Seconds;
             return attack.InPlace ? InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
@@ -70,7 +70,7 @@ public static partial class Game
         if (!await WaitMonsterActionTime(conn, id, attacker, action, startedAt + attack.Seconds / 2)) return;
         await SendMonsterAction(conn, id, attacker, action, () =>
         {
-            double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            double now = Math.Max(ProjectileWorldTime(conn), AreaTime(conn));
             if (!TargetCurrent() || Dist(attacker.Walk.Position(now), weapon.Walk.Position(now)) > attack.Range + 2)
                 return null;
             int accuracy = attacker.Mods.Effects.Accuracy(Monsters.BaseAccuracy(attacker.Level) ?? 0);
@@ -78,9 +78,9 @@ public static partial class Game
                 || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId) || PhysicalAegisBlinds(conn, targetId)
                 ? CharacterStatSources(conn).Stats : null;
             accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
-            if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;
-            var packet = MonsterModHit(attacker, attack.Damage.Roll(Random.Shared), weapon.Life,
-                weapon.MaxLife, Random.Shared, out bool critical, now: now);
+            if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, AreaRng(conn), sources)) return null;
+            var packet = MonsterModHit(attacker, attack.Damage.Roll(AreaRng(conn)), weapon.Life,
+                weapon.MaxLife, AreaRng(conn), out bool critical, now: now);
             var (damage, _) = MonsterDamage(weapon, packet, critical, true, default);
             weapon.Life = (uint)Math.Max(0, (long)weapon.Life - damage);
             if (weapon.Life == 0) weapon.Dead = true;

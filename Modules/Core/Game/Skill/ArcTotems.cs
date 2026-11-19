@@ -31,21 +31,21 @@ public static partial class Game
         void Land(uint id, int remaining)
         {
             var m = conn.Monsters[id];
-            if (m.Invulnerable || MonsterBlocks(m, Random.Shared, spell: true)) return;
+            if (m.Invulnerable || MonsterBlocks(m, AreaRng(conn), spell: true)) return;
             double more = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
             var rolled = WithConditionalSupportDamageLocked(conn, skill.Stats, false, m,
-                GameEvents.WithOutgoingDamage(conn, caster, m, hit.Scale(more).Roll(Random.Shared)), now);
+                GameEvents.WithOutgoingDamage(conn, caster, m, hit.Scale(more).Roll(AreaRng(conn))), now);
             int chance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, totem.SkillId),
                 SupportedCriticalChanceVsBlinded(conn, totem.SkillId, false), SupportedCriticalChanceVsGround(conn, totem.SkillId, false));
             bool crit = RollCriticalStrike(conn, chance, skill.Stats, attack: false, skillRoll: criticalRoll, player: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                GamblerFor(caster).InvertsResistance(Random.Shared));
+                GamblerFor(caster).InvertsResistance(AreaRng(conn)));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(conn, totem.SkillId)));
             if (ApplyMonsterHitLocked(conn, m, damage) is not { } accepted) return;
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(conn),
                     blind: blind);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }

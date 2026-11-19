@@ -67,12 +67,12 @@ public static partial class Game
         // are separate sources on the same kill).
         int percent = generic + (bleeding ? bleedingPercent : 0);
         int chance = Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct);
-        int chaosPercent = chance > 0 && Random.Shared.Next(100) < chance ? 25 : 0;
+        int chaosPercent = chance > 0 && AreaRng(conn).Next(100) < chance ? 25 : 0;
         // Oriath's End: "(20-30)% chance for Enemies you Kill during Effect to Explode, dealing 10% of their maximum
         // Life as Damage of a Random Element" (the flask's local stat becomes this one while it runs, UtilityFlasks).
         int elementalChance = Get(Stat.ExplodeEnemiesFor10PctLifeAsRandomElementOnKillChancePct);
-        DamageType? element = elementalChance > 0 && Random.Shared.Next(100) < elementalChance
-            ? (DamageType)Random.Shared.Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
+        DamageType? element = elementalChance > 0 && AreaRng(conn).Next(100) < elementalChance
+            ? (DamageType)AreaRng(conn).Next((int)DamageType.Lightning, (int)DamageType.Fire + 1) : null;
         int physical = (int)Math.Clamp(corpse.MaxLife * (long)percent / 100, 0, int.MaxValue);
         int chaos = (int)Math.Clamp(corpse.MaxLife * (long)chaosPercent / 100, 0, int.MaxValue);
         int elemental = element is null ? 0 : (int)Math.Clamp((long)corpse.MaxLife / 10, 0, int.MaxValue);
@@ -93,7 +93,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             foreach (var (id, m) in conn.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;

@@ -71,7 +71,7 @@ public static class ShrineManager
                     foreach (var (key, value) in instance.ContentState.Where(p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)))
                     {
                         var kept = JsonSerializer.Deserialize<KeptLesser>(value)!;
-                        if (kept.Until <= conn.Clock.Elapsed.TotalSeconds) { instance.ContentState.TryRemove(key, out _); continue; }
+                        if (kept.Until <= AreaTime(conn)) { instance.ContentState.TryRemove(key, out _); continue; }
                         if (ShrineCatalog.Find(kept.Type) is not { Lesser: true } type) continue;
                         var lesser = NewInstance(type, kept.X, kept.Y, 0, null);
                         lesser.ExpiresAt = kept.Until;
@@ -115,7 +115,7 @@ public static class ShrineManager
         Of(conn).Instances[id] = shrine;
         foreach (var member in Members(conn)) await Present(member, shrine);
         if (shrine.State == ShrineState.Inactive)
-            foreach (var effect in shrine.Before) await effect.OnSpawn(new(conn, conn.Clock.Elapsed.TotalSeconds), shrine);
+            foreach (var effect in shrine.Before) await effect.OnSpawn(new(conn, AreaTime(conn)), shrine);
     }
 
     static async Task Present(Player conn, ShrineInstance shrine)
@@ -140,7 +140,7 @@ public static class ShrineManager
             var cell = Clear(walk, at.X, at.Y, 4);
             if (!walk(cell.X, cell.Y)) return;
             var shrine = NewInstance(definition, cell.X, cell.Y, 0, null);
-            shrine.ExpiresAt = conn.Clock.Elapsed.TotalSeconds + seconds;
+            shrine.ExpiresAt = AreaTime(conn) + seconds;
             await Create(conn, shrine);
         }
         finally { state.Area.Gate.Release(); }
@@ -158,7 +158,7 @@ public static class ShrineManager
         var types = new List<ShrineCatalog.ShrineDefinition>();
         if (ids.Count == 0) types.AddRange(ShrineCatalog.Standard);
         else foreach (string id in ids) types.Add(FindDefinition(id));
-        var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var (px, py) = conn.Walk.Position(AreaTime(conn));
         int made = 0;
         for (int i = 0; i < types.Count; i++)
         {
@@ -166,7 +166,7 @@ public static class ShrineManager
             var (x, y) = Clear(walk, px + (int)Math.Round(Math.Cos(angle) * (ShrinePlacement.ObjectSize + 5)),
                 py + (int)Math.Round(Math.Sin(angle) * (ShrinePlacement.ObjectSize + 5)), ShrinePlacement.ObjectSize + 6);
             var shrine = NewInstance(types[i], x, y, 0, types[i].Lesser ? null : ShrinePlacement.DefaultModel);
-            if (types[i].Lesser) shrine.ExpiresAt = conn.Clock.Elapsed.TotalSeconds + 10;
+            if (types[i].Lesser) shrine.ExpiresAt = AreaTime(conn) + 10;
             await Create(conn, shrine);
             made++;
         }
@@ -210,7 +210,7 @@ public static class ShrineManager
         if (shrine is null) return false;
         if (conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return true;
         int action = Interlocked.Increment(ref conn.ActionCount);
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         int objectSize = shrine.Definition.Lesser ? 2 : ShrinePlacement.ObjectSize;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(shrine.At.X, shrine.At.Y, objectSize, now);
         if (!use.Started)
@@ -223,14 +223,14 @@ public static class ShrineManager
         try
         {
             if (PlayerActionCurrent(conn, action) && conn.PlayerLife > 0
-                && PlayerWalk.InWalkUpRange(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), shrine.At, objectSize)
+                && PlayerWalk.InWalkUpRange(conn.Walk.Position(AreaTime(conn)), shrine.At, objectSize)
                 && shrine.State == ShrineState.Inactive
-                && shrine.ExpiresAt > conn.Clock.Elapsed.TotalSeconds
+                && shrine.ExpiresAt > AreaTime(conn)
                 && (conn.Instance is null || conn.Instance.SetState(ClaimKey(shrine))))
             {
                 // Only arrival claims the shared object; another player may reach it while this player is walking.
                 shrine.State = ShrineState.Used;
-                var ctx = new ShrineContext(conn, conn.Clock.Elapsed.TotalSeconds);
+                var ctx = new ShrineContext(conn, AreaTime(conn));
                 foreach (var effect in shrine.Before) await effect.OnActivation(ctx, shrine);
                 uint party = PartyRoster.PartyOf(conn);
                 foreach (var member in Members(conn))
@@ -244,7 +244,7 @@ public static class ShrineManager
                     personal.ObjectId = shrine.ObjectId;
                     personal.State = ShrineState.Used;
                     personal.ActivatedAt = ctx.Now;
-                    await Grant(member, personal, new(member, member.Clock.Elapsed.TotalSeconds));
+                    await Grant(member, personal, new(member, AreaTime(member)));
                 }
             }
         }
@@ -368,7 +368,7 @@ public static class ShrineManager
         });
         if (!removed || conn.Closed || conn.LeavingArea) return;
         if (TouchesSkillPanel(buff.Shrine)) await SendSkills(conn);
-        var ctx = new ShrineContext(conn, conn.Clock.Elapsed.TotalSeconds);
+        var ctx = new ShrineContext(conn, AreaTime(conn));
         foreach (var effect in buff.Shrine.After) await effect.OnExpired(ctx, buff.Shrine);
     }
 
@@ -385,7 +385,7 @@ public static class ShrineManager
         try
         {
             if (conn.Closed || conn.LeavingArea) return;
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             var ctx = new ShrineContext(conn, now);
             foreach (var expired in state.Instances.Values.Where(s => s.ExpiresAt <= now).ToArray())
             {
@@ -425,7 +425,7 @@ public static class ShrineManager
         await state.Area.Gate.WaitAsync();
         try
         {
-            var ctx = new ShrineContext(conn, conn.Clock.Elapsed.TotalSeconds);
+            var ctx = new ShrineContext(conn, AreaTime(conn));
             ActiveBuff[] buffs;
             lock (conn.Monsters) { buffs = [.. state.Buffs.Values]; state.Buffs.Clear(); }
             foreach (var buff in buffs)
@@ -454,7 +454,7 @@ public static class ShrineManager
     }
 
     public static Player[] NearbyPlayers(Player conn, (int X, int Y) at, double radius) => Members(conn)
-        .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(c.Clock.Elapsed.TotalSeconds), at) <= radius).ToArray();
+        .Where(c => c.PlayerSent && c.PlayerLife > 0 && Dist(c.Walk.Position(AreaTime(c)), at) <= radius).ToArray();
 
     /// <summary>A standing shrine spell uses the same defenses and death accounting as an enemy spell.</summary>
     public static async Task HitPlayers(Player source, (int X, int Y) at, double radius, DamageType type, DamagePacket packet,
@@ -463,14 +463,14 @@ public static class ShrineManager
         foreach (var conn in NearbyPlayers(source, at, radius))
         {
             if (accept is not null && !accept(conn)) continue;
-            int amount = (int)Math.Clamp(packet.Roll(Random.Shared).MinTotal, 0, int.MaxValue);
+            int amount = (int)Math.Clamp(packet.Roll(AreaRng(conn)).MinTotal, 0, int.MaxValue);
             if (amount <= 0 || conn.Immune || InGracePeriod(conn) || !TrySyntheticEnemyHit(conn, type, amount, block: true, spell: true, suppress: true, out var hit)) continue;
             if (hit.Damage > 0)
             {
                 var stats = CharacterPlayerStats(conn);
                 lock (conn.Monsters)
                     ApplyPlayerAilmentsLocked(conn, DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
-                        false, hit.Blocked, conn.Clock.Elapsed.TotalSeconds, stats);
+                        false, hit.Blocked, AreaTime(conn), stats);
             }
             await SendWorldRecord(conn, PlayerId,
                 InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife), "shrine spell hit");
@@ -487,7 +487,7 @@ public static class ShrineManager
     {
         if (!States.TryGetValue(conn, out var state)) return stats;
         lock (conn.Monsters)
-            foreach (var buff in state.Buffs.Values.Where(b => conn.PlayerLife > 0 && b.EndsAt > conn.Clock.Elapsed.TotalSeconds))
+            foreach (var buff in state.Buffs.Values.Where(b => conn.PlayerLife > 0 && b.EndsAt > AreaTime(conn)))
                 foreach (var (key, value) in buff.Shrine.Stats)
                     stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return stats;

@@ -11,7 +11,7 @@ static partial class Sirus
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         var f = Fights.GetValue(c.Instance, _ => new(c));
         await f.Gate.WaitAsync();
-        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, c.Clock.Elapsed.TotalSeconds); }
+        try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         catch { f.Stop(); throw; }
         finally { f.Gate.Release(); }
     }

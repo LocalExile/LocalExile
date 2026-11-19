@@ -62,13 +62,13 @@ static partial class Sirus
         if (c.Layout.Id != Area || m.Variety?.Id != Body || !m.Dead || m.LifePhases?.Completed != 3
             || !c.Instance.SetState(Flag("Rewards"))) yield break;
         // Server weights are deliberately explicit: GGG does not publish the unique drop weights.
-        int roll = Random.Shared.Next(100);
+        int roll = AreaRng(c).Next(100);
         string name = roll < 40 ? "Hands of the High Templar" : roll < 75 ? "Crown of the Inward Eye"
             : roll < 95 ? "The Burden of Truth" : "Thread of Hope";
         var unique = UniquesFor(c).Find(name);
-        if (unique is not null && UniquesFor(c).Create(unique, Random.Shared) is { } item && ItemsFor(c).ByHash(item.TypeHash) is { } type)
+        if (unique is not null && UniquesFor(c).Create(unique, AreaRng(c)) is { } item && ItemsFor(c).ByHash(item.TypeHash) is { } type)
             yield return new(item with { ItemLevel = m.Level }, type);
         foreach (var (query, chance) in new[] { ("Awakener's Orb", 15), ("Orb of Dominance", 10), ("A Fate Worse Than Death", 4) })
-            if (Random.Shared.Next(100) < chance && ModDrop(c, query, m.Level) is { } drop) yield return drop;
+            if (AreaRng(c).Next(100) < chance && ModDrop(c, query, m.Level) is { } drop) yield return drop;
     }
 }

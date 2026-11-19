@@ -39,7 +39,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            var order = arena.Statues.OrderBy(_ => Random.Shared.Next()).ToList();
+            var order = arena.Statues.OrderBy(_ => AreaRng(conn).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
                 if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.RiseInterval));

@@ -128,7 +128,7 @@ public sealed partial class DelveModule
             questPacks = new[] { "delve-azurite-weta-pack", "delve-azurite-spider-pack" }
                 .Select(Packs.Find).OfType<PackCatalog.Pack>()
                 .Where(p => p.Entries.Any(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToArray();
-        double previous = conn.Clock.Elapsed.TotalSeconds;
+        double previous = AreaTime(conn);
         bool moving = false;
         double nextLamp = 30;
         double lastLampAt = -1;
@@ -156,7 +156,7 @@ public sealed partial class DelveModule
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
             while (await timer.WaitForNextTickAsync(module.Lifetime.Stopping))
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
+                double now = AreaTime(conn);
                 double seconds = Math.Clamp(now - previous, 0, .25); previous = now;
 
                 if (!valid() || conn.PlayerLife == 0) return;
@@ -232,10 +232,10 @@ public sealed partial class DelveModule
                     foreach (var encounter in pending)
                     {
                         PackCatalog.Pack? pack = encounter.Pack.Length > 0 ? Packs.Find(encounter.Pack) : null;
-                        if (encounter.Pack.Length == 0 && questPacks.Length > 0) pack = questPacks[Random.Shared.Next(questPacks.Length)];
+                        if (encounter.Pack.Length == 0 && questPacks.Length > 0) pack = questPacks[AreaRng(conn).Next(questPacks.Length)];
                         if (pack is not null)
-                            for (int i = 0, count = (int)Math.Min(100, Math.Ceiling(Random.Shared.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1) * DelveMine.PackMultiplier(trip.Depth))); i < count; i++)
-                                if (valid() && Monsters.Find(pack.PickVariety(Random.Shared).ToString()) is { Supported: true } variety)
+                            for (int i = 0, count = (int)Math.Min(100, Math.Ceiling(AreaRng(conn).Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1) * DelveMine.PackMultiplier(trip.Depth))); i < count; i++)
+                                if (valid() && Monsters.Find(pack.PickVariety(AreaRng(conn)).ToString()) is { Supported: true } variety)
                                 {
                                     var spawn = conn.Layout.Near((encounter.X, encounter.Y));
                                     uint monster = await SpawnMonster(conn, variety, level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, spawn.X, spawn.Y);
@@ -269,12 +269,12 @@ public sealed partial class DelveModule
                     await BlockCrawler(module, player, state, target.X, target.Y, heading);
                     if (questPacks.Length == 0) throw new InvalidOperationException("The Delve route has no supported encounter packs for its final waves.");
                     int queuedWaves = 0;
-                    previous = conn.Clock.Elapsed.TotalSeconds;
+                    previous = AreaTime(conn);
                     // Arrival starts a timed defence, not a save. All three waves must finish spawning before any
                     // last-kill check can commit; a gap between waves must never look like a completed encounter.
                     while (valid() && conn.PlayerLife > 0)
                     {
-                        now = conn.Clock.Elapsed.TotalSeconds;
+                        now = AreaTime(conn);
                         seconds = Math.Clamp(now - previous, 0, .25); previous = now;
                         if (!conn.Paused) queuedWaves += trip.AdvanceFinale(seconds);
                         if (finalWaveWork.IsCompleted)
@@ -283,9 +283,9 @@ public sealed partial class DelveModule
                             if (queuedWaves > 0 && !conn.Paused)
                             {
                                 queuedWaves--;
-                                var pack = questPacks[Random.Shared.Next(questPacks.Length)];
+                                var pack = questPacks[AreaRng(conn).Next(questPacks.Length)];
                                 lock (conn.Monsters) position = conn.Walk.Position(now);
-                                var waveAt = conn.Layout.Near((position.X + Random.Shared.Next(-25, 26), position.Y + Random.Shared.Next(-25, 26)));
+                                var waveAt = conn.Layout.Near((position.X + AreaRng(conn).Next(-25, 26), position.Y + AreaRng(conn).Next(-25, 26)));
                                 finalWaveWork = SpawnWave();
                                 async Task SpawnWave()
                                 {
@@ -331,9 +331,9 @@ public sealed partial class DelveModule
     async Task CompleteTrip(IModuleContext module, IPlayer player, ISavedData character, State state, DelveJourney trip, byte level, Func<bool> valid, Attempt attempt)
     {
         var conn = ConnOf(player);
-        var reward = attempt.Plan.Reward ? DelveRewards.Current().Roll(trip.Depth, Random.Shared) : (Count: 0, Rarity: 0, QuantityPercent: 0d);
+        var reward = attempt.Plan.Reward ? DelveRewards.Current().Roll(trip.Depth, AreaRng(conn)) : (Count: 0, Rarity: 0, QuantityPercent: 0d);
         var drops = Environment.GetEnvironmentVariable("Game_DROPS") == "0" ? []
-            : DropsFor(conn).Container(level, reward.Count, reward.Rarity, Random.Shared);
+            : DropsFor(conn).Container(level, reward.Count, reward.Rarity, AreaRng(conn));
         var groundItems = new List<(uint Id, WorldItemObject Ground)>();
         lock (conn.Monsters)
         {

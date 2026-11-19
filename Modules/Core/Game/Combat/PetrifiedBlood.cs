@@ -31,7 +31,7 @@ public static partial class Game
                 conn.PetrifiedBlood.Activate(skillId, effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
                     Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
                     reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
-                    conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
+                    AreaTime(conn), context.Life, context.Efficiency);
                 ClampReservedResources(conn);
                 started = true;
             }
@@ -64,7 +64,7 @@ public static partial class Game
         conn.PetrifiedBlood.Activate(gem.Id, gem.Effect, Get(stats, PetrifiedBlood.LoseOverTimeSource),
             Get(stats, PetrifiedBlood.PreventSource), Get(stats, PetrifiedBlood.LifeCostSource),
             reservation.ManaPercent, LowLifeThresholdPct(CharacterPlayerStats(conn)), conn.NextBuff++,
-            conn.Clock.Elapsed.TotalSeconds, context.Life, context.Efficiency);
+            AreaTime(conn), context.Life, context.Efficiency);
         ClampReservedResources(conn);
         conn.AuraStatsDirty = true;
         Console.WriteLine($"[gateway] {CharacterName(conn)}: restored saved Petrified Blood");
@@ -98,7 +98,7 @@ public static partial class Game
     // segment's end. Grace Period suppresses the loss, so it hides the overlay while protection runs.
     public static byte[]? PetrifiedBloodLossPresentation(Player conn)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        double now = AreaTime(conn);
         if (conn.PetrifiedBlood.NextEnd(now) is double ends) PresentIn(conn, ends - now);
         var (perMinute, expiry) = conn.PetrifiedBlood.Display(now);
         if (InGracePeriod(conn)) perMinute = 0;

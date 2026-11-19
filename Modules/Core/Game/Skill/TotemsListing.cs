@@ -13,7 +13,7 @@ static partial class Game
         var lines = new List<string>();
         lock (conn.Monsters)
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
+            double now = AreaTime(conn);
             foreach (var totem in conn.Totems.Living(now).OrderBy(t => t.Id))
             {
                 string variety = totem.VarietyId.Length == 0 ? "-" : totem.VarietyId;

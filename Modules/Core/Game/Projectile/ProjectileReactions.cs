@@ -196,7 +196,7 @@ public static partial class Game
         var conn = session.Conn;
         if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
             || !GameEvents.AllowsLoot(conn)) return;
-        var random = Random.Shared;
+        var random = AreaRng(conn);
         var balance = LeagueFor(conn).Rules;
         var modded = GameEvents.RunDrops(conn, ModMonster(monster, position));
         List<ItemDrops.Drop> drops = [];

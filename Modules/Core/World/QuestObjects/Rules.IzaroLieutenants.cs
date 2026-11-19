@@ -73,7 +73,7 @@ static partial class QuestobjectsRules
         lock (conn.Monsters)
         {
             if (LieutenantDead(conn, l)) return;
-            (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds + seconds, true, false);
+            (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace) = (AreaTime(conn) + seconds, true, false);
         }
         _ = IzaroSkills.Run(conn, l.Id, l.Monster, here);
     }
@@ -84,7 +84,7 @@ static partial class QuestobjectsRules
     {
         try
         {
-            var order = arena.Lieutenants.Where(l => l.Lift is not null).OrderBy(_ => Random.Shared.Next()).ToList();
+            var order = arena.Lieutenants.Where(l => l.Lift is not null).OrderBy(_ => AreaRng(conn).Next()).ToList();
             for (int k = 0; k < order.Count; k++)
             {
                 if (k > 0) await Task.Delay(TimeSpan.FromSeconds(IzaroLieutenants.RiseInterval));
