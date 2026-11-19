@@ -145,8 +145,8 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x00ce | `0x1435ca3c0` / `0x141f9d0a0` | 17 |  | `0x14025b9b0` |  |
 | 0x00cf | `0x1435cacd0` / `0x141f9d290` | 14 |  | `0x14216e070` | calls the class writer directly |
 | 0x00d0 | `0x1435ca0c8` / `0x141f9d470` | 6 | instance 0x231 | `0x14025b9b0` |  |
-| 0x00d1 | `0x1435cabd0` / `0x141f9d680` | 7 |  | `0x14216dd20` |  |
-| 0x00d2 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14025c5c0` |  |
+| 0x00d1 | `0x1435cabd0` / `0x141f9d680` | 7 |  | `0x14216dd20` | stash tab into a folder |
+| 0x00d2 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14025c5c0` | delete a stash folder |
 | 0x00d3 | `0x1435cad70` / `0x141f9d7d0` | ≥ 8 | instance 0xd3 | `0x140251f90`, `0x14216de70` |  |
 | 0x00d7 | `0x1435ca500` / `0x141f9dc00` | 15 |  | `0x14216f8c0` |  |
 | 0x00d8 | `0x1435ca958` / `0x141f9c9d0` | 5 |  | `0x14216ce30` |  |

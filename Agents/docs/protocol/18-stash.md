@@ -129,14 +129,20 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   BE tab, u16 BE position). Kept (2026-10-22): `AccountStash.SetPositions` saves each tab's position with the stash
   (kind 1 the guild stash), and the tab lists send it back as the record's +0x38, so the order survives a relog.
 - **0xd1** (7 bytes, vtable `0x1435cabd0`, write `0x141f9d680`, `0x14216dd20`): u16 BE tab, u16 BE folder (0xffff out),
-  u8 kind: a tab into a folder. Logged.
+  u8 kind: a tab into a folder. The tab settings' Folder box sends 0xffff then its choice, and its "Create New Folder" sends
+  the tab's own index as the folder: only then does the sender leave the tab's +0x3a alone, so the server makes the
+  folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
+  tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
   every tab but normal ones and folders is premium, as bought tabs are: the tab settings show the name and colour only
   with the record's premium flag; kind 1 the guild stash). Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
-- **0xd2** (u16 tab, u8 kind; `0x14025c5c0`): from the tab settings. Not seen yet.
+- **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
+  Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
+  the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
+  removing it would move the later tabs' indices and inventory ids (`AccountStash.DeleteFolder`).
 - **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
@@ -332,7 +338,7 @@ Gold stays with the personal stash.
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
 - Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
-- Tab folders (0xd1 is logged), 0xe2, the unique, divination and other special tabs, the
+- Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
   real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
 
 ### Delve inventory bounds and resonators
