@@ -518,7 +518,7 @@ public static partial class Game
         else if (t.ArriveAt is { } spot) SpotArrivals[r.Ticket] = spot;
         else if (!t.AtSpawn)
         {
-            AreaLayouts.CameFrom[r.Ticket] = conn.Layout.Hash;
+            AreaLayouts.CameFrom[r.Ticket] = KitavaActTen.ArrivalSource(conn.Layout.Id, t.Area) ?? conn.Layout.Hash;
             if (t.ArrivalEntrance is int entrance) AreaLayouts.ArrivalEntrances[r.Ticket] = entrance;
         }
         if (t.Map is { } map) MapDevice.TicketArrivals[r.Ticket] = map;
