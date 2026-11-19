@@ -106,4 +106,33 @@ public sealed class GuardSkillTests
         }
         finally { Program.Outgoing = outgoing; }
     }
+
+    // Issue #1127 (movement): a stat refresh re-sends the skill list, and the client's skill replacement refreshes an
+    // existing zero-rate cooldown entry (0x141ef1573), so a guard's held entry started counting again while its buff ran.
+    // The held rate-0 entry must go out again behind the skill list so the bar stays frozen.
+    [Fact]
+    public async Task A_skill_refresh_during_a_held_guard_republishes_its_frozen_entry()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Immortal Call", 1));
+        var gem = Game.GemSkillEffects(f.Conn).Single(g => Game.SkillsFor(f.Conn).EffectId(g.Effect) == "ImmortalCall");
+        var charges = Game.ChargesOf(f.Conn);
+        var limits = charges.Limits(ChargeType.Endurance);
+        charges.State.Set(ChargeType.Endurance, limits.Minimum + 3, 0, limits);
+        double now = f.Conn.Clock.Elapsed.TotalSeconds;
+        await Game.UseInstantSkill("test", f.Stream, f.Ciphers, f.Conn, gem.Id, 0, f.Conn.Walk.Position(now));
+        Assert.True(Game.SingleUseState(f.Conn, gem.Effect, gem.Id)!.Held);
+        var frozen = InstanceEntities.PlayerSingleUseCooldowns(Program.PlayerId,
+            [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]);
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (cipher, bytes) => { if (ReferenceEquals(cipher, f.Ciphers)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            await Game.SendCharacterStats("test", f.Stream, f.Ciphers, f.Conn, "conditional item stats changed");
+            Assert.Contains(packets, p => p.SequenceEqual(frozen));
+            Assert.True(Game.SingleUseState(f.Conn, gem.Effect, gem.Id)!.Held);
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
 }

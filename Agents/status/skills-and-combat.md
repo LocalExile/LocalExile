@@ -179,7 +179,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   landings across terrain gaps. A guard's bar entry is held at the skill's own cooldown with a zero recovery rate while
   its buff runs and counts at the character's recovery after it, as the official client shows. The held entry is published
   before the instant action so the client skips its press prediction, and a stat-only skill refresh (a guard or self buff
-  starting/ending) no longer rebuilds the skill bar: the ring does not sweep or replay on the first press (#1127).
+  starting/ending) no longer rebuilds the skill bar; a skill-list refresh during the buff (movement, conditional item stats)
+  re-publishes the held entry, since the client's skill replacement would otherwise refresh its zero-rate entry: the ring
+  does not sweep or replay on the first press or while moving (#1127).
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) §11, §12.

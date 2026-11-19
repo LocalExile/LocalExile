@@ -121,6 +121,16 @@ public static partial class Game
             [new SingleUseCooldownUpdate(skill, total, total, 0f, 1)], canDetonateMines: CanDetonateMines(conn));
     }
 
+    /// <summary>The held guard's rate-0 entry to re-publish after a skill-list refresh: the client's skill replacement
+    /// refreshes an existing zero-rate cooldown entry (<c>0x141ef1573</c>), which would start the bar counting again while
+    /// the buff runs (issue #1127, seen on movement, which refreshes the conditional item stats). Null when no guard buff
+    /// is running.</summary>
+    public static byte[]? HeldGuardCooldownRefresh(ClientState conn)
+    {
+        if (CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds) is not { Until: > 0, Gem: { } gem } guard) return null;
+        return GuardCooldownEntry(conn, guard.Skill, gem.Effect);
+    }
+
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
     internal static double GuardDuration(int baseMilliseconds, Func<string, int> player, Func<string, int> own) =>
         SkillDurationModifiers.Seconds(baseMilliseconds,
