@@ -55,6 +55,10 @@ public static partial class Game
 
     public static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+        => ApplyCurseLocked(conn, monster, skill, now, aura, captured, sources, 0, 1);
+
+    static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
+        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
     {
         var gem = captured ?? SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect) ?? "";
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || ExternalTemporalChains(conn, effect)
@@ -68,9 +72,10 @@ public static partial class Game
         double factor = Math.Max(0, 1 + (Get("curse_effect_+%") + Get(definition.Mark ? "mark_effect_+%" : "hex_effect_+%")
             + (definition.Mark ? Get("mark_skills_curse_effect_+%") : 0)
             + Get(ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant()) + "_curse_effect_+%")
-            + monster.Mods.Effects["curse_effect_on_self_+%"]) / 100.0)
+            + monster.Mods.Effects["curse_effect_on_self_+%"] + addedEffect) / 100.0)
             * Math.Max(0, 1 + Own("support_blasphemy_curse_effect_+%_final") / 100.0)
-            * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0);
+            * Math.Max(0, 1 + Own("support_hextouch_curse_effect_+%_final") / 100.0)
+            * effectMultiplier;
         var stats = gem.Stats.Where(p => CurseRecipientStats.Contains(Stats.Name(p.Key) ?? ""))
             .ToDictionary(p => Stats.Name(p.Key)!, p => (int)Math.Truncate(p.Value * factor));
         double seconds = definition.Mark ? double.PositiveInfinity : SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
