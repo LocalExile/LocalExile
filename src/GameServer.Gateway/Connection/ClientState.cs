@@ -1216,6 +1216,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // (Game.TransitionShown).
     public HashSet<uint> ShownTransitions = [];
     public HashSet<uint> ScriptShownTransitions = [];
+    public LabyrinthDay.Entry? LabyrinthEntry;
     public int? NpcRewardOffer;
     public Dictionary<uint, Item> NpcRewardItems = [];
     // NPCs created on this connection by object id (town NPCs, /npc).
