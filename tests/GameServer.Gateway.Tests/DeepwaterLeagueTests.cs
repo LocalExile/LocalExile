@@ -84,14 +84,15 @@ public sealed class DeepwaterLeagueTests
         byte[] numbered = new QuestObject(0, 0, ["Positioned"]) { IntVariables = new Dictionary<uint, int> { [0xe70679eb] = 3 } }.Blob();
         Assert.Equal("0001" + "EB7906E7" + "000109" + "03000000", Convert.ToHexString(numbered[..13]));
 
-        // A chart base writes its DeepwaterChart part (u8, u8, DeepwaterRooms row; 0xff none) last, and the header
+        // A chart base writes its DeepwaterChart part (u8 Area Level, u8, DeepwaterRooms row; a row past the end crashes the
+        // client) last, and the header
         // flags (0x0006: a Dredged item, accepted by the capsule grid) follow the type hash.
         var chart = new ItemCatalog("data").Find("Metadata/Items/Deepwater/ChartSandy");
         Assert.NotNull(chart);
         Assert.True(chart.Supported);
-        byte[] item = (ItemCatalog.Create(chart) with { HeaderFlags = 6, Chart = new(0, 0, 0xff) }).Payload();
+        byte[] item = (ItemCatalog.Create(chart) with { HeaderFlags = 6, Chart = new(68, 0, 3) }).Payload();
         Assert.Equal("0600", Convert.ToHexString(item[4..6]));
-        Assert.Equal("0000FF", Convert.ToHexString(item[^3..]));
+        Assert.Equal("440003", Convert.ToHexString(item[^3..]));
 
         // Ctrl + click into the capsule (C->S 0x0112, live: item 7 from the main inventory) is framed and read.
         split = InstanceProtocol.SplitClientMessages([.. Convert.FromHexString("0112000000070001"), .. Tick()], out partial, out unknown);

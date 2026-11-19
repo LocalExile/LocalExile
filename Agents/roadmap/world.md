@@ -117,7 +117,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([03](../docs/protocol/03-area-and-world.md) §8). Valerie (NPCs 789) waits for the flag that ends the tutorial, which
   the client data does not name. The boat gates are written as plain AreaTransitions, so the client highlights them on
   hover (Boat_AreaTransition_Animate has `no_highlight`).
-  The chart item's `DeepwaterChart` component is written, but its two leading bytes are unnamed
+  The chart item's `DeepwaterChart` component is written, but its second byte (+0x31) is unnamed
   ([13](../docs/protocol/13-items.md) §2).
   No packet capture of the league exists: the wiki (Curse of the Allflame, Voyage, Chart, Allflame crafting, Maiden
   Voyage) and the client's data and code are the sources.
