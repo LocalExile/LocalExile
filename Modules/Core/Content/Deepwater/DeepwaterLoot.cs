@@ -39,27 +39,30 @@ internal static class DeepwaterLoot
     const string BottleItem = "Metadata/Items/Deepwater/DeepwaterBottledItem";
     const string ResourceFound = "map_deepwater_league_resource_found_+%";
 
-    /// <summary>The Sulphur nodes by size and their share (G: 40/35/20/5 %); each type's own
-    /// <c>base_resource_multiplier</c> (50/100/150/200) sets its amount.</summary>
-    static readonly (string Type, int Share)[] Nodes =
+    /// <summary>The Sulphur nodes by size and the world.db <c>system_settings</c> key of their share (G, server policy);
+    /// each type's own <c>base_resource_multiplier</c> (50/100/150/200) sets its amount.</summary>
+    static readonly (string Type, string Share)[] Nodes =
     [
-        (Objects + "ResourceChestSmall", 40), (Objects + "ResourceChestBase", 35),
-        (Objects + "ResourceChestLarge", 20), (Objects + "ResourceChestHuge", 5),
+        (Objects + "ResourceChestSmall", "deepwater_sulphur_node_share_small"), (Objects + "ResourceChestBase", "deepwater_sulphur_node_share_base"),
+        (Objects + "ResourceChestLarge", "deepwater_sulphur_node_share_large"), (Objects + "ResourceChestHuge", "deepwater_sulphur_node_share_huge"),
     ];
 
-    /// <summary>The scattered objects of this step: their kind, type, and weight when their Chests row has no
-    /// <c>__col7</c> (G: Sunken Loot's 50 is the row's; Gold, Clam and Bottle rows have 0, and the interactables no row),
-    /// and whether only a Voyage has them.</summary>
-    static readonly (Kind Kind, string Type, int Fallback, bool VoyageOnly)[] Scattered =
+    /// <summary>The scattered objects of this step: their kind, type, the <c>system_settings</c> key of their weight when
+    /// their Chests row has no <c>__col7</c> (G, server policy: Gold, Clam and Bottle rows have 0, the interactables no
+    /// row), and whether only a Voyage has them (the wiki: Kindling).</summary>
+    static readonly (Kind Kind, string Type, string Fallback, bool VoyageOnly)[] Scattered =
     [
-        (Kind.SunkenLoot, Chests + "CurrencyTreasureChest", 50, false),
-        (Kind.GoldPile, Chests + "GoldTreasureChest", 40, false),
-        (Kind.Clam, Chests + "ClamTreasureChest", 15, false),
-        (Kind.Bottle, Chests + "BottledItemChest", 20, false),
-        (Kind.GoldenLantern, Objects + "DeepwaterGoldenLantern", 5, false),
-        (Kind.SoothingCoral, Objects + "DeepwaterFlaskRefill", 15, false),
-        (Kind.Kindling, Objects + "DeepwaterLanternReplenishEncounter", 10, true),
+        (Kind.SunkenLoot, Chests + "CurrencyTreasureChest", "deepwater_weight_sunken_loot", false),
+        (Kind.GoldPile, Chests + "GoldTreasureChest", "deepwater_weight_gold_pile", false),
+        (Kind.Clam, Chests + "ClamTreasureChest", "deepwater_weight_treasure_clam", false),
+        (Kind.Bottle, Chests + "BottledItemChest", "deepwater_weight_message_in_a_bottle", false),
+        (Kind.GoldenLantern, Objects + "DeepwaterGoldenLantern", "deepwater_weight_golden_lantern", false),
+        (Kind.SoothingCoral, Objects + "DeepwaterFlaskRefill", "deepwater_weight_soothing_coral", false),
+        (Kind.Kindling, Objects + "DeepwaterLanternReplenishEncounter", "deepwater_weight_allflame_kindling", true),
     ];
+
+    /// <summary>A world.db <c>system_settings</c> weight; 0 (none placed) without its row.</summary>
+    static int Setting(string key) => SystemSettings.Default.Values.TryGetValue(key, out var v) && double.IsFinite(v) ? (int)Math.Clamp(v, 0, 10_000) : 0;
 
     // G: the spacing of the scattered objects and nodes, and the clear ring around the start Bathysphere.
     const int ThingsApart = 15, NodesApart = 12, StartClear = 20, Tries = 200;
@@ -130,9 +133,9 @@ internal static class DeepwaterLoot
         if (things.Count > 0) notes.Add($"{things.Count} from rooms");
 
         var pool = Scattered.Where(s => (!s.VoyageOnly || run.Voyage) && Info(s.Type) is not null)
-            .Select(s => (s.Kind, s.Type, Weight: ChestRows.Value.TryGetValue(s.Type, out var row) && row.Weight > 0 ? row.Weight : s.Fallback))
+            .Select(s => (s.Kind, s.Type, Weight: ChestRows.Value.TryGetValue(s.Type, out var row) && row.Weight > 0 ? row.Weight : Setting(s.Fallback)))
             .Where(s => s.Weight > 0).ToList();
-        var nodes = Nodes.Where(n => Info(n.Type) is not null).ToList();
+        var nodes = Nodes.Where(n => Info(n.Type) is not null).Select(n => (n.Type, Share: Setting(n.Share))).Where(n => n.Share > 0).ToList();
         foreach (var cell in run.Board.Cells)
         {
             if (!RoomRanges.Value.TryGetValue(cell.Room, out var range) || range.Packs <= 0 || range.Max <= 0) continue;
