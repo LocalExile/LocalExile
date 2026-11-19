@@ -44,7 +44,10 @@ public static partial class Quests
     /// <summary>A boss that forms once no living monster of any of the varieties is left in the instance (The Rotting
     /// Core's Depraved Trinity after Doedre's, Maligaro's and Shavronne's souls), at its own boss point
     /// (<see cref="AreaPopulation.LaterFormPoints"/>), else where the last of them died. The area does not place it.</summary>
-    public sealed record FormsRule(string Area, string[] Varieties, string Next) : Rule;
+    public sealed record FormsRule(string Area, string[] Varieties, string Next) : Rule
+    {
+        public int? InitialLifePercent { get; init; }
+    }
     /// <summary>Flags set when the player comes within <see cref="SightRange"/> of a living monster of the variety.</summary>
     public sealed record SeenRule(string Area, string Variety, string[] Flags) : Rule;
     /// <summary>Flags set when the player comes within <see cref="SightRange"/> of a room object of this type (an NPC that
@@ -208,6 +211,8 @@ public static partial class Quests
             new NearRule(area, objectType, flags) { Needs = needs };
         public static Rule KilledAll(string area, string[] varieties, params string[] flags) => new KilledAllRule(area, varieties, flags);
         public static Rule Forms(string area, string[] varieties, string next) => new FormsRule(area, varieties, next);
+        public static Rule Forms(string area, string[] varieties, string next, int initialLifePercent) =>
+            new FormsRule(area, varieties, next) { InitialLifePercent = initialLifePercent };
         public static Rule NearExit(string area, string to, params string[] flags) => new NearExitRule(area, to, flags);
         public static Rule Entered(string area, params string[] flags) => new EnteredRule(area, flags);
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);

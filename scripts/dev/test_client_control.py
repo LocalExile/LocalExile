@@ -362,26 +362,31 @@ class ClientControlLoginTests(unittest.TestCase):
     def advance_time(self, seconds):
         self.elapsed += seconds
 
-    def execute_login(self, statuses):
-        self.control.rpc.side_effect = chain([
+    def execute_login(self, statuses, saved=False):
+        before = [{"screen": "login", "loginState": 0}, {}] if saved else [
             {"screen": "login", "loginState": 0},  # ready
             {},  # connect
             {"screen": "login", "loginState": 2, "lastLoginResult": None},  # handshake
             {},  # login
-        ], statuses)
-        return self.control.execute({"command": "login", "account": "test-only", "password": "test-only"})
+        ]
+        self.control.rpc.side_effect = chain(before, statuses)
+        return self.control.execute({"command": "login:saved"} if saved else
+                                    {"command": "login", "account": "test-only", "password": "test-only"})
 
     def test_login_success_before_authenticated_state_waits_for_character_selection(self):
         pending = {"screen": "login", "loginState": 2, "lastLoginResult": 0}
         authenticated = {**pending, "loginState": 3}
-        characters = {**authenticated, "screen": "characters"}
-
-        result = self.execute_login([pending, authenticated, authenticated, characters])
-
-        self.assertEqual(result, {"running": True, **characters})
-        self.assertEqual(self.sleep.call_args_list, [call(0.05), call(0.05)])
-        self.assertEqual([c.args[0] for c in self.control.rpc.call_args_list],
-                         ["status", "connect", "status", "login", "status", "status", "status", "status"])
+        for screen, saved in ((screen, saved) for screen in ("characters", "creation") for saved in (False, True)):
+            with self.subTest(screen=screen, saved=saved):
+                self.control.rpc.reset_mock()
+                self.sleep.reset_mock()
+                self.elapsed = 0.0
+                characters = {**authenticated, "screen": screen}
+                result = self.execute_login([pending, authenticated, authenticated, characters], saved=saved)
+                self.assertEqual(result, {"running": True, **characters})
+                self.assertEqual(self.sleep.call_args_list, [call(0.05), call(0.05)])
+                before = ["status", "connectSaved"] if saved else ["status", "connect", "status", "login"]
+                self.assertEqual([c.args[0] for c in self.control.rpc.call_args_list], before + ["status"] * 4)
 
     def test_login_nonzero_result_rejects_without_another_poll(self):
         with self.assertRaisesRegex(RuntimeError, r"^Local login rejected \(result 6\)$"):

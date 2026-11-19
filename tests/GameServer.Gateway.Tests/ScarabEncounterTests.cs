@@ -157,7 +157,8 @@ public sealed class ScarabEncounterTests
             await MapStrongboxes.Enter(boxOwner.Conn);
             MapStrongboxes.Box[] Boxes() => System.Text.Json.JsonSerializer.Deserialize<MapStrongboxes.Box[]>(boxInstance.ContentState["Ambush/boxes"])!;
             var boxes = Boxes();
-            Assert.Equal(4, boxes.Length);
+            Assert.Equal(MapStrongboxes.Count(boxOwner.Conn, 70).Count, boxes.Length);
+            Assert.True(boxes.Length >= 4); // the four scarab boxes plus any natural Ambush roll
             await MapStrongboxes.Enter(boxPeer.Conn);
             Assert.Equal(boxes.Select(b => b.Id), Boxes().Select(b => b.Id));
             Assert.All(boxes, b => Assert.True(layout.Walkable!(b.X, b.Y)));
@@ -344,8 +345,13 @@ public sealed class ScarabEncounterTests
         essenceRequest.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(essenceRequest.Slots, Program.Items.Mods) };
         MapScarabContent.Describe(essenceRequest);
         MapEssences.Opening(essenceRequest);
-        Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
+        Assert.DoesNotContain(essenceRequest.UnhandledContent, s => s.Contains("Essence.Stability"));
         Assert.Contains(essenceRequest.UnhandledContent, s => s.Contains("replica balance"));
+        var ambush = Request("ScarabStrongboxNew1");
+        ambush.Opening = opening with { Area = opening.Area with { Level = 70 }, Mods = MapRunCatalog.Load("data").Of(ambush.Slots, Program.Items.Mods) };
+        MapScarabContent.Describe(ambush);
+        MapStrongboxes.Opening(ambush);
+        Assert.Empty(ambush.UnhandledContent);
         var terrors = Request("ScarabDomination4");
         MapScarabContent.Describe(terrors);
         MapScarabBosses.Opening(terrors);

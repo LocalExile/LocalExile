@@ -141,6 +141,9 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
             * (1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100.0) * More(_moreDamage)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
         var conversion = new DamageConversion()
+            .Add(DamageType.Physical, DamageType.Fire, this["base_physical_damage_%_to_convert_to_fire"])
+            .Add(DamageType.Physical, DamageType.Cold, this["base_physical_damage_%_to_convert_to_cold"])
+            .Add(DamageType.Physical, DamageType.Lightning, this["base_physical_damage_%_to_convert_to_lightning"])
             .Add(DamageType.Physical, DamageType.Chaos, this["base_physical_damage_%_to_convert_to_chaos"])
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
             .AddGain(DamageType.Physical, DamageType.Cold, this["physical_damage_%_to_add_as_cold"])
@@ -154,6 +157,18 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         foreach (var (type, range) in hit.Components)
             if (type != DamageType.Chaos) { minChaos += range.Min * chaos / 100.0; maxChaos += range.Max * chaos / 100.0; }
         return hit.Add(DamageType.Chaos, new GameServer.Core.World.DamageRange(minChaos, maxChaos).Round());
+    }
+
+    /// <summary>Typed damage over time uses global damage modifiers; hit conversion and gain-as-extra do not apply.</summary>
+    public double OverTime(double perSecond, DamageType type, int extraIncreased = 0)
+    {
+        string name = type.ToString().ToLowerInvariant();
+        return Math.Max(0, perSecond) * Math.Max(0, 1 + ((double)this["damage_+%"] + this[name + "_damage_+%"]
+            + this["damage_over_time_+%"] + extraIncreased) / 100d)
+            * Math.Max(0, 1 + ((double)this["damage_over_time_multiplier"] + this["non_ailment_" + name + "_damage_over_time_multiplier"]) / 100d)
+            * Math.Max(0, 1 + this["monster_rarity_damage_+%_final"] / 100d)
+            * Math.Max(0, 1 + this[MonsterModCatalog.MapHiddenDamageStat] / 100d) * More(_moreDamage)
+            * Math.Max(0, 1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100d);
     }
 
     /// <summary>A hit with the "gain as extra" stats of <paramref name="extra"/> added and its damage_+% (an encounter's
@@ -275,7 +290,11 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         "maximum_life_+%", "damage_+%", "physical_damage_+%",
         "physical_damage_%_to_add_as_fire", "physical_damage_%_to_add_as_cold", "physical_damage_%_to_add_as_lightning",
-        "base_physical_damage_%_to_convert_to_chaos",
+        "base_physical_damage_%_to_convert_to_fire", "base_physical_damage_%_to_convert_to_cold",
+        "base_physical_damage_%_to_convert_to_lightning", "base_physical_damage_%_to_convert_to_chaos",
+        "damage_+%_when_on_low_life", "attack_speed_+%_when_on_low_life", "cast_speed_+%_when_on_low_life",
+        "movement_velocity_+%_when_on_low_life", "monster_enrages_on_low_life_text",
+        "deal_chaos_damage_per_second_for_10_seconds_on_hit",
         "non_chaos_damage_to_add_as_chaos_damage_%", "attack_speed_+%", "base_cast_speed_+%", "base_movement_velocity_+%",
         "base_fire_damage_resistance_%", "base_cold_damage_resistance_%", "base_lightning_damage_resistance_%",
         "base_chaos_damage_resistance_%", "base_resist_all_elements_%", "base_additional_physical_damage_reduction_%",

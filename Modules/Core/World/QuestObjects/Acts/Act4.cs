@@ -104,7 +104,7 @@ sealed class Act4 : Act
                 On.Seen(Harvest, Act4Monsters.Malachai, "a4q1-SeenMalachai"),
                 On.Seen(Harvest, Act4Monsters.Malachai2, "a4q1-SeenMalachai"),
                 On.Threshold(Harvest, Act4Monsters.Malachai, 70),
-                On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2),
+                On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2, 92),
                 On.Killed(Harvest, Act4Monsters.Malachai2, "a4q1-QuestComplete"),
                 new PointPortalRule(Harvest, Highgate, "Metadata/QuestObjects/Act4/MalachaiDeathPortal"),
                 On.Exit(Harvest, Highgate, "a4q1-QuestComplete"),

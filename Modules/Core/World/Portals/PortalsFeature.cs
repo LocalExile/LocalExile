@@ -9,11 +9,6 @@ static class PortalsFeature
     static MapDevice.Origin? MapReturnOrigin(ClientState conn) =>
         MapDevice.ForInstance(conn) is { } map ? map.ReturnTo ?? map.Entrance : null;
 
-    // Whether an area's instance is made again on the next entry: a town (one live instance per league) or a character's
-    // hideout (one per character), while a map's own instance is never remade (InstanceRegistry).
-    internal static bool RecreatedOnEntry(ushort area) =>
-        WaypointCatalog.Areas.Find(area) is { IsTown: true } || HideoutCatalog.ByArea(area) is not null;
-
     // A click on a portal back: at its cell by the device, in the instance the portal was opened from while that instance
     // is live, else in a new one of the area when it is gone and the area is recreated on entry (a hideout is always seed 1,
     // so the cell is the same, and the run's portals follow to its device: FollowDeviceToThisInstance). A transfer to an
@@ -182,11 +177,8 @@ static class PortalsFeature
         if (MapReturnOrigin(conn) is { } origin)
         {
             bool gone = false;
-            if (RecreatedOnEntry(origin.Area) && origin.Instance != 0)
-            {
-                var listed = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = origin.Area });
-                gone = OriginExpired(listed, origin.Instance);
-            }
+            if (AreaInstances.RecreatedOnEntry(origin.Area) && origin.Instance != 0)
+                gone = await AreaInstances.Gone(conn, origin.Area, origin.Instance);
             if (!PlayerActionCurrent(conn, action)) return;   // the instance list took a moment
             await ChangeArea(remote, stream, ciphers, conn, ReturnTransfer(origin, gone),
                 gone ? "return to the map device: its instance is gone, a new one" : "return to the map device");
@@ -231,14 +223,11 @@ static class PortalsFeature
             $"0x00e8 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
-    // Whether Auth's list of the area's live instances, when it answered, no longer has the portal's instance.
-    internal static bool OriginExpired(ControlResponse response, ulong instance) =>
-        response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
-
+    // Drops the character's town portal whose source instance Auth no longer has: the area it leads to then gets no
+    // portal back to an instance that is gone.
     internal static async Task<bool> ExpireTownPortal(ClientState conn, OpenPortal portal)
     {
-        var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = portal.Area });
-        if (!OriginExpired(response, portal.Instance)) return false;
+        if (!await AreaInstances.Gone(conn, portal.Area, portal.Instance)) return false;
         OpenPortals.TryRemove(new KeyValuePair<string, OpenPortal>(CharacterName(conn), portal));
         return true;
     }
