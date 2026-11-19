@@ -739,8 +739,10 @@ public static partial class Game
 
     // The skill_art_variation of the skill effects worn in a gem type's Cosmetics tab slots (0: none), which picks the
     // skill's art (SkillArt).
-    public static int SkillArtVariation(ClientState conn, uint gem) =>
-        Stats.Key("skill_art_variation") is not uint key ? 0
+    public static int SkillArtVariation(ClientState conn, uint gem) => SkillCosmeticStat(conn, gem, "skill_art_variation");
+
+    static int SkillCosmeticStat(ClientState conn, uint gem, string stat) =>
+        Stats.Key(stat) is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
             .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();

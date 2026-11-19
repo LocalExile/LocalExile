@@ -28,6 +28,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - Verify the native repeat of Ice Nova of Deep Freeze.
 - Verify Ice Nova of Frostbolts live at the 100-cell targeting boundary and follow its rings on two moving Frostbolts.
+- Verify Vortex in a native session, including the explosion, removal of predicted Frostbolts, ground coverage and
+  worn effects. Check marked-target nova placement and triggered or proxy Vortex releases.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats

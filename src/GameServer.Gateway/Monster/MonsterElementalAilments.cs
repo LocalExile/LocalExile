@@ -20,6 +20,19 @@ public sealed class MonsterElementalAilments
         public bool OnKill { get; init; }
     }
     readonly List<Effect> effects = [];
+    Effect? chillingArea;
+
+    public double ChillingAreaMagnitude(Func<string, int> source, Func<string, int> target) =>
+        Grace || Immune(Kind.Chill, target) ? 0 : BaseWithoutDamage(Kind.Chill, source, target);
+
+    // Ground chill lasts while covered. It is independent of hits, proliferation and the recipient's debuff clock.
+    public void SetChillingArea(double now, double until, double magnitude)
+    {
+        if (magnitude <= 0) chillingArea = null;
+        else if (chillingArea is null || chillingArea.Magnitude != magnitude || chillingArea.Until != until)
+            chillingArea = new(Kind.Chill, now, until, magnitude);
+    }
+
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)
     {
@@ -57,14 +70,18 @@ public sealed class MonsterElementalAilments
         WalkFactor = 1;
     }
 
-    public bool Idle => effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
+    public bool Idle => chillingArea is null && effects.Count == 0 && spread.Count == 0 && shown.Count == 0 && SentActionSpeed == 0 && WalkFactor == 1;
 
-    IEnumerable<Effect> Active(Kind kind, double now) => (spread.Count == 0 ? effects : effects.Concat(spread.Values))
-        .Where(e => e.Kind == kind && e.From <= now && now < e.Until);
+    IEnumerable<Effect> Active(Kind kind, double now)
+    {
+        IEnumerable<Effect> active = spread.Count == 0 ? effects : effects.Concat(spread.Values);
+        if (kind == Kind.Chill && chillingArea is { } ground) active = active.Append(ground);
+        return active.Where(e => e.Kind == kind && e.From <= now && now < e.Until);
+    }
 
     // The AI asks every living monster each tick, and most have no ailment: that case allocates nothing.
     public double Magnitude(Kind kind, double now) =>
-        effects.Count == 0 && spread.Count == 0 ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+        effects.Count == 0 && spread.Count == 0 && (kind != Kind.Chill || chillingArea is null) ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
 
     /// <summary>Whether it was frozen when it died: a shattered one was, though its freeze is gone.</summary>
     public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;

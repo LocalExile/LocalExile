@@ -126,7 +126,7 @@ public class ArrowRainAndMirageTests
     }
 
     [Fact]
-    public void Rain_lands_after_release_and_toxic_pods_damage_only_enemies()
+    public async Task Rain_lands_after_release_and_toxic_pods_damage_only_enemies()
     {
         var aim = new ProjectileVector(120, 100);
         var points = Game.RainLandings("RainOfArrows", aim, 18, 24, [aim + new ProjectileVector(2, 0)], new Random(3));
@@ -152,7 +152,90 @@ public class ArrowRainAndMirageTests
         Assert.True(b.Enemy.Life < ticking);
         Assert.Equal(1, Game.ToxicWalkFactor(b.Enemy));
         Assert.Equal(100000u, b.Ally.Life);
+        await VortexSharesGroundAcrossCasters();
     }
+
+    static async Task VortexSharesGroundAcrossCasters()
+    {
+        using var b = new Battle("Vortex");
+        using var wire = new SpellTotemExecutionTests.Wire();
+        var peer = SpellTotemExecutionTests.Connection("Vortex" + Guid.NewGuid().ToString("N"), b.Conn.Instance);
+        var other = new Game.ProjectileSession("vortex-peer", wire.Stream, wire.Ciphers, peer);
+        peer.ProjectileRuntimeState = other;
+        try
+        {
+            var at = (X: 120, Y: 100);
+            long start = ProjectileRuntime.Time(16);
+            b.Session.AdvanceTo(start);
+            other.AdvanceTo(start);
+            var dying = b.Conn.Monsters[202] = new("credit", new(120, 100, 0), 0, 0, 20) { Hostile = true };
+            var walker = b.Conn.Monsters[203] = new("crosses", new(117, 100, 8), 0, 0, 1000) { Hostile = true };
+            walker.Walk.Order(125, 100, 16);
+            b.Session.PlaceVortexGround(at, 1, 1.375, 32, _ => 0, 0);
+            other.PlaceVortexGround(at, 1, .375, 64, name => name == "virtual_chill_effect_+%" ? 100 : 0, 0);
+            Assert.Equal(20, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 16));
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(.4));
+            Assert.True(dying.Dead);
+            Assert.Same(peer, dying.LastHitBy);
+            Assert.Equal(10, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 16.4));
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(1.375));
+            Assert.Equal(56u, b.Enemy.MaxLife - b.Enemy.Life);
+            Assert.Equal(16u, walker.MaxLife - walker.Life);
+            Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
+            Assert.Equal(0, b.Enemy.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, 17.375));
+
+            // Removing the timer's caster leaves the other player's ground on the same instance clock.
+            other.AdvanceTo(b.Session.Runtime.Now);
+            var variety = Game.Monsters.Find("Cannibal")!;
+            var boundary = b.Conn.Monsters[204] = new("lethal before exit", new(120, 100, 0), 0, 0, 4)
+                { Hostile = true, Variety = variety, NoRewards = true };
+            b.Conn.Instance.World.MonsterOrigins[204] = new(InstanceEntities.ObjectTypeHash(variety.Id),
+                new MonsterObject(120, 100, 4, variety.ComponentsOrBase, variety.AnimatedObject), (ushort)variety.Row, 1, MonsterRarity.Normal);
+            peer.PlayerSent = true;
+            var pose = new PlayerObject(peer.Character!, 0, 100, 100, peer.PlayerLife, peer.PlayerMana);
+            peer.Instance.PublishPlayer(new(peer.PeerId, 1, pose, 100, 100, peer.PlayerLife, peer));
+            other.PlaceVortexGround(at, 1, .625, 32, _ => 0, 0);
+            b.Session.PlaceVortexGround(at, 1, 2, 96, _ => 0, 0);
+            b.Session.AdvanceTo(start + ProjectileRuntime.Time(1.4375));
+            Assert.True(b.Conn.TryBeginAreaChange(new(2, 1, false), out _));
+            await Game.FinishVortexGround(b.Conn);
+            Assert.True(boundary.Dead);
+            Assert.True(peer.KillShares.TryDequeue(out _));
+            await Game.FinishVortexGround(b.Conn);
+            Assert.Empty(peer.KillShares);
+            Assert.Same(b.Conn, boundary.LastHitBy);
+            other.AdvanceTo(start + ProjectileRuntime.Time(2));
+            Assert.Equal(80u, b.Enemy.MaxLife - b.Enemy.Life);
+
+            // The new caster can observe the old driver's field expiring before that driver's next pump.
+            b.Conn.ResumeAfterFailedTransfer();
+            var next = new Game.ProjectileSession("vortex-return", b.Stream, b.Ciphers, b.Conn);
+            b.Conn.ProjectileRuntimeState = next;
+            try
+            {
+                other.PlaceVortexGround(at, 1, .0625, 32, _ => 0, 0);
+                next.AdvanceTo(start + ProjectileRuntime.Time(2.125));
+                next.PlaceVortexGround(at, 1, .5, 64, _ => 0, 0);
+                other.Invalidate();
+                next.AdvanceTo(start + ProjectileRuntime.Time(3));
+                Assert.Equal(114u, b.Enemy.MaxLife - b.Enemy.Life);
+            }
+            finally
+            {
+                next.Invalidate();
+                next.OutputCompleted.GetAwaiter().GetResult();
+            }
+        }
+        finally
+        {
+            other.Invalidate();
+            peer.Closed = true;
+            await Game.FinishVortexGround(peer);
+            await other.OutputCompleted;
+            PlayerInventories.Forget(peer.Character!);
+        }
+    }
+
 
     [Fact]
     public async Task Supported_ice_arrow_hit_grants_a_temporary_autonomous_attack()

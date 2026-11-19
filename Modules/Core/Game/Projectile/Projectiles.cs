@@ -175,6 +175,7 @@ public static partial class Game
                 invalid = true;
                 lifetime?.Dispose();
                 ClearPods();
+                ClearVortex();
                 if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
@@ -726,11 +727,11 @@ public static partial class Game
 
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
-            float animationValue = 0, uint animatedId = 0)
+            float animationValue = 0, uint animatedId = 0, double? artRadius = null)
         {
             uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells.
-            float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
+            float scale = radius is double r && (artRadius ?? Art.ArtRadius(ao)) is double nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
             var effect = new EffectObject(x, y, ao)
             {

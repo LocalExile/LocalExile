@@ -7,16 +7,17 @@ public static partial class Game
     const ushort FrostboltAction = 0x5e92;
     const int FrostboltNovaTargetRange = 100;
 
-    // The IceNova action compares squared distances between grid cells. It retains the closest FrostBolt actions
+    // Both nova actions compare squared cell distances and retain the closest FrostBolt actions
     // on the caster, up to the gem's limit. A later candidate tied with the last one in a full list is dropped.
-    internal static ProjectileEntity[] FrostboltNovaTargets(ClientState conn, (int X, int Y) aim, int limit)
+    internal static ProjectileEntity[] FrostboltNovaTargets(ClientState conn, (int X, int Y) aim, int limit, bool forVortex = false)
     {
         if (limit == 0 || conn.ProjectileRuntime is not { Active: true } session) return [];
         var caster = new ProjectileActorKey(PlayerId, conn.ProjectileEpoch);
         var targets = new List<(ProjectileEntity Bolt, double DistanceSquared)>();
         foreach (var bolt in session.Runtime.Projectiles)
         {
-            if (bolt.Use.Owner != caster || bolt.Use.Emitter != caster || bolt.Use.Payload is not ProjectileOffense { Effect: >= 0 } shot
+            if (bolt.Use.Owner != caster || bolt.Use.Emitter != caster || forVortex && session.ReservedVortexBolts.Contains(bolt.Id)
+                || bolt.Use.Payload is not ProjectileOffense { Effect: >= 0 } shot
                 || SkillsFor(conn).ActionHash(shot.Effect) != FrostboltAction) continue;
             var cell = FrostboltCell(bolt);
             double dx = (double)cell.X - aim.X, dy = (double)cell.Y - aim.Y;
@@ -39,15 +40,16 @@ public static partial class Game
     static async Task CastFrostboltNova(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         ushort sequence, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll critical, SacrificeUse sacrifice,
-        IReadOnlyDictionary<uint, int> own, int repeats, int seals, double sealMore)
+        IReadOnlyDictionary<uint, int> own, int repeats, int seals, double sealMore, bool vortex)
     {
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
-        int limit = GolemStat(own, "ice_nova_number_of_frost_bolts_to_cast_on");
-        double boltMore = 1 + GolemStat(own, "ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100d;
+        int limit = GolemStat(own, vortex ? "frost_bolt_nova_number_of_frost_bolts_to_detonate" : "ice_nova_number_of_frost_bolts_to_cast_on");
+        double boltMore = 1 + GolemStat(own, vortex ? "active_skill_if_used_through_frostbolt_damage_+%_final"
+            : "ice_nova_damage_when_cast_on_frostbolt_+%_final") / 100d;
         double cast = castMs / 1000d;
-        int variation = SkillArtVariation(conn, gem.Gem);
+        int variation = vortex ? SkillCosmeticStat(conn, gem.Gem, "ground_maelstrom_art_variation") : SkillArtVariation(conn, gem.Gem);
         bool redirected = false;
         var releases = new List<Task>();
         using (ProjectileMutation(conn))
@@ -82,13 +84,41 @@ public static partial class Game
         {
             if (redirected && repeat > 0 || !session.Active || conn.PlayerLife == 0 || !sacrifice.Current
                 || !(cooldownUse?.Current(conn) ?? PlayerActionCurrent(conn, action))) return;
-            var bolts = FrostboltNovaTargets(conn, aim, limit);
+            var bolts = FrostboltNovaTargets(conn, aim, limit, forVortex: vortex);
             double more = seal ? sealMore : 1;
             if (bolts.Length == 0)
             {
                 var centre = SpellCentre(conn, gem.Effect, conn.Walk.Position(ProjectileWorldTime(conn)), aim);
                 await Hit(centre, repeat, repeat > 0 && repeat == repeats, more);
                 return;
+            }
+            if (vortex)
+            {
+                var detonations = new List<Task>(bolts.Length);
+                long released = session.Runtime.Now;
+                for (int i = 0; i < bolts.Length; i++)
+                {
+                    var bolt = bolts[i];
+                    if (i == 0) detonations.Add(Detonate(bolt));
+                    else
+                    {
+                        session.ReservedVortexBolts.Add(bolt.Id);
+                        detonations.Add(At(released + i * ProjectileRuntime.QuantaPerSecond / 2, () =>
+                        {
+                            session.ReservedVortexBolts.Remove(bolt.Id);
+                            return Detonate(bolt);
+                        }));
+                    }
+                }
+                await Task.WhenAll(detonations);
+                return;
+
+                Task Detonate(ProjectileEntity bolt)
+                {
+                    if (!session.Active || conn.PlayerLife == 0 || !sacrifice.Current || !session.Runtime.TryConsume(bolt.Id))
+                        return Task.CompletedTask;
+                    return Hit(FrostboltCell(bolt), repeat, repeat > 0 && repeat == repeats, more * boltMore, throughBolt: true);
+                }
             }
             if (!seal)
             {
@@ -112,10 +142,20 @@ public static partial class Game
             await Task.WhenAll(rings);
         }
 
-        Task Hit((int X, int Y) centre, int repeat, bool final, double more) =>
-            AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, centre, centre, immediate: true,
+        Task Hit((int X, int Y) centre, int repeat, bool final, double more, bool throughBolt = false)
+        {
+            int? radius = null;
+            if (vortex)
+            {
+                session.SettleVortexGround();
+                radius = SkillRadius(conn, own, true, gem.Effect, repeat, throughBolt);
+            }
+            var hit = AreaSkillHitForUse(null, remote, stream, ciphers, conn, skillId, gem, centre, centre, immediate: true,
                 sequence: sequence, criticalRoll: critical, sacrifice: sacrifice, damageMore: more, repeat: repeat,
-                finalSpellRepeat: final, novaStartedAt: ProjectileWorldTime(conn),
-                triggeredCurrent: () => session.Active && conn.PlayerLife > 0);
+                radiusOverride: radius, finalSpellRepeat: final, novaStartedAt: vortex ? null : ProjectileWorldTime(conn),
+                scheduledSession: vortex ? session : null, triggeredCurrent: () => session.Active && conn.PlayerLife > 0);
+            if (vortex) PlaceVortex(session, centre, gem.Effect, own, repeat, more, throughBolt, variation);
+            return hit;
+        }
     }
 }

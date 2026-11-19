@@ -1818,9 +1818,10 @@ public static partial class Game
             return ScheduleLeapSlam(remote, stream, ciphers, conn, skillId, gem, leap, criticalRoll,
                 sequence, fistMore, fistRadius);
         var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
-        if (SkillsFor(conn).EffectId(gem.Effect) == "IceNovaAltX")
+        string? nova = SkillsFor(conn).EffectId(gem.Effect);
+        if (nova is "IceNovaAltX" or "Vortex" or "VortexAltX")
             return CastFrostboltNova(remote, stream, ciphers, conn, skillId, gem, to, sequence, actionToken, cooldownUse,
-                criticalRoll, sacrifice, supported.Stats, spellRepeats, seals, reoccurrenceMore);
+                criticalRoll, sacrifice, supported.Stats, spellRepeats, seals, reoccurrenceMore, vortex: nova != "IceNovaAltX");
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
         // support_spell_cascade_sideways, one per side across it. Each centre is one effective radius from the aim
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
@@ -2049,7 +2050,8 @@ public static partial class Game
     public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect) =>
         SkillRadius(conn, skillStats, spell, effect, repeat: 0);
 
-    static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect, int repeat)
+    static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect, int repeat,
+        bool throughFrostbolt = false, bool secondary = false)
     {
         var areaStats = SkillAreaStats(conn, skillStats, effect);
         // Greater Spell Echo adds to increased area before the area-to-radius conversion.
@@ -2057,25 +2059,29 @@ public static partial class Game
             && skillStats.TryGetValue(echo, out int increase) && Stats.Key(SkillArea.BaseIncreased) is uint area)
             areaStats[area] = areaStats.GetValueOrDefault(area) + repeat * increase;
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
-        return SkillArea.Radius(SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get), Get, spell);
+        double moreArea = 1;
+        if (throughFrostbolt)
+        {
+            areaStats[Stats.Key(SkillArea.BaseIncreased)!.Value] = Get(SkillArea.BaseIncreased) + Get("area_of_effect_+%_when_cast_on_frostbolt");
+            moreArea = Math.Max(0, 1 + Get("active_skill_area_of_effect_+%_final_when_cast_on_frostbolt") / 100d);
+        }
+        int basis = secondary ? Get("active_skill_base_secondary_area_of_effect_radius")
+            : SkillArea.BaseRadius(SkillsFor(conn).EffectId(effect), Get);
+        return secondary && basis <= 0 ? 0 : SkillArea.Radius(basis, Get, spell, moreArea);
     }
 
     // A gem skill's secondary radius in cells (active_skill_base_secondary_area_of_effect_radius: Holy Sweep's hammers'
     // 12), grown by the player's area stats as the main one is; 0 for a skill without one.
-    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
-    {
-        var areaStats = SkillAreaStats(conn, skillStats, effect);
-        int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
-        int baseRadius = Get("active_skill_base_secondary_area_of_effect_radius");
-        return baseRadius > 0 ? SkillArea.Radius(baseRadius, Get, spell) : 0;
-    }
+    public static int SkillSecondaryRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect) =>
+        SkillRadius(conn, skillStats, spell, effect, repeat: 0, secondary: true);
 
     // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
     // around the caster wherever it was aimed, as the client's action does (FUN_1419439e0). A Nova among them goes off at
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
     // targeted location instead of around you"; the client's 0x2a6e).
     public static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
-        !SkillsFor(conn).IsSelfTargeted(effect) && SkillsFor(conn).EffectId(effect) != "IceNovaAltX" || SkillsFor(conn).IsNova(effect)
+        !SkillsFor(conn).IsSelfTargeted(effect) && SkillsFor(conn).EffectId(effect) is not ("IceNovaAltX" or "Vortex" or "VortexAltX")
+            || SkillsFor(conn).IsNova(effect)
             && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
             ? to : from;
 
@@ -2340,7 +2346,10 @@ public static partial class Game
         // or replace one. Damage and socket output resume outside the flight simulator.
         if (novaStartedAt is not null) await Task.Yield();
         if (sacrificedLife)
-            await Send(remote, stream, ciphers, [], null, atGate: sacrifice.LifePacket);
+        {
+            if (scheduledSession is { } paidSession) paidSession.Packet(sacrifice.LifePacket);
+            else await Send(remote, stream, ciphers, [], null, atGate: sacrifice.LifePacket);
+        }
         // One simultaneous sweep, independent of notification latency. A holy hammer's hits are melee area hits that can
         // grant Fortification (the wiki's Holy Sweep of Hammerfalls); Rage stays with its sweep.
         bool fortificationGranted = false;
@@ -2611,8 +2620,8 @@ public static partial class Game
                         ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
                         if (reflected.Count > 0 && player is not null)
                             ReflectPendingAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
-                        CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
-                            settleKill: singleStrikeTarget is not null);
+                        CommitScheduledSkillHit(scheduled, id, m, hit, damage, critical, stun, sequence, gem.Name,
+                            melee: melee ?? !spell, settleKill: singleStrikeTarget is not null);
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));

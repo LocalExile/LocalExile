@@ -50,6 +50,20 @@ public static partial class Game
             podVictims.Clear();
         }
 
+        internal bool GroundDamage(uint id, SpawnedMonster monster, int damage, long now)
+        {
+            var (life, stage) = TakeOwnerDamageLocked(Conn, monster, damage);
+            monster.Life = life;
+            monster.Aggro = life > 0;
+            if (stage) CommitProjectileBossStage(this, id, monster, now);
+            World(id, InstanceProtocol.LifeUpdate(id, life));
+            if (life > 0) return false;
+            monster.Dead = true;
+            monster.LastHitBy = Conn;
+            CollectVaalSoulAtDeathLocked(Conn, monster);
+            return true;
+        }
+
         internal void PlaceToxicPod(ProjectileUse use, ProjectileVector centre, int radius, double duration,
             double dps, int slow, int cap, string? burst)
         {
@@ -81,18 +95,8 @@ public static partial class Game
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     carry.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;
-                    var (life, stage) = TakeOwnerDamageLocked(Conn, monster, damage);
-                    monster.Life = life;
-                    monster.Aggro = life > 0;
-                    if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    World(id, InstanceProtocol.LifeUpdate(id, life));
-                    if (life == 0)
-                    {
-                        monster.Dead = true;
-                        monster.LastHitBy = Conn;
-                        CollectVaalSoulAtDeathLocked(Conn, monster);
+                    if (GroundDamage(id, monster, damage, now))
                         Enqueue(() => DotKilled(remote, stream, ciphers, Conn, id, monster));
-                    }
                 }
                 if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);
                 else

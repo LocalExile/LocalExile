@@ -1738,7 +1738,11 @@ unless `virtual_self_targeted_skills_target_location_instead` (0x2a6e) or `virtu
 (0x5361) is set (`FUN_1419439e0`).
 Totem, mine and trap skills are left out, so Shockwave Totem and Stormblast Mine go off where they are aimed.
 Dark Pact also accepts a ground target to find skeletons. Ice Nova of Frostbolts uses the aimed point to select projectiles
-and falls back to the caster when none qualify.
+and falls back to the caster when none qualify. Vortex and Vortex of Projection also use the caster in that case.
+The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
+Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
+Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff
+`ground_maelstrom_chill`. The cast uses `vortex_explode` in MiscAnimatedArtVariations.
 0x2a6e is `casting_spell` AND `skill_is_nova_skill` (0x2a6c) AND the caster's `nova_spells_cast_at_target_location`
 (0x2a6d) (`FUN_14289d210`, registered by `FUN_1400dc6c0`), and the skill input handler `FUN_140121a30` reads it for the
 skill it builds a use for.

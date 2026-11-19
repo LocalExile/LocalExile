@@ -94,7 +94,11 @@ static partial class Game
     // Scheduled contacts commit rewards and queue charge gains before yielding to the outbox. A held socket must
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
-        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true)
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true) =>
+        CommitScheduledSkillHit(session, id, monster, hit, damage, critical, stun, sequence, label, melee: true, settleKill);
+
+    static void CommitScheduledSkillHit(ProjectileSession session, uint id, SpawnedMonster monster,
+        MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool melee, bool settleKill)
     {
         var conn = session.Conn;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -104,12 +108,17 @@ static partial class Game
             double until = monster.FlinchUntil;
             session.Packet(() => TakeHitPacket(conn, id, monster, until, now));
         }
-        var player = conn.Walk.Position(now);
         var target = monster.Walk.Position(now);
-        session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
-            kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
-        session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
-            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+        if (melee)
+        {
+            var player = conn.Walk.Position(now);
+            session.Packet(InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x20 : 0)),
+                kind: 3, angle: HitAngle(target.X - player.X, target.Y - player.Y)));
+        }
+        var life = InstanceProtocol.LifeUpdate(id, hit.Life);
+        string log = $"{label} {(melee ? "melee" : "spell")} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}";
+        if (melee) session.Packet(life, log);
+        else session.World(id, life, log);
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, Random.Shared);

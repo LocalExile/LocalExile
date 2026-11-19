@@ -17,7 +17,7 @@ public sealed class AreaSpellTimingTests
         """;
 
     [Fact]
-    public void An_area_spell_lands_at_its_aoe_clip_contact()
+    public async Task An_area_spell_lands_at_its_aoe_clip_contact()
     {
         var contacts = AnimationContactsTables.From(Json);
         Assert.Equal(266.0 / 766, contacts.SpellAreaRelease("Metadata/Characters/Int/Int.ao"), 6);
@@ -38,6 +38,79 @@ public sealed class AreaSpellTimingTests
         Assert.Equal(.65 * 266 / 766, contacts.SpellMoveWindow("Metadata/Characters/Int/Int.ao", wand,
             CastAnimationKind.Area, 0, .65, false)!.Value.LateFrom, 6);
         Assert.Null(contacts.SpellMoveWindow("Metadata/None.ao", wand, CastAnimationKind.Projectile, 0, .65, false));
+        await VortexDetonatesSelectedBolts();
+    }
+
+    static async Task VortexDetonatesSelectedBolts()
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle("Vortex of Projection", "Frostbolt");
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        battle.AdvanceBy(12);
+        conn.Clock.Start();
+        var vortex = Game.GemSkillEffects(conn).Single(s => s.Name == "Vortex of Projection");
+        var frostbolt = Game.GemSkillEffects(conn).Single(s => s.Name == "Frostbolt");
+        long start = session.Runtime.Now;
+        long contact = start + ProjectileRuntime.Time(Game.CastMs(conn, vortex.Effect, vortex.Id)!.Value / 1000d
+            * Game.Animations.SpellAreaRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+        long half = ProjectileRuntime.QuantaPerSecond / 2;
+        var aim = (X: 300, Y: 100);
+
+        ProjectileEntity Bolt(int x, double speed, double lifetime = 10)
+        {
+            var use = Game.CaptureGemProjectile(conn, session, frostbolt.Id, frostbolt, (x + 600, 100), new(0), from: (x, 100));
+            long id = session.Release(use with { Profile = use.Profile with { Speed = speed, Lifetime = ProjectileRuntime.Time(lifetime) } });
+            return session.Runtime.Projectiles.Single(p => p.UseId == id);
+        }
+        SpawnedMonster Witness(uint id, int x, int y) =>
+            conn.Monsters[id] = new("vortex witness", new(x, y, 0), 0, 0, 100000) { Hostile = true };
+        Task Cast() => Game.LaunchProjectile(session.remote, battle.Stream, battle.Ciphers, conn, vortex.Id,
+            (100, 100), aim, conn.ActionInterruptionGeneration);
+
+        var first = Bolt(281, .001);
+        var second = Bolt(350, 30);
+        var expired = Bolt(207, .001, (contact - start + half + 1d) / ProjectileRuntime.QuantaPerSecond);
+        int laterX = (int)Math.Round(350 + second.Speed * (contact + half - start) / ProjectileRuntime.QuantaPerSecond);
+        var one = Witness(800, 281, 126);
+        var beyond = Witness(801, 281, 127);
+        var two = Witness(802, laterX, 126);
+        var oldCell = Witness(803, 350, 126);
+        var lost = Witness(804, 207, 126);
+        var self = Witness(805, 100, 122);
+        var cast = Cast();
+        session.AdvanceTo(contact - 1);
+        Assert.Contains(first, session.Runtime.Projectiles);
+        session.AdvanceTo(contact);
+        Assert.DoesNotContain(first, session.Runtime.Projectiles);
+        Assert.Contains(second, Game.FrostboltNovaTargets(conn, aim, 5));
+        Assert.Empty(Game.FrostboltNovaTargets(conn, aim, 5, forVortex: true));
+        Assert.True(one.Life < one.MaxLife);
+        Assert.Equal(beyond.MaxLife, beyond.Life);
+        Assert.Equal(two.MaxLife, two.Life);
+        uint afterFirst = one.Life;
+
+        // A second use finds only reserved bolts. It falls back to the player while the first use still owes its bolts.
+        var overlappingCast = Cast();
+        session.AdvanceTo(contact + half - 1);
+        Assert.Contains(second, session.Runtime.Projectiles);
+        Assert.Equal(two.MaxLife, two.Life);
+        session.AdvanceTo(contact + half);
+        Assert.DoesNotContain(second, session.Runtime.Projectiles);
+        Assert.True(two.Life < two.MaxLife);
+        uint afterSecond = two.Life;
+        Assert.Equal(oldCell.MaxLife, oldCell.Life);
+        var replacement = Bolt(207, .001);
+        session.AdvanceTo(contact + 4 * half + ProjectileRuntime.QuantaPerSecond);
+        await Task.WhenAll(cast, overlappingCast);
+        await battle.FlushOutput();
+        Assert.DoesNotContain(expired, session.Runtime.Projectiles);
+        Assert.Contains(replacement, session.Runtime.Projectiles);
+        Assert.True(self.Life < self.MaxLife);
+        Assert.Equal(lost.MaxLife, lost.Life);
+        Assert.Equal(172u, afterFirst - one.Life);
+        Assert.Equal(172u, afterSecond - two.Life);
+        Assert.Equal(beyond.MaxLife, beyond.Life);
     }
 
     [Fact]
