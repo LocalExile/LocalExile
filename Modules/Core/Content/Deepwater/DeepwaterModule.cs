@@ -8,9 +8,9 @@ namespace GameServer.Modules.Deepwater;
 
 /// <summary>The Allflame league (the client's "Deepwater"): its league category, the league's area stat, the ways to The Sovereign
 /// (the World panel pin, /boat, the rowboat on The Coast), the hub's ruleset and its quest table (DeepwaterQuests), and the
-/// encounter areas' grid (DeepwaterGrid) and ruleset. Charts, voyages and Allflame crafting are not built yet
-/// (Agents/roadmap/world.md).</summary>
-public sealed class DeepwaterModule : IModule
+/// encounter areas' grid (DeepwaterGrid), ruleset and run (DeepwaterRun: the lanterns and their light). Charts as items,
+/// voyages' capsules and Allflame crafting are not built yet (Agents/roadmap/world.md).</summary>
+public sealed partial class DeepwaterModule : IModule
 {
     /// <summary>The Sovereign (<c>WorldAreas</c> DeepwaterHub, area type 53).</summary>
     public const string HubId = "DeepwaterHub";
@@ -40,11 +40,10 @@ public sealed class DeepwaterModule : IModule
     // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
     // a null check).
     static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules"));
-    // DeepwaterRules (ClientDeepwater): its per-frame update (0x1416851b0) looks the DeepwaterPlugin terrain plugin up
-    // (0x141685030) without a null check, so it goes only to the areas whose WorldAreas TerrainPlugin is that plugin: the
-    // client creates it there at every generation (0x141eca930). On The Sovereign and The Twilight Strand it closed the
-    // client (Agents/docs/protocol/03 §8).
-    static readonly Lazy<byte?> EncounterRules = new(() => Ruleset("DeepwaterRules"));
+    // DeepwaterRules (ClientDeepwater, DeepwaterRuleset.Row): its per-frame update (0x1416851b0) looks the DeepwaterPlugin
+    // terrain plugin up (0x141685030) without a null check, so it goes only to the areas whose WorldAreas TerrainPlugin is
+    // that plugin: the client creates it there at every generation (0x141eca930). On The Sovereign and The Twilight Strand
+    // it closed the client (Agents/docs/protocol/03 §8).
 
     static byte? Ruleset(string id) =>
         ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
@@ -63,6 +62,8 @@ public sealed class DeepwaterModule : IModule
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
+    // One run per encounter instance (a party and a re-entry see the same lanterns).
+    readonly ConditionalWeakTable<InstanceState, DeepwaterRun> _runs = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -80,7 +81,7 @@ public sealed class DeepwaterModule : IModule
         {
             string area = PlayerOf(conn).AreaId;
             if (area == HubId && HubRules.Value is { } hub) return [($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub))];
-            if (DeepwaterGrid.IsEncounter(area) && EncounterRules.Value is { } rules)
+            if (DeepwaterGrid.IsEncounter(area) && DeepwaterRuleset.Row.Value is { } rules)
                 return [($"0x001f ruleset DeepwaterRules (row {rules})", InstanceProtocol.AddRuleset(rules))];
             return [];
         });
@@ -104,7 +105,14 @@ public sealed class DeepwaterModule : IModule
             await WorldOf(conn).TravelTo(HubId, "/boat");
             return true;
         });
-        GameEvents.AreaGenerated.Add(id, conn => SpawnRowboat(module, conn));
+        GameEvents.AreaGenerated.Add(id, async conn =>
+        {
+            await SpawnRowboat(module, conn);
+            await StartRun(module, conn);
+        });
+        // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons).
+        GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
+        GameEvents.StateBuilding.Add(id, RunState);
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {
             var player = PlayerOf(conn);
