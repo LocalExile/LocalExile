@@ -239,7 +239,7 @@ public static partial class Game
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
-        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety))
+        bool mapBoss = rarity == MonsterRarity.Unique && (variety.BossHealthBar || MapScarabBosses.IsBoss(variety) || MapBeyond.IsBoss(variety))
             && MapDevices.Value.IsMapArea(conn.Layout.Hash);
         if (mapBoss && MapModsOf(conn) is { } bossMap)
             mods = mods with { Effects = mods.Effects.Combine(MapBossEffects(bossMap)) };
@@ -360,7 +360,7 @@ public static partial class Game
             : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
         if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
+        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (conn.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? variety.StateMachine;
         uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, SolarisLunaris.StartState(conn, variety, MonsterEmerge.CreateState(variety, emerge, waits)), team,
             skills, stats)
@@ -2172,6 +2172,7 @@ public static partial class Game
         AlternateAilmentsOnPlayerLocked(conn, m, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))), blocked, now, stats, a.Ailments);
         ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now, attack: !a.Spell, prepared: stats);
+        ApplyMonsterDecayLocked(conn, id, m, blocked, now, stats);
         Sirus.ApplyCorruptedBloodOnHit(conn, m, a, baseHit, blocked, now, stats);
         RecordIncomingHitLocked(conn, now, a.Spell, blocked, suppressed, lifeDamage, monsterCritical);
         RecentHitLifeLossOnHitLocked(conn, now);
@@ -2251,9 +2252,16 @@ public static partial class Game
 
     // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
-    public static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now) =>
-        m.Attack is not { } a ? 0
-        : now - m.HitPlayerAt <= RecentlySeconds ? m.Effects.AttackSeconds(a.Seconds, conn.Pools.AttackerSlowPct) : a.Seconds;
+    public static double MonsterSwingSeconds(ClientState conn, SpawnedMonster m, double now)
+    {
+        if (m.Attack is not { } a) return 0;
+        var effects = m.Effects;
+        int extra = MonsterOnLowLife(m) ? effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] : 0;
+        if (!a.Spell && now - m.HitPlayerAt <= RecentlySeconds) extra += conn.Pools.AttackerSlowPct;
+        if (extra == 0) return a.Seconds;
+        int increased = effects[a.Spell ? "base_cast_speed_+%" : "attack_speed_+%"];
+        return a.Seconds * Math.Max(.1, 1 + increased / 100d) / Math.Max(.1, 1 + (increased + extra) / 100d);
+    }
 
     // The attack stats on a monster's Stats component (it carries them from its creation, 11-skills.md §6) again when
     // its attack time changes or goes back, so the client's swing can follow the server's. Called from the player tick
@@ -2267,15 +2275,18 @@ public static partial class Game
             bool slows = conn.Pools.AttackerSlowPct != 0;
             foreach (var (id, m) in conn.Monsters)
             {
-                if (m.Dead || m.Attack is not { } a || m.SwingSecondsSent is null && (!slows || now - m.HitPlayerAt > RecentlySeconds)) continue;
+                if (m.Dead || m.Attack is not { } a) continue;
+                if (m.SwingSecondsSent is null && (a.Spell || !slows || now - m.HitPlayerAt > RecentlySeconds)
+                    && (!MonsterOnLowLife(m) || m.Effects[a.Spell ? "cast_speed_+%_when_on_low_life" : "attack_speed_+%_when_on_low_life"] == 0)) continue;
                 double seconds = MonsterSwingSeconds(conn, m, now);
                 if (seconds == (m.SwingSecondsSent ?? a.Seconds)) continue;
                 m.SwingSecondsSent = seconds == a.Seconds ? null : seconds;
-                changed.Add((id, seconds, (a with { Seconds = seconds }).Stats()));
+                var current = a with { Seconds = seconds };
+                changed.Add((id, seconds, a.Spell ? current.InPlaceSkillStats() : current.Stats()));
             }
         }
         foreach (var (id, seconds, stats) in changed)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, stats),
-                $"0x01b3 monster 0x{id:x} attack time {seconds:0.000} s (enemies that hit you recently)");
+                $"0x01b3 monster 0x{id:x} action time {seconds:0.000} s (conditional speed)");
     }
 }

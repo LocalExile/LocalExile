@@ -47,6 +47,7 @@ public static partial class Quests
     public sealed record FormsRule(string Area, string[] Varieties, string Next) : Rule
     {
         public string? BossPoint { get; init; }
+        public int? InitialLifePercent { get; init; }
     }
     /// <summary>Flags set when the player comes within <see cref="SightRange"/> of a living monster of the variety.</summary>
     public sealed record SeenRule(string Area, string Variety, string[] Flags) : Rule;
@@ -207,6 +208,8 @@ public static partial class Quests
         public static Rule Forms(string area, string[] varieties, string next) => new FormsRule(area, varieties, next);
         public static Rule Forms(string area, string[] varieties, string next, string bossPoint) =>
             new FormsRule(area, varieties, next) { BossPoint = bossPoint };
+        public static Rule Forms(string area, string[] varieties, string next, int initialLifePercent) =>
+            new FormsRule(area, varieties, next) { InitialLifePercent = initialLifePercent };
         public static Rule NearExit(string area, string to, params string[] flags) => new NearExitRule(area, to, flags);
         public static Rule Entered(string area, params string[] flags) => new EnteredRule(area, flags);
         public static Rule Used(string area, string objectType, params string[] flags) => new UsedRule(area, objectType, flags);

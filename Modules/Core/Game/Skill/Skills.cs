@@ -1221,6 +1221,8 @@ public static partial class Game
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
         if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
+        if (!triggered && CurseCatalog.Hex(SkillsFor(conn).EffectId(effect)) && IsBaneLinkedHex(conn, gem))
+            return "this curse is triggered by Bane";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";
@@ -1510,9 +1512,14 @@ public static partial class Game
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
         FillSkillBar(conn);
         var saved = CharacterSaves.Load(CharacterName(conn))?.SkillBar?.Values;
-        // Transient league skills are not part of the saved bar.
+        // Only a real skill change rebuilds the bar: a 0x53 re-creates every slot and resets its cooldown entry to the
+        // skill's own recovery rate, replaying the bar's cooldown animation (issue #1127: a guard's held entry was reset
+        // by the rebuild its own stat-only start sent). A pure stat refresh (a guard or self buff starting/ending, an
+        // aura's stats recalculated) adds and removes nothing, so the slots keep their entries. `added.All` is true on an
+        // empty list, so the change gate comes first. Transient league skills are not part of the saved bar.
         if (GameEvents.ExtraSkills(conn).Count > 0
-            || added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
+            || (gone.Count > 0 || added.Count > 0)
+                && added.All(id => SkillEffectId(conn, id) is { } effect && saved?.Contains(effect) == true))
             await SendSkillBar(remote, stream, ciphers, conn);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(remote, stream, ciphers, conn);
