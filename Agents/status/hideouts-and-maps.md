@@ -224,8 +224,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   there ([03](../docs/protocol/03-area-and-world.md) §8, [12](../docs/protocol/12-quests.md) §5). Verified live (3.29.3d,
   2026-11-19): a Chart's six lanterns, its collapse and ride up, a Voyage's Bathysphere called from a capsule and its
   three-stage descent, the haul on the deck and in the inventory on The Sovereign after a relog, the corpses without a
-  GEAL error. Not working yet: the client sends nothing when an item is dropped into a capsule's grid (inventory 113),
-  so Send to Surface is untested.
+  GEAL error. Picked-up Dredge items carry the client's contraband item flag (header flags 0x0006,
+  [13](../docs/protocol/13-items.md) §2), so they can be dragged (C→S 0x2a) or Ctrl+clicked (C→S 0x0112) into and out
+  of a capsule's grid (inventory 113) and only there besides the main inventory; Send to Surface moves them, unmarked,
+  to the deck's collection. A Voyage's start Bathysphere is sent `landed` 0 once one is called, so it stays unusable.
+  Built 2026-11-19, not yet checked live: the drag, the Ctrl+click, Send to Surface and the unlabelled start Bathysphere.
+  In ordinary areas an Allflame character meets the Coral Nest, Cursed Treasure and Brinerot Plunder rooms the level
+  generator places: their guards (golems and crabs, Drowned Crawlers, Brinerots), a chest that opens once they are dead
+  for one Chart and ordinary chest loot, Ducats from Brinerot guards, and the opener's Craiceann's Call, Possession or
+  Sailor's Lantern (`DeepwaterEncounters.cs`, `DeepwaterBuffs.cs`; built 2026-11-19, not yet checked live). The trigger
+  distance, guard counts, Ducat and buff chances are guesses in world.db (`deepwater_encounter_*`, `deepwater_*_chance`).
+  Charts drop only from these chests, at normal rarity, uncharted (no chart mods yet). Not built: removing Possession
+  by right-clicking its buff, and its monster touches outside torment maps; the Drowned Crawlers' possessed rares; the
+  Brinerot barrels' own monsters and `free` state (plain Brinerots stand in); dungeon areas such as The Submerged
+  Passage, where the port rolls the room but does not place it.
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.

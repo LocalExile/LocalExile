@@ -175,6 +175,10 @@ Row 171 (ClientDeepwater, the Allflame run; `Modules/Core/Content/Deepwater/Deep
 | 2 SendItemsToSurface | – | the capsule window's "Send to Surface" (`0x140427bf0`), which then closes the window |
 | 3 RequestExtraction | – | the capsule window's "Call Bathysphere" (`0x140427c50`) and the HUD's leave button (`0x14044c280`) |
 
+The Bathysphere (`ExtractionObject.ot`) is targetable only with QuestFlags 3562 DeepwaterCanExtract and `landed` 1 or 2;
+`landed` 0 disables it. As 3562 goes on when a called Bathysphere lands, the server sends a Voyage's start one
+(`landed` 2) `landed` 0 at the call, or it would turn usable and labelled again.
+
 | S→C 0x2c9 mode (reader `0x141683c40`) | after the mode | client effect |
 |---|---|---|
 | 0 | i32 x, i32 y, u32 | appends a lantern anchor for placement; nothing found reads the u32 (the Gateway sends the lantern's id) |
