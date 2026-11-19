@@ -506,10 +506,18 @@ internal static class DeepwaterLoot
 
     /// <summary>GameEvents.Drops in a run: the league's monsters drop map-related items at −50 %
     /// (<c>map_related_item_drop_chance_+%_final_from_league</c> −50, DeepwaterBase.ot), and the killer's Golden Lantern
-    /// stacks add +10 % quantity and +30 % rarity each (Ruthless +3 % / +10 %; the wiki), applied as multipliers (G).</summary>
+    /// stacks add +10 % quantity and +30 % rarity each (Ruthless +3 % / +10 %; the wiki), applied as multipliers (G). In a
+    /// Voyage the dead monster's cell multiplies them by its own quantity and rarity (DeepwaterRun.CellQuantity/CellRarity).</summary>
     public static void Drops(DropRoll roll, DeepwaterRun run)
     {
         if (roll.Monster.VarietyId.StartsWith(LeagueMonsters, StringComparison.Ordinal)) roll.MapRelated *= 0.5;
+        // A Voyage cell's own quantity and rarity (precomputed at the run's start; a loop over at most 9 cells).
+        if (run.CellQuantity is { } cellQuantity && run.CellRarity is { } cellRarity && run.CellIndex(roll.Monster.X, roll.Monster.Y) is int cell
+            && cell >= 0 && cell < cellQuantity.Length)
+        {
+            roll.Quantity *= cellQuantity[cell];
+            roll.Rarity *= cellRarity[cell];
+        }
         int stacks;
         lock (run.Gate) stacks = run.GoldenLanterns.GetValueOrDefault(CharacterName(roll.Conn));
         if (stacks == 0) return;

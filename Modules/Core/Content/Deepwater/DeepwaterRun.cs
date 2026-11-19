@@ -63,10 +63,12 @@ internal sealed class DeepwaterRun
     /// (a /goto) the controller's character level clamped to 1..84 (G; WorldAreas gives the encounter areas level 1).</summary>
     public required int Level { get; init; }
     /// <summary>The chart or board that started the run (null for a /goto run), and per board cell (the board's index) what
-    /// a Voyage's cell adds on its own: its monsters' mods (with the level's more life). Null for a Chart, whose stats are
-    /// the instance's area stats already, and for a /goto run.</summary>
+    /// a Voyage's cell adds on its own: its monsters' mods (with the level's more life) and its drops' quantity and rarity
+    /// factors. Null for a Chart, whose stats are the instance's area stats already, and for a /goto run.</summary>
     public DeepwaterPlan? Plan { get; init; }
     public MonsterModSet?[]? CellMods { get; init; }
+    public double[]? CellQuantity { get; init; }
+    public double[]? CellRarity { get; init; }
     /// <summary>Called once when the run ends (DeepwaterExtraction.End or Fail) with the players it ended for and whether it
     /// succeeded.</summary>
     public Func<IReadOnlyList<ClientState>, bool, Task>? OnEnd { get; set; }
@@ -74,8 +76,8 @@ internal sealed class DeepwaterRun
     // The board's cell rectangles as x0, y0, x1, y1 per cell, for CellIndex.
     int[]? _rects;
 
-    /// <summary>The board cell at (x, y), or −1: a plain loop over at most 9 rectangles in one array, for the spawn
-    /// path.</summary>
+    /// <summary>The board cell at (x, y), or −1: a plain loop over at most 9 rectangles in one array, for the per-kill
+    /// drop path (measured in the pull request).</summary>
     public int CellIndex(int x, int y)
     {
         var r = _rects ??= [.. Board.Cells.SelectMany(c => new[] { c.X0, c.Y0, c.X1, c.Y1 })];
