@@ -230,12 +230,11 @@ internal static class DeepwaterLoot
                 // pointed at (3.29.0b).
                 : states.Set("activated", thing.Done ? 1 : 0).Set("located", thing.Done || thing.Kind == Kind.SoothingCoral ? 1 : 0)
                     .Set("collected", thing.Done ? 1 : 0);
-        return new QuestObject(thing.X, thing.Y, info.Components, thing.Rotation, null, thing.Model,
-            TransitionState: (byte)(thing.Done ? info.States : 1), Opened: thing.Done)
-        {
-            StateMachine = states,
-            IntVariables = IsCorpse(thing.Type) ? new Dictionary<uint, int> { [DeepwaterConstants.RandomNumberVariable] = thing.Pose } : new Dictionary<uint, int>(),
-        }.Blob();
+        var obj = new QuestObject(thing.X, thing.Y, info.Components, thing.Rotation, null, thing.Model,
+            TransitionState: (byte)(thing.Done ? info.States : 1), Opened: thing.Done) { StateMachine = states };
+        if (IsCorpse(thing.Type))
+            obj = obj with { IntVariables = new Dictionary<uint, int> { [DeepwaterConstants.RandomNumberVariable] = thing.Pose } };
+        return obj.Blob();
     }
 
     static async Task Create(ClientState conn, Thing thing, uint id)
