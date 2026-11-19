@@ -40,18 +40,11 @@ public sealed partial class DeepwaterModule : IModule
     });
 
     // Rulesets row (S→C 0x1f) DeepwaterHubRules (ClientDeepwaterHub; the hub's windows look it up by row and use it without
-    // a null check).
-    static readonly Lazy<byte?> HubRules = new(() => Ruleset("DeepwaterHubRules"));
-    // Row 172's C→S 0x2ca op TakeAllLoot (0x140425340, M: the name from ClientDeepwaterHub's RTTI lambdas).
-    const byte TakeAllLoot = 9;
+    // a null check): DeepwaterHubRuleset.
     // DeepwaterRules (ClientDeepwater, DeepwaterRuleset.Row): its per-frame update (0x1416851b0) looks the DeepwaterPlugin
     // terrain plugin up (0x141685030) without a null check, so it goes only to the areas whose WorldAreas TerrainPlugin is
     // that plugin: the client creates it there at every generation (0x141eca930). On The Sovereign and The Twilight Strand
     // it closed the client (Agents/docs/protocol/03 §8).
-
-    static byte? Ruleset(string id) =>
-        ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
-            ? (byte)row.Index : null;
 
     /// <summary>The pin and /boat reach The Sovereign only after the first boarding from The Coast (QuestFlags 3556, set on
     /// arrival): an earlier trip would remove ValerieTutorial before her introduction sets <see cref="IntroductionSeen"/>.
@@ -63,6 +56,13 @@ public sealed partial class DeepwaterModule : IModule
         public uint Boat;
         public (int X, int Y) BoatAt;
         public int BoatReach;
+        // The deck's Chart Locker and Bathysphere (DeepwaterHub).
+        public uint Locker, Portal;
+        public (int X, int Y) LockerAt, PortalAt;
+        public int LockerReach, PortalReach;
+        public bool LockerOpen;
+        // Valerie's "Take Chart": the chart device opens once its reward is taken.
+        public bool DeviceAfterReward;
     }
 
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
@@ -77,6 +77,7 @@ public sealed partial class DeepwaterModule : IModule
         module.Lifetime.Own(Quests.Register(id, [new DeepwaterQuests()]));
         // The league monsters' more life (DeepwaterLifeScalingPerLevel), as Harvest's grove monsters.
         module.Lifetime.Own(MonsterModEffects.HandOverMore([DeepwaterMonsters.LevelMoreLife], []));
+        LoadHub(module);
         // Every area of the league is played in its category and carries map_deepwater_league (what the client's and the
         // server's extra terrain feature roll for Deepwater encounters read).
         InstanceEvents.LeagueCategory.Add(id, _ => Category.Value);
@@ -90,7 +91,7 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.BeforeEnterMessages.Add(id, conn =>
         {
             string area = PlayerOf(conn).AreaId;
-            return (area == HubId || DeepwaterGrid.IsEncounter(area)) && HubRules.Value is { } hub
+            return (area == HubId || DeepwaterGrid.IsEncounter(area)) && DeepwaterHubRuleset.Row.Value is { } hub
                 ? [($"0x001f ruleset DeepwaterHubRules (row {hub})", InstanceProtocol.AddRuleset(hub))] : [];
         });
         // Row 171 DeepwaterRules in an encounter area, after 0x21 and before the area's objects.
@@ -120,21 +121,17 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.AreaGenerated.Add(id, async conn =>
         {
             await SpawnRowboat(module, conn);
+            await SpawnDeck(module, conn);
             await StartRun(module, conn);
             // The Coral Nest, Cursed Treasure and Brinerot Plunder rooms of an ordinary area.
             string area = PlayerOf(conn).AreaId;
             if (area != HubId && !DeepwaterGrid.IsEncounter(area)) await DeepwaterEncounters.Enter(module, conn);
         });
-        // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons) and the hub ruleset's Take All
-        // in the Loot window (op 9, no arguments).
+        // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons) and the hub ruleset's (the
+        // Loot window's Take All, the planner's ops: DeepwaterHub).
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, async (conn, bytes) =>
         {
-            if (HubRules.Value is { } hub && bytes.Length >= 5 && bytes[2] == hub && bytes[3] == 1 && bytes[4] == TakeAllLoot)
-            {
-                await DeepwaterExtraction.TakeFromCollection(module, conn, null);
-                return true;
-            }
-            return await RulesetAction(module, conn, bytes);
+            return await HubAction(module, conn, bytes) || await RulesetAction(module, conn, bytes);
         });
         // C→S 0x0113: Ctrl + click an item out of the Loot window (inventory 114).
         GameEvents.Packet(InstanceItems.CollectionTakeId).Add(id, async (conn, bytes) =>
@@ -147,6 +144,7 @@ public sealed partial class DeepwaterModule : IModule
         {
             await DeepwaterBuffs.Tick(module, conn);
             await DeepwaterEncounters.Tick(module, conn);
+            await TickDeck(conn);
             if (RunOf(conn) is not { } run) return;
             await _light.Tick(module, conn, run);
             await DeepwaterCollapse.Tick(module, conn, run);
@@ -217,7 +215,7 @@ public sealed partial class DeepwaterModule : IModule
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {
             if (RunOf(conn) is { } run && (await DeepwaterLoot.Use(module, conn, run, use, at) || await DeepwaterExtraction.Use(module, conn, run, use, at))) return true;
-            if (await DeepwaterEncounters.Use(module, conn, use, at)) return true;
+            if (await DeepwaterEncounters.Use(module, conn, use, at) || await UseDeck(module, conn, use, at)) return true;
             var player = PlayerOf(conn);
             if (!_states.TryGetValue(player, out var state) || state.Boat == 0 || use.TargetId != state.Boat) return false;
             // The client offers the boat only after Valerie's introduction; an early click is refused quietly.

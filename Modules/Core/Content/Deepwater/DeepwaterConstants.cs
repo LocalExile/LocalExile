@@ -19,6 +19,10 @@ internal static class DeepwaterConstants
     public static int BaseLanternCount1x1 => Value("BaseLanternCount1x1", 6);
     /// <summary>DeepwaterConstants 3: a Voyage's lanterns.</summary>
     public static int BaseLanternCountVoyage => Value("BaseLanternCountVoyage", 25);
+    /// <summary>DeepwaterConstants 4-6: a border reroll costs Base × (GrowthPercent / 100)^k Sulphur, at most Max times.</summary>
+    public static int RerollBorderCostBase => Value("RerollBorderCostBase", 3000);
+    public static int RerollBorderCostGrowthPercent => Value("RerollBorderCostGrowthPercent", 200);
+    public static int RerollBorderMax => Value("RerollBorderMax", 5);
 
     /// <summary>The smallest radius a lit lantern draws (the client's lerp from 10 to <see cref="BaseLanternRadius"/>).</summary>
     public const int MinimumLanternRadius = 10;
@@ -80,4 +84,9 @@ internal static class DeepwaterConstants
     /// 65 after the first Voyage; DeepwaterUpgrades 5, stat 23281).</summary>
     public const int VoyagesEnabledLeagueFlag = 1893;
     public const int VoyagesEnabledExtraLanterns = 40;
+    /// <summary>League quest flag 1834 <c>DeepwaterBoatUnlocked</c> (Valerie's "Ready for Adventure?" sets it): the
+    /// ChartLocker is targetable with it.</summary>
+    public const int BoatUnlockedLeagueFlag = 1834;
+    /// <summary>League quest flag 1820 <c>DeepwaterQuestChartTaken</c>.</summary>
+    public const int ChartTakenLeagueFlag = 1820;
 }

@@ -22,6 +22,8 @@ public sealed partial class DeepwaterModule
         {
             // A crash or a relog in a run left its flags on.
             var on = DeepwaterConstants.RunFlags.Where(conn.HasQuestFlag).ToList();
+            // The Sovereign's owner keeps IsMapOwner (DeepwaterHub).
+            if (player.AreaId == HubId) await SyncHub(conn, on);
             if (on.Count > 0) await SetQuestFlags(remote, stream, ciphers, conn, on, on: false);
             return;
         }
