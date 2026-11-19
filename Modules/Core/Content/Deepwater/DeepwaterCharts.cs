@@ -15,6 +15,9 @@ internal static class DeepwaterCharts
     public static readonly string[] Bases =
         ["Metadata/Items/Deepwater/ChartSandy", "Metadata/Items/Deepwater/ChartCoralForest", "Metadata/Items/Deepwater/ChartCoralReef"];
     public const string Sandy = "Metadata/Items/Deepwater/ChartSandy";
+    /// <summary>Mods 40149 MapDeepwaterChartImplicit, every chart base's implicit: "Voyage Modifier will be revealed once Charted".</summary>
+    const string Placeholder = "MapDeepwaterChartImplicit";
+    const int ChartDomain = 39, ChartImplicit = 37;
 
     public static bool IsChart(ItemCatalog.BaseType type) => Array.IndexOf(Bases, type.Id) >= 0;
     public static bool IsChart(ItemCatalog catalog, Item item) => catalog.ByHash(item.TypeHash) is { } type && IsChart(type);
@@ -38,6 +41,37 @@ internal static class DeepwaterCharts
         int magic = Setting("deepwater_chart_magic_percent"), rare = Setting("deepwater_chart_rare_percent");
         int roll = random.Next(100);
         return roll < rare ? ItemRarity.Rare : roll < rare + magic ? ItemRarity.Magic : ItemRarity.Normal;
+    }
+
+    // ---- the charted implicit ----
+
+    /// <summary>The chart once explored: one implicit from the gt 37 pool (43 Adjacent and 19 Voyage mods as one pool, G),
+    /// drawn by the <c>chart</c> tag weights among those of Level ≤ the chart's Area Level, in place of
+    /// MapDeepwaterChartImplicit (G: its text says it is a placeholder). A chart that already has one keeps it. Null when the
+    /// pool is empty or the base is unknown.</summary>
+    public static Item? Charted(ItemCatalog catalog, Item item, Random random)
+    {
+        if (catalog.ByHash(item.TypeHash) is not { } type || !IsChart(type)) return null;
+        var mods = catalog.Mods;
+        if (item.Mods.Any(m => m.Section == ModSection.Implicit && mods.ByHash(m.Hash) is { Domain: ChartDomain, GenerationType: ChartImplicit })) return item;
+        int level = item.Chart?.AreaLevel is byte l and > 0 ? l : item.ItemLevel;
+        var pool = mods.All.Where(m => m.Domain == ChartDomain && m.GenerationType == ChartImplicit && m.Level <= level)
+            .Select(m => (Mod: m, Weight: m.WeightFor(type.Tags))).Where(p => p.Weight > 0).ToList();
+        if (pool.Count == 0) return null;
+        int pick = random.Next(pool.Sum(p => p.Weight));
+        var chosen = pool[^1].Mod;
+        foreach (var (mod, weight) in pool)
+        {
+            if (pick < weight) { chosen = mod; break; }
+            pick -= weight;
+        }
+        var implicitMod = chosen.Roll(ModSection.Implicit, random);
+        ushort? placeholder = mods.ById(Placeholder)?.Hash;
+        var list = item.Mods.ToList();
+        int at = list.FindIndex(m => m.Section == ModSection.Implicit && m.Hash == placeholder);
+        if (at >= 0) list[at] = implicitMod;
+        else list.Insert(0, implicitMod);
+        return item with { Mods = list };
     }
 
     // ---- the room ----
