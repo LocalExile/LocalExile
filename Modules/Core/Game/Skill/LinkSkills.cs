@@ -110,7 +110,7 @@ public static partial class Game
     }
 
     /// <summary>
-    /// One step of the player's links at game time <paramref name="now"/> (RunPlayerMinions, after the minions' step).
+    /// One step of the player's links at game time <paramref name="now"/> (StartPlayerMinions, after the minions' step).
     /// The player's death ends them all. A linked target that died or ended (a minion's duration running out counts, wiki
     /// Link skill) kills the player through the normal death path, which in Hardcore is a real death. Otherwise the cost
     /// since the last step is paid from mana (every link's <c>mana_cost_per_minute</c>); when it cannot be, all links

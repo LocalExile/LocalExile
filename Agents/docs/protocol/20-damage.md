@@ -978,7 +978,7 @@ The client Life handler for S→C 0x1b1 stores the current whole pool value; mer
 regeneration stat does not make the visible life value advance between these updates. The former
 250 ms player tick therefore made /god recovery jump by roughly one quarter of maximum life.
 
-`RunResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
+`StartResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
 Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `ClientState.Clock`
 time, including scheduler delays; the clock stops during pause. `RecoveryPool` retains fractional
 points, discards overflow at a full pool and negative carry at RF's one-life floor, and never revives
@@ -1436,7 +1436,7 @@ The fresh controls above verify corrected supplied-source totals, no-refill, cla
 prediction and full-ES-condition behaviour after the correction remain outside that batch.
 Live OfflineWitch had 185 ES: `/hit physical 100` left life at 3250 and ES at 85, then recovered to 185. Chaos reduced
 life while leaving ES intact. With the prediction bridge, client values advance between pool packets during recharge.
-Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream RunResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
+Measurements used the local client Life component, not orb pixels or an official server trace. ES uses upstream StartResourceRecovery with its 16 ms target and elapsed time/fractional carries; foreground verification saw at most 2-point positive ES updates
 instead of the previous 22-point steps. OfflineWitch's selected Energy Shield mastery grants 2% ES regeneration per
 second (3.7 at 185 ES); that regeneration correctly continues while recharge is interrupted. A temporary zero-regen
 control recovered nothing during the recharge delay. See [recovery timing](../re/recovery-timing.md) for evidence and

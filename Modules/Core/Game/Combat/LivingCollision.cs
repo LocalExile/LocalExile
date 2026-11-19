@@ -7,43 +7,44 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    // The player's collisions and what the others in the instance are shown of them, every 50 ms of the area's frames
+    // (the syncs every second run) while the player's updates run and no transfer is pending. A pause skips the
+    // collisions; the pose and the syncs go on.
+    static void StartLivingCollisions(ClientState conn, PlayerUpdatesState updates)
     {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
         int frames = 0;
-        try
+        EveryAsPlayer(conn, 50, () =>
         {
-            while (PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null)
+            if (PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null) return true;
+            if (conn.Closed || conn.LeavingArea) conn.Instance.RemovePlayer(conn.PeerId);
+            return false;
+        }, async (remote, stream, ciphers, conn) =>
+        {
+            if (!conn.Paused)
             {
-                if (!conn.Paused)
-                {
-                    if (IsMonsterRunner(conn)) await CorrectMonsterCollisions(remote, stream, ciphers, conn);
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    await ShowFreeze(remote, stream, ciphers, conn);
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    await ReleaseHeldMove(remote, stream, ciphers, conn);
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                    await KeepWakeZone(remote, stream, ciphers, conn);
-                    if (!PlayerUpdatesCurrent(conn, updates)) return;
-                }
-                PublishPlayerPose(conn);
-                if (ServerTrace.Sync) TraceSync(conn);
-                PublishAwakeMonsters(conn);
-                await ApplyKillShares(remote, stream, ciphers, conn);
-                if ((frames++ & 1) == 0)
-                {
-                    await SyncInstancePlayers(remote, stream, ciphers, conn);
-                    await SyncInstanceMonsters(remote, stream, ciphers, conn);
-                    await SyncSharedGround(remote, stream, ciphers, conn);
-                    await SyncPeerMinions(remote, stream, ciphers, conn);
-                }
-                await updates.Schedule.Wait(PlayerUpdateRole.LivingCollisions, 50, updates.Stop.Token);
+                if (IsMonsterRunner(conn)) await CorrectMonsterCollisions(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await PushOutOfCollision(remote, stream, ciphers, conn, living: true);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await ShowFreeze(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await ReleaseHeldMove(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await KeepWakeZone(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
             }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
-        finally { if (conn.Closed || conn.LeavingArea) conn.Instance.RemovePlayer(conn.PeerId); }
+            PublishPlayerPose(conn);
+            if (ServerTrace.Sync) TraceSync(conn);
+            PublishAwakeMonsters(conn);
+            await ApplyKillShares(remote, stream, ciphers, conn);
+            if ((frames++ & 1) == 0)
+            {
+                await SyncInstancePlayers(remote, stream, ciphers, conn);
+                await SyncInstanceMonsters(remote, stream, ciphers, conn);
+                await SyncSharedGround(remote, stream, ciphers, conn);
+                await SyncPeerMinions(remote, stream, ciphers, conn);
+            }
+        });
     }
 
     // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
@@ -252,7 +253,7 @@ public static partial class Game
                         > Progression.LevelFor(previous.Template.Experience, CharacterStats.LevelStarts))
                     {
                         uint effect = conn.TakeObjectId();
-                        conn.TemporarySkillEffects[effect] = AreaTime(conn) + 3;
+                        AddTemporarySkillEffect(conn, effect, 3);
                         packets.Create(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                             new EffectObject(peer.X, peer.Y, "Metadata/Effects/misc/levelup_new/rig.ao")
                             { Parent = peer.Id }.Blob()));

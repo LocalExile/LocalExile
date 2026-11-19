@@ -61,7 +61,7 @@ Per connection (one connection is one area), `ClientState.Paused` is "the Clock 
 | What | While paused |
 |---|---|
 | `Clock` (a `Stopwatch`) | stopped: walk estimates, skill cooldowns, attack readiness, flask effects (`FlaskEffects.Advance(last, now)` sees no time pass) stand still |
-| `RunMonsterAi` | skips its steps: monsters neither chase nor start swings |
+| `StartMonsterAi` | skips its steps: monsters neither chase nor start swings |
 | `RunPlayerTick` | skips its steps: no regeneration, no Righteous Fire burn, no waypoint activation |
 | `MonsterSwing` | a swing started before the pause waits (`WhilePaused`) and lands after the resume |
 | player projectiles | cast release, swept flight collision and impact cleanup use the stopped game clock; damage commits defer while paused (2026-10-25, automated checks and live flight/stop verification) |

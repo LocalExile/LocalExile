@@ -55,7 +55,7 @@ public static partial class Game
                 $"0x01b3 player mana_spent_per_minute {perMinute}")
             : Task.CompletedTask;
 
-    // The mana Bladefall of Trarthus spends over this recovery step (RunResourceRecovery takes it off with regeneration).
+    // The mana Bladefall of Trarthus spends over this recovery step (StartResourceRecovery takes it off with regeneration).
     public static double BladefallManaSpent(ClientState conn, double seconds) =>
         conn.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
 

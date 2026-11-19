@@ -13,7 +13,7 @@ using GameServer.Core;
 /// bonuses and no requirements. Ordinary and ascendancy nodes both count. Only skills with an executor act: granted
 /// self auras (Program.GrantedSkillsOf), Summon Elemental Relic (Program.RelicTriggerOf), the Spirit chieftains
 /// (Program.TriggeredGrantsLocked) and the footstep skill <c>RepeatingShockwave</c> (Abberath's Fury, Polytheist's Devout
-/// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.RunFootstepSkills).
+/// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.WakeFootsteps).
 /// Game data: the PassiveSkills client table, read when the catalog is made.
 /// </summary>
 public sealed class PassiveGrantedSkills
@@ -66,7 +66,7 @@ public sealed class PassiveGrantedSkills
         return grants;
     }
 
-    /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.RunFootstepSkills).</summary>
+    /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.WakeFootsteps).</summary>
     public static bool IsFootstepSkill(string effectId) => effectId == "RepeatingShockwave";
 
     // The Templar's run animations (Art/Models/CHARACTERS/Templar/rig.amd, all 18 run_* clips): an 800 ms loop with

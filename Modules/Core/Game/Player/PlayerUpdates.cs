@@ -71,17 +71,20 @@ public static partial class Game
         try
         {
             var (remote, stream, ciphers) = conn.Wire;
+            StartResourceRecovery(conn, state);
+            StartMonsterAi(conn, state);
+            StartLivingCollisions(conn, state);
             StartContentTick(conn, state);
             StartFlaskChargeRegen(conn, state);
             RestoreFortification(conn);
             StartCharges(conn, state);
-            await Task.WhenAll(Drive(PlayerUpdateRole.Recovery, () => RunResourceRecovery(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.MonsterAi, () => RunMonsterAi(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.LivingCollisions, () => RunLivingCollisions(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Minions, () => RunPlayerMinions(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Footsteps, () => RunFootstepSkills(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(remote, stream, ciphers, conn, state)),
-                Drive(PlayerUpdateRole.Tour, () => ContinueTour(remote, stream, ciphers, conn)));
+            StartPlayerMinions(conn, state);
+            WakeFootsteps(conn);
+            // The periodic work runs on the area's timers; the updates hold their claim until they stop, so that no second
+            // start doubles the timers.
+            await Task.WhenAll(Drive(PlayerUpdateRole.MonsterAction, () => ResumeBossStages(remote, stream, ciphers, conn, state)),
+                Drive(PlayerUpdateRole.Tour, () => ContinueTour(remote, stream, ciphers, conn)),
+                Task.Delay(Timeout.Infinite, state.Stop.Token));
         }
         catch (OperationCanceledException) when (state.Stop.IsCancellationRequested) { }
         catch (Exception ex) { Console.WriteLine($"[gateway] {conn.Wire.Remote} player updates failed: {ServerLog.Describe(ex)}"); throw; }

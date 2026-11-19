@@ -20,17 +20,14 @@ public static partial class Game
     /// is Path of Building's radius for Minion Instability, the other minion death explosion.</summary>
     public const int RelicExplosionRadius = 22;
 
-    // Every 100 ms of game time from area entry (a pause holds it): PlayerMinionsTick, then LinkSkillsTick (a link to a
-    // minion that just ended sees it gone). A failed step is logged and the next one runs; a closed connection ends the loop.
-    static async Task RunPlayerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    // Every 100 ms of the area's frames (a pause stops them) while the player's updates run: PlayerMinionsTick, then
+    // LinkSkillsTick (a link to a minion that just ended sees it gone). A failed step is logged and the next one runs.
+    static void StartPlayerMinions(ClientState conn, PlayerUpdatesState updates)
     {
         // Loads the relic trigger's tables now, so that no step or hit loads them under the Monsters lock.
         _ = RelicTriggerOf(conn);
-        while (PlayerUpdatesCurrent(conn, updates))
+        EveryAsPlayer(conn, 100, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
         {
-            await updates.Schedule.Wait(PlayerUpdateRole.Minions, 100, updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
-            if (conn.Paused) continue;
             try
             {
                 double now = updates.Schedule.Now(conn);
@@ -42,8 +39,7 @@ public static partial class Game
             {
                 if (!conn.Closed) Console.WriteLine($"[gateway] {remote} minions: {ex.Message}");
             }
-            catch (Exception) { break; } // the connection has gone
-        }
+        });
     }
 
     /// <summary>

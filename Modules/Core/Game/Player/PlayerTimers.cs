@@ -30,6 +30,16 @@ public static partial class Game
         InArea(conn, a => a.Timers.After(a.Frame, frames, _ => { if (!conn.Closed && CurrentGameWork) work(); }, source: CombatLifetime));
     }
 
+    /// <summary>Runs <paramref name="work"/> once as the player on the area's timers in <paramref name="seconds"/>, while
+    /// the player's updates still run.</summary>
+    static void AfterAsPlayer(ClientState conn, double seconds, Func<string, NetworkStream, ConnectionCiphers, ClientState, Task> work) =>
+        AfterSeconds(conn, seconds, () =>
+        {
+            if (conn.LeavingArea || conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
+            var (remote, stream, ciphers) = conn.Wire;
+            _ = AsPlayer(conn, updates, () => work(remote, stream, ciphers, conn));
+        });
+
     // In the area's frame, once its world exists (a player's updates start before the frames' first member joined).
     static void InArea(ClientState conn, Action<GameArea> work)
     {

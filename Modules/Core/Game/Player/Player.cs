@@ -941,7 +941,7 @@ public static partial class Game
 
     // One writer for continuous recovery: regeneration, flask recovery and the player's RF burn.
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
-    public static async Task RunResourceRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    static void StartResourceRecovery(ClientState conn, PlayerUpdatesState updates)
     {
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
@@ -952,10 +952,8 @@ public static partial class Game
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
         var cachedRf = conn.RighteousFire;
-        while (PlayerUpdatesCurrent(conn, updates))
+        EveryAsPlayer(conn, RecoveryStepMs, () => PlayerUpdatesCurrent(conn, updates), async (remote, stream, ciphers, conn) =>
         {
-            await updates.Schedule.Wait(PlayerUpdateRole.Recovery, RecoveryStepMs, updates.Stop.Token);
-            if (!PlayerUpdatesCurrent(conn, updates)) break;
             AdvanceUtilityFlasks(conn, updates);
             await PublishFlaskChanges(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
@@ -972,7 +970,7 @@ public static partial class Game
             {
                 // Commit earlier projectile hits before advancing leech/recovery to this resource boundary.
                 now = updates.Schedule.ResourceNow(conn);
-                if (!PlayerUpdatesCurrent(conn, updates)) break;
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
                 rf = conn.RighteousFire;
                 if (rf is not null && !RighteousFireSourceCurrentLocked(conn, rf))
                 {
@@ -988,7 +986,7 @@ public static partial class Game
                     periodicRegenStart = null;
                     last = now;
                     ratesAt = double.NegativeInfinity;
-                    continue;
+                    return;
                 }
                 if (LeagueFor(conn).Rules.PersistsVitals && now >= nextVitalsSave)
                 {
@@ -996,7 +994,7 @@ public static partial class Game
                     nextVitalsSave = now + 5;
                 }
                 double seconds = now - last;
-                if (seconds <= 0) continue;
+                if (seconds <= 0) return;
                 // Stat aggregation stays at the old 250 ms cadence, rather than rebuilding the panel 60 times/s.
                 if (now - ratesAt >= PlayerTickMs / 1000.0 || rf != cachedRf)
                 {
@@ -1155,7 +1153,7 @@ public static partial class Game
                 }
                 await EndFlaskEffects(remote, stream, ciphers, conn, ended, "death");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
-                continue;
+                return;
             }
             if (rf is not null && lifeAfter == 1 && conn.EnergyShield.Current == 0)
                 await EndRighteousFire(remote, stream, ciphers, conn, "one life and no energy shield", rf);
@@ -1174,7 +1172,7 @@ public static partial class Game
             if (ended.Count > 0)
                 await EndFlaskEffects(remote, stream, ciphers, conn, ended, $"life {lifeAfter}/{LifeCap(conn)}, mana {manaAfter}/{manaCap}");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-        }
+        });
     }
 
     // Called under the combat lock. Advance deadlines and consume accrued recovery without paying it into pools.

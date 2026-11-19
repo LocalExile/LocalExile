@@ -724,27 +724,20 @@ public static partial class Game
         public double FrameStart = double.NaN;
     }
 
-    public static async Task RunMonsterAi(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    // The connection's own monster AI where its area does not run the game's systems (MonsterAiSystem.cs runs it once a
+    // frame for every player otherwise): checked every frame, stepped at the cadence's pace.
+    static void StartMonsterAi(ClientState conn, PlayerUpdatesState updates)
     {
-        if (!PlayerUpdatesCurrent(conn, updates)) return;
         var cadence = new MonsterAiCadence();
-        try
-        {
-            while (PlayerUpdatesCurrent(conn, updates) && !conn.LeavingArea && conn.PendingTransfer is null)
+        double next = double.NegativeInfinity;
+        EveryAsPlayer(conn, Program.FrameMs, () => PlayerUpdatesCurrent(conn, updates) && conn.PendingTransfer is null,
+            async (remote, stream, ciphers, conn) =>
             {
-                // In an instance the area runs the AI once a frame for every player (MonsterAiSystem.cs).
-                if (!AreaRunsGame(conn)) await StepMonsterAi(remote, stream, ciphers, conn, cadence);
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                int delay;
-                lock (conn.Monsters)
-                    delay = cadence.DelayMilliseconds(updates.Schedule.Now(conn));
-                await updates.Schedule.Wait(PlayerUpdateRole.MonsterAi, delay, updates.Stop.Token);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
-        {
-            // The connection closed while sending.
-        }
+                double now = updates.Schedule.Now(conn);
+                if (AreaRunsGame(conn) || now < next) return;
+                await StepMonsterAi(remote, stream, ciphers, conn, cadence);
+                lock (conn.Monsters) next = now + cadence.DelayMilliseconds(updates.Schedule.Now(conn)) / 1000.0;
+            });
     }
 
     // Kept separate from socket dispatch so all decisions in a pass use the same game time and player pose.

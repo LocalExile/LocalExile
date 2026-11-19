@@ -940,7 +940,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   path reads the virtual base when the action starts. (The King crash first put down to this, `0xc0000005` at
   `0x19e37bf`, is `GeometryChannelBase::StartChannelling` reading a missing GeometryChannel row:
   [king-in-the-mists](../game/king-in-the-mists.md).)
-- **AI** (`RunMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
+- **AI** (`StartMonsterAi`, `MonsterAiCadence`): decisions run at 50 ms intervals of elapsed game time.
   A late wake runs one decision and schedules the next from the current time; it never replays missed steps.
   Pause freezes game time, and disabled AI or a dead player does not accumulate work to replay afterward.
   Hostile monsters neither chase nor swing while the entry grace period still protects the player.
@@ -2774,7 +2774,7 @@ The Spirit chieftains are the first (section 10f).
   and `minion_movement_speed_+%` become its own damage, attack speed and movement mods at the summon.
 - Kept apart: the instance save (`InstanceMonsters`), the player's area hits and default attack, and the on-kill
   charges skip it; an area change or logout drops it with the connection.
-- AI (`RunMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
+- AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
   not one lurking unrisen.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
@@ -3125,7 +3125,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   (`GrantedEffectsPerLevelHardmode` in Ruthless; for Devout of Abberath both name the same row) is a
   GrantedEffectsPerLevel row, which names the GrantedEffects row and its level. Only effects whose trigger runs on the server act; the others do nothing, and none
   joins the client's skill list. `RepeatingShockwave` (Abberath's Fury, Devout of Abberath's 45556: level 20, no cost,
-  no cooldown) is triggered by footsteps: `RunFootstepSkills` (a 50 ms poll per connection, stopped while paused) runs
+  no cooldown) is triggered by footsteps: `WakeFootsteps` (a 50 ms poll per connection, stopped while paused) runs
   a run-animation clock while the walk lasts (`Walk.ArrivesAt`), at `Walk.Speed` over the base walking speed, and
   restarts it when the walk ends. The Templar rig's 18 run clips loop in 800 ms with footstepright at 233 ms and
   footstepleft at 633 ms, so each passed event is one trigger. A movement skill teleports the walk, so it takes no
@@ -3446,7 +3446,7 @@ Tests replace `PlayerMinions.Random`.
 `friendly: true` (Positioned team 0) and the stats `is_player_minion` and `is_semantic_minion` 1 on its Stats component.
 The client reads these two to know the player's minion (the link-target filter 0x141bfaf20).
 `ClientState.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
-lock. `RunPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
+lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
 - A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the

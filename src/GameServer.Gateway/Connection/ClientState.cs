@@ -860,6 +860,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                 ? runtime.NowTicks / 120000d : Clock.Elapsed.TotalSeconds;
             ResourceEffectsState?.Freeze(RampageTransferAt.Value);
             LeavingArea = true;
+            Instance.RemovePlayer(PeerId);
             PlayerSkillsCache = null;
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
@@ -1319,7 +1320,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     // Low Life reached): Game.LoyaltyResourceStateLocked.
     public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     /// <summary>The degeneration on the player from what is around them (a trial's trap, an encounter's pool, a ground or a
-    /// debuff), points a second, energy shield first: RunResourceRecovery deals the total, and while any runs the client is
+    /// debuff), points a second, energy shield first: StartResourceRecovery deals the total, and while any runs the client is
     /// sent no recovery rates to predict a rise with. Under the Monsters lock.</summary>
     public PlayerDegens Degens { get; } = new();
     /// <summary>The total of <see cref="Degens"/>.</summary>

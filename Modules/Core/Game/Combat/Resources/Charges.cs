@@ -345,15 +345,15 @@ public static partial class Game
         WakeCharges(conn);
     }
 
-    static readonly RuleTable<ClientState, object> ChargeTickers = new();
+    static readonly RuleTable<PlayerUpdatesState, object> ChargeTickers = new();
 
     public static void WakeCharges(ClientState conn)
     {
         if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
         lock (conn.Monsters)
         {
-            if (ChargeTickers.TryGetValue(conn, out _)) return;
-            ChargeTickers.AddOrUpdate(conn, new());
+            if (ChargeTickers.TryGetValue(updates, out _)) return;
+            ChargeTickers.AddOrUpdate(updates, new());
         }
         EveryAsPlayer(conn, (int)(ChargeSession.StepSeconds * 1000), () =>
         {
@@ -362,7 +362,7 @@ public static partial class Game
                 var session = ChargesOf(conn);
                 if (PlayerUpdatesCurrent(conn, updates) && (session.TimesCharges || ChargePresentationPending(session)
                     || ChargePoolRefreshes.GetOrCreateValue(conn).Pending)) return true;
-                ChargeTickers.Remove(conn);
+                ChargeTickers.Remove(updates);
                 return false;
             }
         }, (remote, stream, ciphers, conn) => StepCharges(remote, stream, ciphers, conn, updates));

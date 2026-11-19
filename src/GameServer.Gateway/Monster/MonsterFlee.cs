@@ -5,7 +5,7 @@ using GameServer.Core.World;
 /// from the player; it uses no offensive skill until it gets there or its path ends short, with no fixed duration.
 /// Magic monsters avoid it half of the time and rare and unique ones always, through their rarity's own mods
 /// (MonsterMagic7, MonsterRare7, MonsterUnique7: monster_chance_to_not_flee_% 50, 100, 100). The AI walks it
-/// (Program.Monsters RunMonsterAi).
+/// (Program.Monsters StartMonsterAi).
 /// </summary>
 public static class MonsterFlee
 {

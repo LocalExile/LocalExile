@@ -165,7 +165,7 @@ public static partial class Game
                             py * BeamEffectObject.WorldPerCell, PlayerId).Blob()));
                     bytes.Presentation(beam, InstanceProtocol.EnterWakeZone(beam));
                     // The connection owns the expiry so the replacement Game module can retire it after a reload.
-                    conn.TemporarySkillEffects[beam] = AreaTime(conn) + 0.6;
+                    AddTemporarySkillEffect(conn, beam, 0.6);
                 }
                 conn.SoulEater.Souls.Clear();
             }

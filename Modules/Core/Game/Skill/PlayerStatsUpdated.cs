@@ -10,6 +10,7 @@ public static partial class Game
         PresentStats(conn);
         // A periodic charge gain's stat may have come (ChargeSession.Observe): the charges ticker runs while it has work.
         WakeCharges(conn);
+        WakeFootsteps(conn);
         // What the pools are built of (Adrenaline, Fortification, the aspects and aura reservations, conditional items):
         // a change rebuilds them, and the steps that read the pools run in the next phase.
         EnsureConditionalItemPools(conn);

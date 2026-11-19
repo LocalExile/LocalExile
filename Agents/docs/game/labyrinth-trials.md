@@ -308,7 +308,7 @@ half a second.
 In the original the pools fall smoothly in it (live 2026-10-31/11-01). The client cannot drain a pool itself: its
 pool step (`0x141e718c0`) adds the pool's native recovery rate only when it is above 0, so a negative
 `energy_shield_recovery_per_minute` or `life_recovery_per_minute` is ignored (tried 2026-10-31, reverted). So the
-degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`RunResourceRecovery`,
+degeneration (`ClientState.TrapDegenPerSecond`) is dealt by the player's 16 ms recovery loop (`StartResourceRecovery`,
 beside regeneration, so one pool update carries both), and while it runs the player's stat updates carry both rates
 as 0 (`PlayerStatsUpdateAtGate`, `SendPlayerEnergyShield`): with its own regeneration predicted up between the
 updates and the damage dealt down at each, the pool went in a saw (live 2026-11-01).

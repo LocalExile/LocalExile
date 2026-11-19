@@ -1876,7 +1876,7 @@ static partial class QuestobjectsRules
         finally { lock (conn.Monsters) conn.Degens[degen] = 0; }
     }
 
-    // A trap's degeneration on the player while they are in it (RunResourceRecovery deals ClientState.TrapDegenPerSecond)
+    // A trap's degeneration on the player while they are in it (StartResourceRecovery deals ClientState.TrapDegenPerSecond)
     // and the trap's buff shown on them (its instance and row).
     sealed class TrapDegen
     {

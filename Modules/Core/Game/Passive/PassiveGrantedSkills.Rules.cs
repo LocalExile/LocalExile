@@ -151,30 +151,50 @@ public static partial class Game
     // The footstep trigger's poll: the run animation's clock and each footstep are followed to within this.
     const int FootstepPollMs = 50;
 
-    // The player's footstep skills (Abberath's Fury), for the connection's life: every poll moves the run animation's clock
-    // and triggers each skill once per footstep it passed. Not while paused: the game clock stands still then.
-    static async Task RunFootstepSkills(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlayerUpdatesState updates)
+    sealed class FootstepTimer { public bool Has, Running; public double Last = double.NaN; }
+    static readonly RuleTable<PlayerUpdatesState, FootstepTimer> FootstepTimers = new();
+
+    // The player's footstep skills (Abberath's Fury): every poll on the area's timers moves the run animation's clock and
+    // triggers each skill once per footstep it passed, while the character has a footstep skill. A stats update (the
+    // passives changed) starts it again (WakeFootsteps). A pause stops the area's frames, so the clock stands still.
+    static void WakeFootsteps(ClientState conn)
     {
-        double last = updates.Schedule.Now(conn);
-        while (PlayerUpdatesCurrent(conn, updates))
+        if (conn.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(conn, updates)) return;
+        List<ushort> nodes;
+        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        bool has = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).For(nodes)
+            .Any(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId));
+        var timer = FootstepTimers.GetOrCreateValue(updates);
+        lock (timer)
         {
-            await updates.Schedule.Wait(PlayerUpdateRole.Footsteps, FootstepPollMs, updates.Stop.Token);
+            timer.Has = has;
+            if (!has || timer.Running) return;
+            timer.Running = true;
+            timer.Last = updates.Schedule.Now(conn);
+        }
+        EveryAsPlayer(conn, FootstepPollMs, () =>
+        {
+            lock (timer)
+            {
+                if (timer.Has && PlayerUpdatesCurrent(conn, updates)) return true;
+                timer.Running = false;
+                return false;
+            }
+        }, async (remote, stream, ciphers, conn) =>
+        {
             double now = updates.Schedule.Now(conn);
-            await SendTemporarySkillEffects(remote, stream, ciphers, conn);
             int steps;
             lock (conn.Monsters)
             {
-                if (!PlayerUpdatesCurrent(conn, updates)) return;
-                if (conn.Paused || now <= last) continue;
-                steps = FootstepsDue(conn, ref conn.FootstepRun, last, now);
-                last = now;
+                if (!PlayerUpdatesCurrent(conn, updates) || conn.Paused || now <= timer.Last) return;
+                steps = FootstepsDue(conn, ref conn.FootstepRun, timer.Last, now);
+                timer.Last = now;
             }
-            if (steps == 0) continue;
+            if (steps == 0) return;
             foreach (var skill in FootstepSkills(conn, now))
                 for (int i = 0; i < steps && PlayerUpdatesCurrent(conn, updates); i++)
                     await TriggerFootstepSkill(remote, stream, ciphers, conn, skill);
-        }
+        });
     }
 
     // One poll of the run animation's clock, from → now, and the footsteps it passed. The clock runs while the player walks
@@ -265,7 +285,7 @@ public static partial class Game
                 lock (conn.Monsters)
                 {
                     if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
-                    conn.TemporarySkillEffects[obj] = AreaTime(conn) + PassiveGrantedSkills.ExplosionArtMs / 1000.0;
+                    AddTemporarySkillEffect(conn, obj, PassiveGrantedSkills.ExplosionArtMs / 1000.0);
                     return InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                         new EffectObject(at.X, at.Y, art!).Blob());
                 }
@@ -385,6 +405,14 @@ public static partial class Game
     // art created before replacement. Permanent connection state holds only object ids and deadlines.
     // Polled every 50 ms: with no temporary art at all there is nothing to remove, so the send gate and the Monsters lock
     // are left alone (a racy read of the count only delays a removal to the next poll).
+    /// <summary>A short-lived effect object the player is shown, removed after <paramref name="seconds"/>. Under the
+    /// Monsters lock.</summary>
+    public static void AddTemporarySkillEffect(ClientState conn, uint id, double seconds)
+    {
+        conn.TemporarySkillEffects[id] = AreaTime(conn) + seconds;
+        AfterAsPlayer(conn, seconds, SendTemporarySkillEffects);
+    }
+
     public static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : SendWorldBatch(conn, [], admission =>
         {
