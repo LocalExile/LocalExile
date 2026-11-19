@@ -1,5 +1,6 @@
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Deepwater;
@@ -12,8 +13,12 @@ internal static class DeepwaterLanterns
     /// <see cref="DeepwaterConstants.BaseLanternPlacementRange"/> from an anchor, but moves a cell that is not walkable
     /// up to 9 cells (<c>0x141fc5800</c>'s ring search), and the server's estimate of the player trails the client's.</summary>
     const int Slack = 10;
-    /// <summary>The client's reach from the player to the new lantern (<c>|C − player|² &lt; 10001</c>).</summary>
+    /// <summary>The client's reach from the player to the new lantern (<c>|P − player|² &lt; 10001</c>).</summary>
     const int PlayerReach = 100;
+    /// <summary>How far behind the player (away from the cursor) a lantern may still go (<c>|P − player|² &lt; 901</c>).</summary>
+    const int Behind = 30;
+    /// <summary>A candidate at least 60 cells from the cursor is dropped (<c>d2 &lt; 3601</c>).</summary>
+    const long CursorReach = 3601;
 
     static readonly Lazy<StateMachineData?> States = new(() => ObjectTypes.All().Where(t => t.Type == DeepwaterConstants.Lantern)
         .Select(t => ObjectTypes.StateMachine(t.Row, ObjectTypes.SharedStates())).FirstOrDefault());
@@ -115,34 +120,86 @@ internal static class DeepwaterLanterns
         }
     }
 
-    /// <summary>Why the server refuses a lantern at (x, y) asked for by this player, or null to place it: the sender holds
-    /// the lanterns (QuestFlags 3550), the run is still exploring and has lanterns left, the player is alive, the cell
-    /// is walkable and within reach of the player, one lit lantern is at the placement range and none is nearer than the
-    /// light radius (the client's own snap rule, <c>0x141fc5800</c> and <c>0x141fc5d00</c>). The client does not ask for
-    /// the player to stand in light, so neither does the server: a player who has just stepped into the dark may still
-    /// place one to save themselves.</summary>
-    public static string? Refusal(ClientState conn, DeepwaterRun run, int x, int y)
+    /// <summary>Why the server refuses a lantern asked for by this player, or null to place it: the sender holds the
+    /// lanterns (QuestFlags 3550), the run is still exploring and has lanterns left, the player is alive, and the
+    /// client's snap (<see cref="Snap"/>) finds a cell for the cursor. The client does not ask for the player to stand in
+    /// light, so neither does the server: a player who has just stepped into the dark may still place one to save
+    /// themselves.</summary>
+    public static string? Refusal(ClientState conn, DeepwaterRun run, (int X, int Y) cursor, out (int X, int Y) at, out string note)
     {
-        double now = conn.Clock.Elapsed.TotalSeconds;
+        (at, note) = (cursor, "");
         if (!CharacterName(conn).Equals(run.Controller, StringComparison.OrdinalIgnoreCase)
             || !ClientHasQuestFlag(conn, DeepwaterConstants.LanternController)) return "not the lantern controller";
         if (run.Phase != DeepwaterRun.RunPhase.Exploring) return $"the run is {run.Phase}";
         lock (run.Gate) if (run.Placed >= run.Total) return $"no lanterns left ({run.Placed}/{run.Total})";
         if (conn.PlayerLife == 0) return "dead";
-        var at = conn.Walk.Position(now);
-        if (conn.Layout.Walkable?.Invoke(x, y) == false) return "not walkable";
-        long reach = PlayerReach + Slack;
-        long pdx = x - at.X, pdy = y - at.Y;
-        if (pdx * pdx + pdy * pdy > reach * reach) return $"{Math.Sqrt(pdx * pdx + pdy * pdy):0} cells from the player at ({at.X}, {at.Y})";
-        int range = DeepwaterConstants.BaseLanternPlacementRange, apart = range - 5;
-        bool anchored = false;
-        foreach (var l in run.Snapshot())
+        if (Snap(conn, run, cursor, out string why) is not { } snapped) return why;
+        (at, note) = (snapped, why);
+        return null;
+    }
+
+    /// <summary>The cell the client puts a lantern at for the cursor cell its 0x2ca carries (the client sends the cursor,
+    /// not its snap): <c>0x141fc5800</c> with its candidate filter <c>0x141fc5d00</c>. Each lantern of the run, lit or
+    /// not (the client never removes an anchor), proposes the cell <see cref="DeepwaterConstants.BaseLanternPlacementRange"/>
+    /// away towards the cursor (rounded as <c>0x140672360</c>); a candidate is dropped 60 or more cells from the cursor,
+    /// 100 or more from the player, behind the player and 30 or more from them, or within range − 5 of any lantern. The
+    /// nearest to the cursor wins (only it is tried); a cell that is not walkable (client layer 0 below 4,
+    /// <c>0x141d888f0</c>) moves to the first walkable one of rings 1-9 around it. Null with the reason when none fits.
+    /// The player-distance tests allow <see cref="Slack"/>, as the server's estimate of the player trails the client's.
+    /// With a cell, <paramref name="why"/> is a note for the log (empty, or the blocked line).</summary>
+    public static (int X, int Y)? Snap(ClientState conn, DeepwaterRun run, (int X, int Y) cursor, out string why)
+    {
+        var player = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        int range = DeepwaterConstants.BaseLanternPlacementRange;
+        long apart = (long)(range - 5) * (range - 5), far = (long)(PlayerReach + Slack) * (PlayerReach + Slack) + 1,
+            behind = (long)(Behind + Slack) * (Behind + Slack) + 1;
+        var anchors = run.Snapshot();
+        (int X, int Y)? best = null;
+        long bestD2 = long.MaxValue;
+        foreach (var a in anchors)
         {
-            if (l.Radius(now) <= 0) continue;
-            double d = Math.Sqrt((double)(x - l.X) * (x - l.X) + (double)(y - l.Y) * (y - l.Y));
-            if (d < apart - Slack) return $"{d:0} cells from lantern {l.Order} (at least {apart})";
-            if (Math.Abs(d - range) <= Slack) anchored = true;
+            int vx = cursor.X - a.X, vy = cursor.Y - a.Y;
+            float length = MathF.Sqrt((float)vx * vx + (float)vy * vy);
+            float s = length > 0 ? range / length : 0;
+            (int X, int Y) p = (a.X + (int)MathF.Floor(vx * s + 0.5f), a.Y + (int)MathF.Floor(vy * s + 0.5f));
+            long d2 = Square(p.X - cursor.X, p.Y - cursor.Y);
+            if (d2 >= CursorReach) continue;
+            long wx = p.X - player.X, wy = p.Y - player.Y, w2 = wx * wx + wy * wy;
+            if (w2 >= far) continue;
+            if (wx * (cursor.X - player.X) + wy * (cursor.Y - player.Y) < 0 && w2 >= behind) continue;
+            if (anchors.Any(b => Square(b.X - p.X, b.Y - p.Y) <= apart)) continue;
+            // The client sorts by d2 ascending (0x141fd6240); the first kept of equals wins here (G for ties).
+            if (d2 < bestD2) (best, bestD2) = (p, d2);
         }
-        return anchored ? null : $"no lit lantern {range} cells away";
+        if (best is not { } at)
+        {
+            why = $"no lantern in reach of the cursor ({cursor.X}, {cursor.Y}) with the player at ({player.X}, {player.Y})";
+            return null;
+        }
+        if (!Walkable(at.X, at.Y))
+        {
+            (int X, int Y)? found = null;
+            for (int r = 1; r <= 9 && found is null; r++)
+                for (int dy = -r; dy <= r && found is null; dy++)
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
+                        if (Walkable(at.X + dx, at.Y + dy)) { found = (at.X + dx, at.Y + dy); break; }
+                    }
+            if (found is not { } moved)
+            {
+                why = $"no walkable cell within 9 of ({at.X}, {at.Y})";
+                return null;
+            }
+            at = moved;
+        }
+        // The client also refuses a line from the player crossing its layer 1 below 1 (0x141d8a7f0). G: with the
+        // server's trailing estimate of the player that test would refuse lanterns the client allowed, so it is logged.
+        why = conn.Layout.Sight is { } sight && ClientPathfinder.LineBelow(player, at, sight, 1)
+            ? $" (the line from the player's estimate ({player.X}, {player.Y}) is blocked; placed anyway)" : "";
+        return at;
+
+        bool Walkable(int x, int y) => conn.Layout.WalkableFor(x, y, 3);
+        static long Square(long x, long y) => x * x + y * y;
     }
 }

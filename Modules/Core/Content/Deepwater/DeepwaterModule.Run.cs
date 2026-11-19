@@ -92,17 +92,17 @@ public sealed partial class DeepwaterModule
         switch (a.Op)
         {
             case DeepwaterRuleset.Op.PlaceLantern:
-                if (DeepwaterLanterns.Refusal(conn, run, a.X, a.Y) is { } why)
+                if (DeepwaterLanterns.Refusal(conn, run, (a.X, a.Y), out var at, out string note) is { } why)
                 {
                     // The count is sent again so the client stays in step with the server (it changes only with mode 2).
                     module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern ({a.X}, {a.Y}) refused: {why}");
                     await DeepwaterLanterns.SendCount(conn, run);
                     return true;
                 }
-                var lantern = DeepwaterLanterns.Add(conn, run, a.X, a.Y, counts: true);
+                var lantern = DeepwaterLanterns.Add(conn, run, at.X, at.Y, counts: true);
                 int placed, total;
                 lock (run.Gate) (placed, total) = (run.Placed, run.Total);
-                module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern ({a.X}, {a.Y}): lantern {placed}/{total}");
+                module.Log($"{player.Character} <= 0x02ca DeepwaterRules PlaceLantern cursor ({a.X}, {a.Y}) -> ({at.X}, {at.Y}): lantern {placed}/{total}{note}");
                 await DeepwaterLanterns.Show(module, conn, run, lantern, dropping: true);
                 await DeepwaterLanterns.SendCount(conn, run);
                 await DeepwaterMonsters.Release(module, conn, run, lantern);
