@@ -64,6 +64,7 @@ public sealed partial class DeepwaterModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     // One run per encounter instance (a party and a re-entry see the same lanterns).
     readonly ConditionalWeakTable<InstanceState, DeepwaterRun> _runs = new();
+    readonly DeepwaterLight _light = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -112,6 +113,13 @@ public sealed partial class DeepwaterModule : IModule
         });
         // C→S 0x2ca: the encounter ruleset's actions (a lantern placed, a capsule's buttons).
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, (conn, bytes) => RulesetAction(module, conn, bytes));
+        GameEvents.Tick.Add(id, (conn, _) => RunOf(conn) is { } run ? _light.Tick(module, conn, run) : Task.CompletedTask);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) =>
+        {
+            _light.Forget(conn);
+            return Task.CompletedTask;
+        });
+        GameEvents.PlayerStatSources.Add(id, _light.WithSlow);
         GameEvents.StateBuilding.Add(id, RunState);
         GameEvents.ObjectUse.Add(id, async (conn, use, at) =>
         {

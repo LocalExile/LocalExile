@@ -114,6 +114,7 @@ public sealed partial class DeepwaterModule
             ["biome"] = cell?.BiomeArea,
             ["onDeck"] = run.Board.OnDeck(at),
             ["inLight"] = run.InLight(at, now),
+            ["drowningLeft"] = _light.Drowning(conn, out double left) ? Math.Round(left, 2) : null,
             ["lanterns"] = new JsonArray([.. run.Snapshot().Select(l => (JsonNode)new JsonObject
             {
                 ["id"] = l.Id, ["x"] = l.X, ["y"] = l.Y, ["radius"] = Math.Round(l.Radius(now), 1),
