@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -368,6 +369,109 @@ public sealed class ArakaaliPhaseTests
         rebound.Stop();
 
     }
+    [GameFilesFact]
+    public async Task Yugul_orbs_and_turrets_target_only_players_out_of_entry_protection()
+    {
+        using var runtime = new Runtime();
+        using var hostWire = new Wire();
+        using var peerWire = new Wire();
+        var layout = new AreaLayout(1, Yugul.Area, 4000, 4000, 1920, 1646, (_, _) => true, []);
+        var pools = new CharacterStats.Pools(58, 10000, 200, 1, 0);
+        var host = new ClientState(layout, 1, 1) { Instance = new(), LockstepClient = false, PlayerSent = true,
+            Pools = pools, PlayerLife = pools.Life, Character = "YugulGraceHost", Wire = ("yugul-host", hostWire.Stream, hostWire.Ciphers) };
+        var peer = new ClientState(layout, 2, 1) { Instance = host.Instance, LockstepClient = false, PlayerSent = true,
+            Pools = pools, PlayerLife = pools.Life, Character = "YugulGracePeer", Wire = ("yugul-peer", peerWire.Stream, peerWire.Ciphers) };
+        runtime.Player = host;
+        runtime.Observers.Add(peer);
+        Program.InGame.TryAdd(host, 0);
+        Program.InGame.TryAdd(peer, 0);
+        Assert.True(Game.ClaimMonsterHost(host.Wire.Remote, host));
+        uint id = await Game.SpawnMonster(host.Wire.Remote, hostWire.Stream, hostWire.Ciphers, host,
+            Game.Monsters.Find(Yugul.Boss)!, 58, MonsterRarity.Unique, 1920, 1646, unrisen: false);
+        var boss = host.Monsters[id];
+        boss.Aggro = true;
+        boss.Life--;
+        var hazards = new YugulHazards(id, boss, host);
+        await hazards.Bind(host);
+        await hazards.Bind(peer);
+        var shots = host.ProjectileRuntime = new Game.ProjectileSession(host.Wire.Remote, hostWire.Stream, hostWire.Ciphers, host);
+        var peerShots = peer.ProjectileRuntime = new Game.ProjectileSession(peer.Wire.Remote, peerWire.Stream, peerWire.Ciphers, peer);
+        var sessions = new[] { shots, peerShots };
+        var previousOutgoing = Program.Outgoing;
+        try
+        {
+            await hazards.Step(host, 100);
+            Assert.True(Game.IsMonsterRunner(host));
+            var (orbId, orb) = Assert.Single(host.Monsters, p => p.Value.Variety?.Id.EndsWith("/SilverOrb") == true);
+            uint turretId = Assert.Single(host.Monsters, p => p.Value.Variety?.Id.EndsWith("/SilverPoolTurret") == true).Key;
+            var chase = InstanceProtocol.AnimationUpdate(orbId, 0, 7, 1);
+            var channel = InstanceProtocol.AnimationUpdate(turretId, 0, 0, 1)[..^sizeof(float)];
+            var starts = new System.Collections.Concurrent.ConcurrentQueue<(ConnectionCiphers, uint)>();
+            Program.Outgoing = (cipher, bytes) =>
+            {
+                if (bytes.AsSpan().SequenceEqual(chase)) starts.Enqueue((cipher, orbId));
+                if (bytes.AsSpan().StartsWith(channel)) starts.Enqueue((cipher, turretId));
+            };
+            var start = orb.Walk.Position(100);
+            var near = (X: start.X + 20, Y: start.Y);
+            var far = (X: start.X - 50, Y: start.Y);
+            host.Walk.Teleport(near.X, near.Y, 100);
+            peer.Walk.Teleport(far.X, far.Y, 100);
+            Assert.True(host.EntryProtection.Start(host.Clock.Elapsed.TotalSeconds, near, 1, town: false, hideout: false));
+            Assert.True(peer.EntryProtection.Start(peer.Clock.Elapsed.TotalSeconds, far, 1, town: false, hideout: false));
+
+            await hazards.Step(host, 102);
+            shots.AdvanceTo(ProjectileRuntime.Time(102.25));
+            Assert.Empty(shots.Runtime.Projectiles);
+            Assert.Equal(start, orb.Walk.Destination);
+            Assert.Empty(starts);
+
+            peer.EntryProtection.End(peer.Clock.Elapsed.TotalSeconds, far, action: true);
+            await hazards.Step(host, 103);
+            Assert.True(orb.Walk.Destination.X < start.X);
+            foreach (var session in sessions)
+            {
+                Assert.Single(starts, s => s == (session.ciphers, orbId));
+                Assert.Single(starts, s => s == (session.ciphers, turretId));
+                session.AdvanceTo(ProjectileRuntime.Time(103.25));
+                var shot = Assert.Single(session.Runtime.Projectiles);
+                Assert.Equal(Game.ProjectileSession.Vector(far), shot.Use.Aim);
+            }
+
+            host.EntryProtection.End(host.Clock.Elapsed.TotalSeconds, near, action: true);
+            peer.Walk.Teleport(far.X, far.Y + 60, 103.3);
+            var from = orb.Walk.Position(103.3);
+            await hazards.Step(host, 103.3);
+            Assert.True(orb.Walk.Destination.X > from.X);
+            foreach (var session in sessions)
+            {
+                long previousUse = 0;
+                for (int i = 0; i < 6; i++)
+                {
+                    session.AdvanceTo(ProjectileRuntime.Time(103.25 + i * (.35 / .6)));
+                    var shot = Assert.Single(session.Runtime.Projectiles, p => p.UseId > previousUse);
+                    Assert.Equal(Game.ProjectileSession.Vector(far), shot.Use.Aim);
+                    previousUse = shot.UseId;
+                }
+            }
+            Assert.True(host.PlayerLife > 0);
+            await hazards.Step(host, 112);
+            foreach (var session in sessions)
+            {
+                session.AdvanceTo(ProjectileRuntime.Time(112.25));
+                Assert.Equal(Game.ProjectileSession.Vector(near), Assert.Single(session.Runtime.Projectiles).Use.Aim);
+            }
+        }
+        finally
+        {
+            Program.Outgoing = previousOutgoing;
+            await hazards.Clear();
+            shots.Invalidate();
+            peerShots.Invalidate();
+            await Task.WhenAll(shots.OutputCompleted, peerShots.OutputCompleted);
+        }
+    }
+
     sealed class Runtime : IDisposable
     {
         readonly IGameLogic? previousLogic = Program.GameLogicOrNull;
@@ -376,7 +480,7 @@ public sealed class ArakaaliPhaseTests
         public ClientState? Player;
         public readonly List<ClientState> Observers = [];
         public Runtime() { Game.CombatLifetime = lifetime; Program.SetGameLogic(new GameServer.Modules.Game.GameLogic()); }
-        public void Dispose() { if (Player is { } c) c.Closed = true;
+        public void Dispose() { if (Player is { } c) { c.Closed = true; Program.InGame.TryRemove(c, out _); }
             foreach (var observer in Observers) { observer.Closed = true; Program.InGame.TryRemove(observer, out _); }
             lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previousLogic!); }

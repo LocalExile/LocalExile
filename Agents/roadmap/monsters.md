@@ -19,7 +19,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Act 10 has three heart intervals and the allied finale; calibrate HP thresholds, AI weights and hazard geometry.
   Act 5 Kitava has the body/heart and rescue sequence; calibrate phase thresholds and AI weights against a reference.
   Arakaali has the Silk/stance transition and linked turret rails; corner travel and laser/HP calibration remain.
-  Yugul has mirror intervals, pool chill, Fearful orbs and turret volleys; calibrate Fearful magnitudes and orb AI.
+  Yugul has mirror intervals, pool chill, Fearful orbs and turret volleys.
+  Calibrate Fearful magnitudes, orb escalation and target preference among eligible players.
   Solaris/Lunaris have celestial fire/cold hazards; calibrate original handoff timing, target distribution and radii.
   Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance

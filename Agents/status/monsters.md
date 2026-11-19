@@ -181,7 +181,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Her Silk transition and stance-specific attacks run; corner travel, laser ordering and collision calibration remain.
   Campaign Yugul finishes his native entrance before generic AI, making him targetable on first entry as on reentry;
   his two mirror intervals hide the body until ten images die; pools chill, Fearful orbs chase and four native turrets
-  fire piercing volleys with terminal bursts. Fearful magnitudes, orb escalation and aura radii remain calibrated.
+  fire piercing volleys with terminal bursts.
+  Orbs and turrets skip players under entry protection.
+  Fearful magnitudes, orb escalation and aura radii remain calibrated.
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
   have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
