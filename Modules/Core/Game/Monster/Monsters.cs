@@ -121,7 +121,7 @@ public static partial class Game
         saved.Planned
             ? SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 log: false, alone: false, bulk: bulk)
-            : SpawnMonster(remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
+            : SpawnMonsterCore(saved.LifeScaling, remote, stream, ciphers, conn, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
                 unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
 
@@ -204,7 +204,7 @@ public static partial class Game
         Seconds = attack.Summon is { CastSeconds: > 0 } summon ? summon.CastSeconds : effects.AttackSeconds(attack.BaseSeconds, attack.Spell),
     };
 
-    public static async Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+    public static Task<uint> SpawnMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
@@ -216,6 +216,22 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
+        bool bulk = false)
+        => SpawnMonsterCore(null, remote, stream, ciphers, conn, variety, level, rarity, x, y, name, friendly, log,
+            damagedLife, mods, alone, unrisen, rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife,
+            ownedMaximumEnergyShield, ownedEnergyShield, extraMods, scripted, ownedLooks, ownedAdmission, ownedInitialDeath,
+            placement, lifePercent, movement, attachTo, instanceOwned, bulk);
+
+    static async Task<uint> SpawnMonsterCore(SavedMonsterLife? keptLife, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
+        IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         bool bulk = false)
     {
         movement ??= MonsterMovement.Default;
@@ -257,8 +273,8 @@ public static partial class Game
         if (!friendly) instanceEffects = instanceEffects.Plus("maximum_life_+%", PartyMonsterLife(conn, rarity));
         mods = mods.WithInstanceEffects(instanceEffects);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
-        uint life = (uint)mods.Effects.MaxLife(baseLife);
-        if (ownedMaximumLife is uint ownLife) life = ownLife;
+        if (keptLife?.Supplied is not null) ownedMaximumLife = keptLife.Maximum;
+        uint life = ownedMaximumLife ?? mods.Effects.MaxLife((uint)baseLife);
         // A part of its full life (Izaro's later Aspirant's Trials start with what the earlier ones left).
         if (lifePercent is int percent and < 100) damagedLife = Math.Max(1u, (uint)((ulong)life * (uint)Math.Max(0, percent) / 100));
         // The type supplies the animated object; Game_MONSTER_AO=1 also sends the variety's first AOFiles path (Animated
@@ -471,7 +487,7 @@ public static partial class Game
             }
         void AddMonsterLocked()
         {
-            MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, movement.ThroughBodies),
+            var spawned = new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique, movement.ThroughBodies),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
@@ -488,8 +504,10 @@ public static partial class Game
                 LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Yugul.Phases(conn, variety) ?? Arakaali.Phases(conn, variety) ?? Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
                 EntranceGrace = !friendly && (brine && conn.Layout.Id == "2_6_15" || Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)
                     || conn.Layout.Id == SolarisLunaris.Area && (SolarisLunaris.IsBody(variety) || SolarisLunaris.IsCelestial(variety))),
-            }, emerge, waits);
+            };
+            MonsterEmerge.AddLocked(conn, id, spawned, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
+            spawned.InitializeLife(ownedMaximumLife is null ? (uint)baseLife : null, keptLife);
             if (friendly && !instanceOwned) conn.MinionOrigins[id] = new(type, monster, (ushort)variety.Row, level, rarity);
             else
             {

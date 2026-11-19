@@ -52,9 +52,8 @@ sealed class MonsterAuraEffect : IShrineEffect
         uint oldLife = monster.MaxLife;
         change();
         var effects = monster.Effects;
-        uint maximum = (uint)Math.Clamp((long)oldLife * effects.MaxLife(100000) / previous.MaxLife(100000), 1, uint.MaxValue);
-        monster.MaxLife = maximum;
-        monster.Life = (uint)Math.Clamp(Math.Ceiling(monster.Life * (double)maximum / Math.Max(1, oldLife)), 0, maximum);
+        monster.RefreshLife(previous, effects);
+        uint maximum = monster.MaxLife;
         if (maximum == oldLife && effects.ActorScalePct == previous.ActorScalePct) return;
         var stats = MonsterLifeAndScale(monster);
         if (conn.Instance is { } instance && instance.World.MonsterOrigins.TryGetValue(id, out var origin))

@@ -316,6 +316,7 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
 {
     /// <summary>Its mods as rolled (MonsterMods.cs): the same affixes, values and rare name on the next entry.</summary>
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;
+    public SavedMonsterLife? LifeScaling { get; init; }
 
     /// <summary>Planned by the area's population and not created yet (InstanceWorld.HeldBackMonsters): its cell is the
     /// planned one, its mods are not rolled and its life is full.</summary>
@@ -331,7 +332,9 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
         return [.. all.Concat(waiting.Where(m => !all.Contains(m))).Where(m => !m.Dead && m.OwnerId is null && m.SummonerId is null && m.Variety is not null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
-            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.Hostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods };
+            var (life, scaling) = m.LifeForSave();
+            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.Hostile, x, y, life, waiting.Contains(m))
+                { Mods = m.Mods, LifeScaling = scaling };
         })];
     }
 }

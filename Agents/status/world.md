@@ -100,9 +100,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
   so overlapping shrines cannot restore stale encounter stats; Divine protects against hits and damage over time.
-  A Massive shrine updates the life limit and size for players already watching and those who enter or wake the
-  monster after the claim. A Torment mark sends its host's current stats. The release-data Gateway replay covers
-  these messages; desktop rendering remains unchecked.
+  Leaving a Massive shrine restores the monster's maximum life and preserves damage and permanent Torment modifiers.
+  Returning to a kept area preserves the wound. Players watching, entering or waking the monster receive its current
+  life limit and size, including from a Torment mark. These changes were checked on the Gateway with release data.
+  Desktop rendering remains unchecked.
   Standing Ice/Lightning novas use player resistances, avoidance, block, suppression and normal death accounting.
   Smoke blinds the opposing side, and shrine skeletons are allies without player minion scaling. Gloom's chaos
   explosion can accompany physical explosions. Guard packs prefer standing varieties and retain their fallback.

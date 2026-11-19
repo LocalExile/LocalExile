@@ -40,7 +40,7 @@ public static partial class Game
         if (e["monster_life_+%_final_from_rarity"] is int rarity and not 0) yield return (StatKeys.MonsterLifeFromRarityPct, rarity);
         if (e[MonsterModCatalog.RarityTableLifeStat] is int table and not 0 && Stats.Key(MonsterModCatalog.RarityTableLifeStat) is uint tk)
             yield return (tk, table);
-        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)maxLife);
+        if (maxLife != baseLife) yield return (StatKeys.MaximumLife, (int)Math.Min(int.MaxValue, maxLife));
         if (e.MovementPct != 0) yield return (StatKeys.MovementVelocityPct, e.MovementPct);
         if (e.ActorScalePct != 0 && Stats.Key("actor_scale_+%") is uint scale) yield return (scale, e.ActorScalePct);
         if (e["life_regeneration_rate_per_minute_%"] is int regen and not 0 && Stats.Key("life_regeneration_rate_per_minute_%") is uint rk)

@@ -176,7 +176,7 @@ public sealed record MonsterMovement
     public double? ReorderSeconds { get; init; }
 }
 
-public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
+public sealed partial class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public uint ObjectId { get; set; }
     public MadnessExplosion? MadnessExplosion;
@@ -251,11 +251,12 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyDictionary<string, int>? EncounterStats;
     /// <summary>Independent temporary sources, removed by their owner without restoring stale encounter snapshots.</summary>
     public readonly Dictionary<string, IReadOnlyDictionary<string, int>> TemporaryStats = new(StringComparer.Ordinal);
+    MonsterModEffects EncounterEffects => EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
     public MonsterModEffects Effects
     {
         get
         {
-            var effects = EncounterStats is { } encounter ? Mods.Effects.Combine(encounter) : Mods.Effects;
+            var effects = EncounterEffects;
             foreach (var stats in TemporaryStats.Values) effects = effects.Combine(stats);
             return Curses.Effects(effects);
         }

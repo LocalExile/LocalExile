@@ -499,15 +499,9 @@ public static partial class MapTorment
         if (grip && Stat(conn, "map_monster_damage_taken_+%_while_possessed") is int taken and not 0)
             stats["base_damage_taken_+%"] = stats.GetValueOrDefault("base_damage_taken_+%") + taken;
         var before = m.Effects;
-        uint oldLife = m.MaxLife;
         m.Mods = m.Mods with { Mods = [.. m.Mods.Mods, .. mods], Effects = m.Mods.Effects.Combine(stats) };
         var after = m.Effects;
-        int scale = after.MaxLife(100000);
-        if (scale != before.MaxLife(100000))
-        {
-            m.MaxLife = (uint)Math.Clamp((long)oldLife * scale / Math.Max(1, before.MaxLife(100000)), 1, uint.MaxValue);
-            m.Life = (uint)Math.Clamp(Math.Ceiling(m.Life * (double)m.MaxLife / Math.Max(1, oldLife)), 1, m.MaxLife);
-        }
+        m.RefreshLife(before, after);
         BossKits.RefreshAttacks(conn, m);
         if (after.MovementPct != before.MovementPct)
             m.Walk.SetSpeed(m.Walk.Speed * (100.0 + after.MovementPct) / Math.Max(1, 100.0 + before.MovementPct), now);

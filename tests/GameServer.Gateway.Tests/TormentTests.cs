@@ -284,6 +284,7 @@ public sealed class TormentTests
             var saved = Assert.Single(SavedMonster.Save([massier], 0));
             uint copy = await Game.RestoreMonster(w.Remote, w.Stream, w.Ciphers, owner.Conn, bossVariety, saved);
             var restored = owner.Conn.Monsters[copy];
+            Assert.Equal((massier.MaxLife, massier.Life), (restored.MaxLife, restored.Life));
             Assert.Equal(massier.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)),
                 restored.Kit.Select(k => (k.Effect, k.Attack.SkillId, k.Attack.Seconds, k.CooldownSeconds)));
             var shown = instance.World.MonsterOrigins[boss].Object;

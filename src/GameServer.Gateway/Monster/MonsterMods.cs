@@ -87,16 +87,19 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
     /// <summary>Maximum life: the base for the level and variety × (1 + maximum_life_+%) × (1 +
     /// monster_life_+%_final_from_rarity) × (1 + monster_life_+%_final_from_rarity_table) × (1 +
     /// map_hidden_monster_life_+%_final, a map tier's) × the handed-over more life stats (<see cref="HandOverMore"/>).</summary>
-    public int MaxLife(int baseLife) => Math.Max(1, (int)Math.Floor(baseLife * (1 + this["maximum_life_+%"] / 100.0)
+    public int MaxLife(int baseLife) => (int)Math.Clamp(ScaledLife(baseLife), 1, int.MaxValue);
+    public uint MaxLife(uint baseLife) => (uint)Math.Clamp(ScaledLife(baseLife), 1, uint.MaxValue);
+
+    double ScaledLife(double baseLife) => baseLife * (1 + this["maximum_life_+%"] / 100.0)
         * (1 + this["monster_life_+%_final_from_rarity"] / 100.0) * (1 + this[MonsterModCatalog.RarityTableLifeStat] / 100.0)
-        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife)));
+        * (1 + this[MonsterModCatalog.MapHiddenLifeStat] / 100.0) * More(_moreLife);
 
     // The more life and more damage stats modules handed over, in the order they were handed over.
     static volatile string[] _moreLife = [], _moreDamage = [], _moreTaken = [];
     static readonly object MoreLock = new();
 
     /// <summary>A hand-over for modules: each stat in <paramref name="life"/> (<paramref name="damage"/>) that a monster
-    /// has multiplies its <see cref="MaxLife"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
+    /// has multiplies its <see cref="MaxLife(uint)"/> (<see cref="Hit"/>) by max(0, 1 + value / 100), a "more" modifier. The
     /// framework names none; with none handed over, or none on the monster, the factor is exactly 1. Disposing the result
     /// (the module's lifetime) takes back the stats it added.</summary>
     public static IDisposable HandOverMore(IReadOnlyCollection<string> life, IReadOnlyCollection<string> damage) =>

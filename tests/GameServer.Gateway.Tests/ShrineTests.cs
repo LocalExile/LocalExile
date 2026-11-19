@@ -354,9 +354,10 @@ public sealed class ShrineTests
             var previousLifetime = Game.CombatLifetime;
             var lifetime = new ModuleLifetime("Game");
             Game.CombatLifetime = lifetime;
-            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             try
             {
+                await MassiveLife(conn, ctx);
                 conn.ElementalAilments.Clear(); conn.FlaskAutomation.Discard(); conn.PlayerLife = conn.PlayerMaxLife;
                 await ShrineManager.HitPlayers(conn, (112, 100), 20, DamageType.Cold, DamagePacket.Of(DamageType.Cold, 10, 10));
                 Assert.True(conn.PlayerLife > 0);
@@ -376,6 +377,80 @@ public sealed class ShrineTests
             await ShrineManager.LeaveArea(peer.Conn);
             ShrineRegistry.RegisterDefaults();
         }
+    }
+
+    static async Task MassiveLife(ClientState conn, ShrineContext ctx)
+    {
+        const uint id = 0x7072;
+        var monster = new SpawnedMonster("wounded", new(112, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 100)
+            { Variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!, Life = 73 };
+        conn.Monsters[id] = monster;
+        var definition = ShrineCatalog.Find("Massive")!;
+        ShrineInstance Make() => new() { Definition = definition, At = (112, 100), Before = ShrineRegistry.Before(definition) };
+        var first = Make();
+        var second = Make();
+        async Task Enter(ShrineInstance shrine, uint target = id)
+        {
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterEnter(ctx, shrine, target);
+        }
+        async Task Leave(ShrineInstance shrine, uint target = id)
+        {
+            foreach (var effect in shrine.Before) await effect.OnNearbyMonsterLeave(ctx, shrine, target);
+        }
+        await Enter(first);
+        Assert.Equal((117u, 160u), (monster.Life, monster.MaxLife));
+        await Enter(second);
+        await Leave(first);
+        Assert.Equal((117u, 160u), (monster.Life, monster.MaxLife));
+        await Leave(second);
+        Assert.Equal((73u, 100u), (monster.Life, monster.MaxLife));
+
+        monster.Life = 50;
+        await Enter(first);
+        lock (conn.Monsters) Game.ApplyMonsterHitLocked(conn, monster, 16);
+        Assert.Equal(64u, monster.Life);
+        Assert.Equal(40u, Assert.Single(SavedMonster.Save([monster], 0)).Life);
+        Assert.Equal(64u, monster.Life);
+        await Leave(first);
+        Assert.Equal(40u, monster.Life);
+        monster.Life = 73;
+        await Enter(first);
+        lock (conn.Monsters) Game.ApplyMonsterHitLocked(conn, monster, 1);
+        _ = SavedMonster.Save([monster], 0);
+        monster.Life++;
+        await Leave(first);
+        Assert.Equal(73u, monster.Life); // Another viewer's snapshot did not change the live monster.
+
+        monster.Life = 100;
+        await Enter(first);
+        lock (conn.Monsters) Game.ApplyMonsterHitLocked(conn, monster, 1);
+        var saved = Assert.Single(SavedMonster.Save([monster], 0));
+        Assert.Equal(100u, saved.Life);
+        await Leave(first);
+        var w = conn.Wire;
+        uint copy = await Game.RestoreMonster(w.Remote, w.Stream, w.Ciphers, conn, monster.Variety!, saved, bulk: true);
+        Assert.Equal((100u, 100u), (conn.Monsters[copy].Life, conn.Monsters[copy].MaxLife));
+        await Enter(first, copy);
+        await Enter(first);
+        Assert.Equal(159u, monster.Life);
+        Assert.Equal(monster.Life, conn.Monsters[copy].Life);
+        await Leave(first, copy);
+        lock (conn.Monsters) Game.ApplyMonsterHitLocked(conn, monster, 159);
+        await Leave(first);
+        Assert.True(monster.Dead);
+        Assert.Equal((0u, 100u), (monster.Life, monster.MaxLife));
+        conn.Monsters.Remove(id);
+        conn.Monsters.Remove(copy);
+
+        var large = new SpawnedMonster("large pool", monster.Walk, 20, 5, 1_500_000_000);
+        large.InitializeLife(1_500_000_000, null);
+        conn.Monsters[id] = large;
+        await Enter(first);
+        Assert.Equal((2_400_000_000u, 2_400_000_000u), (large.Life, large.MaxLife));
+        Assert.Contains((StatKeys.MaximumLife, int.MaxValue), Game.MonsterModClientStats(large.Effects, large.MaxLife, 1_500_000_000));
+        await Leave(first);
+        Assert.Equal(1_500_000_000u, large.MaxLife);
+        conn.Monsters.Remove(id);
     }
 
     sealed class ShrineWire(TcpClient writer, TcpClient reader, ClientState conn, Task drain) : IAsyncDisposable

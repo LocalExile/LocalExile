@@ -69,7 +69,7 @@ bench.
   data/object-types.json); the Edit mode's placement/removal and appearance messages;
   maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
   Torment spirits' and Grips' own granted skills (#1129); verify possessed monsters' action timing (#1177) and
-  the host's life bar and size on re-entry after a Massive shrine is claimed (#1178) in the client;
+  the host's life bar and size when leaving, claiming or re-entering a Massive shrine's radius (#1178, #1179) in the client;
   Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);
   `An Audience With The King` opens the Crux; Simulacrum has arena selection and a wave controller.
