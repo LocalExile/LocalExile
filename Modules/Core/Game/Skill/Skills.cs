@@ -1231,6 +1231,8 @@ public static partial class Game
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
         if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
+        if (!triggered && CurseCatalog.Hex(SkillsFor(conn).EffectId(effect)) && IsBaneLinkedHex(conn, gem))
+            return "this curse is triggered by Bane";
         if (TravelSkillsExceptDashDisabled(conn, effect, skillId) is { } travel) return travel;
         if (gem.Supports.Any(s => s.Effect.Added.Contains(36))
             && !TriggeredSpellExecutable(conn, skillId, gem)) return "this trigger payload has no server executor";

@@ -91,6 +91,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
   it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
   Transference, a spread when a projectile or a minion makes the kill.
+- Bane and Bane of Condemnation: independent chaos damage over time and linked Hex application. Damage and duration
+  use the Hexes applied to each target. The Bane-specific buff presentation remains open.
 - Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
   Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
   Desperation's life loss, the debuff in Survivors.
