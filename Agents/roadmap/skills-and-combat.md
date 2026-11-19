@@ -32,8 +32,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   spawning or emerging monsters, marked-target placement and worn effects. Check triggered or proxy Vortex releases
   and Runegraft of the Novamark on other nova actions. Verify ordinary Shock Nova placement and timing live,
   including worn effects. Verify Procession's moving marks, directional repeats, terrain edges and proxy casts live.
-  Check the seeded direction of projectile spells aimed at the caster, and turns from movement skills and
-  channels before a stationary Procession.
+  Verify Fireball, Spark, Freezing Pulse and Frostbolt aimed at the caster in a native session, including
+  an object target during Spell Echo. Trace turns from movement skills and channels before a stationary Procession.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats

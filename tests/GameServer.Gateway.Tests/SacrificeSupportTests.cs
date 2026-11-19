@@ -276,6 +276,9 @@ public class SacrificeSupportTests
     [Fact]
     public async Task Unleash_seals_release_distinct_discounted_fireballs_and_reset_on_source_replacement()
     {
+        await FireballAtTheCastersCell(echo: false, moveToAim: false);
+        await FireballAtTheCastersCell(echo: true, moveToAim: false);
+        await FireballAtTheCastersCell(echo: true, moveToAim: true);
         using var fixture = new Fixture();
         var conn = fixture.Conn;
         conn.Clock.Reset();
@@ -302,6 +305,56 @@ public class SacrificeSupportTests
         fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
         var replacement = Game.SupportedSkill(conn, skill.Id);
         Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, replacement, Game.ProjectileWorldTime(conn)));
+    }
+
+    static async Task FireballAtTheCastersCell(bool echo, bool moveToAim)
+    {
+        using var battle = new ArrowRainAndMirageTests.Battle(echo ? ["Fireball", "Spell Echo Support"] : ["Fireball"]);
+        var conn = battle.Conn;
+        var session = battle.Session;
+        conn.Monsters.Clear();
+        session.AdvanceTo(ProjectileRuntime.Time(10));
+        conn.Clock.Start();
+        conn.PlayerMana = 300;
+        var gem = Game.GemSkillEffects(conn).Single(g => g.Name == "Fireball");
+        double start = Game.ProjectileWorldTime(conn);
+        double cast = Game.CastMs(conn, gem.Effect, gem.Id)!.Value / 1000d;
+        double windup = cast * Game.Animations.SpellRelease(Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
+        Assert.True(await Game.CastGemSkill(session.remote, battle.Stream, battle.Ciphers, conn, gem.Id,
+            (100, 100), (100, 100), sequence: 43, actionToken: conn.ActionCount));
+
+        // Root sequence 43, owner 0x1000: one outer repeat gives (+24,+54), none gives (-40,-44).
+        var origin = new ProjectileVector(100, 100);
+        var firstAim = echo ? new ProjectileVector(124, 154) : new ProjectileVector(60, 56);
+        CheckFacing(origin, firstAim);
+        session.AdvanceTo(ProjectileRuntime.Time(start + windup) - 1);
+        Assert.Empty(session.Runtime.Projectiles);
+        session.AdvanceTo(ProjectileRuntime.Time(start + windup));
+        var first = Assert.Single(session.Runtime.Projectiles);
+        CheckFlight(first, origin, firstAim);
+        if (!echo) return;
+
+        if (moveToAim) conn.Walk.Teleport(124, 154, Game.ProjectileWorldTime(conn));
+        session.AdvanceTo(ProjectileRuntime.Time(start + cast));
+        var repeatOrigin = moveToAim ? firstAim : origin;
+        var repeatAim = moveToAim ? new ProjectileVector(84, 110) : firstAim;
+        CheckFacing(repeatOrigin, repeatAim);
+        session.AdvanceTo(ProjectileRuntime.Time(start + cast + windup));
+        CheckFlight(Assert.Single(session.Runtime.Projectiles, p => p.UseId != first.UseId), repeatOrigin, repeatAim);
+
+        void CheckFacing(ProjectileVector from, ProjectileVector to)
+        {
+            float angle = MathF.Atan2((float)(to.Y - from.Y), (float)(to.X - from.X)) + MathF.PI / 2;
+            Assert.Equal(angle < 0 ? angle + MathF.Tau : angle, conn.Walk.Rotation(Game.ProjectileWorldTime(conn)), 5);
+        }
+
+        static void CheckFlight(ProjectileEntity shot, ProjectileVector from, ProjectileVector to)
+        {
+            var direction = (to - from).Unit;
+            Assert.Equal(to, shot.Use.Aim);
+            Assert.Equal(direction.X, shot.Direction.X, 6);
+            Assert.Equal(direction.Y, shot.Direction.Y, 6);
+        }
     }
 
     sealed class Fixture : IDisposable

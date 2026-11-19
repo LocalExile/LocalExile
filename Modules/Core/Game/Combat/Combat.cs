@@ -1249,6 +1249,7 @@ public static partial class Game
             lock (conn.Monsters)
                 if (!TryDashLanding(conn, gem.Effect, to, out dashFrom, out dashTo)) return false;
         }
+        var projectileAim = to;
         SkillCriticalRoll? criticalRoll = vaalUse?.CriticalRoll;
         if (gem.Name is not null && !vaalCast)
         {
@@ -1276,11 +1277,11 @@ public static partial class Game
                 if (paid && dash) conn.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(conn));
                 if (paid)
                 {
-                    // Fireball, Spark, Freezing Pulse and Frostbolt turn to a distinct aim at their shared start (0x141ba58f0).
-                    // Their placed or totem forms use a separate action on a different actor.
-                    if (from != to && targetId != PlayerId && placedAdmission is null && SkillsFor(conn).ActionHash(gem.Effect) is
-                        (0xaa4e or 0x7859 or 0x4923 or FrostboltAction) && GolemStat(paymentGem.Stats, "is_totem") == 0)
-                        FacePlayerAction(conn, from, to, ProjectileWorldTime(conn), CharacterPlayerStats(conn), paymentGem.Stats);
+                    if (placedAdmission is null && UsesPlayerProjectileAim(conn, gem.Effect) && GolemStat(paymentGem.Stats, "is_totem") == 0)
+                    {
+                        swingAt ??= Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                        projectileAim = StartPlayerProjectileAim(conn, gem.Effect, paymentGem.Stats, from, to, targetId, sequence, swingAt.Value);
+                    }
                     criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                     // Reserve the whole paid use before cost publication can yield to another held input.
                     if (!IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect)
@@ -1404,7 +1405,7 @@ public static partial class Game
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
-            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
+            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, projectileAim, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap);
         return true;
@@ -1799,7 +1800,7 @@ public static partial class Game
         int seals = UnleashSeals(conn, skillId, supported, ProjectileWorldTime(conn), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, "support_spell_rapid_fire_repeat_use_damage_+%_final") / 100d);
         if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect))
-            return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
+            return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, targetId, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted, seals, reoccurrenceMore);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later

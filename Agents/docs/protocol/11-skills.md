@@ -1758,10 +1758,18 @@ least one supplies the new centre. Both hits of that repeat use the saved cell, 
 For a coincident aim the turn at `0x141e355a0` leaves Positioned rotation unchanged. The facing getter
 (`0x14015d790`) returns `(sin(angle), -cos(angle))`. An ordinary directed Procession can turn first.
 Cursor and Novamark placement preserve facing. The Gateway seeds rotation from player creation and retains
-it across walks and stops. Default attacks and directed Fireball, Spark, Freezing Pulse and Frostbolt casts
-turn toward their target. Isolated paid Procession casts aimed east or west and then at the caster repeat in
-that previous direction. Native presentation, the projectile actions' seeded aim at a coincident point and
-turns from other player actions still need verification.
+it across walks and stops. Default attacks turn toward their target. Isolated paid Procession casts aimed
+east or west and then at the caster repeat in that previous direction.
+
+Manual Fireball, Spark, Freezing Pulse and Frostbolt share the projectile action start at `0x141ba58f0`
+(3.29.3c). When aim and source occupy the same grid cell and `projectiles_rain` is clear, it draws an angle
+from `[sequence, derived byte, chain count, outer repeats remaining, owner ID]`. The root action has zero
+derived byte and chain count. It adds the truncated components of `60 * (sin(angle), cos(angle))` to the
+source and stores that point before applying the facing gates. Targeting the player's own object skips the
+turn but still sets the projectile aim. Spell Echo restarts from the saved point with one fewer repeat.
+Unleash reoccurrences share the outer action's aim. The projectile's own spread and travel use their usual
+rules. Native presentation, moving object targets across repeats and turns from other player actions need verification.
+
 The Projection action selects up to five owned Frostbolts within 100 cells of the aim. The first detonates at contact.
 Each later one is reserved for another 500 ms in sequence and explodes at its then-current cell if it still exists.
 Ice Nova can use a reserved bolt. GroundEffectTypes `Maelstorm` has its own art variation and the buff

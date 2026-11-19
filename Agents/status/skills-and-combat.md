@@ -69,8 +69,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   caster's marked enemy. Monsters entering chilling ground receive chill and Vortex damage on becoming targetable.
   Manual Shock Nova hits with its ring and then its disc, using the cursor, own mark or caster in that order.
   Shock Nova of Procession repeats along its original direction. Walls and gaps in the ground limit each centre.
-  A caster-centred repeat uses the player's retained facing after walking, default attacks and traced aimed casts.
-  Other action-specific turns, native presentation and triggered casts remain open.
+  A caster-centred repeat uses the player's retained facing after walking, default attacks and aimed casts.
+  When directed at the caster's cell, manual Fireball, Spark, Freezing Pulse and Frostbolt resolve a seeded
+  aim before turning. Spell Echo starts again with the saved point. Other action-specific turns, native
+  presentation and triggered casts remain open.
 - Righteous Fire settles its final burn on gem removal, weapon swap or loss of the equipment or attributes the skill needs. [Skills §12](../docs/protocol/11-skills.md)
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
